@@ -120,6 +120,7 @@ Dependencies and integration choices may evolve as implementation and CI testing
 
 ## Documentation
 
+- [Product specification](docs/PRODUCT_SPEC.md) — product vision, scope, user-facing capabilities, and non-negotiable decisions.
 - [Architecture](docs/ARCHITECTURE.md) — system boundaries, services, data flow, security, and integration rules.
 - [Roadmap](docs/ROADMAP.md) — phased implementation plan and current completion status.
 
