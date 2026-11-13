@@ -99,6 +99,8 @@ The Settings experience will use progressive disclosure: essential controls firs
 
 - [ ] Build optimized Windows release binaries in GitHub Actions.
 - [ ] Build a per-machine Windows installer targeting `%ProgramFiles%\\SENZO` (normally `C:\\Program Files\\SENZO`), with UAC elevation, Start Menu shortcuts, and a Windows uninstall entry.
+- [ ] Brand the installer with the canonical transparent `assets/branding/senzo-logo.png` artwork; derive required icon formats without altering or replacing the original logo.
+- [ ] Acquire a publicly trusted Authenticode code-signing certificate with the intended verified publisher display name `Sensei.STGR` (subject to CA identity validation); sign the installer and distributed executable binaries using SHA-256 and trusted timestamping. Keep signing keys/certificates protected in GitHub Actions secrets or an equivalent secure signing service.
 - [ ] Bundle the application binaries, resources, and validated MPV runtime under the installation directory; keep all mutable user data under `%LOCALAPPDATA%\\SENZO` and secrets in Windows Credential Manager.
 - [ ] Ensure upgrades preserve user data and uninstall offers an explicit retain/remove-data choice.
 - [ ] Add Stable and Development update channels.

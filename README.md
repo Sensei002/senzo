@@ -20,6 +20,7 @@ SENZO is an independent project with its own architecture and product decisions.
 - **Language and UI:** Rust + GPUI.
 - **Current platform:** Windows (MSVC).
 - **Planned Windows installation:** Per-machine installation in `C:\\Program Files\\SENZO`; user data remains in `%LOCALAPPDATA%\\SENZO`.
+- **Planned installer branding:** Official transparent SENZO logo; intended verified Windows publisher name: `Sensei.STGR` (requires a trusted Authenticode certificate).
 - **Later platform:** Linux, after the Windows application is established.
 - **Metadata:** TMDB is the primary metadata provider.
 - **Sources:** Optional, user-installed add-ons using the Stremio HTTP add-on protocol as the initial compatibility target.
