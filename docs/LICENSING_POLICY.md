@@ -1,77 +1,30 @@
-# SENZO licensing policy and decision record
+# SENZO licensing
 
-## Current status: undecided
+SENZO is licensed under the **GNU Affero General Public License, version 3.0 or (at your option) any later version**.
 
-No project license has been selected or granted. The Cargo package is currently marked `UNLICENSED`. Until a license text is committed, all rights are reserved by the copyright holder. A public GitHub repository is not automatically open source and does not grant reuse, modification, or redistribution rights.
+The complete license text is in the repository-root `LICENSE` file. The SPDX identifier is `AGPL-3.0-or-later`.
 
-The project owner has expressed a preference for a highly restrictive license intended to reduce misuse. The exact restrictions must be clarified before choosing and publishing a license.
+## What this means
 
-## Important distinction: open source vs. source available
+- You may use, study, modify, and redistribute SENZO under the license terms.
+- If you distribute copies or modified versions, you must comply with the source, notice, and same-license requirements in the AGPL.
+- If you modify SENZO and let users interact with that modified version remotely over a network, AGPL-3.0 section 13 requires you to offer those users access to the Corresponding Source of that version at no charge.
+- The license includes express patent terms and warranty/liability disclaimers.
+- Commercial use is permitted. AGPL-3.0 does not prohibit selling copies, paid support, or commercial deployment, provided the license terms are followed.
+- The license does not grant rights to third-party media, metadata, trademarks, services, or add-ons.
 
-An OSI-approved open-source license cannot prohibit use by a particular person or group, or prohibit use in a field of endeavor. It also cannot impose a general non-commercial-only restriction. Those restrictions conflict with the Open Source Definition.
+## Important limitation
 
-A strong copyleft license can require source-code sharing under specified conditions, but it does not generally prohibit otherwise lawful use. For example, GNU AGPL-3.0 adds source-offer obligations for modified versions users interact with over a network; it does not create a general "good use only" rule.
+AGPL-3.0 is a strong copyleft free-software license, not an ethical-use or anti-piracy license. It cannot be used to prohibit lawful commercial use or restrict use based on a field of activity. It also does not guarantee that people will not misuse the software. The license enforces sharing obligations for covered code; it does not determine whether a particular media source or use is lawful.
 
-A source-available license can impose additional limits, such as non-commercial use or restrictions on redistribution/modification. That may better match a misuse-prevention goal, but it is not an OSI-approved open-source license.
+## Third-party components
 
-## Candidate directions
+SENZO includes or plans to integrate third-party libraries and services with their own licenses and terms. AGPL-3.0 applies to SENZO's covered code; it does not replace the licenses of dependencies or the terms of TMDB, Discord, MPV, or independently installed add-ons. Before distributing builds, audit dependency compatibility and include required third-party notices.
 
-These are options to evaluate, not a selected license:
+## Contributor note
 
-### GNU AGPL-3.0
+Contributions intended for inclusion in SENZO are submitted under the repository's AGPL-3.0-or-later licensing terms, subject to applicable copyright ownership and contribution policies. A separate Contributor License Agreement has not been adopted.
 
-- Strong copyleft for a recognized free/open-source license.
-- Requires source availability under its terms when distributing covered works and has additional obligations for modified network-interactive versions.
-- Does not prohibit commercial use or restrict users based on a field of activity.
-- Best fit if the priority is reciprocal sharing and keeping derivative deployments open, not preventing all misuse.
+## Legal note
 
-Official text: https://www.gnu.org/licenses/agpl-3.0.en.html
-
-### PolyForm Noncommercial 1.0.0
-
-- Source-available, not OSI-approved open source.
-- Allows specified non-commercial use, modification, and distribution under its terms.
-- Restricts commercial use, with the license's definitions and exceptions controlling.
-- Better fit if the primary goal is to prevent commercial exploitation while allowing community use.
-
-Official text: https://polyformproject.org/licenses/noncommercial/1.0.0/
-
-### PolyForm Strict 1.0.0
-
-- Highly restrictive source-available option.
-- Permits non-commercial use under its terms but does not grant general rights to modify or redistribute copies.
-- Likely too restrictive if the goal is to build a contributor community or permit forks.
-
-Official text: https://polyformproject.org/licenses/strict/1.0.0/
-
-### Custom ethical-use restriction
-
-- Could prohibit specifically described harmful uses.
-- Such a restriction would make the project source-available rather than OSI-approved open source.
-- A vague phrase such as "bad use" is not precise enough for a legal license. The prohibited conduct, definitions, enforcement, exceptions, and governing legal framework would need careful drafting and legal review.
-- A custom license may create compatibility and enforcement uncertainty.
-
-## Questions that determine the right license
-
-Before adding a LICENSE file, decide:
-
-1. **What does "bad use" mean?** Commercial resale/repackaging, closed-source forks, piracy/copyright infringement, malicious activity, surveillance, harmful content, or another specific category?
-2. **Should people be allowed to modify and redistribute SENZO?** This determines whether a strict license that withholds those permissions is acceptable.
-3. **Should commercial use be prohibited?** If yes, the project will be source-available, not OSI-approved open source.
-4. **Should community contributions and forks be allowed?** If yes, the license must clearly grant those permissions and state how derivatives are licensed.
-
-## Third-party components and media services
-
-SENZO depends on third-party crates and plans integrations with GPUI, MPV, TMDB, Discord, and external add-ons. The project license cannot override their licenses or terms. Before release:
-
-- Audit direct and transitive dependency licenses.
-- Check redistribution requirements for MPV and any bundled runtime libraries.
-- Keep third-party notices and attributions.
-- Respect TMDB API terms and attribution requirements.
-- Do not imply that a project license grants rights to copyrighted films, television, provider streams, or third-party services.
-
-## Decision rule
-
-Do not add a guessed license merely to populate GitHub's license badge. Once the project owner chooses the intended permissions and restrictions, use the exact official license text where applicable, update Cargo metadata, add third-party notices as needed, and review the result before the first public release.
-
-This document is informational, not legal advice. Obtain qualified legal advice before publishing a custom or restrictive license.
+This document is an explanatory summary, not legal advice. The root `LICENSE` file is the authoritative license text. See the [Free Software Foundation's official AGPL-3.0 text](https://www.gnu.org/licenses/agpl-3.0.html).
