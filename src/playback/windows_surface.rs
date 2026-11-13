@@ -1,7 +1,7 @@
 //! Minimal native Win32 child-window owner for MPV video embedding.
 use anyhow::{Context as _, bail};
 use gpui::Window;
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+use raw_window_handle::RawWindowHandle;
 use std::ptr;
 use windows_sys::Win32::{
     Foundation::{GetLastError, HWND},
@@ -13,8 +13,7 @@ use windows_sys::Win32::{
 
 /// Obtain the native Win32 parent HWND from GPUI's public raw-window-handle API.
 pub fn gpui_parent_hwnd(window: &Window) -> anyhow::Result<usize> {
-    let handle = window
-        .window_handle()
+    let handle = raw_window_handle::HasWindowHandle::window_handle(window)
         .context("GPUI did not expose a native window handle")?
         .as_raw();
 
