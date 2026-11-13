@@ -153,7 +153,9 @@ impl MpvRuntime {
 
     /// Set subtitle vertical margin in pixels.
     pub fn set_subtitle_margin(&self, margin: u8) -> anyhow::Result<()> {
-        if margin > 100 { bail!("subtitle vertical margin must be between 0 and 100 pixels"); }
+        if margin > 100 {
+            bail!("subtitle vertical margin must be between 0 and 100 pixels");
+        }
         let margin = margin.to_string();
         self.command(&["set", "sub-margin-y", &margin])
     }

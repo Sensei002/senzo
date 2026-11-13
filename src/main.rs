@@ -562,17 +562,41 @@ impl SenzoApp {
         );
     }
 
-    fn seek_from_pointer(&mut self, x: f32, bounds: &Arc<Mutex<Option<(f32, f32)>>>, cx: &mut Context<Self>) {
-        let Some((left, width)) = bounds.lock().ok().and_then(|value| *value) else { return; };
-        let Some(duration) = self.playback_state.duration_seconds.filter(|value| value.is_finite() && *value > 0.0) else { return; };
-        if !x.is_finite() || !width.is_finite() || width <= 0.0 { return; }
+    fn seek_from_pointer(
+        &mut self,
+        x: f32,
+        bounds: &Arc<Mutex<Option<(f32, f32)>>>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((left, width)) = bounds.lock().ok().and_then(|value| *value) else {
+            return;
+        };
+        let Some(duration) = self
+            .playback_state
+            .duration_seconds
+            .filter(|value| value.is_finite() && *value > 0.0)
+        else {
+            return;
+        };
+        if !x.is_finite() || !width.is_finite() || width <= 0.0 {
+            return;
+        }
         let target = duration * f64::from(((x - left) / width).clamp(0.0, 1.0));
         self.send_playback_command("seek", move |worker| worker.seek_absolute(target), cx);
     }
 
-    fn set_volume_from_pointer(&mut self, x: f32, bounds: &Arc<Mutex<Option<(f32, f32)>>>, cx: &mut Context<Self>) {
-        let Some((left, width)) = bounds.lock().ok().and_then(|value| *value) else { return; };
-        if !x.is_finite() || !width.is_finite() || width <= 0.0 { return; }
+    fn set_volume_from_pointer(
+        &mut self,
+        x: f32,
+        bounds: &Arc<Mutex<Option<(f32, f32)>>>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((left, width)) = bounds.lock().ok().and_then(|value| *value) else {
+            return;
+        };
+        if !x.is_finite() || !width.is_finite() || width <= 0.0 {
+            return;
+        }
         let volume = f64::from(((x - left) / width).clamp(0.0, 1.0)) * 100.0;
         self.send_playback_command("volume", move |worker| worker.set_volume(volume), cx);
     }
@@ -580,12 +604,20 @@ impl SenzoApp {
     fn set_subtitle_margin(&mut self, margin: u8, cx: &mut Context<Self>) {
         let margin = margin.min(100);
         self.settings.subtitles.vertical_margin = margin;
-        self.send_playback_command("subtitle vertical margin", move |worker| worker.set_subtitle_margin(margin), cx);
+        self.send_playback_command(
+            "subtitle vertical margin",
+            move |worker| worker.set_subtitle_margin(margin),
+            cx,
+        );
     }
 
     fn set_subtitle_bold(&mut self, bold: bool, cx: &mut Context<Self>) {
         self.settings.subtitles.bold = bold;
-        self.send_playback_command("subtitle weight", move |worker| worker.set_subtitle_bold(bold), cx);
+        self.send_playback_command(
+            "subtitle weight",
+            move |worker| worker.set_subtitle_bold(bold),
+            cx,
+        );
     }
 
     fn persist_playback_progress(&mut self, force: bool) {
@@ -819,7 +851,11 @@ impl Render for SenzoApp {
         let volume_bar_bounds = self.volume_bar_bounds.clone();
         let playback_position = self.playback_state.position_seconds;
         let playback_duration = self.playback_state.duration_seconds;
-        let playback_volume = self.playback_state.volume.unwrap_or(100.0).clamp(0.0, 100.0);
+        let playback_volume = self
+            .playback_state
+            .volume
+            .unwrap_or(100.0)
+            .clamp(0.0, 100.0);
         let native_surface_status = self
             .native_surface_error
             .lock()

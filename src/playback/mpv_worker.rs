@@ -233,12 +233,14 @@ impl PlaybackWorker {
                                     pending_resume = None;
                                     let result = runtime.load_file(path);
                                     if result.is_ok() {
-                                        pending_resume = resume_position.map(|position| PendingResume {
-                                            position,
-                                            expected_path,
-                                            not_before: Instant::now() + Duration::from_millis(500),
-                                            deadline: Instant::now() + Duration::from_secs(30),
-                                        });
+                                        pending_resume =
+                                            resume_position.map(|position| PendingResume {
+                                                position,
+                                                expected_path,
+                                                not_before: Instant::now()
+                                                    + Duration::from_millis(500),
+                                                deadline: Instant::now() + Duration::from_secs(30),
+                                            });
                                     }
                                     ("load_file", result, false)
                                 }
@@ -277,11 +279,9 @@ impl PlaybackWorker {
                                     runtime.set_subtitle_margin(margin),
                                     false,
                                 ),
-                                PlaybackCommand::SetSubtitleBold(bold) => (
-                                    "set_subtitle_bold",
-                                    runtime.set_subtitle_bold(bold),
-                                    false,
-                                ),
+                                PlaybackCommand::SetSubtitleBold(bold) => {
+                                    ("set_subtitle_bold", runtime.set_subtitle_bold(bold), false)
+                                }
                                 PlaybackCommand::AddSubtitleFile(path) => {
                                     ("add_subtitle_file", runtime.add_subtitle_file(path), false)
                                 }
@@ -316,12 +316,18 @@ impl PlaybackWorker {
                     if let Some(pending) = pending_resume.as_ref() {
                         let current_path = read_property(&runtime, "path");
                         if Instant::now() >= pending.not_before
-                            && current_path.as_deref().is_some_and(|path| path.eq_ignore_ascii_case(&pending.expected_path))
-                            && let Some(duration) = state.duration_seconds.filter(|value| *value > 0.0)
+                            && current_path.as_deref().is_some_and(|path| {
+                                path.eq_ignore_ascii_case(&pending.expected_path)
+                            })
+                            && let Some(duration) =
+                                state.duration_seconds.filter(|value| *value > 0.0)
                         {
-                            let result = runtime.seek_absolute(resume_target(pending.position, duration));
+                            let result =
+                                runtime.seek_absolute(resume_target(pending.position, duration));
                             let event = match result {
-                                Ok(()) => PlaybackEvent::CommandCompleted { operation: "resume_seek" },
+                                Ok(()) => PlaybackEvent::CommandCompleted {
+                                    operation: "resume_seek",
+                                },
                                 Err(error) => PlaybackEvent::CommandFailed {
                                     operation: "resume_seek",
                                     message: format!("{error:#}"),
@@ -361,7 +367,11 @@ impl PlaybackWorker {
     }
 
     /// Queue a file and defer resume until MPV reports the new path and duration.
-    pub fn load_file_with_resume(&self, path: impl Into<PathBuf>, resume_position: Option<f64>) -> anyhow::Result<()> {
+    pub fn load_file_with_resume(
+        &self,
+        path: impl Into<PathBuf>,
+        resume_position: Option<f64>,
+    ) -> anyhow::Result<()> {
         if resume_position.is_some_and(|position| !position.is_finite() || position < 0.0) {
             bail!("resume position must be finite and non-negative");
         }
@@ -425,7 +435,9 @@ impl PlaybackWorker {
 
     /// Queue a subtitle vertical margin from 0 to 100 pixels.
     pub fn set_subtitle_margin(&self, margin: u8) -> anyhow::Result<()> {
-        if margin > 100 { bail!("subtitle vertical margin must be between 0 and 100 pixels"); }
+        if margin > 100 {
+            bail!("subtitle vertical margin must be between 0 and 100 pixels");
+        }
         self.enqueue(PlaybackCommand::SetSubtitleMargin(margin))
     }
 
