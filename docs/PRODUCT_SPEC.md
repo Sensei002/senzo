@@ -4,7 +4,7 @@
 
 SENZO is a native, accountless desktop media center for discovering movies and television, managing optional streaming sources, watching supported media, and keeping personal viewing data on the user's own device.
 
-It is inspired by the broad media-discovery and add-on workflows of Nuvio and Stremio, but is its own Rust + GPUI application with a local-first data model.
+SENZO combines familiar media-discovery, metadata, and user-managed add-on workflows in its own Rust + GPUI application with a local-first data model.
 
 ## Target users and experience
 
@@ -129,6 +129,6 @@ Provider-specific logic must remain behind service or adapter interfaces. UI com
 
 ## Current status
 
-Early development. The repository has initial SQLite, TMDB client, and add-on manifest/stream service foundations. These services are not yet connected to a complete GPUI user experience, and the Windows CI run must verify the current changes. MPV, the full add-on manager, torrent transport, Discord Rich Presence, installers, and updater remain planned.
+Early development. The repository has initial SQLite, TMDB client, add-on manifest/stream service, typed playback preferences, and a first native GPUI Settings screen. Settings persist locally and diagnostic reports can be copied; playback preferences are not yet connected to an MPV runtime. MPV, the full add-on manager, torrent transport, Discord Rich Presence, installers, and updater remain planned.
 
 See [README](../README.md), [Architecture](ARCHITECTURE.md), and [Roadmap](ROADMAP.md).
