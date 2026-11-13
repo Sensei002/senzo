@@ -255,10 +255,7 @@ mod tests {
             ..PlaybackSettings::default()
         };
         let config = build_mpv_config(&settings, &full_capabilities());
-        assert_eq!(
-            config.options.get("hwdec").map(String::as_str),
-            Some("no")
-        );
+        assert_eq!(config.options.get("hwdec").map(String::as_str), Some("no"));
     }
 
     #[test]
@@ -288,10 +285,7 @@ mod tests {
             ..MpvCapabilities::default()
         };
         let config = build_mpv_config(&settings, &capabilities);
-        assert_eq!(
-            config.options.get("vo").map(String::as_str),
-            Some("gpu")
-        );
+        assert_eq!(config.options.get("vo").map(String::as_str), Some("gpu"));
         assert_eq!(config.fallbacks[0].applied, "gpu");
     }
 
