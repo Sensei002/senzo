@@ -34,8 +34,8 @@ Status definitions:
 
 - [ ] Configure TMDB credentials for official builds without exposing secrets in source control or logs.
 - [ ] Connect TMDB search and detail services to GPUI screens.
-- [ ] Add TV season and episode browsing.
-- [ ] Add external-ID mapping (including TMDB/IMDb) for compatible source providers.
+- [x] Add TMDB TV season/episode detail endpoints and typed response models (UI browsing remains pending).
+- [x] Add TMDB movie/TV external-ID lookup models and endpoints (source-provider integration remains pending).
 - [ ] Add bounded local metadata and artwork caches.
 - [ ] Add continue-watching, watch history, favorites, and local library views.
 - [ ] Add safe cache cleanup that preserves personal history and settings.

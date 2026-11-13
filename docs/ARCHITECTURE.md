@@ -26,6 +26,8 @@ SENZO is **accountless by design**. There is no SENZO sign-up, login, cloud prof
 
 - **Primary provider:** The Movie Database (TMDB), following the broad metadata workflow observed in Nuvio.
 - **Search:** Search movies or TV shows and retain the TMDB ID as stable internal identity.
+- **TV navigation:** Fetch typed season responses (including episode lists) and individual episode details. Season zero is supported for specials; episode numbers must be positive.
+- **External IDs:** Resolve movie and TV external identifiers, including IMDb and TVDB IDs, through dedicated TMDB endpoints for source-provider mapping.
 - **Enrichment:** Retrieve details, credits, videos, images, and external IDs with TMDB `append_to_response` where supported. TV season and episode information uses the relevant season/episode endpoints.
 - **Artwork:** Convert TMDB poster, backdrop, logo, and episode-still paths into image CDN URLs. Cache artwork locally with bounded storage and eviction.
 - **Source identifiers:** Map TMDB IDs to IMDb or other identifiers when an add-on requires them. Never assume every provider accepts TMDB IDs.
