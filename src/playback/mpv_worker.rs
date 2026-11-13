@@ -37,7 +37,22 @@ pub struct PlaybackState {
     pub volume: Option<f64>,
     pub muted: Option<bool>,
     pub fullscreen: Option<bool>,
+    pub diagnostics: PlaybackDiagnostics,
     pub tracks: Vec<PlaybackTrack>,
+}
+
+/// Decoder and video-output information reported by the active MPV instance.
+/// Values remain optional because MPV may not know them until a video is loaded.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PlaybackDiagnostics {
+    pub video_codec: Option<String>,
+    pub video_decoder: Option<String>,
+    pub hardware_decoder: Option<String>,
+    pub video_output: Option<String>,
+    pub video_width: Option<u32>,
+    pub video_height: Option<u32>,
+    pub frame_rate: Option<f64>,
+    pub dropped_frames: Option<u64>,
 }
 
 impl PlaybackState {
@@ -51,6 +66,16 @@ impl PlaybackState {
             volume: read_number(runtime, "volume"),
             muted: read_boolean(runtime, "mute"),
             fullscreen: read_boolean(runtime, "fullscreen"),
+            diagnostics: PlaybackDiagnostics {
+                video_codec: read_property(runtime, "video-codec"),
+                video_decoder: read_property(runtime, "video-dec-params/codec"),
+                hardware_decoder: read_property(runtime, "hwdec-current"),
+                video_output: read_property(runtime, "current-vo"),
+                video_width: read_integer(runtime, "video-out-params/w"),
+                video_height: read_integer(runtime, "video-out-params/h"),
+                frame_rate: read_number(runtime, "estimated-vf-fps"),
+                dropped_frames: read_unsigned(runtime, "frame-drop-count"),
+            },
             tracks: read_tracks(runtime),
         }
     }
@@ -72,6 +97,14 @@ fn read_boolean(runtime: &MpvRuntime, name: &str) -> Option<bool> {
         "no" | "false" | "0" => Some(false),
         _ => None,
     })
+}
+
+fn read_integer(runtime: &MpvRuntime, name: &str) -> Option<u32> {
+    read_property(runtime, name).and_then(|value| value.parse::<u32>().ok())
+}
+
+fn read_unsigned(runtime: &MpvRuntime, name: &str) -> Option<u64> {
+    read_property(runtime, name).and_then(|value| value.parse::<u64>().ok())
 }
 
 fn read_tracks(runtime: &MpvRuntime) -> Vec<PlaybackTrack> {
@@ -428,6 +461,13 @@ mod tests {
         assert_eq!(parse_boolean("1"), Some(true));
         assert_eq!(parse_boolean("0"), Some(false));
         assert_eq!(parse_boolean("unknown"), None);
+    }
+
+    #[test]
+    fn integer_diagnostics_reject_invalid_and_negative_values() {
+        assert_eq!("1920".parse::<u32>().ok(), Some(1920));
+        assert_eq!("-1".parse::<u32>().ok(), None);
+        assert_eq!("unknown".parse::<u64>().ok(), None);
     }
 
     #[test]

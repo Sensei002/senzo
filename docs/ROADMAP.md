@@ -71,6 +71,7 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [x] Add collision-safe local subtitle-cache persistence for validated OpenSubtitles downloads; cache writes enforce size and extension limits and never overwrite existing files.
 - [x] Add playback-screen OpenSubtitles search using the current title, show English/Bangla file results, download a user-selected file into the local cache, and queue it into MPV.
 - [x] Add Settings controls for masked native Windows API-key entry, replacement, and removal; the key is never redisplayed or written to SQLite/logs.
+- [x] Surface live MPV video diagnostics in the playback panel: codec, decoder, active hardware decoder, video output, output dimensions, estimated frame rate, and dropped-frame count.
 - [ ] Detect runtime decoder/renderer/HDR capabilities and apply settings to a live MPV instance.
 - [x] Persist local-file playback progress periodically, flush before stop/media switch, and resume from the saved position when the same file is reopened.
 - [ ] Extend progress persistence to metadata-backed movie/episode IDs and watch-history completion rules.

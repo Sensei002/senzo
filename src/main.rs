@@ -1091,6 +1091,28 @@ impl Render for SenzoApp {
                                             .map(|value| format!("{value:.0}"))
                                             .unwrap_or_else(|| "—".into()),
                                     )),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0x858C94))
+                                    .child(format!(
+                                        "Video: {} · Decoder: {} · HW: {} · Output: {} · Size: {} · FPS: {} · Dropped: {}",
+                                        self.playback_state.diagnostics.video_codec.as_deref().unwrap_or("—"),
+                                        self.playback_state.diagnostics.video_decoder.as_deref().unwrap_or("—"),
+                                        self.playback_state.diagnostics.hardware_decoder.as_deref().unwrap_or("—"),
+                                        self.playback_state.diagnostics.video_output.as_deref().unwrap_or("—"),
+                                        match (self.playback_state.diagnostics.video_width, self.playback_state.diagnostics.video_height) {
+                                            (Some(width), Some(height)) => format!("{width}×{height}"),
+                                            _ => "—".into(),
+                                        },
+                                        self.playback_state.diagnostics.frame_rate
+                                            .map(|value| format!("{value:.2}"))
+                                            .unwrap_or_else(|| "—".into()),
+                                        self.playback_state.diagnostics.dropped_frames
+                                            .map(|value| value.to_string())
+                                            .unwrap_or_else(|| "—".into()),
+                                    )),
                             ),
                     ))
                     .child(section(
