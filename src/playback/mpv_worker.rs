@@ -29,9 +29,16 @@ enum PlaybackCommand {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlaybackEvent {
     Ready,
-    CommandCompleted { operation: &'static str },
-    CommandFailed { operation: &'static str, message: String },
-    Failed { message: String },
+    CommandCompleted {
+        operation: &'static str,
+    },
+    CommandFailed {
+        operation: &'static str,
+        message: String,
+    },
+    Failed {
+        message: String,
+    },
     Stopped,
 }
 
@@ -50,10 +57,7 @@ impl PlaybackWorker {
     ///
     /// The library is never searched for or downloaded automatically. The config
     /// is applied before MPV initialization on the worker thread.
-    pub fn spawn(
-        library_path: PathBuf,
-        config: MpvConfig,
-    ) -> anyhow::Result<Self> {
+    pub fn spawn(library_path: PathBuf, config: MpvConfig) -> anyhow::Result<Self> {
         let (command_tx, command_rx) = mpsc::sync_channel(COMMAND_QUEUE_CAPACITY);
         let (event_tx, event_rx) = mpsc::channel();
 

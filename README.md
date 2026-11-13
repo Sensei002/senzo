@@ -77,7 +77,7 @@ MPV is the planned playback engine. Target player capabilities include:
 - Renderer selection, scaling algorithms, HDR handling, and optional image processing.
 - Buffer and memory controls, subtitle appearance, and playback diagnostics.
 
-These controls will be capability-aware: SENZO will only apply options supported by the active playback backend, GPU, and display. Defaults will favor automatic hardware selection and balanced quality with low resource use. The exact native video-surface integration will be validated during implementation. The current runtime layer dynamically loads a caller-supplied libmpv DLL, applies the saved MPV options before initialization, and exposes basic local-file loading, pause, seek, speed, stop, and property access. It is not yet connected to the GPUI interface, and SENZO does not yet package the Windows MPV runtime. Playback is not yet available as an end-user feature.
+These controls will be capability-aware: SENZO will only apply options supported by the active playback backend, GPU, and display. Defaults will favor automatic hardware selection and balanced quality with low resource use. The exact native video-surface integration will be validated during implementation. The current runtime layer dynamically loads a caller-supplied libmpv DLL, applies the saved MPV options before initialization, and exposes basic local-file loading, pause, seek, speed, stop, and property access. A dedicated worker now owns that runtime on a separate thread and accepts bounded commands with non-blocking status events. Neither layer is yet connected to the GPUI interface, and SENZO does not yet package the Windows MPV runtime. Playback is not yet available as an end-user feature.
 
 ### Additional planned capabilities
 
@@ -113,7 +113,7 @@ The repository currently contains early service and persistence foundations. It 
 | Area | Status |
 |---|---|
 | Rust + GPUI application shell | Initial scaffold |
-| Windows CI | Configured; successful CI run #66 verifies formatting, compilation, and tests |
+| Windows CI | Configured; formatting, compilation, and tests run in GitHub Actions |
 | Local SQLite storage | Initial settings, progress, history, and add-on tables |
 | Local diagnostics service | Initial bounded event logging and recent-log export API; Settings/clipboard UI pending |
 | Typed playback preferences | Persisted settings model and initial GPUI controls; settings persist locally |
