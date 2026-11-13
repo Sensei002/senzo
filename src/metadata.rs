@@ -80,13 +80,15 @@ impl TmdbClient {
 
     async fn search(&self, kind: &str, query: &str, page: u32) -> Result<TmdbSearchPage> {
         let url = format!("{TMDB_API_BASE}/search/{kind}");
+        let page = page.max(1).to_string();
+
         self.client
             .get(url)
             .bearer_auth(&self.access_token)
             .query(&[
                 ("query", query),
                 ("language", self.language.as_str()),
-                ("page", &page.max(1).to_string()),
+                ("page", page.as_str()),
                 ("include_adult", "false"),
             ])
             .send()
@@ -138,7 +140,11 @@ impl TmdbClient {
         if path.is_empty() || !path.starts_with('/') {
             return None;
         }
-        Some(format!("{TMDB_IMAGE_BASE}/{}/{}", size.as_str(), path.trim_start_matches('/')))
+        Some(format!(
+            "{TMDB_IMAGE_BASE}/{}/{}",
+            size.as_str(),
+            path.trim_start_matches('/')
+        ))
     }
 }
 
@@ -171,10 +177,7 @@ mod tests {
             TmdbClient::image_url(Some("/poster.jpg"), ImageSize::Poster).as_deref(),
             Some("https://image.tmdb.org/t/p/w500/poster.jpg")
         );
-        assert_eq!(
-            TmdbClient::image_url(None, ImageSize::Poster),
-            None
-        );
+        assert_eq!(TmdbClient::image_url(None, ImageSize::Poster), None);
         assert_eq!(
             TmdbClient::image_url(Some("https://example.com/poster.jpg"), ImageSize::Poster),
             None
