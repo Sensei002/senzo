@@ -62,7 +62,7 @@ impl SenzoApp {
             status: "Changes are saved on this device".into(),
             playback_worker: None,
             playback_state: PlaybackState::default(),
-            playback_status: "MPV runtime not found (expected runtime/mpv-2.dll)".into(),
+            playback_status: "MPV runtime not found (expected runtime/libmpv-2.dll)".into(),
             active_media_id: None,
             last_progress_save: None,
             playback_monitor: None,
@@ -82,9 +82,9 @@ impl SenzoApp {
             .ok()
             .and_then(|path| {
                 path.parent()
-                    .map(|parent| parent.join("runtime").join("mpv-2.dll"))
+                    .map(|parent| parent.join("runtime").join("libmpv-2.dll"))
             })
-            .unwrap_or_else(|| PathBuf::from("runtime/mpv-2.dll"));
+            .unwrap_or_else(|| PathBuf::from("runtime/libmpv-2.dll"));
 
         if !runtime_path.is_file() {
             self.playback_status = format!("MPV runtime missing: {}", runtime_path.display());

@@ -37,7 +37,7 @@ pub struct MpvRuntime {
 impl MpvRuntime {
     /// Load libmpv, apply options before initialization, and initialize playback.
     ///
-    /// On Windows, library_path normally points to the packaged mpv-2.dll.
+    /// On Windows, library_path normally points to the packaged libmpv-2.dll.
     /// This method does not search arbitrary directories or download binaries.
     pub fn open(library_path: impl AsRef<OsStr>, config: &MpvConfig) -> anyhow::Result<Self> {
         // Loading a native library executes its initialization routines. The

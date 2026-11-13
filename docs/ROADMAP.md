@@ -53,7 +53,7 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [ ] Harden remote manifest fetching, redirects, and stream URL validation.
 - [x] Add a pure MPV option-mapping layer with capability-aware fallback reporting and unit tests.
 - [x] Add a dynamic libmpv loader that applies options before initialization and exposes local-file load, pause, seek, speed, stop, and property access.
-- [ ] Package and validate a trusted Windows libmpv runtime in development artifacts.
+- [ ] Package and validate the upstream Windows x64 LGPL libmpv runtime (`libmpv-2.dll`) and its sibling dependencies in a separate GitHub Actions artifact; preserve upstream licence notices. The package workflow pins the upstream mpv release version and records archive/runtime SHA-256 values.
 - [x] Add a dedicated MPV playback worker with a bounded command queue, non-blocking events, orderly shutdown, and graceful missing-runtime reporting.
 - [x] Add a playback-state snapshot with change-only 500 ms polling for playback position, duration, pause, buffering, title, volume, mute, and fullscreen.
 - [x] Add validated worker/runtime commands for volume, mute, fullscreen, audio-track selection, and subtitle-track selection/disable.
@@ -62,6 +62,7 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [x] Add GPUI audio/subtitle track selection, subtitle-off control, and local external subtitle-file loading.
 - [x] Add live subtitle synchronization and font-size controls with locally persisted preferences.
 - [ ] Implement a native video presentation surface and validate GPU/renderer compatibility.
+- [ ] Embed the MPV video output into the GPUI player layout; verify HWND/window lifetime, resize, DPI, and z-order behavior before enabling playback by default.
 - [x] Add native local-file selection and queue file-load commands through the GPUI playback bridge (requires a trusted runtime DLL).
 - [x] Add initial GPUI pause/resume, stop, mute, 10-second seek-step, and fullscreen command controls.
 - [x] Add GPUI volume down/up controls in 5% steps using the live MPV volume snapshot.

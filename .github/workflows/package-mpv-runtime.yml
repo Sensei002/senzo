@@ -1,0 +1,36 @@
+name: Package Windows MPV Runtime
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [development]
+    paths:
+      - "scripts/package-mpv-runtime.ps1"
+      - ".github/workflows/package-mpv-runtime.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mpv-runtime-\${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Windows x64 libmpv runtime
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Package upstream LGPL libmpv runtime
+        shell: pwsh
+        run: ./scripts/package-mpv-runtime.ps1
+
+      - name: Upload runtime artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: senzo-mpv-runtime-windows-x64
+          path: runtime/
+          if-no-files-found: error
+          retention-days: 14
