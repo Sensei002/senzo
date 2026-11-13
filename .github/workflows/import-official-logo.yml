@@ -1,4 +1,5 @@
 name: Import Official SENZO Logo
+run-name: Import canonical logo from issue #1
 
 on:
   push:
