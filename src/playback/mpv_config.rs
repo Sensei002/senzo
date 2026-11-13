@@ -257,7 +257,10 @@ mod tests {
         assert!(!config.options.contains_key("wid"));
 
         config.set_native_window_id(0x1234_abcd).unwrap();
-        assert_eq!(config.options.get("wid").map(String::as_str), Some("305441741"));
+        assert_eq!(
+            config.options.get("wid").map(String::as_str),
+            Some("305441741")
+        );
     }
 
     #[test]
