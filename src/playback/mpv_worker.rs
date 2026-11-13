@@ -268,10 +268,7 @@ mod tests {
         )
         .unwrap();
 
-        let event = worker
-            .events
-            .recv_timeout(Duration::from_secs(5))
-            .unwrap();
+        let event = worker.events.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(matches!(event, PlaybackEvent::Failed { .. }));
     }
 
@@ -301,9 +298,6 @@ mod tests {
     }
 
     fn parse_number(value: &str) -> Option<f64> {
-        value
-            .parse::<f64>()
-            .ok()
-            .filter(|value| value.is_finite())
+        value.parse::<f64>().ok().filter(|value| value.is_finite())
     }
 }
