@@ -161,7 +161,7 @@ fn addon_base_url(manifest_url: &str) -> Result<Url> {
         let mut segments = url
             .path_segments_mut()
             .map_err(|_| anyhow::anyhow!("invalid add-on manifest URL"))?;
-        segments.pop();
+        segments.pop().push("");
     }
     Ok(url)
 }
