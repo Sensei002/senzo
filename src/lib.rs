@@ -4,3 +4,4 @@ pub mod metadata;
 pub mod playback;
 pub mod settings;
 pub mod storage;
+pub mod subtitles;
