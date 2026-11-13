@@ -83,7 +83,8 @@ impl SurfaceBounds {
 
 /// Owns a child HWND. Create, resize, and drop it on its parent window's UI thread.
 pub struct WindowsVideoSurface {
-    hwnd: HWND,
+    hwnd: usize,
+    bounds: SurfaceBounds,
 }
 
 impl WindowsVideoSurface {
@@ -120,24 +121,30 @@ impl WindowsVideoSurface {
             let error = unsafe { GetLastError() };
             return Err(std::io::Error::from_raw_os_error(error as i32).into());
         }
-        Ok(Self { hwnd })
+        Ok(Self {
+            hwnd: hwnd as usize,
+            bounds,
+        })
     }
 
     /// Return the Win32 HWND value required by MPV's wid option.
     pub fn mpv_window_id(&self) -> anyhow::Result<u32> {
-        let id = u32::try_from(self.hwnd as usize)?;
+        let id = u32::try_from(self.hwnd)?;
         if id == 0 {
             bail!("child HWND unexpectedly resolved to zero");
         }
         Ok(id)
     }
 
-    pub fn set_bounds(&self, bounds: SurfaceBounds) -> anyhow::Result<()> {
+    pub fn set_bounds(&mut self, bounds: SurfaceBounds) -> anyhow::Result<()> {
         let bounds = bounds.validate()?;
+        if self.bounds == bounds {
+            return Ok(());
+        }
         // SAFETY: this object owns hwnd until Drop.
         let ok = unsafe {
             SetWindowPos(
-                self.hwnd,
+                self.hwnd as HWND,
                 ptr::null_mut(),
                 bounds.x,
                 bounds.y,
@@ -151,18 +158,19 @@ impl WindowsVideoSurface {
                 GetLastError()
             });
         }
+        self.bounds = bounds;
         Ok(())
     }
 }
 
 impl Drop for WindowsVideoSurface {
     fn drop(&mut self) {
-        if !self.hwnd.is_null() {
+        if self.hwnd != 0 {
             // SAFETY: this object uniquely owns the child HWND.
             unsafe {
-                DestroyWindow(self.hwnd);
+                DestroyWindow(self.hwnd as HWND);
             }
-            self.hwnd = ptr::null_mut();
+            self.hwnd = 0;
         }
     }
 }

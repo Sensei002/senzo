@@ -15,7 +15,7 @@ use senzo::{
     playback::{
         mpv_config::{MpvCapabilities, build_mpv_config},
         mpv_worker::{PlaybackEvent, PlaybackState, PlaybackWorker},
-        windows_surface::{SurfaceBounds, gpui_parent_hwnd},
+        windows_surface::{SurfaceBounds, WindowsVideoSurface, gpui_parent_hwnd},
     },
     settings::{
         DecoderPreference, HardwareDecoding, HdrMode, PlaybackSettings, RendererPreference,
@@ -43,6 +43,8 @@ struct SenzoApp {
     subtitle_task: Option<Task<()>>,
     native_parent_hwnd: Option<usize>,
     native_viewport_bounds: Arc<Mutex<Option<SurfaceBounds>>>,
+    native_video_surface: Arc<Mutex<Option<WindowsVideoSurface>>>,
+    native_surface_error: Arc<Mutex<Option<String>>>,
 }
 
 impl SenzoApp {
@@ -79,6 +81,8 @@ impl SenzoApp {
             subtitle_task: None,
             native_parent_hwnd,
             native_viewport_bounds: Arc::new(Mutex::new(None)),
+            native_video_surface: Arc::new(Mutex::new(None)),
+            native_surface_error: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -97,7 +101,33 @@ impl SenzoApp {
             return;
         }
 
-        let config = build_mpv_config(&self.settings, &MpvCapabilities::default());
+        let window_id = self
+            .native_video_surface
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native video surface state is unavailable"))
+            .and_then(|surface| {
+                surface
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("native video surface is not ready"))
+            })
+            .and_then(WindowsVideoSurface::mpv_window_id);
+        let window_id = match window_id {
+            Ok(window_id) => window_id,
+            Err(error) => {
+                self.playback_status = format!("Native video surface unavailable: {error:#}");
+                diagnostics::record(diagnostics::Level::Warn, "playback", &self.playback_status);
+                cx.notify();
+                return;
+            }
+        };
+
+        let mut config = build_mpv_config(&self.settings, &MpvCapabilities::default());
+        if let Err(error) = config.set_native_window_id(window_id) {
+            self.playback_status = format!("Could not attach MPV to the video surface: {error}");
+            cx.notify();
+            return;
+        }
+
         match PlaybackWorker::spawn(runtime_path, config) {
             Ok(worker) => {
                 self.playback_worker = Some(Arc::new(Mutex::new(worker)));
@@ -760,6 +790,24 @@ fn option_row(
 impl Render for SenzoApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let settings = self.settings.clone();
+        let native_surface_status = self
+            .native_surface_error
+            .lock()
+            .ok()
+            .and_then(|error| error.clone())
+            .map(|error| format!("Native video surface unavailable: {error}"))
+            .unwrap_or_else(|| {
+                let ready = self
+                    .native_video_surface
+                    .lock()
+                    .map(|surface| surface.is_some())
+                    .unwrap_or(false);
+                if ready {
+                    "Native Win32 video surface ready · MPV attaches when media opens".into()
+                } else {
+                    "Preparing native Win32 video surface…".into()
+                }
+            });
 
         let mut audio_track_chips = Vec::new();
         for track in self
@@ -940,6 +988,9 @@ impl Render for SenzoApp {
                         "This is the native video presentation target. The GPUI layout now reports its physical pixel bounds; child-window creation and MPV attachment are the next integration steps.",
                         {
                             let viewport_bounds = self.native_viewport_bounds.clone();
+                            let native_parent_hwnd = self.native_parent_hwnd;
+                            let native_video_surface = self.native_video_surface.clone();
+                            let native_surface_error = self.native_surface_error.clone();
                             div()
                                 .on_children_prepainted(move |bounds, window, _cx| {
                                     if let Some(bounds) = bounds.first() {
@@ -953,6 +1004,53 @@ impl Render for SenzoApp {
                                         if let Ok(measured) = measured {
                                             if let Ok(mut current) = viewport_bounds.lock() {
                                                 *current = Some(measured);
+                                            }
+
+                                            if let Ok(mut surface_slot) = native_video_surface.lock() {
+                                                if let Some(surface) = surface_slot.as_mut() {
+                                                    if let Err(error) = surface.set_bounds(measured) {
+                                                        diagnostics::record(
+                                                            diagnostics::Level::Warn,
+                                                            "playback",
+                                                            &format!("could not position native video surface: {error:#}"),
+                                                        );
+                                                    }
+                                                } else {
+                                                    let previous_error = native_surface_error
+                                                        .lock()
+                                                        .ok()
+                                                        .and_then(|error| error.clone());
+                                                    if previous_error.is_none() {
+                                                        match native_parent_hwnd {
+                                                            Some(parent) => match WindowsVideoSurface::create(parent, measured) {
+                                                                Ok(surface) => {
+                                                                    *surface_slot = Some(surface);
+                                                                    diagnostics::record(
+                                                                        diagnostics::Level::Info,
+                                                                        "playback",
+                                                                        "created native Win32 video child surface",
+                                                                    );
+                                                                }
+                                                                Err(error) => {
+                                                                    let message = format!("{error:#}");
+                                                                    diagnostics::record(
+                                                                        diagnostics::Level::Warn,
+                                                                        "playback",
+                                                                        &format!("could not create native video surface: {message}"),
+                                                                    );
+                                                                    if let Ok(mut current_error) = native_surface_error.lock() {
+                                                                        *current_error = Some(message);
+                                                                    }
+                                                                }
+                                                            },
+                                                            None => {
+                                                                if let Ok(mut current_error) = native_surface_error.lock() {
+                                                                    *current_error = Some("GPUI did not provide a Win32 parent HWND".into());
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -982,7 +1080,7 @@ impl Render for SenzoApp {
                                             div()
                                                 .text_xs()
                                                 .text_color(rgb(0x858C94))
-                                                .child("Waiting for native MPV surface integration"),
+                                                .child(native_surface_status.clone()),
                                         ),
                                 )
                         },
@@ -1718,9 +1816,7 @@ fn main() {
                         }
                     };
                     cx.new(move |cx| {
-                        let mut app = SenzoApp::new(database, native_parent_hwnd);
-                        app.start_playback(cx);
-                        app
+                        SenzoApp::new(database, native_parent_hwnd)
                     })
                 })
                 .expect("failed to open SENZO window");
