@@ -315,6 +315,7 @@ mod tests {
                 font_size: 52,
                 vertical_margin: 18,
                 bold: true,
+                delay_seconds: 0.0,
             },
             ..PlaybackSettings::default()
         };

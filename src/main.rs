@@ -561,6 +561,32 @@ impl Render for SenzoApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let settings = self.settings.clone();
 
+        let mut audio_track_chips = Vec::new();
+        for track in self.playback_state.tracks.iter().filter(|track| track.kind == "audio") {
+            let id = track.id;
+            let label = format!(
+                "{}{}",
+                track.title.as_deref().unwrap_or("Audio"),
+                track.language.as_deref().map(|language| format!(" · {language}")).unwrap_or_default()
+            );
+            audio_track_chips.push(dynamic_choice_chip(label, track.selected, move |this, cx| {
+                this.send_playback_command("select audio track", move |worker| worker.set_audio_track(id), cx);
+            }, cx));
+        }
+
+        let mut subtitle_track_chips = Vec::new();
+        for track in self.playback_state.tracks.iter().filter(|track| track.kind == "sub") {
+            let id = track.id;
+            let label = format!(
+                "{}{}",
+                track.title.as_deref().unwrap_or("Subtitle"),
+                track.language.as_deref().map(|language| format!(" · {language}")).unwrap_or_default()
+            );
+            subtitle_track_chips.push(dynamic_choice_chip(label, track.selected, move |this, cx| {
+                this.send_playback_command("select subtitle track", move |worker| worker.set_subtitle_track(Some(id)), cx);
+            }, cx));
+        }
+
         div()
             .id("senzo-root")
             .size_full()
@@ -835,17 +861,7 @@ impl Render for SenzoApp {
                                     .flex()
                                     .flex_wrap()
                                     .gap_2()
-                                    .children(self.playback_state.tracks.iter().filter(|track| track.kind == "audio").map(|track| {
-                                        let id = track.id;
-                                        let label = format!(
-                                            "{}{}",
-                                            track.title.as_deref().unwrap_or("Audio"),
-                                            track.language.as_deref().map(|language| format!(" · {language}")).unwrap_or_default()
-                                        );
-                                        dynamic_choice_chip(label, track.selected, move |this, cx| {
-                                            this.send_playback_command("select audio track", move |worker| worker.set_audio_track(id), cx);
-                                        }, cx)
-                                    })),
+                                    .children(audio_track_chips),
                             )
                             .child(
                                 div()
@@ -861,15 +877,7 @@ impl Render for SenzoApp {
                                     .child(choice_chip("Off", !self.playback_state.tracks.iter().any(|track| track.kind == "sub" && track.selected), |this, cx| {
                                         this.send_playback_command("disable subtitles", |worker| worker.set_subtitle_track(None), cx);
                                     }, cx))
-                                    .children(self.playback_state.tracks.iter().filter(|track| track.kind == "sub").map(|track| {
-                                        let id = track.id;
-                                        let label = format!(
-                                            "{}{}",
-                                            track.title.as_deref().unwrap_or("Subtitle"),
-                                            track.language.as_deref().map(|language| format!(" · {language}")).unwrap_or_default()
-                                        );
-                                        dynamic_choice_chip(label, track.selected, move |this, cx| {
-                                            this.send_playback_command("select subtitle track", move |worker| worker.set_subtitle_track(Some(id)), cx);
+                                    .children(subtitle_track_chips), cx);
                                         }, cx)
                                     })),
                             )
