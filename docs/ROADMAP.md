@@ -65,7 +65,8 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [x] Add a Windows child-HWND surface owner with validated parent/size inputs, resize support, and RAII teardown (GPUI parent-handle acquisition and layout/DPI coordination remain pending).
 - [x] Acquire the parent HWND through GPUI 0.2.2 public raw-window-handle APIs and retain it in the app lifecycle.
 - [x] Add a tested GPUI logical-pixel to Win32 physical-pixel conversion helper for child-surface geometry, including fractional scale factors, invalid geometry, and integer overflow checks.
-- [ ] Integrate the child surface into the GPUI player layout with correct resize, DPI, and z-order handling.
+- [x] Add a dedicated GPUI video viewport and capture its prepaint layout bounds, converting logical coordinates to physical pixels on each layout pass.
+- [ ] Integrate the native child surface into that viewport with correct client-coordinate mapping, resize, DPI, and z-order handling.
 - [ ] Connect the surface HWND to the playback worker and validate actual video presentation, hardware decoding, and GPU/renderer compatibility.
 - [ ] Embed the MPV video output into the GPUI player layout; verify HWND/window lifetime, resize, DPI, and z-order behavior before enabling playback by default.
 - [x] Add native local-file selection and queue file-load commands through the GPUI playback bridge (requires a trusted runtime DLL).

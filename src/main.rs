@@ -15,7 +15,7 @@ use senzo::{
     playback::{
         mpv_config::{MpvCapabilities, build_mpv_config},
         mpv_worker::{PlaybackEvent, PlaybackState, PlaybackWorker},
-        windows_surface::gpui_parent_hwnd,
+        windows_surface::{SurfaceBounds, gpui_parent_hwnd},
     },
     settings::{
         DecoderPreference, HardwareDecoding, HdrMode, PlaybackSettings, RendererPreference,
@@ -42,6 +42,7 @@ struct SenzoApp {
     subtitle_credentials_status: String,
     subtitle_task: Option<Task<()>>,
     native_parent_hwnd: Option<usize>,
+    native_viewport_bounds: Arc<Mutex<Option<SurfaceBounds>>>,
 }
 
 impl SenzoApp {
@@ -77,6 +78,7 @@ impl SenzoApp {
             },
             subtitle_task: None,
             native_parent_hwnd,
+            native_viewport_bounds: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -933,6 +935,58 @@ impl Render for SenzoApp {
                                     .child("Tune decoding, image processing and playback resources."),
                             ),
                     )
+                    .child(section(
+                        "Video viewport",
+                        "This is the native video presentation target. The GPUI layout now reports its physical pixel bounds; child-window creation and MPV attachment are the next integration steps.",
+                        {
+                            let viewport_bounds = self.native_viewport_bounds.clone();
+                            div()
+                                .on_children_prepainted(move |bounds, window, _cx| {
+                                    if let Some(bounds) = bounds.first() {
+                                        let measured = SurfaceBounds::from_logical_pixels(
+                                            f32::from(bounds.origin.x),
+                                            f32::from(bounds.origin.y),
+                                            f32::from(bounds.size.width),
+                                            f32::from(bounds.size.height),
+                                            window.scale_factor(),
+                                        );
+                                        if let Ok(measured) = measured {
+                                            if let Ok(mut current) = viewport_bounds.lock() {
+                                                *current = Some(measured);
+                                            }
+                                        }
+                                    }
+                                })
+                                .child(
+                                    div()
+                                        .id("native-video-viewport")
+                                        .w_full()
+                                        .h(px(420.))
+                                        .rounded_lg()
+                                        .border_1()
+                                        .border_color(rgb(0x263238))
+                                        .bg(rgb(0x050708))
+                                        .flex()
+                                        .flex_col()
+                                        .items_center()
+                                        .justify_center()
+                                        .gap_2()
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                                .text_color(rgb(0x67E8F9))
+                                                .child("SENZO VIDEO VIEWPORT"),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(rgb(0x858C94))
+                                                .child("Waiting for native MPV surface integration"),
+                                        ),
+                                )
+                        },
+                    ))
                     .child(section(
                         "Playback engine",
                         "The MPV worker runs separately from the UI. A trusted runtime DLL must be placed beside SENZO in the runtime folder.",
