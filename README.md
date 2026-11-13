@@ -1,9 +1,5 @@
 # SENZO
 
-<p align="center">
-  <img src="assets/branding/senzo-mark.svg" width="144" alt="SENZO symbol" />
-</p>
-
 <h1 align="center">SENZO</h1>
 <p align="center">A native desktop media center for Windows and Linux.</p>
 
@@ -13,10 +9,7 @@ SENZO is being built with **Rust + GPUI** around a cinematic, library-first medi
 
 ## Brand
 
-- Primary background: `#0A0A0A`
-- Primary foreground: `#F5F5F5`
-- Accent cyan: `#18C7E8`
-- Master artwork: [SENZO mark](assets/branding/senzo-mark.svg) · [Wordmark](assets/branding/senzo-wordmark.svg)
+The official SENZO logo is the user-approved artwork. No alternate or redesigned mark is authorized. The original artwork will be added as the canonical branding asset once its binary source can be committed without altering it.
 
 ## Project principles
 
