@@ -4,6 +4,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use anyhow::Context as _;
 use gpui::{
     App, ClipboardItem, Context, QuitMode, Render, Task, Window, WindowOptions, div, prelude::*,
     px, rgb,
@@ -20,6 +21,7 @@ use senzo::{
         ScalingAlgorithm,
     },
     storage::LocalDatabase,
+    subtitles::{OpenSubtitlesClient, OpenSubtitlesResult, SubtitleSearch},
 };
 
 struct SenzoApp {
@@ -32,6 +34,9 @@ struct SenzoApp {
     active_media_id: Option<String>,
     last_progress_save: Option<Instant>,
     playback_monitor: Option<Task<()>>,
+    online_subtitle_results: Vec<OpenSubtitlesResult>,
+    subtitle_provider_status: String,
+    subtitle_task: Option<Task<()>>,
 }
 
 impl SenzoApp {
@@ -58,6 +63,9 @@ impl SenzoApp {
             active_media_id: None,
             last_progress_save: None,
             playback_monitor: None,
+            online_subtitle_results: Vec::new(),
+            subtitle_provider_status: "Online subtitles have not been searched".into(),
+            subtitle_task: None,
         }
     }
 
@@ -270,6 +278,127 @@ impl SenzoApp {
                 diagnostics::record(diagnostics::Level::Error, "playback", &self.playback_status);
             }
         }
+        cx.notify();
+    }
+
+    fn search_online_subtitles(&mut self, cx: &mut Context<Self>) {
+        let title = self
+            .playback_state
+            .media_title
+            .clone()
+            .or_else(|| {
+                self.active_media_id
+                    .as_deref()
+                    .and_then(|id| id.strip_prefix("local-file:"))
+                    .and_then(|path| PathBuf::from(path).file_stem()?.to_str().map(str::to_owned))
+            })
+            .filter(|title| !title.trim().is_empty());
+
+        let Some(title) = title else {
+            self.subtitle_provider_status = "Open a media file before searching for subtitles".into();
+            cx.notify();
+            return;
+        };
+
+        self.online_subtitle_results.clear();
+        self.subtitle_provider_status = format!("Searching OpenSubtitles for {title}…");
+        let search = SubtitleSearch {
+            query: Some(title),
+            languages: "en,bn".into(),
+            ..SubtitleSearch::default()
+        };
+
+        self.subtitle_task = Some(cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move {
+                    let client = OpenSubtitlesClient::from_credential_store()
+                        .or_else(|_| OpenSubtitlesClient::from_environment())?;
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .context("could not initialize subtitle network runtime")?;
+                    runtime.block_on(client.search(&search))
+                })
+                .await;
+
+            let _ = this.update(cx, |app, cx| {
+                match result {
+                    Ok(results) => {
+                        let count = results.len();
+                        app.online_subtitle_results = results;
+                        app.subtitle_provider_status = if count == 0 {
+                            "No matching subtitles found".into()
+                        } else {
+                            format!("{count} subtitle releases found · choose a file to download")
+                        };
+                    }
+                    Err(error) => {
+                        app.subtitle_provider_status = format!("Subtitle search failed: {error:#}");
+                        diagnostics::record(
+                            diagnostics::Level::Warn,
+                            "subtitles",
+                            &app.subtitle_provider_status,
+                        );
+                    }
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    fn download_online_subtitle(&mut self, file_id: u64, cx: &mut Context<Self>) {
+        let Some(worker) = self.playback_worker.clone() else {
+            self.subtitle_provider_status = "Start playback before loading an online subtitle".into();
+            cx.notify();
+            return;
+        };
+
+        self.subtitle_provider_status = "Downloading subtitle…".into();
+        self.subtitle_task = Some(cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move {
+                    let client = OpenSubtitlesClient::from_credential_store()
+                        .or_else(|_| OpenSubtitlesClient::from_environment())?;
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .context("could not initialize subtitle download runtime")?;
+                    let path = runtime.block_on(client.download_to_cache(file_id))?;
+                    {
+                        let worker = worker
+                            .lock()
+                            .map_err(|_| anyhow::anyhow!("playback worker lock is unavailable"))?;
+                        worker.add_subtitle_file(path.clone())?;
+                    }
+                    Ok::<PathBuf, anyhow::Error>(path)
+                })
+                .await;
+
+            let _ = this.update(cx, |app, cx| {
+                match result {
+                    Ok(path) => {
+                        let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("subtitle");
+                        app.subtitle_provider_status = format!("Downloaded and loaded: {name}");
+                        app.online_subtitle_results.clear();
+                        diagnostics::record(
+                            diagnostics::Level::Audit,
+                            "subtitles",
+                            "user downloaded and loaded an OpenSubtitles subtitle",
+                        );
+                    }
+                    Err(error) => {
+                        app.subtitle_provider_status = format!("Subtitle download failed: {error:#}");
+                        diagnostics::record(
+                            diagnostics::Level::Error,
+                            "subtitles",
+                            &app.subtitle_provider_status,
+                        );
+                    }
+                }
+                cx.notify();
+            });
+        }));
         cx.notify();
     }
 
@@ -590,6 +719,25 @@ impl Render for SenzoApp {
                 },
                 cx,
             ));
+        }
+
+        let mut online_subtitle_chips = Vec::new();
+        for result in &self.online_subtitle_results {
+            let attributes = &result.attributes;
+            for file in &attributes.files {
+                let file_id = file.file_id;
+                let label = format!(
+                    "{} · {}",
+                    attributes.language.as_deref().unwrap_or("Unknown language"),
+                    file.file_name
+                );
+                online_subtitle_chips.push(dynamic_choice_chip(
+                    label,
+                    false,
+                    move |this, cx| this.download_online_subtitle(file_id, cx),
+                    cx,
+                ));
+            }
         }
 
         let mut subtitle_track_chips = Vec::new();
@@ -920,7 +1068,21 @@ impl Render for SenzoApp {
                                     .flex()
                                     .flex_wrap()
                                     .gap_2()
-                                    .child(choice_chip("Load subtitle file", false, |this, cx| this.open_subtitle_file(cx), cx)),
+                                    .child(choice_chip("Load subtitle file", false, |this, cx| this.open_subtitle_file(cx), cx))
+                                    .child(choice_chip("Search online", false, |this, cx| this.search_online_subtitles(cx), cx)),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0x9299A1))
+                                    .child(self.subtitle_provider_status.clone()),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_wrap()
+                                    .gap_2()
+                                    .children(online_subtitle_chips),
                             ),
                     ))
                     .child(section(
