@@ -217,6 +217,9 @@ impl SenzoApp {
                 .unwrap_or_else(|_| path.clone())
                 .to_string_lossy()
         );
+        // Flush the previous item's latest known position before switching IDs.
+        self.persist_playback_progress(true);
+
         let resume_position = match self.database.playback_progress(&media_id) {
             Ok(progress) => progress
                 .filter(|progress| progress.position_seconds > 5.0)
@@ -607,6 +610,8 @@ impl Render for SenzoApp {
                                         "Stop",
                                         false,
                                         |this, cx| {
+                                            // Preserve the last known position before stopping MPV.
+                                            this.persist_playback_progress(true);
                                             this.send_playback_command(
                                                 "stop",
                                                 |worker| worker.stop(),

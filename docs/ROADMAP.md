@@ -65,7 +65,7 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [x] Add GPUI volume down/up controls in 5% steps using the live MPV volume snapshot.
 - [ ] Add a seek bar, continuous volume adjustment, audio/subtitle track enumeration and selection UI.
 - [ ] Detect runtime decoder/renderer/HDR capabilities and apply settings to a live MPV instance.
-- [x] Persist local-file playback progress periodically and resume from the saved position when the same file is reopened.
+- [x] Persist local-file playback progress periodically, flush before stop/media switch, and resume from the saved position when the same file is reopened.
 - [ ] Extend progress persistence to metadata-backed movie/episode IDs and watch-history completion rules.
 - [ ] Add live playback diagnostics and graceful error/recovery states.
 
