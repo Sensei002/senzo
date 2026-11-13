@@ -4,7 +4,7 @@
 
 SENZO is a native, accountless desktop media center for discovering movies and television, managing optional streaming sources, watching supported media, and keeping personal viewing data on the user's own device.
 
-It is an independent Rust + GPUI application with a local-first data model and a focused media-discovery and add-on workflow.
+It is inspired by the broad media-discovery and add-on workflows of Nuvio and Stremio, but is its own Rust + GPUI application with a local-first data model.
 
 ## Target users and experience
 

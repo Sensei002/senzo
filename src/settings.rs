@@ -178,15 +178,14 @@ mod tests {
             ..PlaybackSettings::default()
         };
         let json = serde_json::to_string(&settings).expect("serialize settings");
-        let restored: PlaybackSettings =
-            serde_json::from_str(&json).expect("deserialize settings");
+        let restored: PlaybackSettings = serde_json::from_str(&json).expect("deserialize settings");
         assert_eq!(restored, settings);
     }
 
     #[test]
     fn older_or_partial_settings_receive_defaults() {
-        let restored: PlaybackSettings =
-            serde_json::from_str(r#"{"interpolation":true}"#).expect("deserialize partial settings");
+        let restored: PlaybackSettings = serde_json::from_str(r#"{"interpolation":true}"#)
+            .expect("deserialize partial settings");
         assert!(restored.interpolation);
         assert_eq!(restored.hardware_decoding, HardwareDecoding::Auto);
         assert_eq!(restored.buffer, BufferSettings::default());

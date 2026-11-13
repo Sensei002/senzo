@@ -141,8 +141,7 @@ impl LocalDatabase {
     /// Loads typed playback preferences. Missing or invalid legacy values use safe defaults.
     pub fn playback_settings(&self) -> Result<PlaybackSettings> {
         let mut settings = match self.get_setting("playback.preferences")? {
-            Some(value) => serde_json::from_str::<PlaybackSettings>(&value)
-                .unwrap_or_default(),
+            Some(value) => serde_json::from_str::<PlaybackSettings>(&value).unwrap_or_default(),
             None => PlaybackSettings::default(),
         };
         settings.normalize();
@@ -153,8 +152,8 @@ impl LocalDatabase {
     pub fn save_playback_settings(&self, settings: &PlaybackSettings) -> Result<()> {
         let mut settings = settings.clone();
         settings.normalize();
-        let value = serde_json::to_string(&settings)
-            .context("failed to serialize playback preferences")?;
+        let value =
+            serde_json::to_string(&settings).context("failed to serialize playback preferences")?;
         self.set_setting("playback.preferences", &value)
     }
 
