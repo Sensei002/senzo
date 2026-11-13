@@ -161,6 +161,19 @@ impl OpenSubtitlesClient {
         Self::new(key)
     }
 
+    /// Downloads a selected subtitle and stores it under the local SENZO cache.
+    ///
+    /// The API response is validated before a collision-safe file is created. Existing
+    /// subtitle files are never overwritten, and partial files are removed on failure.
+    pub async fn download_to_cache(&self, file_id: u64) -> anyhow::Result<std::path::PathBuf> {
+        let downloaded = self.download(file_id).await?;
+        let cache_root = dirs::cache_dir()
+            .ok_or_else(|| anyhow!("the operating system did not provide a cache directory"))?
+            .join("SENZO")
+            .join("subtitles");
+        persist_downloaded_subtitle(&cache_root, downloaded)
+    }
+
     /// Reads an API key from the environment without storing it.
     pub fn from_environment() -> anyhow::Result<Self> {
         let key = std::env::var("OPENSUBTITLES_API_KEY")
@@ -270,6 +283,58 @@ impl OpenSubtitlesClient {
         })
     }
 }
+
+fn persist_downloaded_subtitle(
+    directory: &std::path::Path,
+    downloaded: DownloadedSubtitle,
+) -> anyhow::Result<std::path::PathBuf> {
+    use std::io::Write;
+
+    let file_name = safe_subtitle_file_name(&downloaded.file_name)?;
+    if downloaded.bytes.is_empty() || downloaded.bytes.len() > MAX_SUBTITLE_BYTES {
+        bail!("subtitle data is empty or exceeds the 20 MiB safety limit");
+    }
+    std::fs::create_dir_all(directory)
+        .context("could not create the SENZO subtitle cache directory")?;
+
+    let file_name_path = std::path::Path::new(&file_name);
+    let stem = file_name_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| anyhow!("subtitle filename has no valid stem"))?;
+    let extension = file_name_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| anyhow!("subtitle filename has no valid extension"))?;
+
+    for suffix in 0..10_000_u32 {
+        let candidate_name = if suffix == 0 {
+            file_name.clone()
+        } else {
+            format!("{stem} ({suffix}).{extension}")
+        };
+        let path = directory.join(candidate_name);
+        let mut file = match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error).context("could not create cached subtitle file"),
+        };
+
+        if let Err(error) = file.write_all(&downloaded.bytes).and_then(|()| file.sync_all()) {
+            drop(file);
+            let _ = std::fs::remove_file(&path);
+            return Err(error).context("could not write downloaded subtitle to the cache");
+        }
+        return Ok(path);
+    }
+
+    bail!("could not allocate a unique subtitle cache filename")
+}
+
 
 #[derive(Serialize)]
 struct DownloadRequest {
@@ -407,6 +472,38 @@ mod tests {
         .expect("deserialize search response");
         assert_eq!(response.data.len(), 1);
         assert_eq!(response.data[0].attributes.files[0].file_id, 123);
+    }
+
+    #[test]
+    fn downloaded_subtitles_are_saved_without_overwriting_existing_files() {
+        let directory = tempfile::tempdir().expect("temporary cache directory");
+        let downloaded = DownloadedSubtitle {
+            file_name: "movie.en.srt".into(),
+            bytes: b"subtitle data".to_vec(),
+            remaining_downloads: None,
+        };
+        let first = persist_downloaded_subtitle(directory.path(), downloaded.clone()).unwrap();
+        let second = persist_downloaded_subtitle(directory.path(), downloaded).unwrap();
+        assert_eq!(std::fs::read(first).unwrap(), b"subtitle data");
+        assert_eq!(second.file_name().unwrap(), "movie.en (1).srt");
+        assert_eq!(std::fs::read(second).unwrap(), b"subtitle data");
+    }
+
+    #[test]
+    fn downloaded_subtitles_reject_unsafe_names_and_oversized_data() {
+        let directory = tempfile::tempdir().expect("temporary cache directory");
+        let unsafe_name = DownloadedSubtitle {
+            file_name: "payload.exe".into(),
+            bytes: b"not allowed".to_vec(),
+            remaining_downloads: None,
+        };
+        assert!(persist_downloaded_subtitle(directory.path(), unsafe_name).is_err());
+        let oversized = DownloadedSubtitle {
+            file_name: "large.srt".into(),
+            bytes: vec![0; MAX_SUBTITLE_BYTES + 1],
+            remaining_downloads: None,
+        };
+        assert!(persist_downloaded_subtitle(directory.path(), oversized).is_err());
     }
 
     #[test]
