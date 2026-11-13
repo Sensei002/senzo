@@ -137,12 +137,7 @@ fn section(
                         .font_weight(gpui::FontWeight::SEMIBOLD)
                         .child(title),
                 )
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(rgb(0x9299A1))
-                        .child(description),
-                ),
+                .child(div().text_sm().text_color(rgb(0x9299A1)).child(description)),
         )
         .child(content)
 }
@@ -544,8 +539,16 @@ impl Render for SenzoApp {
 }
 
 fn nav_item(label: &'static str, selected: bool) -> impl IntoElement {
-    let background = if selected { rgb(0x1A3034) } else { rgb(0x101315) };
-    let foreground = if selected { rgb(0x67E8F9) } else { rgb(0xA1A1AA) };
+    let background = if selected {
+        rgb(0x1A3034)
+    } else {
+        rgb(0x101315)
+    };
+    let foreground = if selected {
+        rgb(0x67E8F9)
+    } else {
+        rgb(0xA1A1AA)
+    };
 
     div()
         .px_3()
