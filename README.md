@@ -33,7 +33,7 @@ SENZO takes inspiration from the discovery and add-on workflows of applications 
 
 SENZO will use **The Movie Database (TMDB)** as its primary metadata provider. The planned discovery experience includes:
 
-- Search for movies and TV series.
+- Search for movies or TV series.
 - Browse artwork-led home and discovery shelves.
 - View posters, backdrops, overviews, release dates, genres, ratings, and runtime.
 - Explore cast, crew, trailers, and videos when available.
@@ -85,6 +85,14 @@ The exact native video-surface integration will be validated during implementati
 - **Update channels:** Windows Stable and Development channels, with integrity verification and rollback-safe installation.
 - **Cinematic interface:** Dark, media-focused presentation, poster and backdrop artwork, and restrained transitions.
 
+## Diagnostics and support
+
+SENZO now has an initial local diagnostics service. It records operational audit, information, warning, and error events to:
+
+`%LOCALAPPDATA%\SENZO\logs\senzo.log`
+
+The active log rotates at 2 MiB. The support-bundle API is designed to collect recent events (up to 72 hours, capped at 1 MiB) without exporting the SQLite database or watch history. Credential redaction is best-effort, so secrets must never be sent to the logger. A Settings screen and user-facing **Copy Logs** clipboard action are still being implemented.
+
 ## How SENZO is intended to work
 
 1. **Discover:** The GPUI interface requests a movie or series search from the TMDB metadata service.
@@ -105,7 +113,8 @@ The repository currently contains early service and persistence foundations. It 
 | Rust + GPUI application shell | Initial scaffold |
 | Windows CI | Configured; current changes require successful CI verification |
 | Local SQLite storage | Initial settings, progress, history, and add-on tables |
-| TMDB service | Initial movie/TV search, detail requests, and image URL construction |
+| Local diagnostics service | Initial bounded event logging and recent-log export API; Settings/clipboard UI pending |
+| TMDB service | Initial movie/TV search, detail requests, season/episode and external-ID services, image URL construction |
 | Add-on service | Initial manifest URL validation/installation storage and stream request foundation |
 | GPUI media-center screens | Not connected; placeholder shell |
 | Metadata-driven Home/Search/Details | Planned |

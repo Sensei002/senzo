@@ -18,14 +18,15 @@ Status definitions:
 - [x] Add initial TMDB movie/TV search and detail client.
 - [x] Add TMDB artwork URL construction.
 - [x] Add Stremio manifest URL normalization/validation and explicit add-on installation service.
-- [ ] Verify the latest service/persistence changes in a successful Windows CI run.
 - [x] Add database schema versioning and migration tests.
+- [x] Add local rolling diagnostic log service and bounded recent-log export API (Settings/clipboard UI remains pending).
 
 ## Phase 1 — Native desktop experience
 
 - [ ] Build main SENZO navigation and cinematic layout.
 - [ ] Add reusable poster, backdrop, title, and detail components.
 - [ ] Build Home, Search, Library, Details, Player, Add-ons, Settings, and About/Credits screens.
+- [ ] Add a Settings diagnostics section with a Copy Logs action.
 - [ ] Add keyboard navigation, focus behavior, and accessible controls.
 - [ ] Apply the exact official SENZO transparent logo throughout the application.
 - [ ] Add TMDB logo and required attribution in About/Credits.

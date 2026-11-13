@@ -1,7 +1,6 @@
 # SENZO security and privacy model
 
 ## Purpose
-
 SENZO is a local-first desktop media application. Its security design must preserve local user data, protect credentials, and treat all external metadata, add-ons, network responses, and playable URLs as untrusted.
 
 This document describes requirements and planned controls. A control is not implemented merely because it is documented.
@@ -11,6 +10,10 @@ This document describes requirements and planned controls. A control is not impl
 - SENZO does not require a SENZO account, profile, or cloud history service.
 - Settings, watch history, playback progress, and installed add-on records are stored locally.
 - On Windows, the current SQLite database location is `%LOCALAPPDATA%\SENZO\senzo.db`.
+- Diagnostic logs are stored separately under `%LOCALAPPDATA%\SENZO\logs\senzo.log`.
+- The logger currently rotates the active log at 2 MiB and exports at most 1 MiB from the previous 72 hours.
+- Diagnostic exports do not include SQLite database contents or watch-history records.
+- Redaction of common credential-like fields is best-effort, not a guarantee. Never pass credentials, private manifest URLs, personal media activity, or sensitive query parameters to the logger.
 - Future metadata and artwork caches must have size limits and eviction rules.
 - Cache cleanup must not delete watch history, settings, or add-on configuration.
 - Any future telemetry must be opt-in, documented, and designed to avoid collecting viewing history or personal media activity by default.
@@ -33,7 +36,7 @@ Before production release, the add-on networking layer must:
 - Require HTTPS by default; any exception must be explicit and clearly warned.
 - Reject malformed URLs and unsupported schemes.
 - Limit response size, redirects, request duration, and JSON nesting/shape.
-- Validate manifest identity, resource declarations, supported types, and response schemas.
+- Validate manifest identity, resources, supported types, and response schemas.
 - Avoid sending SENZO credentials to add-on servers.
 - Validate returned stream and subtitle URLs before handing them to playback.
 - Handle redirects deliberately and revalidate the final destination.

@@ -14,6 +14,7 @@ SENZO is **accountless by design**. There is no SENZO sign-up, login, cloud prof
 - Source selection and handoff to playback.
 - Local settings, watch history, and resume progress.
 - Playback controls and optional Discord Rich Presence.
+- Local diagnostic event logging and user-initiated support-bundle export.
 
 ### SENZO does not promise
 
@@ -28,7 +29,7 @@ SENZO is **accountless by design**. There is no SENZO sign-up, login, cloud prof
 - **Search:** Search movies or TV shows and retain the TMDB ID as stable internal identity.
 - **TV navigation:** Fetch typed season responses (including episode lists) and individual episode details. Season zero is supported for specials; episode numbers must be positive.
 - **External IDs:** Resolve movie and TV external identifiers, including IMDb and TVDB IDs, through dedicated TMDB endpoints for source-provider mapping.
-- **Enrichment:** Retrieve details, credits, videos, images, and external IDs with TMDB `append_to_response` where supported. TV season and episode information uses the relevant season/episode endpoints.
+- **Enrichment:** Retrieve details, credits, videos, images, and external IDs with `append_to_response` where supported. TV season and episode information uses the relevant season/episode endpoints.
 - **Artwork:** Convert TMDB poster, backdrop, logo, and episode-still paths into image CDN URLs. Cache artwork locally with bounded storage and eviction.
 - **Source identifiers:** Map TMDB IDs to IMDb or other identifiers when an add-on requires them. Never assume every provider accepts TMDB IDs.
 - **Attribution:** Include the TMDB logo and the required notice in About/Credits: "This product uses the TMDB API but is not endorsed or certified by TMDB."
@@ -66,6 +67,7 @@ Manifests and responses are untrusted remote input. Validate URL schemes, respon
 ## 4. Planned high-level components
 
 - **Desktop shell:** GPUI views, navigation, application state, keyboard interaction, and theming.
+- **Diagnostics:** bounded local event log, severity levels (audit/info/warn/error), credential redaction, and a user-initiated recent-log export. Diagnostic exports intentionally exclude SQLite watch history and database contents.
 - **Metadata service:** TMDB search, details, seasons/episodes, external-ID mapping, and image URL construction.
 - **Artwork/cache service:** Bounded local image and metadata cache with eviction and failure handling.
 - **Source adapters:** Stremio-compatible add-ons behind a normalized source interface. Future source types should not be coupled to UI code.
@@ -87,6 +89,8 @@ The initial SQLite schema contains:
 
 The database is created under the user's local application-data directory and initialized during application startup. SQLite `PRAGMA user_version` tracks schema version 1. Schema creation runs transactionally; future schema changes must add ordered migrations and must not discard history or settings. A build refuses to open a database whose schema version is newer than it supports.
 
+The diagnostic log is stored separately under `%LOCALAPPDATA%\SENZO\logs\senzo.log`. The current logger rotates the active file at 2 MiB and exports up to 1 MiB of events from the previous 72 hours. It records operational events, not watch history. Redaction is best-effort; callers must never pass credentials, private URLs, or personal media activity to the logger. The Settings clipboard action is a subsequent UI integration task.
+
 Planned additions include metadata cache entries, artwork cache indexing, favorites/library state, and migration metadata. Cache data is bounded and disposable; personal history and settings are not disposable cache.
 
 ## 6. Application data flow
@@ -97,13 +101,13 @@ Planned additions include metadata cache entries, artwork cache indexing, favori
 4. When the user requests sources, SENZO checks only installed and enabled add-ons that declare support for the relevant resource.
 5. The user selects a playable result; it is handed to the playback service.
 6. Playback progress and viewing events are persisted locally.
-7. Discord presence, if enabled, reflects playback state according to user privacy settings.
+7. Operational events are written to the diagnostic log; the user may later export recent logs explicitly.
 
 ## 7. Architectural rules
 
 1. UI code must not own torrent, HTTP, metadata, or MPV implementation details.
-2. External providers and add-ons are untrusted input; validate manifests and normalize responses.
-3. Keep API tokens and provider credentials out of logs and source control.
+2. External providers and add-ons are untrusted input; validate manifests, URLs, and responses.
+3. Keep secrets out of source control, logs, and artifacts.
 4. Basic SENZO use must never require a SENZO account or cloud service.
 5. Watch progress and history must persist locally.
 6. No add-on may be installed or queried without explicit user action.
@@ -113,20 +117,22 @@ Planned additions include metadata cache entries, artwork cache indexing, favori
 10. Do not claim protocol compatibility until the relevant resources and runtime requirements are tested.
 11. Treat cache eviction separately from deletion of personal history and settings.
 12. Do not ship secrets in source control, logs, or unprotected build artifacts.
-13. Do not describe planned functionality as implemented.
+13. Diagnostics must be local-first, bounded, redacted, and explicitly exported by the user. Do not log watch history or media titles by default.
+14. Do not describe planned functionality as implemented.
 
 ## 8. Current implementation snapshot
 
 Initial foundations exist in the repository; the current Windows CI run must verify the latest changes before they are considered build-verified.
 
 - `src/storage.rs`: SQLite initialization, local settings, playback progress, watch history, and installed add-on registry.
-- `src/metadata.rs`: TMDB movie/TV search, detail enrichment, and artwork URL construction.
+- `src/diagnostics.rs`: local diagnostic event logging, bounded log rotation, recent-event collection, and basic credential redaction.
+- `src/metadata.rs`: TMDB movie/TV search, detail enrichment, seasons/episodes, external-ID lookup, and image URL construction.
 - `src/addons.rs`: Stremio manifest URL normalization/validation, explicit installation, local registry persistence, and an initial stream request method.
-- `src/main.rs`: initializes the local database during startup.
+- `src/main.rs`: initializes diagnostics and the local database during startup.
 
 Not yet connected or implemented:
 
-- Full GPUI screens and navigation.
+- Full GPUI screens and navigation, including Settings and Copy Logs.
 - TMDB-powered Home/Search/Details, season/episode browsing, and ID mapping.
 - Persistent metadata/artwork cache.
 - User-facing add-on manager and complete catalog/meta/stream/subtitle routing.
