@@ -15,6 +15,11 @@ impl Render for SenzoApp {
 }
 
 fn main() {
+    // SENZO is accountless: its settings, add-ons, watch history, and resume
+    // positions are stored locally in the user's application-data directory.
+    let _database = senzo::storage::LocalDatabase::open_default()
+        .expect("failed to initialize SENZO's local database");
+
     gpui_platform::application()
         .with_quit_mode(QuitMode::LastWindowClosed)
         .run(|cx: &mut App| {
