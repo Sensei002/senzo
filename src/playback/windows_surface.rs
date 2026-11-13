@@ -1,5 +1,7 @@
 //! Minimal native Win32 child-window owner for MPV video embedding.
-use anyhow::bail;
+use anyhow::{Context as _, bail};
+use gpui::Window;
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::ptr;
 use windows_sys::Win32::{
     Foundation::{GetLastError, HWND},
@@ -8,6 +10,22 @@ use windows_sys::Win32::{
         SetWindowPos, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_VISIBLE,
     },
 };
+
+
+/// Obtain the native Win32 parent HWND from GPUI's public raw-window-handle API.
+pub fn gpui_parent_hwnd(window: &Window) -> anyhow::Result<usize> {
+    let handle = window
+        .window_handle()
+        .context("GPUI did not expose a native window handle")?
+        .as_raw();
+
+    match handle {
+        RawWindowHandle::Win32(handle) => {
+            usize::try_from(handle.hwnd.get()).context("GPUI returned an invalid Win32 HWND")
+        }
+        _ => bail!("SENZO's native MPV video surface currently requires a Win32 GPUI window"),
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SurfaceBounds {

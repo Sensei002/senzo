@@ -63,6 +63,7 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [x] Add live subtitle synchronization and font-size controls with locally persisted preferences.
 - [x] Add a validated MPV configuration boundary for a caller-owned Win32 child HWND (`wid`) before MPV initialization.
 - [x] Add a Windows child-HWND surface owner with validated parent/size inputs, resize support, and RAII teardown (GPUI parent-handle acquisition and layout/DPI coordination remain pending).
+- [x] Acquire the parent HWND through GPUI 0.2.2 public raw-window-handle APIs and retain it in the app lifecycle.
 - [ ] Integrate the child surface into the GPUI player layout with correct resize, DPI, and z-order handling.
 - [ ] Connect the surface HWND to the playback worker and validate actual video presentation, hardware decoding, and GPU/renderer compatibility.
 - [ ] Embed the MPV video output into the GPUI player layout; verify HWND/window lifetime, resize, DPI, and z-order behavior before enabling playback by default.

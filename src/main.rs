@@ -13,6 +13,7 @@ use gpui::{
 use senzo::{
     diagnostics,
     playback::{
+        windows_surface::gpui_parent_hwnd,
         mpv_config::{MpvCapabilities, build_mpv_config},
         mpv_worker::{PlaybackEvent, PlaybackState, PlaybackWorker},
     },
@@ -40,10 +41,11 @@ struct SenzoApp {
     subtitle_provider_status: String,
     subtitle_credentials_status: String,
     subtitle_task: Option<Task<()>>,
+    native_parent_hwnd: Option<usize>,
 }
 
 impl SenzoApp {
-    fn new(database: LocalDatabase) -> Self {
+    fn new(database: LocalDatabase, native_parent_hwnd: Option<usize>) -> Self {
         let settings = match database.playback_settings() {
             Ok(settings) => settings,
             Err(error) => {
@@ -74,6 +76,7 @@ impl SenzoApp {
                 Err(_) => "Could not inspect Windows Credential Manager".into(),
             },
             subtitle_task: None,
+            native_parent_hwnd,
         }
     }
 
@@ -1641,9 +1644,19 @@ fn main() {
             let mut database = Some(database);
             move |cx: &mut App| {
                 let database = database.take().expect("SENZO window initialized once");
-                cx.open_window(WindowOptions::default(), move |_window, cx| {
+                cx.open_window(WindowOptions::default(), move |window, cx| {
+                    let native_parent_hwnd = match gpui_parent_hwnd(window) {
+                        Ok(hwnd) => {
+                            diagnostics::record(diagnostics::Level::Info, "playback", "acquired GPUI native Win32 parent HWND");
+                            Some(hwnd)
+                        }
+                        Err(error) => {
+                            diagnostics::record(diagnostics::Level::Warn, "playback", &format!("native video surface unavailable: {error:#}"));
+                            None
+                        }
+                    };
                     cx.new(move |cx| {
-                        let mut app = SenzoApp::new(database);
+                        let mut app = SenzoApp::new(database, native_parent_hwnd);
                         app.start_playback(cx);
                         app
                     })

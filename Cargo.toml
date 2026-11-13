@@ -10,6 +10,7 @@ publish = false
 anyhow = "1"
 dirs = "6"
 gpui = { package = "gpui-ce", version = "=0.2.2" }
+raw-window-handle = "0.6"
 gpui_platform = { package = "gpui_ce_platform", version = "0.1" }
 keyring = { version = "=3.6.3", default-features = false, features = ["windows-native"] }
 libloading = "0.8"

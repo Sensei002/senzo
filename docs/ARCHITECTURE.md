@@ -177,3 +177,8 @@ The Windows presentation path uses a caller-owned native child HWND as MPV's `wi
 ### Native Windows child-surface primitive
 
 `src/playback/windows_surface.rs` provides a Windows-only RAII wrapper around a child `STATIC` HWND. It validates the parent HWND and positive pixel dimensions, exposes the child handle as the documented non-zero 32-bit MPV `wid` value, supports explicit resize/show operations without activation or z-order changes, and destroys the child HWND on drop. All surface operations must run on the owning UI thread. The caller is responsible for converting GPUI layout coordinates to physical client pixels and for keeping the surface alive until the MPV instance is shut down. This is a platform primitive only: GPUI raw-handle acquisition, automatic layout/DPI updates, and worker/runtime wiring are not yet implemented.
+
+
+## GPUI native window handle
+
+SENZO obtains its Windows parent HWND through GPUI's public `HasWindowHandle` implementation and the `raw-window-handle` 0.6 `RawWindowHandle::Win32` variant. The value is retained with the application state for the later player-surface lifecycle. This does not yet create the video child window, calculate the player viewport bounds, or pass an HWND to MPV; those remain separate integration steps.
