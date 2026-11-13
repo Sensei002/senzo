@@ -58,10 +58,7 @@ impl MpvConfig {
 ///
 /// This function does not load MPV or claim that an option was accepted. The caller
 /// must apply the returned options to the live MPV instance and handle API errors.
-pub fn build_mpv_config(
-    settings: &PlaybackSettings,
-    capabilities: &MpvCapabilities,
-) -> MpvConfig {
+pub fn build_mpv_config(settings: &PlaybackSettings, capabilities: &MpvCapabilities) -> MpvConfig {
     let mut config = MpvConfig::default();
 
     apply_hardware_decoding(&mut config, settings, capabilities);
@@ -162,7 +159,9 @@ fn apply_picture_quality(
         HdrMode::ToneMap if capabilities.hdr_tone_mapping_supported => {
             config.set("tone-mapping", "auto");
         }
-        HdrMode::Passthrough if capabilities.hdr_output_supported => {
+        HdrMode::Passthrough
+            if capabilities.hdr_output_supported && capabilities.gpu_next_available =>
+        {
             config.set("target-colorspace-hint", "yes");
         }
         HdrMode::ToneMap => config.fallback(
@@ -175,11 +174,18 @@ fn apply_picture_quality(
             "hdr",
             "passthrough",
             "auto",
-            "The active output path does not report HDR passthrough support; MPV's automatic handling is retained.",
+            "HDR passthrough requires a reported HDR output and the GPU Next renderer; MPV's automatic handling is retained.",
         ),
-        HdrMode::Disabled => {
-            config.set("target-colorspace-hint", "no");
+        HdrMode::Disabled if capabilities.gpu_next_available => {
+            config.set("target-trc", "bt.1886");
+            config.set("target-colorspace-hint", "yes");
         }
+        HdrMode::Disabled => config.fallback(
+            "hdr",
+            "disabled",
+            "auto",
+            "Explicit SDR tone mapping requires the GPU Next renderer; MPV's automatic handling is retained.",
+        ),
     }
 }
 
@@ -187,7 +193,12 @@ fn apply_buffering(config: &mut MpvConfig, settings: &PlaybackSettings) {
     let forward_seconds = settings.buffer.forward_seconds.min(300);
     let back_seconds = settings.buffer.back_seconds.min(300);
     let memory_bytes = u64::from(settings.buffer.memory_limit_mib.clamp(32, 2048)) * 1024 * 1024;
-    let back_bytes = memory_bytes / 4;
+    let total_seconds = u64::from(forward_seconds) + u64::from(back_seconds);
+    let back_bytes = if total_seconds == 0 {
+        0
+    } else {
+        memory_bytes * u64::from(back_seconds) / total_seconds
+    };
     let forward_bytes = memory_bytes - back_bytes;
 
     config.set("cache", "yes");
@@ -195,7 +206,6 @@ fn apply_buffering(config: &mut MpvConfig, settings: &PlaybackSettings) {
     config.set("demuxer-max-bytes", forward_bytes);
     config.set("demuxer-max-back-bytes", back_bytes);
     config.set("demuxer-readahead-secs", forward_seconds);
-    config.set("demuxer-back-buffer", back_seconds);
 }
 
 fn apply_subtitles(config: &mut MpvConfig, settings: &PlaybackSettings) {
@@ -226,8 +236,14 @@ mod tests {
     #[test]
     fn default_preferences_use_automatic_decoding_and_available_renderer() {
         let config = build_mpv_config(&PlaybackSettings::default(), &full_capabilities());
-        assert_eq!(config.options.get("hwdec").map(String::as_str), Some("auto-safe"));
-        assert_eq!(config.options.get("vo").map(String::as_str), Some("gpu-next"));
+        assert_eq!(
+            config.options.get("hwdec").map(String::as_str),
+            Some("auto-safe")
+        );
+        assert_eq!(
+            config.options.get("vo").map(String::as_str),
+            Some("gpu-next")
+        );
         assert!(config.fallbacks.is_empty());
     }
 
@@ -239,7 +255,10 @@ mod tests {
             ..PlaybackSettings::default()
         };
         let config = build_mpv_config(&settings, &full_capabilities());
-        assert_eq!(config.options.get("hwdec").map(String::as_str), Some("no"));
+        assert_eq!(
+            config.options.get("hwdec").map(String::as_str),
+            Some("no")
+        );
     }
 
     #[test]
@@ -250,7 +269,10 @@ mod tests {
             ..PlaybackSettings::default()
         };
         let config = build_mpv_config(&settings, &MpvCapabilities::default());
-        assert_eq!(config.options.get("hwdec").map(String::as_str), Some("auto"));
+        assert_eq!(
+            config.options.get("hwdec").map(String::as_str),
+            Some("auto")
+        );
         assert_eq!(config.fallbacks.len(), 1);
         assert_eq!(config.fallbacks[0].setting, "decoder");
     }
@@ -266,7 +288,10 @@ mod tests {
             ..MpvCapabilities::default()
         };
         let config = build_mpv_config(&settings, &capabilities);
-        assert_eq!(config.options.get("vo").map(String::as_str), Some("gpu"));
+        assert_eq!(
+            config.options.get("vo").map(String::as_str),
+            Some("gpu")
+        );
         assert_eq!(config.fallbacks[0].applied, "gpu");
     }
 
@@ -296,13 +321,34 @@ mod tests {
             ..PlaybackSettings::default()
         };
         let config = build_mpv_config(&settings, &full_capabilities());
-        assert_eq!(config.options.get("scale").map(String::as_str), Some("spline36"));
-        assert_eq!(config.options.get("dscale").map(String::as_str), Some("mitchell"));
-        assert_eq!(config.options.get("deband").map(String::as_str), Some("yes"));
-        assert_eq!(config.options.get("interpolation").map(String::as_str), Some("yes"));
-        assert_eq!(config.options.get("sub-font-size").map(String::as_str), Some("52"));
-        assert_eq!(config.options.get("sub-margin-y").map(String::as_str), Some("18"));
-        assert_eq!(config.options.get("sub-bold").map(String::as_str), Some("yes"));
+        assert_eq!(
+            config.options.get("scale").map(String::as_str),
+            Some("spline36")
+        );
+        assert_eq!(
+            config.options.get("dscale").map(String::as_str),
+            Some("mitchell")
+        );
+        assert_eq!(
+            config.options.get("deband").map(String::as_str),
+            Some("yes")
+        );
+        assert_eq!(
+            config.options.get("interpolation").map(String::as_str),
+            Some("yes")
+        );
+        assert_eq!(
+            config.options.get("sub-font-size").map(String::as_str),
+            Some("52")
+        );
+        assert_eq!(
+            config.options.get("sub-margin-y").map(String::as_str),
+            Some("18")
+        );
+        assert_eq!(
+            config.options.get("sub-bold").map(String::as_str),
+            Some("yes")
+        );
     }
 
     #[test]
@@ -317,10 +363,19 @@ mod tests {
         };
         let config = build_mpv_config(&settings, &full_capabilities());
         let forward = config.options["demuxer-max-bytes"].parse::<u64>().unwrap();
-        let back = config.options["demuxer-max-back-bytes"].parse::<u64>().unwrap();
+        let back = config.options["demuxer-max-back-bytes"]
+            .parse::<u64>()
+            .unwrap();
         assert_eq!(config.options["cache-secs"], "300");
         assert_eq!(config.options["demuxer-readahead-secs"], "300");
-        assert_eq!(config.options["demuxer-back-buffer"], "300");
+        assert!(!config.options.contains_key("demuxer-back-buffer"));
         assert_eq!(forward + back, 256 * 1024 * 1024);
+        assert_eq!(back, 256 * 1024 * 1024 / 2);
+
+        let defaults = build_mpv_config(&PlaybackSettings::default(), &full_capabilities());
+        let default_back = defaults.options["demuxer-max-back-bytes"]
+            .parse::<u64>()
+            .unwrap();
+        assert_eq!(default_back, 256 * 1024 * 1024 / 3);
     }
 }
