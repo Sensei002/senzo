@@ -10,7 +10,7 @@ This document describes requirements and planned controls. A control is not impl
 
 - SENZO does not require a SENZO account, profile, or cloud history service.
 - Settings, watch history, playback progress, and installed add-on records are stored locally.
-- On Windows, the current SQLite database location is `%LOCALAPPDATA%\\SENZO\\senzo.db`.
+- On Windows, the current SQLite database location is `%LOCALAPPDATA%\SENZO\senzo.db`.
 - Future metadata and artwork caches must have size limits and eviction rules.
 - Cache cleanup must not delete watch history, settings, or add-on configuration.
 - Any future telemetry must be opt-in, documented, and designed to avoid collecting viewing history or personal media activity by default.
