@@ -113,7 +113,7 @@ The repository currently contains early service and persistence foundations. It 
 | Area | Status |
 |---|---|
 | Rust + GPUI application shell | Initial scaffold |
-| Windows CI | Configured; successful CI run #64 verifies formatting, compilation, and tests |
+| Windows CI | Configured; successful CI run #66 verifies formatting, compilation, and tests |
 | Local SQLite storage | Initial settings, progress, history, and add-on tables |
 | Local diagnostics service | Initial bounded event logging and recent-log export API; Settings/clipboard UI pending |
 | Typed playback preferences | Persisted settings model and initial GPUI controls; settings persist locally |

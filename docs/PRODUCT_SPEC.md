@@ -80,7 +80,7 @@ Target capabilities include:
 
 Settings must represent real backend capabilities. Unsupported options must be hidden or clearly unavailable, not presented as working controls. The default profile should favor automatic hardware selection, balanced scaling, disabled expensive optional processing, and bounded buffering. RTX-specific enhancement features must only appear when compatible hardware and a supported processing path are detected.
 
-The native libmpv runtime adapter is being introduced behind a dedicated playback boundary. It must remain independent of GPUI; the application will own it on a dedicated playback worker and must package a trusted, compatible Windows runtime before enabling playback in user builds.
+The native libmpv runtime adapter is being introduced behind a dedicated playback boundary. The runtime is created and owned by a dedicated worker thread, with a bounded command queue and non-blocking events; GPUI must never call MPV directly. A trusted, compatible Windows runtime must be packaged and event/property observation connected before enabling playback in user builds.
 
 ### Discord Rich Presence
 
@@ -129,6 +129,6 @@ Provider-specific logic must remain behind service or adapter interfaces. UI com
 
 ## Current status
 
-Early development. The repository has initial SQLite, TMDB client, add-on manifest/stream service, typed playback preferences, a first native GPUI Settings screen, a pure MPV option-mapping layer, and a dynamic libmpv loader with basic playback commands and property access. The runtime adapter is not yet connected to GPUI, does not yet pump MPV events, and requires a trusted libmpv DLL supplied by the application package. The full add-on manager, torrent transport, Discord Rich Presence, installers, and updater remain planned.
+Early development. The repository has initial SQLite, TMDB client, add-on manifest/stream service, typed playback preferences, a first native GPUI Settings screen, a pure MPV option-mapping layer, and a dynamic libmpv loader with basic playback commands and property access. The runtime and dedicated worker adapters are not yet connected to GPUI, do not yet pump MPV playback events/properties, and require a trusted libmpv DLL supplied by the application package. The full add-on manager, torrent transport, Discord Rich Presence, installers, and updater remain planned.
 
 See [README](../README.md), [Architecture](ARCHITECTURE.md), and [Roadmap](ROADMAP.md).
