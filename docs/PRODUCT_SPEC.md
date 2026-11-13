@@ -21,7 +21,7 @@ SENZO is for desktop users who want one interface for media discovery and playba
 - Streaming providers are optional user-installed add-ons.
 - No streaming add-on is bundled or preinstalled.
 - Torrentio is not integrated into the default source list; users may manually add their own configured manifest URL.
-- MPV is the planned playback engine, with user-adjustable decoding, rendering, image processing, subtitles, and buffering.
+- MPV is the playback engine, with user-adjustable decoding, rendering, image processing, subtitles, and buffering.
 - All builds and tests are run through GitHub Actions.
 
 ## Functional scope
@@ -80,7 +80,7 @@ Target capabilities include:
 
 Settings must represent real backend capabilities. Unsupported options must be hidden or clearly unavailable, not presented as working controls. The default profile should favor automatic hardware selection, balanced scaling, disabled expensive optional processing, and bounded buffering. RTX-specific enhancement features must only appear when compatible hardware and a supported processing path are detected.
 
-The precise native video-surface integration and each MPV option must be validated during implementation.
+The native libmpv runtime adapter is being introduced behind a dedicated playback boundary. It must remain independent of GPUI; the application will own it on a dedicated playback worker and must package a trusted, compatible Windows runtime before enabling playback in user builds.
 
 ### Discord Rich Presence
 
@@ -111,7 +111,7 @@ Planned Windows distribution includes:
 - SQLite for local persistence.
 - TMDB API for metadata.
 - Stremio-compatible HTTP add-ons for optional sources.
-- MPV for playback.
+- MPV through a dynamically loaded libmpv C API adapter.
 - Discord IPC for presence.
 - GitHub Actions for Windows formatting, compilation, tests, and future release builds.
 
@@ -129,6 +129,6 @@ Provider-specific logic must remain behind service or adapter interfaces. UI com
 
 ## Current status
 
-Early development. The repository has initial SQLite, TMDB client, add-on manifest/stream service, typed playback preferences, a first native GPUI Settings screen, and a pure MPV option-mapping layer with capability-aware fallback tests. Settings persist locally; the mapper is not yet connected to a live MPV instance. MPV runtime integration, the full add-on manager, torrent transport, Discord Rich Presence, installers, and updater remain planned.
+Early development. The repository has initial SQLite, TMDB client, add-on manifest/stream service, typed playback preferences, a first native GPUI Settings screen, a pure MPV option-mapping layer, and a dynamic libmpv loader with basic playback commands and property access. The runtime adapter is not yet connected to GPUI, does not yet pump MPV events, and requires a trusted libmpv DLL supplied by the application package. The full add-on manager, torrent transport, Discord Rich Presence, installers, and updater remain planned.
 
 See [README](../README.md), [Architecture](ARCHITECTURE.md), and [Roadmap](ROADMAP.md).

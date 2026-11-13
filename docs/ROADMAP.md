@@ -33,7 +33,7 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [ ] Apply the exact official SENZO transparent logo throughout the application.
 - [ ] Add TMDB logo and required attribution in About/Credits.
 
-## Phase 2 — Metadata and local library
+## Phase 4 — Metadata, discovery, and local library
 
 - [ ] Configure TMDB credentials for official builds without exposing secrets in source control or logs.
 - [ ] Connect TMDB search and detail services to GPUI screens.
@@ -43,7 +43,7 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [ ] Add continue-watching, watch history, favorites, and local library views.
 - [ ] Add safe cache cleanup that preserves personal history and settings.
 
-## Phase 3 — Add-ons and playback
+## Phase 3 — Playback engine
 
 - [ ] Build Add-ons UI with manual manifest URL entry.
 - [ ] Add manifest preview/validation and add-on enable/disable/remove/reorder.
@@ -51,15 +51,28 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [ ] Add source capability matching and user-controlled source selection.
 - [ ] Keep all streaming add-ons absent by default; Torrentio may only be added manually by the user.
 - [ ] Harden remote manifest fetching, redirects, and stream URL validation.
-- [x] Add a pure MPV option-mapping layer with capability-aware fallback reporting and unit tests (live runtime application remains pending).
-- [ ] Integrate MPV with subtitles, audio tracks, seeking, speed, and fullscreen.
+- [x] Add a pure MPV option-mapping layer with capability-aware fallback reporting and unit tests.
+- [x] Add a dynamic libmpv loader that applies options before initialization and exposes local-file load, pause, seek, speed, stop, and property access.
+- [ ] Package and validate a trusted Windows libmpv runtime in development artifacts.
+- [ ] Add an MPV event pump and playback-state model on a dedicated worker thread.
+- [ ] Connect the playback worker to GPUI through bounded messages; never call blocking playback operations on the UI thread.
+- [ ] Implement a native video presentation surface and validate GPU/renderer compatibility.
+- [ ] Add play, pause, seek, volume, fullscreen, audio-track and subtitle selection controls.
 - [ ] Detect runtime decoder/renderer/HDR capabilities and apply settings to a live MPV instance.
-- [ ] Add renderer selection, scaling algorithms, debanding, HDR handling, and safe fallback behavior.
-- [ ] Add bounded buffer and memory controls, subtitle appearance, and live playback diagnostics.
-- [ ] Keep advanced image-processing controls opt-in and expose only capabilities supported by the active GPU/output path.
-- [ ] Connect player progress and history events to local storage.
+- [ ] Persist playback progress and resume positions.
+- [ ] Add live playback diagnostics and graceful error/recovery states.
 
-## Phase 4 — Additional sources and presence
+## Phase 5 — Add-ons and streaming sources
+
+- [ ] Build Add-ons UI with manual manifest URL entry.
+- [ ] Add manifest preview/validation and add-on enable/disable/remove/reorder.
+- [ ] Implement Stremio catalog, metadata, stream, and subtitle resource routing.
+- [ ] Add source capability matching and user-controlled source selection.
+- [ ] Keep all streaming add-ons absent by default; users may add their own configured manifest URLs.
+- [ ] Harden remote manifest fetching, redirects, and stream URL validation.
+- [ ] Connect selected add-on streams to the playback service through a transport abstraction.
+
+## Phase 6 — Additional sources and presence
 
 - [ ] Define a stable source-adapter interface for additional providers.
 - [ ] Evaluate optional torrent engine choices behind a transport abstraction.
@@ -67,7 +80,7 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [ ] Add more source adapters without changing metadata or UI layers.
 - [ ] Add Discord Rich Presence, playback-state updates, and privacy controls.
 
-## Phase 5 — Windows distribution
+## Phase 7 — Windows distribution
 
 - [ ] Build optimized Windows release binaries in GitHub Actions.
 - [ ] Package Windows installers.

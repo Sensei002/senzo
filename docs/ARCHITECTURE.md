@@ -71,7 +71,7 @@ Manifests and responses are untrusted remote input. Validate URL schemes, respon
 - **Metadata service:** TMDB search, details, seasons/episodes, external-ID mapping, and image URL construction.
 - **Artwork/cache service:** Bounded local image and metadata cache with eviction and failure handling.
 - **Source adapters:** Stremio-compatible add-ons behind a normalized source interface. Future source types should not be coupled to UI code.
-- **Playback:** MPV behind an internal playback interface. Hardware decoding, renderer selection, scaling, HDR handling, subtitles/audio selection, buffering, seeking, speed, and fullscreen belong to the playback layer. UI settings express user intent; the playback adapter checks runtime capabilities and applies only supported options.
+- **Playback:** MPV behind an internal playback interface. The pure configuration adapter translates persisted preferences into MPV options and records capability fallbacks. The dynamic runtime loader owns the libmpv DLL and exposes a narrow command/property API; it does not expose MPV pointers to GPUI. A dedicated playback worker will own the runtime so native calls stay off the UI thread. Hardware decoding, renderer selection, scaling, HDR handling, subtitles/audio selection, buffering, seeking, speed, and fullscreen belong to this layer.
 - **Torrent transport:** Evaluate a Rust torrent engine such as librqbit only if a user-selected source requires it. Validate license, Windows compatibility, buffering, piece prioritization, seek behavior, and platform support before adoption. It is not a bundled source or default torrent catalog.
 - **Local persistence:** SQLite stores settings, add-on registry, playback progress, watch history, and future library state. Current Windows database path: `%LOCALAPPDATA%\SENZO\senzo.db`.
 - **Networking:** Tokio, Reqwest, and Serde.
@@ -128,7 +128,8 @@ Initial foundations exist in the repository. Windows CI is the source of truth f
 - `src/diagnostics.rs`: local diagnostic event logging, bounded log rotation, recent-event collection, and basic credential redaction.
 - `src/metadata.rs`: TMDB movie/TV search, detail enrichment, seasons/episodes, external-ID lookup, and image URL construction.
 - `src/settings.rs`: typed playback preferences, conservative defaults, and resource-limit normalization.
-- `src/playback/mpv_config.rs`: pure mapping from user preferences to MPV option values, runtime-capability-aware fallback reporting, and unit tests. It does not load or apply a live MPV instance yet.
+- `src/playback/mpv_config.rs`: pure mapping from user preferences to MPV option values, runtime-capability-aware fallback reporting, and unit tests.
+- `src/playback/mpv_runtime.rs`: dynamic libmpv loading, pre-initialization option application, local-file loading, pause, seek, speed, stop, and string-property access. It requires an application-supplied libmpv DLL and is not yet connected to GPUI or packaged.
 - `src/addons.rs`: Stremio manifest URL normalization/validation, explicit installation, local registry persistence, and an initial stream request method.
 - `src/main.rs`: initializes diagnostics and SQLite, loads persisted playback preferences, and renders the initial GPUI Settings screen with local persistence and Copy Logs.
 
@@ -138,8 +139,10 @@ Not yet connected or implemented:
 - TMDB-powered Home/Search/Details, season/episode browsing, and ID mapping.
 - Persistent metadata/artwork cache.
 - User-facing add-on manager and complete catalog/meta/stream/subtitle routing.
-- Live MPV playback integration and playback UI.
-- Runtime GPU/decoder capability detection; the configuration mapper currently accepts capability data but does not discover it.
+- Playback worker/event pump and GPUI playback screen.
+- Packaging and validating a trusted Windows libmpv runtime.
+- Runtime GPU/decoder/HDR capability detection.
+- Live MPV video-surface integration and playback UI.
 - Torrent transport.
 - Discord Rich Presence.
 - Windows installers and updater.

@@ -22,7 +22,7 @@ SENZO is an independent project with its own architecture and product decisions.
 - **Later platform:** Linux, after the Windows application is established.
 - **Metadata:** TMDB is the primary metadata provider.
 - **Sources:** Optional, user-installed add-ons using the Stremio HTTP add-on protocol as the initial compatibility target.
-- **Playback:** MPV is the planned playback engine.
+- **Playback:** MPV through a dynamically loaded libmpv C API adapter; the Windows runtime is not yet packaged.
 - **Personal data:** Local SQLite database under the SENZO app-data directory.
 - **Accounts:** No SENZO sign-up, login, or cloud account.
 - **Builds and tests:** GitHub Actions; no local build is required for the project's CI workflow.
@@ -77,7 +77,7 @@ MPV is the planned playback engine. Target player capabilities include:
 - Renderer selection, scaling algorithms, HDR handling, and optional image processing.
 - Buffer and memory controls, subtitle appearance, and playback diagnostics.
 
-These controls will be capability-aware: SENZO will only apply options supported by the active playback backend, GPU, and display. Defaults will favor automatic hardware selection and balanced quality with low resource use. The exact native video-surface integration will be validated during implementation. Playback is not yet implemented. An initial MPV configuration adapter now translates saved preferences into MPV option values and reports capability fallbacks; live runtime integration and capability detection remain pending.
+These controls will be capability-aware: SENZO will only apply options supported by the active playback backend, GPU, and display. Defaults will favor automatic hardware selection and balanced quality with low resource use. The exact native video-surface integration will be validated during implementation. The current runtime layer dynamically loads a caller-supplied libmpv DLL, applies the saved MPV options before initialization, and exposes basic local-file loading, pause, seek, speed, stop, and property access. It is not yet connected to the GPUI interface, and SENZO does not yet package the Windows MPV runtime. Playback is not yet available as an end-user feature.
 
 ### Additional planned capabilities
 
@@ -93,7 +93,7 @@ SENZO now has an initial local diagnostics service. It records operational audit
 
 `%LOCALAPPDATA%\SENZO\logs\senzo.log`
 
-The active log rotates at 2 MiB. The support-bundle API is designed to collect recent events (up to 72 hours, capped at 1 MiB) without exporting the SQLite database or watch history. Credential redaction is best-effort, so secrets must never be sent to the logger. A Settings screen and user-facing **Copy Logs** clipboard action are still being implemented.
+The active log rotates at 2 MiB. The support-bundle API is designed to collect recent events (up to 72 hours, capped at 1 MiB) without exporting the SQLite database or watch history. Credential redaction is best-effort, so secrets must never be sent to the logger. The current Settings screen includes a user-facing **Copy Logs** clipboard action.
 
 ## How SENZO is intended to work
 
@@ -113,18 +113,18 @@ The repository currently contains early service and persistence foundations. It 
 | Area | Status |
 |---|---|
 | Rust + GPUI application shell | Initial scaffold |
-| Windows CI | Configured; current changes require successful CI verification |
+| Windows CI | Configured; successful CI run #64 verifies formatting, compilation, and tests |
 | Local SQLite storage | Initial settings, progress, history, and add-on tables |
 | Local diagnostics service | Initial bounded event logging and recent-log export API; Settings/clipboard UI pending |
 | Typed playback preferences | Persisted settings model and initial GPUI controls; settings persist locally |
-| MPV configuration adapter | Pure MPV option mapping with capability-aware fallbacks and unit tests; not yet connected to a live MPV runtime |
+| MPV configuration adapter | Pure MPV option mapping with capability-aware fallbacks and unit tests |\n| MPV runtime adapter | Dynamic libmpv loader with basic commands and property access; not connected to GPUI or packaged |
 | TMDB service | Initial movie/TV search, detail requests, season/episode and external-ID services, image URL construction |
 | Add-on service | Initial manifest URL validation/installation storage and stream request foundation |
-| GPUI media-center screens | Not connected; placeholder shell |
+| GPUI media-center screens | Settings shell only; Home/Search/Library/Details/Player/Add-ons remain planned |
 | Metadata-driven Home/Search/Details | Planned |
 | User-facing add-on manager | Planned |
 | Full Stremio catalog/meta/stream/subtitle routing | Planned |
-| MPV playback | Planned |
+| End-user MPV playback | Planned |
 | Torrent transport | Not integrated; evaluate only behind a transport abstraction if needed |
 | Discord Rich Presence | Planned |
 | Windows installer and updater | Planned |
@@ -141,7 +141,7 @@ A feature is not considered complete merely because a service module exists. It 
 - **SQLite / rusqlite** — local persistence.
 - **TMDB API** — movie and television metadata.
 - **Stremio-compatible HTTP add-ons** — optional external sources.
-- **MPV** — planned playback engine.
+- **MPV / libmpv** — playback engine and C API.
 - **GitHub Actions** — Windows formatting, compilation, tests, and future release builds.
 
 Dependencies and integration choices may change when implementation, CI, security review, or license compatibility requires it.
