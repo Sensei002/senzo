@@ -77,7 +77,7 @@ MPV is the planned playback engine. Target player capabilities include:
 - Renderer selection, scaling algorithms, HDR handling, and optional image processing.
 - Buffer and memory controls, subtitle appearance, and playback diagnostics.
 
-These controls will be capability-aware: SENZO will only apply options supported by the active playback backend, GPU, and display. Defaults will favor automatic hardware selection and balanced quality with low resource use. The exact native video-surface integration will be validated during implementation. The current runtime layer dynamically loads a caller-supplied libmpv DLL, applies the saved MPV options before initialization, and exposes basic local-file loading, pause, seek, speed, stop, and property access. A dedicated worker now owns that runtime on a separate thread and accepts bounded commands with non-blocking status events. Neither layer is yet connected to the GPUI interface, and SENZO does not yet package the Windows MPV runtime. Playback is not yet available as an end-user feature.
+These controls will be capability-aware: SENZO will only apply options supported by the active playback backend, GPU, and display. Defaults will favor automatic hardware selection and balanced quality with low resource use. The exact native video-surface integration will be validated during implementation. The current runtime and worker layers support local-file load, pause, seek, speed, stop, volume, mute, fullscreen, and explicit audio/subtitle track selection/disable, while publishing non-blocking playback state snapshots. They are not yet connected to GPUI, track enumeration and video presentation are not implemented, and SENZO does not yet package the Windows MPV runtime. Playback is not yet available as an end-user feature.
 
 ### Additional planned capabilities
 
@@ -117,7 +117,7 @@ The repository currently contains early service and persistence foundations. It 
 | Local SQLite storage | Initial settings, progress, history, and add-on tables |
 | Local diagnostics service | Initial bounded event logging and recent-log export API; Settings/clipboard UI pending |
 | Typed playback preferences | Persisted settings model and initial GPUI controls; settings persist locally |
-| MPV configuration adapter | Pure MPV option mapping with capability-aware fallbacks and unit tests |\n| MPV runtime adapter | Dynamic libmpv loader with basic commands and property access; not connected to GPUI or packaged |
+| MPV configuration adapter | Pure MPV option mapping with capability-aware fallbacks and unit tests |\n| MPV runtime and worker | Dynamic libmpv loader and dedicated worker; local file, transport, volume, mute, fullscreen, track-selection command boundary and playback state; not connected to GPUI or packaged |
 | TMDB service | Initial movie/TV search, detail requests, season/episode and external-ID services, image URL construction |
 | Add-on service | Initial manifest URL validation/installation storage and stream request foundation |
 | GPUI media-center screens | Settings shell only; Home/Search/Library/Details/Player/Add-ons remain planned |

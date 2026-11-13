@@ -102,6 +102,37 @@ impl MpvRuntime {
         self.command(&["set", "pause", if paused { "yes" } else { "no" }])
     }
 
+    /// Set output volume in the supported SENZO UI range of 0–100 percent.
+    pub fn set_volume(&self, volume: f64) -> anyhow::Result<()> {
+        let volume = volume_argument(volume)?;
+        self.command(&["set", "volume", &volume])
+    }
+
+    /// Enable or disable audio mute.
+    pub fn set_muted(&self, muted: bool) -> anyhow::Result<()> {
+        self.command(&["set", "mute", if muted { "yes" } else { "no" }])
+    }
+
+    /// Enable or disable fullscreen presentation.
+    pub fn set_fullscreen(&self, fullscreen: bool) -> anyhow::Result<()> {
+        self.command(&["set", "fullscreen", if fullscreen { "yes" } else { "no" }])
+    }
+
+    /// Select an audio track by the ID reported by MPV.
+    pub fn set_audio_track(&self, track_id: u64) -> anyhow::Result<()> {
+        let track_id = track_argument(track_id)?;
+        self.command(&["set", "aid", &track_id])
+    }
+
+    /// Select a subtitle track, or disable subtitles when `None` is supplied.
+    pub fn set_subtitle_track(&self, track_id: Option<u64>) -> anyhow::Result<()> {
+        let track_id = match track_id {
+            Some(track_id) => track_argument(track_id)?,
+            None => "no".to_owned(),
+        };
+        self.command(&["set", "sid", &track_id])
+    }
+
     /// Seek to an absolute playback position in seconds.
     pub fn seek_absolute(&self, seconds: f64) -> anyhow::Result<()> {
         let seconds = seek_argument(seconds)?;
@@ -184,6 +215,20 @@ fn load_symbol<T: Copy>(library: &Library, symbol: &'static [u8]) -> anyhow::Res
     }
 }
 
+fn volume_argument(volume: f64) -> anyhow::Result<String> {
+    if !volume.is_finite() || !(0.0..=100.0).contains(&volume) {
+        bail!("volume must be finite and between 0 and 100");
+    }
+    Ok(volume.to_string())
+}
+
+fn track_argument(track_id: u64) -> anyhow::Result<String> {
+    if track_id == 0 {
+        bail!("track ID must be greater than zero");
+    }
+    Ok(track_id.to_string())
+}
+
 fn seek_argument(seconds: f64) -> anyhow::Result<String> {
     if !seconds.is_finite() || seconds < 0.0 {
         bail!("absolute seek position must be finite and non-negative");
@@ -201,6 +246,20 @@ mod tests {
         assert!(seek_argument(f64::NAN).is_err());
         assert!(seek_argument(f64::INFINITY).is_err());
         assert_eq!(seek_argument(12.5).unwrap(), "12.5");
+    }
+
+    #[test]
+    fn volume_is_limited_to_ui_range() {
+        assert!(volume_argument(-0.1).is_err());
+        assert!(volume_argument(100.1).is_err());
+        assert!(volume_argument(f64::NAN).is_err());
+        assert_eq!(volume_argument(75.0).unwrap(), "75");
+    }
+
+    #[test]
+    fn track_ids_must_be_positive() {
+        assert!(track_argument(0).is_err());
+        assert_eq!(track_argument(3).unwrap(), "3");
     }
 
     #[test]

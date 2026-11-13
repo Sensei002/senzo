@@ -55,8 +55,10 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [x] Add a dynamic libmpv loader that applies options before initialization and exposes local-file load, pause, seek, speed, stop, and property access.
 - [ ] Package and validate a trusted Windows libmpv runtime in development artifacts.
 - [x] Add a dedicated MPV playback worker with a bounded command queue, non-blocking events, orderly shutdown, and graceful missing-runtime reporting.
-- [ ] Add MPV event/property observation and a playback-state model.
+- [x] Add a playback-state snapshot with change-only 500 ms polling for playback position, duration, pause, buffering, title, volume, mute, and fullscreen.
+- [x] Add validated worker/runtime commands for volume, mute, fullscreen, audio-track selection, and subtitle-track selection/disable.
 - [ ] Connect the playback worker to GPUI through bounded messages; never call blocking playback operations on the UI thread.
+- [ ] Enumerate audio/subtitle tracks and expose player controls in GPUI.
 - [ ] Implement a native video presentation surface and validate GPU/renderer compatibility.
 - [ ] Add play, pause, seek, volume, fullscreen, audio-track and subtitle selection controls.
 - [ ] Detect runtime decoder/renderer/HDR capabilities and apply settings to a live MPV instance.

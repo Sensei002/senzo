@@ -25,6 +25,9 @@ pub struct PlaybackState {
     pub paused: Option<bool>,
     pub buffering: Option<bool>,
     pub media_title: Option<String>,
+    pub volume: Option<f64>,
+    pub muted: Option<bool>,
+    pub fullscreen: Option<bool>,
 }
 
 impl PlaybackState {
@@ -35,6 +38,9 @@ impl PlaybackState {
             paused: read_boolean(runtime, "pause"),
             buffering: read_boolean(runtime, "paused-for-cache"),
             media_title: read_property(runtime, "media-title"),
+            volume: read_number(runtime, "volume"),
+            muted: read_boolean(runtime, "mute"),
+            fullscreen: read_boolean(runtime, "fullscreen"),
         }
     }
 }
@@ -61,6 +67,11 @@ fn read_boolean(runtime: &MpvRuntime, name: &str) -> Option<bool> {
 enum PlaybackCommand {
     LoadFile(PathBuf),
     SetPaused(bool),
+    SetVolume(f64),
+    SetMuted(bool),
+    SetFullscreen(bool),
+    SetAudioTrack(u64),
+    SetSubtitleTrack(Option<u64>),
     SeekAbsolute(f64),
     SetSpeed(f64),
     Stop,
@@ -130,6 +141,21 @@ impl PlaybackWorker {
                                 PlaybackCommand::SetPaused(paused) => {
                                     ("set_paused", runtime.set_paused(paused), false)
                                 }
+                                PlaybackCommand::SetVolume(volume) => {
+                                    ("set_volume", runtime.set_volume(volume), false)
+                                }
+                                PlaybackCommand::SetMuted(muted) => {
+                                    ("set_muted", runtime.set_muted(muted), false)
+                                }
+                                PlaybackCommand::SetFullscreen(fullscreen) => {
+                                    ("set_fullscreen", runtime.set_fullscreen(fullscreen), false)
+                                }
+                                PlaybackCommand::SetAudioTrack(track_id) => {
+                                    ("set_audio_track", runtime.set_audio_track(track_id), false)
+                                }
+                                PlaybackCommand::SetSubtitleTrack(track_id) => {
+                                    ("set_subtitle_track", runtime.set_subtitle_track(track_id), false)
+                                }
                                 PlaybackCommand::SeekAbsolute(seconds) => {
                                     ("seek_absolute", runtime.seek_absolute(seconds), false)
                                 }
@@ -184,6 +210,40 @@ impl PlaybackWorker {
     /// Queue a pause or resume transition.
     pub fn set_paused(&self, paused: bool) -> anyhow::Result<()> {
         self.enqueue(PlaybackCommand::SetPaused(paused))
+    }
+
+    /// Queue an output volume change from 0 to 100 percent.
+    pub fn set_volume(&self, volume: f64) -> anyhow::Result<()> {
+        if !volume.is_finite() || !(0.0..=100.0).contains(&volume) {
+            bail!("volume must be finite and between 0 and 100");
+        }
+        self.enqueue(PlaybackCommand::SetVolume(volume))
+    }
+
+    /// Queue an audio mute transition.
+    pub fn set_muted(&self, muted: bool) -> anyhow::Result<()> {
+        self.enqueue(PlaybackCommand::SetMuted(muted))
+    }
+
+    /// Queue a fullscreen transition.
+    pub fn set_fullscreen(&self, fullscreen: bool) -> anyhow::Result<()> {
+        self.enqueue(PlaybackCommand::SetFullscreen(fullscreen))
+    }
+
+    /// Queue selection of an audio track using its MPV track ID.
+    pub fn set_audio_track(&self, track_id: u64) -> anyhow::Result<()> {
+        if track_id == 0 {
+            bail!("track ID must be greater than zero");
+        }
+        self.enqueue(PlaybackCommand::SetAudioTrack(track_id))
+    }
+
+    /// Queue subtitle selection; `None` disables subtitles.
+    pub fn set_subtitle_track(&self, track_id: Option<u64>) -> anyhow::Result<()> {
+        if track_id == Some(0) {
+            bail!("track ID must be greater than zero");
+        }
+        self.enqueue(PlaybackCommand::SetSubtitleTrack(track_id))
     }
 
     /// Queue an absolute seek position in seconds.
@@ -244,7 +304,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn invalid_seek_and_speed_are_rejected_before_queueing() {
+    fn invalid_seek_speed_volume_and_track_ids_are_rejected_before_queueing() {
         let (command_tx, command_rx) = mpsc::sync_channel(1);
         let (_event_tx, event_rx) = mpsc::channel();
         let worker = PlaybackWorker {
@@ -257,6 +317,12 @@ mod tests {
         assert!(worker.seek_absolute(f64::NAN).is_err());
         assert!(worker.set_speed(0.0).is_err());
         assert!(worker.set_speed(101.0).is_err());
+        assert!(worker.set_volume(-1.0).is_err());
+        assert!(worker.set_volume(101.0).is_err());
+        assert!(worker.set_audio_track(0).is_err());
+        assert!(worker.set_subtitle_track(Some(0)).is_err());
+        assert!(worker.set_subtitle_track(None).is_ok());
+        assert!(command_rx.try_recv().is_ok());
         assert!(command_rx.try_recv().is_err());
     }
 
