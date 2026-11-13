@@ -722,6 +722,27 @@ impl Render for SenzoApp {
                             ),
                     ))
                     .child(section(
+                        "Available tracks",
+                        "Audio and subtitle tracks reported by the active MPV session.",
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .children(self.playback_state.tracks.iter().map(|track| {
+                                let label = format!(
+                                    "{} · {}{}{}",
+                                    if track.kind == "audio" { "Audio" } else { "Subtitle" },
+                                    track.title.as_deref().unwrap_or("Track"),
+                                    track.language.as_deref().map(|language| format!(" · {language}")).unwrap_or_default(),
+                                    if track.selected { " · Selected" } else { "" },
+                                );
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(0xB7BEC6))
+                                    .child(label)
+                            })),
+                    ))
+                    .child(section(
                         "Hardware acceleration",
                         "Automatic is recommended. Manual decoder choices are advanced compatibility overrides.",
                         div()

@@ -18,6 +18,15 @@ const COMMAND_QUEUE_CAPACITY: usize = 32;
 const STATE_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 /// A lightweight snapshot of properties observed from the active MPV instance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaybackTrack {
+    pub id: u64,
+    pub kind: String,
+    pub title: Option<String>,
+    pub language: Option<String>,
+    pub selected: bool,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PlaybackState {
     pub position_seconds: Option<f64>,
@@ -28,6 +37,7 @@ pub struct PlaybackState {
     pub volume: Option<f64>,
     pub muted: Option<bool>,
     pub fullscreen: Option<bool>,
+    pub tracks: Vec<PlaybackTrack>,
 }
 
 impl PlaybackState {
@@ -41,6 +51,7 @@ impl PlaybackState {
             volume: read_number(runtime, "volume"),
             muted: read_boolean(runtime, "mute"),
             fullscreen: read_boolean(runtime, "fullscreen"),
+            tracks: read_tracks(runtime),
         }
     }
 }
@@ -61,6 +72,33 @@ fn read_boolean(runtime: &MpvRuntime, name: &str) -> Option<bool> {
         "no" | "false" | "0" => Some(false),
         _ => None,
     })
+}
+
+fn read_tracks(runtime: &MpvRuntime) -> Vec<PlaybackTrack> {
+    let count = read_number(runtime, "track-list/count")
+        .filter(|count| *count >= 0.0 && *count <= 256.0)
+        .map(|count| count as usize)
+        .unwrap_or(0);
+
+    (0..count)
+        .filter_map(|index| {
+            let property = |name: &str| read_property(runtime, &format!("track-list/{index}/{name}"));
+            let kind = property("type")?;
+            if kind != "audio" && kind != "sub" {
+                return None;
+            }
+            let id = property("id")?.parse::<u64>().ok().filter(|id| *id > 0)?;
+            Some(PlaybackTrack {
+                id,
+                kind,
+                title: property("title").filter(|value| !value.is_empty()),
+                language: property("lang").filter(|value| !value.is_empty()),
+                selected: property("selected").is_some_and(|value| {
+                    matches!(value.as_str(), "yes" | "true" | "1")
+                }),
+            })
+        })
+        .collect()
 }
 
 /// Commands accepted by the playback worker.
