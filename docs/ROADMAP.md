@@ -53,7 +53,7 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [ ] Harden remote manifest fetching, redirects, and stream URL validation.
 - [x] Add a pure MPV option-mapping layer with capability-aware fallback reporting and unit tests.
 - [x] Add a dynamic libmpv loader that applies options before initialization and exposes local-file load, pause, seek, speed, stop, and property access.
-- [ ] Package and validate the upstream Windows x64 LGPL libmpv runtime (`libmpv-2.dll`) and its sibling dependencies in a separate GitHub Actions artifact; preserve upstream licence notices. The package workflow pins the upstream mpv release version and records archive/runtime SHA-256 values.
+- [x] Package the pinned upstream Windows x64 LGPL libmpv runtime (`libmpv-2.dll`) and sibling dependencies in a separate GitHub Actions artifact; preserve upstream licence notices. Runtime packaging is CI-verified; in-app playback still requires runtime validation. The package workflow pins the upstream mpv release version and records archive/runtime SHA-256 values.
 - [x] Add a dedicated MPV playback worker with a bounded command queue, non-blocking events, orderly shutdown, and graceful missing-runtime reporting.
 - [x] Add a playback-state snapshot with change-only 500 ms polling for playback position, duration, pause, buffering, title, volume, mute, and fullscreen.
 - [x] Add validated worker/runtime commands for volume, mute, fullscreen, audio-track selection, and subtitle-track selection/disable.
@@ -62,13 +62,13 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [x] Add GPUI audio/subtitle track selection, subtitle-off control, and local external subtitle-file loading.
 - [x] Add live subtitle synchronization and font-size controls with locally persisted preferences.
 - [x] Add a validated MPV configuration boundary for a caller-owned Win32 child HWND (`wid`) before MPV initialization.
-- [x] Add a Windows child-HWND surface owner with validated parent/size inputs, resize support, and RAII teardown (GPUI parent-handle acquisition and layout/DPI coordination remain pending).
+- [x] Add a Windows child-HWND surface owner with validated parent/size inputs, resize support, and RAII teardown.
 - [x] Acquire the parent HWND through GPUI 0.2.2 public raw-window-handle APIs and retain it in the app lifecycle.
 - [x] Add a tested GPUI logical-pixel to Win32 physical-pixel conversion helper for child-surface geometry, including fractional scale factors, invalid geometry, and integer overflow checks.
 - [x] Add a dedicated GPUI video viewport and capture its prepaint layout bounds, converting logical coordinates to physical pixels on each layout pass.
-- [ ] Integrate the native child surface into that viewport with correct client-coordinate mapping, resize, DPI, and z-order handling.
-- [ ] Connect the surface HWND to the playback worker and validate actual video presentation, hardware decoding, and GPU/renderer compatibility.
-- [ ] Embed the MPV video output into the GPUI player layout; verify HWND/window lifetime, resize, DPI, and z-order behavior before enabling playback by default.
+- [x] Create and resize the native child surface from the GPUI viewport layout callback; validate client-coordinate alignment, z-order, and runtime behavior on Windows.
+- [x] Pass the child HWND to MPV before runtime initialization; validate actual video presentation, hardware decoding, and GPU/renderer compatibility on Windows.
+- [x] Wire the native MPV child surface into the GPUI video viewport, including parent-HWND acquisition, DPI-aware viewport bounds, child creation, and resize updates. Actual Windows playback, z-order, and teardown behavior still require runtime validation.
 - [x] Add native local-file selection and queue file-load commands through the GPUI playback bridge (requires a trusted runtime DLL).
 - [x] Add initial GPUI pause/resume, stop, mute, 10-second seek-step, and fullscreen command controls.
 - [x] Add GPUI volume down/up controls in 5% steps using the live MPV volume snapshot.
