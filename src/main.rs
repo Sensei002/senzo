@@ -295,7 +295,8 @@ impl SenzoApp {
             .filter(|title| !title.trim().is_empty());
 
         let Some(title) = title else {
-            self.subtitle_provider_status = "Open a media file before searching for subtitles".into();
+            self.subtitle_provider_status =
+                "Open a media file before searching for subtitles".into();
             cx.notify();
             return;
         };
@@ -349,7 +350,8 @@ impl SenzoApp {
 
     fn download_online_subtitle(&mut self, file_id: u64, cx: &mut Context<Self>) {
         let Some(worker) = self.playback_worker.clone() else {
-            self.subtitle_provider_status = "Start playback before loading an online subtitle".into();
+            self.subtitle_provider_status =
+                "Start playback before loading an online subtitle".into();
             cx.notify();
             return;
         };
@@ -378,7 +380,10 @@ impl SenzoApp {
             let _ = this.update(cx, |app, cx| {
                 match result {
                     Ok(path) => {
-                        let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("subtitle");
+                        let name = path
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or("subtitle");
                         app.subtitle_provider_status = format!("Downloaded and loaded: {name}");
                         app.online_subtitle_results.clear();
                         diagnostics::record(
@@ -388,7 +393,8 @@ impl SenzoApp {
                         );
                     }
                     Err(error) => {
-                        app.subtitle_provider_status = format!("Subtitle download failed: {error:#}");
+                        app.subtitle_provider_status =
+                            format!("Subtitle download failed: {error:#}");
                         diagnostics::record(
                             diagnostics::Level::Error,
                             "subtitles",
