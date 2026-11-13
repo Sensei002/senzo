@@ -172,11 +172,18 @@ This product uses the TMDB API but is not endorsed or certified by TMDB.
 
 TMDB provides metadata and images under its applicable API terms and attribution requirements. SENZO will include the required TMDB branding and attribution in its About/Credits area. Commercial use may require separate permission or licensing from TMDB.
 
-## Licensing status
+## License
 
-**No license has been selected or granted yet.** The repository is currently marked `UNLICENSED` in Cargo metadata. Until a license is formally chosen and a license text is added, all rights are reserved by the copyright holder; public visibility of this repository does not grant permission to reuse, redistribute, or modify its code.
+SENZO is licensed under the **GNU Affero General Public License v3.0 only (AGPL-3.0-only)**.
 
-The project is evaluating a restrictive source-available license because the goal is to limit specified misuse. This is a separate question from choosing a strong open-source copyleft license: recognized open-source licenses cannot prohibit use based on a person's identity or a field of activity. Read [Licensing policy](docs/LICENSING_POLICY.md) before assuming what permissions will be granted.
+- The complete license text is provided in the repository-root [`LICENSE`](LICENSE) file.
+- Cargo package metadata declares `AGPL-3.0-only`.
+- You may use, study, modify, and redistribute SENZO under the terms and conditions of AGPL-3.0.
+- Modified versions that users interact with over a network are subject to the source-offer requirement in section 13 of the AGPL.
+- Commercial use is permitted when the license terms are followed. AGPL-3.0 does not prohibit commercial use or impose field-of-use restrictions.
+- Third-party services, metadata, media, trademarks, add-ons, and dependencies remain subject to their own terms and licenses.
+
+See the [Licensing Policy](docs/LICENSING_POLICY.md) for a practical explanation. This project uses the SPDX identifier `AGPL-3.0-only`, not `UNLICENSED`.
 
 ## Project status
 
