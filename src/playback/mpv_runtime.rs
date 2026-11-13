@@ -153,7 +153,9 @@ impl MpvRuntime {
 
     /// Load and select a user-chosen external subtitle file.
     pub fn add_subtitle_file(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
-        let path = path.as_ref().to_str()
+        let path = path
+            .as_ref()
+            .to_str()
             .context("subtitle path cannot be represented as UTF-8")?;
         self.command(&["sub-add", path, "select"])
     }

@@ -276,7 +276,10 @@ impl SenzoApp {
     fn open_subtitle_file(&mut self, cx: &mut Context<Self>) {
         let Some(path) = rfd::FileDialog::new()
             .set_title("Open subtitle")
-            .add_filter("Subtitle files", &["srt", "ass", "ssa", "vtt", "sub", "idx", "sup"])
+            .add_filter(
+                "Subtitle files",
+                &["srt", "ass", "ssa", "vtt", "sub", "idx", "sup"],
+            )
             .pick_file()
         else {
             return;
@@ -294,10 +297,14 @@ impl SenzoApp {
             });
 
         match result {
-            Ok(()) => self.playback_status = format!(
-                "Subtitle queued: {}",
-                path.file_name().and_then(|name| name.to_str()).unwrap_or("subtitle")
-            ),
+            Ok(()) => {
+                self.playback_status = format!(
+                    "Subtitle queued: {}",
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("subtitle")
+                )
+            }
             Err(error) => self.playback_status = format!("Could not load subtitle: {error:#}"),
         }
         cx.notify();
@@ -478,8 +485,16 @@ where
         .px_3()
         .py_2()
         .rounded_md()
-        .bg(if selected { rgb(0x12343A) } else { rgb(0x202327) })
-        .text_color(if selected { rgb(0x67E8F9) } else { rgb(0xD4D4D8) })
+        .bg(if selected {
+            rgb(0x12343A)
+        } else {
+            rgb(0x202327)
+        })
+        .text_color(if selected {
+            rgb(0x67E8F9)
+        } else {
+            rgb(0xD4D4D8)
+        })
         .text_sm()
         .cursor_pointer()
         .hover(|style| style.bg(rgb(0x30363B)))

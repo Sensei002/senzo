@@ -209,11 +209,9 @@ impl PlaybackWorker {
                                     runtime.set_subtitle_font_size(size),
                                     false,
                                 ),
-                                PlaybackCommand::AddSubtitleFile(path) => (
-                                    "add_subtitle_file",
-                                    runtime.add_subtitle_file(path),
-                                    false,
-                                ),
+                                PlaybackCommand::AddSubtitleFile(path) => {
+                                    ("add_subtitle_file", runtime.add_subtitle_file(path), false)
+                                }
                                 PlaybackCommand::SeekAbsolute(seconds) => {
                                     ("seek_absolute", runtime.seek_absolute(seconds), false)
                                 }
