@@ -28,8 +28,14 @@ pub struct SubtitleSearch {
 
 impl SubtitleSearch {
     fn validate(&self) -> anyhow::Result<()> {
-        let has_query = self.query.as_deref().is_some_and(|value| !value.trim().is_empty());
-        let has_imdb = self.imdb_id.as_deref().is_some_and(|value| normalize_imdb_id(value).is_some());
+        let has_query = self
+            .query
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty());
+        let has_imdb = self
+            .imdb_id
+            .as_deref()
+            .is_some_and(|value| normalize_imdb_id(value).is_some());
         let has_tmdb = self.tmdb_id.is_some_and(|value| value > 0);
         if !has_query && !has_imdb && !has_tmdb {
             bail!("subtitle search requires a title, IMDb ID, or TMDB ID");
@@ -154,7 +160,10 @@ impl OpenSubtitlesClient {
     }
 
     /// Searches only when called by the application in response to user action.
-    pub async fn search(&self, search: &SubtitleSearch) -> anyhow::Result<Vec<OpenSubtitlesResult>> {
+    pub async fn search(
+        &self,
+        search: &SubtitleSearch,
+    ) -> anyhow::Result<Vec<OpenSubtitlesResult>> {
         search.validate()?;
         let mut request = self
             .client
@@ -163,7 +172,12 @@ impl OpenSubtitlesClient {
             .query(&[("languages", search.languages.trim())])
             .query(&[("machine_translated", "exclude")]);
 
-        if let Some(query) = search.query.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        if let Some(query) = search
+            .query
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
             request = request.query(&[("query", query.to_lowercase())]);
         }
         if let Some(imdb_id) = search.imdb_id.as_deref().and_then(normalize_imdb_id) {
@@ -223,7 +237,10 @@ impl OpenSubtitlesClient {
             .await
             .context("subtitle file download failed")?;
         let response = checked_response(response, "subtitle file download")?;
-        if response.content_length().is_some_and(|length| length > MAX_SUBTITLE_BYTES as u64) {
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_SUBTITLE_BYTES as u64)
+        {
             bail!("subtitle download exceeds the 20 MiB safety limit");
         }
         let bytes = response
@@ -250,7 +267,10 @@ struct DownloadRequest {
     file_id: u64,
 }
 
-fn checked_response(response: reqwest::Response, operation: &str) -> anyhow::Result<reqwest::Response> {
+fn checked_response(
+    response: reqwest::Response,
+    operation: &str,
+) -> anyhow::Result<reqwest::Response> {
     let status = response.status();
     if !status.is_success() {
         bail!("OpenSubtitles {operation} returned HTTP {status}");
@@ -290,10 +310,18 @@ fn safe_subtitle_file_name(value: &str) -> anyhow::Result<String> {
         .and_then(|value| value.to_str())
         .unwrap_or_default()
         .to_ascii_lowercase();
-    if !matches!(extension.as_str(), "srt" | "ass" | "ssa" | "vtt" | "sub" | "idx" | "sup") {
+    if !matches!(
+        extension.as_str(),
+        "srt" | "ass" | "ssa" | "vtt" | "sub" | "idx" | "sup"
+    ) {
         bail!("OpenSubtitles returned an unsupported subtitle format");
     }
-    if name.is_empty() || name.len() > 240 || name.contains('/') || name.contains('\\') || name.contains(':') {
+    if name.is_empty()
+        || name.len() > 240
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains(':')
+    {
         bail!("OpenSubtitles returned an unsafe subtitle filename");
     }
     Ok(name.to_owned())
@@ -354,7 +382,10 @@ mod tests {
 
     #[test]
     fn subtitle_filename_is_sanitized_and_extension_checked() {
-        assert_eq!(safe_subtitle_file_name("../movie.srt").unwrap(), "movie.srt");
+        assert_eq!(
+            safe_subtitle_file_name("../movie.srt").unwrap(),
+            "movie.srt"
+        );
         assert!(safe_subtitle_file_name("movie.exe").is_err());
         assert!(safe_subtitle_file_name("movie.zip").is_err());
     }
