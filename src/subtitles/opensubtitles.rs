@@ -155,7 +155,9 @@ impl OpenSubtitlesClient {
     /// Loads the saved API key from the operating-system credential store.
     pub fn from_credential_store() -> anyhow::Result<Self> {
         let key = crate::subtitles::credentials::OpenSubtitlesCredentialStore::load_api_key()?
-            .ok_or_else(|| anyhow!("OpenSubtitles API key is not configured in Windows Credential Manager"))?;
+            .ok_or_else(|| {
+                anyhow!("OpenSubtitles API key is not configured in Windows Credential Manager")
+            })?;
         Self::new(key)
     }
 

@@ -42,7 +42,8 @@ impl OpenSubtitlesCredentialStore {
         let entry = Self::entry()?;
         match entry.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(error) => Err(error).context("could not remove the OpenSubtitles key from Windows Credential Manager"),
+            Err(error) => Err(error)
+                .context("could not remove the OpenSubtitles key from Windows Credential Manager"),
         }
     }
 
