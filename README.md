@@ -60,7 +60,7 @@ SENZO is **accountless and local-first**. The application will not require a SEN
 
 The current SQLite database is created at:
 
-`%LOCALAPPDATA%\\SENZO\\senzo.db`
+`%LOCALAPPDATA%\SENZO\senzo.db`
 
 The initial schema includes local settings, playback progress, watch history, and installed add-on records. A bounded metadata and artwork cache, favorites, and a fuller local library experience are planned. Database upgrades must preserve personal history and settings.
 
