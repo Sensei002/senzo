@@ -208,8 +208,7 @@ mod tests {
 
     #[test]
     fn logical_bounds_convert_at_100_percent_scale() {
-        let bounds = SurfaceBounds::from_logical_pixels(12.0, 24.0, 640.0, 360.0, 1.0)
-            .unwrap();
+        let bounds = SurfaceBounds::from_logical_pixels(12.0, 24.0, 640.0, 360.0, 1.0).unwrap();
         assert_eq!(
             bounds,
             SurfaceBounds {
@@ -223,8 +222,7 @@ mod tests {
 
     #[test]
     fn logical_bounds_convert_at_150_percent_scale() {
-        let bounds = SurfaceBounds::from_logical_pixels(10.0, 20.0, 640.0, 360.0, 1.5)
-            .unwrap();
+        let bounds = SurfaceBounds::from_logical_pixels(10.0, 20.0, 640.0, 360.0, 1.5).unwrap();
         assert_eq!(
             bounds,
             SurfaceBounds {
@@ -238,8 +236,7 @@ mod tests {
 
     #[test]
     fn logical_bounds_round_fractional_physical_pixels() {
-        let bounds = SurfaceBounds::from_logical_pixels(1.0, 1.0, 10.3, 5.7, 1.25)
-            .unwrap();
+        let bounds = SurfaceBounds::from_logical_pixels(1.0, 1.0, 10.3, 5.7, 1.25).unwrap();
         assert_eq!(
             bounds,
             SurfaceBounds {
@@ -256,25 +253,11 @@ mod tests {
         assert!(SurfaceBounds::from_logical_pixels(0.0, 0.0, 10.0, 10.0, 0.0).is_err());
         assert!(SurfaceBounds::from_logical_pixels(0.0, 0.0, -1.0, 10.0, 1.0).is_err());
         assert!(SurfaceBounds::from_logical_pixels(f32::NAN, 0.0, 10.0, 10.0, 1.0).is_err());
-        assert!(SurfaceBounds::from_logical_pixels(
-            0.0,
-            0.0,
-            f32::INFINITY,
-            10.0,
-            1.0
-        )
-        .is_err());
+        assert!(SurfaceBounds::from_logical_pixels(0.0, 0.0, f32::INFINITY, 10.0, 1.0).is_err());
     }
 
     #[test]
     fn logical_bounds_reject_coordinates_outside_win32_range() {
-        assert!(SurfaceBounds::from_logical_pixels(
-            i32::MAX as f32,
-            0.0,
-            10.0,
-            10.0,
-            2.0
-        )
-        .is_err());
+        assert!(SurfaceBounds::from_logical_pixels(i32::MAX as f32, 0.0, 10.0, 10.0, 2.0).is_err());
     }
 }
