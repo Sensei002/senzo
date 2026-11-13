@@ -68,11 +68,7 @@ impl SenzoApp {
 
         if !runtime_path.is_file() {
             self.playback_status = format!("MPV runtime missing: {}", runtime_path.display());
-            diagnostics::record(
-                diagnostics::Level::Warn,
-                "playback",
-                &self.playback_status,
-            );
+            diagnostics::record(diagnostics::Level::Warn, "playback", &self.playback_status);
             return;
         }
 
