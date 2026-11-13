@@ -107,10 +107,13 @@ where
         .cursor_pointer()
         .hover(|style| style.bg(rgb(0x30363B)))
         .child(label)
-        .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |this, _event, _window, cx| {
-            action(this, cx);
-            this.persist(cx);
-        }))
+        .on_mouse_down(
+            gpui::MouseButton::Left,
+            cx.listener(move |this, _event, _window, cx| {
+                action(this, cx);
+                this.persist(cx);
+            }),
+        )
 }
 
 fn section(
