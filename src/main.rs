@@ -877,9 +877,7 @@ impl Render for SenzoApp {
                                     .child(choice_chip("Off", !self.playback_state.tracks.iter().any(|track| track.kind == "sub" && track.selected), |this, cx| {
                                         this.send_playback_command("disable subtitles", |worker| worker.set_subtitle_track(None), cx);
                                     }, cx))
-                                    .children(subtitle_track_chips), cx);
-                                        }, cx)
-                                    })),
+                                    .children(subtitle_track_chips),
                             )
                             .child(
                                 div()
