@@ -1453,7 +1453,7 @@ impl Render for SenzoApp {
                                                 MouseButton::Left,
                                                 cx.listener({
                                                     let bounds = bounds.clone();
-                                                    move |this, event, _window, cx| {
+                                                    move |this, event: &gpui::MouseDownEvent, _window, cx| {
                                                         this.set_volume_from_pointer(
                                                             f32::from(event.position.x),
                                                             &bounds,
