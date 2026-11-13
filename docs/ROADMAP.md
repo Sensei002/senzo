@@ -61,7 +61,9 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [x] Enumerate audio/subtitle tracks from MPV and display the active session's available tracks in GPUI.
 - [x] Add GPUI audio/subtitle track selection, subtitle-off control, and local external subtitle-file loading.
 - [x] Add live subtitle synchronization and font-size controls with locally persisted preferences.
-- [ ] Implement a native video presentation surface and validate GPU/renderer compatibility.
+- [x] Add a validated MPV configuration boundary for a caller-owned Win32 child HWND (`wid`) before MPV initialization.
+- [ ] Create and own the native child video surface under the GPUI window, including resize, DPI, z-order, and teardown handling.
+- [ ] Connect the surface HWND to the playback worker and validate actual video presentation, hardware decoding, and GPU/renderer compatibility.
 - [ ] Embed the MPV video output into the GPUI player layout; verify HWND/window lifetime, resize, DPI, and z-order behavior before enabling playback by default.
 - [x] Add native local-file selection and queue file-load commands through the GPUI playback bridge (requires a trusted runtime DLL).
 - [x] Add initial GPUI pause/resume, stop, mute, 10-second seek-step, and fullscreen command controls.

@@ -168,3 +168,8 @@ Not yet connected or implemented:
 ## GPUI playback bridge
 
 The GPUI application owns the playback worker handle behind a shared mutex. The mutex protects only short, non-blocking queue operations and event reads; all libmpv calls remain on the dedicated playback thread. A cancellable GPUI task checks for worker events every 200 ms using background executor work, then applies snapshots and status changes to the UI entity. The controls expose a native Open Media file picker, pause/resume, stop, mute, 5% volume steps, 10-second seek steps, and fullscreen. SENZO currently looks for a trusted `runtime/libmpv-2.dll` beside the application executable; it does not download or silently load an arbitrary MPV library. Runtime packaging, track enumeration, a seek bar, and native video presentation remain separate follow-up work.
+
+
+### Native Windows video presentation boundary
+
+The Windows presentation path uses a caller-owned native child HWND as MPV's `wid` target. `MpvConfig::set_native_window_id` validates the non-zero 32-bit Win32 handle and passes it to libmpv before initialization. The owner must keep that child window alive until the MPV instance is destroyed. The GPUI-to-HWND acquisition, child-surface placement/resizing, and MPV lifecycle wiring are separate remaining integration work; this boundary alone does not display video yet.

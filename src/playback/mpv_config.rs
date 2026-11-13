@@ -34,6 +34,19 @@ pub struct MpvConfig {
 }
 
 impl MpvConfig {
+    /// Attach MPV's native video output to a caller-owned Win32 child window.
+    ///
+    /// The ID must be a non-zero HWND value representable by Win32's 32-bit
+    /// MPV `wid` option. The caller owns the window and must keep it alive
+    /// until the MPV instance has been destroyed.
+    pub fn set_native_window_id(&mut self, window_id: u32) -> Result<(), &'static str> {
+        if window_id == 0 {
+            return Err("native video window ID must be a non-zero HWND");
+        }
+        self.set("wid", window_id);
+        Ok(())
+    }
+
     fn set(&mut self, key: &str, value: impl ToString) {
         self.options.insert(key.to_owned(), value.to_string());
     }
@@ -235,6 +248,16 @@ mod tests {
             hdr_output_supported: true,
             hdr_tone_mapping_supported: true,
         }
+    }
+
+    #[test]
+    fn native_window_id_is_written_as_a_nonzero_win32_handle() {
+        let mut config = MpvConfig::default();
+        assert!(config.set_native_window_id(0).is_err());
+        assert!(!config.options.contains_key("wid"));
+
+        config.set_native_window_id(0x1234_abcd).unwrap();
+        assert_eq!(config.options.get("wid").map(String::as_str), Some("305441741"));
     }
 
     #[test]
