@@ -5,8 +5,9 @@
 
 use std::{
     path::PathBuf,
-    sync::mpsc::{self, Receiver, SyncSender, TryRecvError},
+    sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TryRecvError},
     thread::{self, JoinHandle},
+    time::Duration,
 };
 
 use anyhow::{Context as _, anyhow, bail};
@@ -14,6 +15,47 @@ use anyhow::{Context as _, anyhow, bail};
 use super::{mpv_config::MpvConfig, mpv_runtime::MpvRuntime};
 
 const COMMAND_QUEUE_CAPACITY: usize = 32;
+const STATE_POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+/// A lightweight snapshot of properties observed from the active MPV instance.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PlaybackState {
+    pub position_seconds: Option<f64>,
+    pub duration_seconds: Option<f64>,
+    pub paused: Option<bool>,
+    pub buffering: Option<bool>,
+    pub media_title: Option<String>,
+}
+
+impl PlaybackState {
+    fn read(runtime: &MpvRuntime) -> Self {
+        Self {
+            position_seconds: read_number(runtime, "time-pos"),
+            duration_seconds: read_number(runtime, "duration"),
+            paused: read_boolean(runtime, "pause"),
+            buffering: read_boolean(runtime, "paused-for-cache"),
+            media_title: read_property(runtime, "media-title"),
+        }
+    }
+}
+
+fn read_property(runtime: &MpvRuntime, name: &str) -> Option<String> {
+    runtime.property_string(name).ok().flatten()
+}
+
+fn read_number(runtime: &MpvRuntime, name: &str) -> Option<f64> {
+    read_property(runtime, name)
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| value.is_finite())
+}
+
+fn read_boolean(runtime: &MpvRuntime, name: &str) -> Option<bool> {
+    read_property(runtime, name).and_then(|value| match value.as_str() {
+        "yes" | "true" | "1" => Some(true),
+        "no" | "false" | "0" => Some(false),
+        _ => None,
+    })
+}
 
 /// Commands accepted by the playback worker.
 enum PlaybackCommand {
@@ -26,9 +68,10 @@ enum PlaybackCommand {
 }
 
 /// Events delivered to the application without blocking its UI thread.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PlaybackEvent {
     Ready,
+    StateChanged(PlaybackState),
     CommandCompleted {
         operation: &'static str,
     },
@@ -75,37 +118,50 @@ impl PlaybackWorker {
                 };
 
                 let _ = event_tx.send(PlaybackEvent::Ready);
+                let mut previous_state: Option<PlaybackState> = None;
 
-                while let Ok(command) = command_rx.recv() {
-                    let (operation, result, shutdown) = match command {
-                        PlaybackCommand::LoadFile(path) => {
-                            ("load_file", runtime.load_file(path), false)
-                        }
-                        PlaybackCommand::SetPaused(paused) => {
-                            ("set_paused", runtime.set_paused(paused), false)
-                        }
-                        PlaybackCommand::SeekAbsolute(seconds) => {
-                            ("seek_absolute", runtime.seek_absolute(seconds), false)
-                        }
-                        PlaybackCommand::SetSpeed(speed) => {
-                            ("set_speed", runtime.set_speed(speed), false)
-                        }
-                        PlaybackCommand::Stop => ("stop", runtime.stop(), false),
-                        PlaybackCommand::Shutdown => ("shutdown", Ok(()), true),
-                    };
+                loop {
+                    match command_rx.recv_timeout(STATE_POLL_INTERVAL) {
+                        Ok(command) => {
+                            let (operation, result, shutdown) = match command {
+                                PlaybackCommand::LoadFile(path) => {
+                                    ("load_file", runtime.load_file(path), false)
+                                }
+                                PlaybackCommand::SetPaused(paused) => {
+                                    ("set_paused", runtime.set_paused(paused), false)
+                                }
+                                PlaybackCommand::SeekAbsolute(seconds) => {
+                                    ("seek_absolute", runtime.seek_absolute(seconds), false)
+                                }
+                                PlaybackCommand::SetSpeed(speed) => {
+                                    ("set_speed", runtime.set_speed(speed), false)
+                                }
+                                PlaybackCommand::Stop => ("stop", runtime.stop(), false),
+                                PlaybackCommand::Shutdown => ("shutdown", Ok(()), true),
+                            };
 
-                    if shutdown {
-                        break;
+                            if shutdown {
+                                break;
+                            }
+
+                            let event = match result {
+                                Ok(()) => PlaybackEvent::CommandCompleted { operation },
+                                Err(error) => PlaybackEvent::CommandFailed {
+                                    operation,
+                                    message: format!("{error:#}"),
+                                },
+                            };
+                            let _ = event_tx.send(event);
+                        }
+                        Err(RecvTimeoutError::Timeout) => {}
+                        Err(RecvTimeoutError::Disconnected) => break,
                     }
 
-                    let event = match result {
-                        Ok(()) => PlaybackEvent::CommandCompleted { operation },
-                        Err(error) => PlaybackEvent::CommandFailed {
-                            operation,
-                            message: format!("{error:#}"),
-                        },
-                    };
-                    let _ = event_tx.send(event);
+                    let state = PlaybackState::read(&runtime);
+                    if previous_state.as_ref() != Some(&state) {
+                        previous_state = Some(state.clone());
+                        let _ = event_tx.send(PlaybackEvent::StateChanged(state));
+                    }
                 }
 
                 drop(runtime);
@@ -214,8 +270,40 @@ mod tests {
 
         let event = worker
             .events
-            .recv_timeout(std::time::Duration::from_secs(5))
+            .recv_timeout(Duration::from_secs(5))
             .unwrap();
         assert!(matches!(event, PlaybackEvent::Failed { .. }));
+    }
+
+    #[test]
+    fn boolean_properties_accept_mpv_boolean_representations() {
+        assert_eq!(parse_boolean("yes"), Some(true));
+        assert_eq!(parse_boolean("false"), Some(false));
+        assert_eq!(parse_boolean("1"), Some(true));
+        assert_eq!(parse_boolean("0"), Some(false));
+        assert_eq!(parse_boolean("unknown"), None);
+    }
+
+    #[test]
+    fn numeric_properties_reject_non_finite_values() {
+        assert_eq!(parse_number("12.5"), Some(12.5));
+        assert_eq!(parse_number("NaN"), None);
+        assert_eq!(parse_number("inf"), None);
+        assert_eq!(parse_number("not-a-number"), None);
+    }
+
+    fn parse_boolean(value: &str) -> Option<bool> {
+        match value {
+            "yes" | "true" | "1" => Some(true),
+            "no" | "false" | "0" => Some(false),
+            _ => None,
+        }
+    }
+
+    fn parse_number(value: &str) -> Option<f64> {
+        value
+            .parse::<f64>()
+            .ok()
+            .filter(|value| value.is_finite())
     }
 }
