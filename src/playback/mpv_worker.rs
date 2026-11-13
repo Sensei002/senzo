@@ -382,7 +382,7 @@ mod tests {
 
     #[test]
     fn invalid_seek_speed_volume_and_track_ids_are_rejected_before_queueing() {
-        let (command_tx, command_rx) = mpsc::sync_channel(1);
+        let (command_tx, command_rx) = mpsc::sync_channel(8);
         let (_event_tx, event_rx) = mpsc::channel();
         let worker = PlaybackWorker {
             commands: command_tx,
@@ -403,7 +403,9 @@ mod tests {
         assert!(worker.set_subtitle_delay(11.0).is_err());
         assert!(worker.set_subtitle_font_size(42).is_ok());
         assert!(worker.set_subtitle_font_size(100).is_err());
-        assert!(command_rx.try_recv().is_ok());
+        for _ in 0..3 {
+            assert!(command_rx.try_recv().is_ok());
+        }
         assert!(command_rx.try_recv().is_err());
     }
 

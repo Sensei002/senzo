@@ -293,7 +293,7 @@ mod tests {
     fn subtitle_delay_and_font_size_are_bounded() {
         assert!(!(-10.0..=10.0).contains(&10.1));
         assert!((-10.0..=10.0).contains(&-0.5));
-        assert!(!(11..=96).contains(&11));
+        assert!(!(12..=96).contains(&11));
         assert!((12..=96).contains(&42));
     }
 
