@@ -30,7 +30,7 @@ pub struct LocalDatabase {
 impl LocalDatabase {
     /// Opens SENZO's per-user database under the operating system's local app-data directory.
     ///
-    /// On Windows this resolves to `%LOCALAPPDATA%\\SENZO\\senzo.db`.
+    /// On Windows this resolves to %LOCALAPPDATA%\SENZO\senzo.db.
     pub fn open_default() -> Result<Self> {
         let app_data = dirs::data_local_dir()
             .context("the operating system did not provide a local app-data directory")?;
@@ -109,11 +109,9 @@ impl LocalDatabase {
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
         Ok(self
             .connection
-            .query_row(
-                "SELECT value FROM settings WHERE key = ?1",
-                [key],
-                |row| row.get(0),
-            )
+            .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| {
+                row.get(0)
+            })
             .optional()?)
     }
 
@@ -132,7 +130,12 @@ impl LocalDatabase {
                 position_seconds = excluded.position_seconds,
                 duration_seconds = excluded.duration_seconds,
                 updated_at = excluded.updated_at",
-            params![media_id, position_seconds.max(0.0), duration_seconds, updated_at],
+            params![
+                media_id,
+                position_seconds.max(0.0),
+                duration_seconds,
+                updated_at
+            ],
         )?;
         Ok(())
     }
@@ -271,10 +274,15 @@ mod tests {
     #[test]
     fn addon_registry_starts_empty_and_persists_entries() {
         let directory = tempfile::tempdir().expect("temporary directory");
-        let database = LocalDatabase::open(directory.path().join("senzo.db"))
-            .expect("open database");
+        let database =
+            LocalDatabase::open(directory.path().join("senzo.db")).expect("open database");
 
-        assert!(database.installed_addons().expect("list add-ons").is_empty());
+        assert!(
+            database
+                .installed_addons()
+                .expect("list add-ons")
+                .is_empty()
+        );
 
         database
             .save_addon(&StoredAddon {
