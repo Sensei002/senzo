@@ -1815,9 +1815,7 @@ fn main() {
                             None
                         }
                     };
-                    cx.new(move |cx| {
-                        SenzoApp::new(database, native_parent_hwnd)
-                    })
+                    cx.new(move |cx| SenzoApp::new(database, native_parent_hwnd))
                 })
                 .expect("failed to open SENZO window");
 
