@@ -13,9 +13,9 @@ use gpui::{
 use senzo::{
     diagnostics,
     playback::{
-        windows_surface::gpui_parent_hwnd,
         mpv_config::{MpvCapabilities, build_mpv_config},
         mpv_worker::{PlaybackEvent, PlaybackState, PlaybackWorker},
+        windows_surface::gpui_parent_hwnd,
     },
     settings::{
         DecoderPreference, HardwareDecoding, HdrMode, PlaybackSettings, RendererPreference,
@@ -1647,11 +1647,19 @@ fn main() {
                 cx.open_window(WindowOptions::default(), move |window, cx| {
                     let native_parent_hwnd = match gpui_parent_hwnd(window) {
                         Ok(hwnd) => {
-                            diagnostics::record(diagnostics::Level::Info, "playback", "acquired GPUI native Win32 parent HWND");
+                            diagnostics::record(
+                                diagnostics::Level::Info,
+                                "playback",
+                                "acquired GPUI native Win32 parent HWND",
+                            );
                             Some(hwnd)
                         }
                         Err(error) => {
-                            diagnostics::record(diagnostics::Level::Warn, "playback", &format!("native video surface unavailable: {error:#}"));
+                            diagnostics::record(
+                                diagnostics::Level::Warn,
+                                "playback",
+                                &format!("native video surface unavailable: {error:#}"),
+                            );
                             None
                         }
                     };

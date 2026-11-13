@@ -11,7 +11,6 @@ use windows_sys::Win32::{
     },
 };
 
-
 /// Obtain the native Win32 parent HWND from GPUI's public raw-window-handle API.
 pub fn gpui_parent_hwnd(window: &Window) -> anyhow::Result<usize> {
     let handle = window
