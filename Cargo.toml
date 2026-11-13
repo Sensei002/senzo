@@ -1,0 +1,16 @@
+[package]
+name = "senzo"
+version = "0.1.0"
+edition = "2024"
+description = "A native desktop media center for Windows and Linux"
+license = "UNLICENSED"
+publish = false
+
+[dependencies]
+gpui = { package = "gpui-ce", version = "0.3" }
+gpui_platform = { package = "gpui_ce_platform", version = "0.1" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
