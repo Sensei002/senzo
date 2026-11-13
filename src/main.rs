@@ -18,8 +18,10 @@ fn main() {
     gpui_platform::application()
         .with_quit_mode(QuitMode::LastWindowClosed)
         .run(|cx: &mut App| {
-            cx.open_window(WindowOptions::default(), |_window, cx| cx.new(|_cx| SenzoApp))
-                .expect("failed to open SENZO window");
+            cx.open_window(WindowOptions::default(), |_window, cx| {
+                cx.new(|_cx| SenzoApp)
+            })
+            .expect("failed to open SENZO window");
 
             cx.activate(true);
         });
