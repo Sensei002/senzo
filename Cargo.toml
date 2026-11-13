@@ -7,7 +7,7 @@ license = "UNLICENSED"
 publish = false
 
 [dependencies]
-gpui = { package = "gpui-ce", version = "0.3" }
+gpui = { package = "gpui-ce", version = "=0.2.2" }
 gpui_platform = { package = "gpui_ce_platform", version = "0.1" }
 
 [profile.release]
