@@ -130,7 +130,7 @@ Initial foundations exist in the repository. Windows CI is the source of truth f
 - `src/settings.rs`: typed playback preferences, conservative defaults, and resource-limit normalization.
 - `src/playback/mpv_config.rs`: pure mapping from user preferences to MPV option values, runtime-capability-aware fallback reporting, and unit tests.
 - `src/playback/mpv_runtime.rs`: dynamic libmpv loading, pre-initialization option application, local-file loading, pause, seek, speed, stop, and string-property access. It requires an application-supplied libmpv DLL and is not yet packaged.
-- `src/playback/mpv_worker.rs`: dedicated playback thread, bounded command queue, non-blocking command/state event receiver, 500 ms change-only playback-state polling, orderly shutdown, and graceful runtime-load failure reporting. It is not yet connected to GPUI.
+- `src/playback/mpv_worker.rs`: dedicated playback thread, bounded command queue, non-blocking command/state event receiver, 500 ms change-only playback-state polling, orderly shutdown, and graceful runtime-load failure reporting. GPUI queues file-load, transport, seek, mute, and fullscreen commands through this boundary.
 - `src/addons.rs`: Stremio manifest URL normalization/validation, explicit installation, local registry persistence, and an initial stream request method.
 - `src/main.rs`: initializes diagnostics and SQLite, loads persisted playback preferences, and renders the initial GPUI Settings screen with local persistence and Copy Logs.
 
@@ -140,7 +140,7 @@ Not yet connected or implemented:
 - TMDB-powered Home/Search/Details, season/episode browsing, and ID mapping.
 - Persistent metadata/artwork cache.
 - User-facing add-on manager and complete catalog/meta/stream/subtitle routing.
-- GPUI playback screen and UI subscription to worker state events.
+- Dedicated native video presentation surface and complete GPUI player experience.
 - Packaging and validating a trusted Windows libmpv runtime.
 - Runtime GPU/decoder/HDR capability detection.
 - Live MPV video-surface integration and playback UI.
@@ -163,4 +163,4 @@ Not yet connected or implemented:
 
 ## GPUI playback bridge
 
-The GPUI application owns the playback worker handle behind a shared mutex. The mutex protects only short, non-blocking queue operations and event reads; all libmpv calls remain on the dedicated playback thread. A cancellable GPUI task checks for worker events every 200 ms using background executor work, then applies snapshots and status changes to the UI entity. The first controls expose pause/resume, stop, and mute. SENZO currently looks for a trusted `runtime/mpv-2.dll` beside the application executable; it does not download or silently load an arbitrary MPV library. Runtime packaging, file selection, track enumeration, seeking, and native video presentation remain separate follow-up work.
+The GPUI application owns the playback worker handle behind a shared mutex. The mutex protects only short, non-blocking queue operations and event reads; all libmpv calls remain on the dedicated playback thread. A cancellable GPUI task checks for worker events every 200 ms using background executor work, then applies snapshots and status changes to the UI entity. The controls expose a native Open Media file picker, pause/resume, stop, mute, 10-second seek steps, and fullscreen. SENZO currently looks for a trusted `runtime/mpv-2.dll` beside the application executable; it does not download or silently load an arbitrary MPV library. Runtime packaging, track enumeration, a seek bar, and native video presentation remain separate follow-up work.
