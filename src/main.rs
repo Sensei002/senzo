@@ -56,12 +56,14 @@ impl SenzoApp {
     fn start_playback(&mut self, cx: &mut Context<Self>) {
         let runtime_path = std::env::current_exe()
             .ok()
-            .and_then(|path| path.parent().map(|parent| parent.join("runtime").join("mpv-2.dll")))
+            .and_then(|path| {
+                path.parent()
+                    .map(|parent| parent.join("runtime").join("mpv-2.dll"))
+            })
             .unwrap_or_else(|| PathBuf::from("runtime/mpv-2.dll"));
 
         if !runtime_path.is_file() {
-            self.playback_status =
-                format!("MPV runtime missing: {}", runtime_path.display());
+            self.playback_status = format!("MPV runtime missing: {}", runtime_path.display());
             diagnostics::record(
                 diagnostics::Level::Warning,
                 "playback",
@@ -84,11 +86,7 @@ impl SenzoApp {
             }
             Err(error) => {
                 self.playback_status = format!("Could not start playback worker: {error:#}");
-                diagnostics::record(
-                    diagnostics::Level::Error,
-                    "playback",
-                    &self.playback_status,
-                );
+                diagnostics::record(diagnostics::Level::Error, "playback", &self.playback_status);
             }
         }
         cx.notify();
@@ -143,8 +141,7 @@ impl SenzoApp {
                                     );
                                 }
                                 PlaybackEvent::CommandFailed { operation, message } => {
-                                    app.playback_status =
-                                        format!("{operation} failed: {message}");
+                                    app.playback_status = format!("{operation} failed: {message}");
                                     diagnostics::record(
                                         diagnostics::Level::Error,
                                         "playback",
