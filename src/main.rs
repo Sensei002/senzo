@@ -176,6 +176,69 @@ impl SenzoApp {
         }));
     }
 
+    fn open_media(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Open media")
+            .add_filter(
+                "Video files",
+                &[
+                    "mkv", "mp4", "webm", "avi", "mov", "m4v", "ts", "m2ts", "wmv", "flv",
+                ],
+            )
+            .add_filter("All files", &["*"])
+            .pick_file()
+        else {
+            return;
+        };
+
+        if !path.is_file() {
+            self.playback_status = "The selected path is not a file".into();
+            cx.notify();
+            return;
+        }
+
+        if self.playback_worker.is_none() {
+            self.start_playback(cx);
+        }
+
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("selected media")
+            .to_owned();
+
+        let result = self
+            .playback_worker
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("MPV runtime is unavailable"))
+            .and_then(|worker| {
+                let worker = worker
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("playback worker lock is unavailable"))?;
+                worker.load_file(path)
+            });
+
+        match result {
+            Ok(()) => {
+                self.playback_status = format!("Queued for playback: {file_name}");
+                diagnostics::record(
+                    diagnostics::Level::Audit,
+                    "playback",
+                    &format!("user opened local media file: {file_name}"),
+                );
+            }
+            Err(error) => {
+                self.playback_status = format!("Could not open media: {error:#}");
+                diagnostics::record(
+                    diagnostics::Level::Error,
+                    "playback",
+                    &self.playback_status,
+                );
+            }
+        }
+        cx.notify();
+    }
+
     fn send_playback_command(
         &mut self,
         operation: &'static str,
@@ -453,6 +516,12 @@ impl Render for SenzoApp {
                                     .flex_wrap()
                                     .gap_2()
                                     .child(choice_chip(
+                                        "Open media",
+                                        false,
+                                        |this, cx| this.open_media(cx),
+                                        cx,
+                                    ))
+                                    .child(choice_chip(
                                         "Pause / Resume",
                                         self.playback_state.paused.unwrap_or(false),
                                         |this, cx| {
@@ -485,6 +554,47 @@ impl Render for SenzoApp {
                                             this.send_playback_command(
                                                 "mute",
                                                 move |worker| worker.set_muted(muted),
+                                                cx,
+                                            );
+                                        },
+                                        cx,
+                                    ))
+                                    .child(choice_chip(
+                                        "−10 seconds",
+                                        false,
+                                        |this, cx| {
+                                            if let Some(position) = this.playback_state.position_seconds {
+                                                this.send_playback_command(
+                                                    "seek backward",
+                                                    move |worker| worker.seek_absolute((position - 10.0).max(0.0)),
+                                                    cx,
+                                                );
+                                            }
+                                        },
+                                        cx,
+                                    ))
+                                    .child(choice_chip(
+                                        "+10 seconds",
+                                        false,
+                                        |this, cx| {
+                                            if let Some(position) = this.playback_state.position_seconds {
+                                                this.send_playback_command(
+                                                    "seek forward",
+                                                    move |worker| worker.seek_absolute(position + 10.0),
+                                                    cx,
+                                                );
+                                            }
+                                        },
+                                        cx,
+                                    ))
+                                    .child(choice_chip(
+                                        "Fullscreen",
+                                        self.playback_state.fullscreen.unwrap_or(false),
+                                        |this, cx| {
+                                            let fullscreen = !this.playback_state.fullscreen.unwrap_or(false);
+                                            this.send_playback_command(
+                                                "fullscreen",
+                                                move |worker| worker.set_fullscreen(fullscreen),
                                                 cx,
                                             );
                                         },
