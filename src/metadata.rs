@@ -135,7 +135,6 @@ impl TmdbClient {
             .context("TMDB returned an invalid details response")
     }
 
-
     /// Fetches a TV season, including its episode list.
     /// Season zero is valid for TMDB specials.
     pub async fn tv_season(&self, tv_id: u64, season_number: u32) -> Result<TmdbSeason> {
@@ -208,7 +207,6 @@ impl TmdbClient {
         ))
     }
 }
-
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TmdbSeason {
