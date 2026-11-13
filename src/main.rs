@@ -21,7 +21,9 @@ use senzo::{
         ScalingAlgorithm,
     },
     storage::LocalDatabase,
-    subtitles::{OpenSubtitlesClient, OpenSubtitlesCredentialStore, OpenSubtitlesResult, SubtitleSearch},
+    subtitles::{
+        OpenSubtitlesClient, OpenSubtitlesCredentialStore, OpenSubtitlesResult, SubtitleSearch,
+    },
 };
 
 struct SenzoApp {
@@ -301,7 +303,8 @@ impl SenzoApp {
                 );
             }
             Ok(false) => {
-                self.subtitle_credentials_status = "API key setup cancelled; no changes made".into();
+                self.subtitle_credentials_status =
+                    "API key setup cancelled; no changes made".into();
             }
             Err(error) => {
                 self.subtitle_credentials_status = format!("Could not save API key: {error:#}");

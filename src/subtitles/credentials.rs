@@ -66,9 +66,9 @@ impl OpenSubtitlesCredentialStore {
         #[cfg(windows)]
         {
             use windows_sys::Win32::Security::Credentials::{
-                CredUIPromptForCredentialsW, CREDUI_FLAGS_ALWAYS_SHOW_UI,
-                CREDUI_FLAGS_DO_NOT_PERSIST, CREDUI_FLAGS_GENERIC_CREDENTIALS,
-                CREDUI_FLAGS_PASSWORD_ONLY_OK,
+                CREDUI_FLAGS_ALWAYS_SHOW_UI, CREDUI_FLAGS_DO_NOT_PERSIST,
+                CREDUI_FLAGS_GENERIC_CREDENTIALS, CREDUI_FLAGS_PASSWORD_ONLY_OK,
+                CredUIPromptForCredentialsW,
             };
 
             let target: Vec<u16> = "OpenSubtitles.com API key - SENZO"
@@ -106,7 +106,10 @@ impl OpenSubtitlesCredentialStore {
                 bail!("Windows secure credential prompt failed (error {result})");
             }
 
-            let length = password.iter().position(|unit| *unit == 0).unwrap_or(password.len());
+            let length = password
+                .iter()
+                .position(|unit| *unit == 0)
+                .unwrap_or(password.len());
             let decoded = String::from_utf16(&password[..length]);
             password.zeroize();
             let mut api_key = decoded.context("the entered API key contains invalid text")?;
