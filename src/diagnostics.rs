@@ -61,7 +61,9 @@ pub fn record(level: Level, target: &str, message: &str) {
     let Some(path) = LOG_PATH.get() else {
         return;
     };
-    let _guard = LOG_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = LOG_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let _ = append_record(path, level, target, message);
 }
 
@@ -74,7 +76,11 @@ pub fn collect_recent_logs() -> Result<String> {
 }
 
 fn append_record(path: &Path, level: Level, target: &str, message: &str) -> Result<()> {
-    if fs::metadata(path).map(|metadata| metadata.len()).unwrap_or(0) >= MAX_LOG_BYTES {
+    if fs::metadata(path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0)
+        >= MAX_LOG_BYTES
+    {
         let rotated = path.with_extension("log.1");
         let _ = fs::remove_file(&rotated);
         if path.exists() {
