@@ -324,7 +324,10 @@ fn persist_downloaded_subtitle(
             Err(error) => return Err(error).context("could not create cached subtitle file"),
         };
 
-        if let Err(error) = file.write_all(&downloaded.bytes).and_then(|()| file.sync_all()) {
+        if let Err(error) = file
+            .write_all(&downloaded.bytes)
+            .and_then(|()| file.sync_all())
+        {
             drop(file);
             let _ = std::fs::remove_file(&path);
             return Err(error).context("could not write downloaded subtitle to the cache");
@@ -334,7 +337,6 @@ fn persist_downloaded_subtitle(
 
     bail!("could not allocate a unique subtitle cache filename")
 }
-
 
 #[derive(Serialize)]
 struct DownloadRequest {
