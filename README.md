@@ -4,24 +4,24 @@
   <img src="assets/branding/senzo-logo.png" width="420" alt="Official SENZO logo" />
 </p>
 
-<p align="center">A native desktop media center for Windows and Linux.</p>
+<p align="center">A native desktop media center for Windows.</p>
 
-SENZO is being built with **Rust + GPUI** around a cinematic, library-first media experience. It is designed as a native desktop application, not a web wrapper.
+SENZO is being built with **Rust + GPUI** around a cinematic, library-first media experience. It is a native desktop application, not a web wrapper.
 
-> **Status:** Early development. APIs, features, and architecture are subject to change.
+> **Status:** Early development. The current development phase targets Windows only. Linux support is planned for a later phase.
 
 ## Official brand asset
 
-The image above is the exact logo artwork supplied and approved by the project owner. It is stored at `assets/branding/senzo-logo.png` and must be used as-is. Do not redraw, reinterpret, simplify, recolor, or substitute it. Use this canonical asset throughout the application, installer, icons, splash screen, and project branding.
+The image above is the original logo artwork supplied and approved by the project owner. It must be used as-is. Do not redraw, reinterpret, simplify, recolor, or substitute it. The transparent artwork from [Issue #2](https://github.com/Sensei002/senzo/issues/2) is the primary logo; the black-background artwork from [Issue #1](https://github.com/Sensei002/senzo/issues/1) is retained for contexts where that version is appropriate.
 
 ## Project principles
 
-- Native desktop UI built with Rust and GPUI.
-- Windows and Linux are the supported platforms; mobile is out of scope.
+- Native Windows desktop UI built with Rust + GPUI.
+- Linux support will be addressed in a later development phase; it is not part of current CI.
 - MPV is the planned playback engine.
 - SQLite is the planned local data store.
 - Provider and add-on integrations are isolated behind internal interfaces.
-- Builds and releases are produced through GitHub Actions.
+- Windows builds and tests run through GitHub Actions.
 
 ## Development
 
