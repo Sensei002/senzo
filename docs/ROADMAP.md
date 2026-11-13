@@ -58,12 +58,15 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [x] Add a playback-state snapshot with change-only 500 ms polling for playback position, duration, pause, buffering, title, volume, mute, and fullscreen.
 - [x] Add validated worker/runtime commands for volume, mute, fullscreen, audio-track selection, and subtitle-track selection/disable.
 - [x] Connect the playback worker to GPUI through a cancellable monitor task and bounded command queue; MPV operations remain on the dedicated worker thread.
-- [x] Enumerate audio/subtitle tracks from MPV and display the active session's available tracks in GPUI (selection UI remains pending).
+- [x] Enumerate audio/subtitle tracks from MPV and display the active session's available tracks in GPUI.
+- [x] Add GPUI audio/subtitle track selection, subtitle-off control, and local external subtitle-file loading.
+- [x] Add live subtitle synchronization and font-size controls with locally persisted preferences.
 - [ ] Implement a native video presentation surface and validate GPU/renderer compatibility.
 - [x] Add native local-file selection and queue file-load commands through the GPUI playback bridge (requires a trusted runtime DLL).
 - [x] Add initial GPUI pause/resume, stop, mute, 10-second seek-step, and fullscreen command controls.
 - [x] Add GPUI volume down/up controls in 5% steps using the live MPV volume snapshot.
-- [ ] Add a seek bar, continuous volume adjustment, audio/subtitle track enumeration and selection UI.
+- [ ] Add a seek bar and continuous volume adjustment.
+- [ ] Add OpenSubtitles search/download integration with explicit user-initiated lookup and credential handling.
 - [ ] Detect runtime decoder/renderer/HDR capabilities and apply settings to a live MPV instance.
 - [x] Persist local-file playback progress periodically, flush before stop/media switch, and resume from the saved position when the same file is reopened.
 - [ ] Extend progress persistence to metadata-backed movie/episode IDs and watch-history completion rules.

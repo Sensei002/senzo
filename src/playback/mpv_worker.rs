@@ -110,6 +110,9 @@ enum PlaybackCommand {
     SetFullscreen(bool),
     SetAudioTrack(u64),
     SetSubtitleTrack(Option<u64>),
+    SetSubtitleDelay(f64),
+    SetSubtitleFontSize(u8),
+    AddSubtitleFile(PathBuf),
     SeekAbsolute(f64),
     SetSpeed(f64),
     Stop,
@@ -194,6 +197,21 @@ impl PlaybackWorker {
                                 PlaybackCommand::SetSubtitleTrack(track_id) => (
                                     "set_subtitle_track",
                                     runtime.set_subtitle_track(track_id),
+                                    false,
+                                ),
+                                PlaybackCommand::SetSubtitleDelay(seconds) => (
+                                    "set_subtitle_delay",
+                                    runtime.set_subtitle_delay(seconds),
+                                    false,
+                                ),
+                                PlaybackCommand::SetSubtitleFontSize(size) => (
+                                    "set_subtitle_font_size",
+                                    runtime.set_subtitle_font_size(size),
+                                    false,
+                                ),
+                                PlaybackCommand::AddSubtitleFile(path) => (
+                                    "add_subtitle_file",
+                                    runtime.add_subtitle_file(path),
                                     false,
                                 ),
                                 PlaybackCommand::SeekAbsolute(seconds) => {
@@ -286,6 +304,27 @@ impl PlaybackWorker {
         self.enqueue(PlaybackCommand::SetSubtitleTrack(track_id))
     }
 
+    /// Queue a subtitle timing offset in seconds.
+    pub fn set_subtitle_delay(&self, seconds: f64) -> anyhow::Result<()> {
+        if !seconds.is_finite() || !(-10.0..=10.0).contains(&seconds) {
+            bail!("subtitle delay must be finite and between -10 and 10 seconds");
+        }
+        self.enqueue(PlaybackCommand::SetSubtitleDelay(seconds))
+    }
+
+    /// Queue a subtitle font size change.
+    pub fn set_subtitle_font_size(&self, size: u8) -> anyhow::Result<()> {
+        if !(12..=96).contains(&size) {
+            bail!("subtitle font size must be between 12 and 96");
+        }
+        self.enqueue(PlaybackCommand::SetSubtitleFontSize(size))
+    }
+
+    /// Queue a user-selected external subtitle file.
+    pub fn add_subtitle_file(&self, path: impl Into<PathBuf>) -> anyhow::Result<()> {
+        self.enqueue(PlaybackCommand::AddSubtitleFile(path.into()))
+    }
+
     /// Queue an absolute seek position in seconds.
     pub fn seek_absolute(&self, seconds: f64) -> anyhow::Result<()> {
         if !seconds.is_finite() || seconds < 0.0 {
@@ -362,6 +401,10 @@ mod tests {
         assert!(worker.set_audio_track(0).is_err());
         assert!(worker.set_subtitle_track(Some(0)).is_err());
         assert!(worker.set_subtitle_track(None).is_ok());
+        assert!(worker.set_subtitle_delay(0.5).is_ok());
+        assert!(worker.set_subtitle_delay(11.0).is_err());
+        assert!(worker.set_subtitle_font_size(42).is_ok());
+        assert!(worker.set_subtitle_font_size(100).is_err());
         assert!(command_rx.try_recv().is_ok());
         assert!(command_rx.try_recv().is_err());
     }

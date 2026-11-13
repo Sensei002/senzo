@@ -113,6 +113,8 @@ pub struct SubtitleSettings {
     pub font_size: u8,
     pub vertical_margin: u8,
     pub bold: bool,
+    /// Subtitle timing offset in seconds. Positive values delay subtitles.
+    pub delay_seconds: f64,
 }
 
 impl Default for SubtitleSettings {
@@ -121,6 +123,7 @@ impl Default for SubtitleSettings {
             font_size: 42,
             vertical_margin: 24,
             bold: false,
+            delay_seconds: 0.0,
         }
     }
 }
@@ -133,6 +136,10 @@ impl PlaybackSettings {
         self.buffer.memory_limit_mib = self.buffer.memory_limit_mib.clamp(32, 2048);
         self.subtitles.font_size = self.subtitles.font_size.clamp(12, 96);
         self.subtitles.vertical_margin = self.subtitles.vertical_margin.min(100);
+        if !self.subtitles.delay_seconds.is_finite() {
+            self.subtitles.delay_seconds = 0.0;
+        }
+        self.subtitles.delay_seconds = self.subtitles.delay_seconds.clamp(-10.0, 10.0);
     }
 }
 
@@ -167,6 +174,23 @@ mod tests {
         assert_eq!(settings.buffer.memory_limit_mib, 32);
         assert_eq!(settings.subtitles.font_size, 12);
         assert_eq!(settings.subtitles.vertical_margin, 100);
+        settings.subtitles.delay_seconds = f64::NAN;
+        settings.normalize();
+        assert_eq!(settings.subtitles.delay_seconds, 0.0);
+    }
+
+    #[test]
+    fn subtitle_delay_is_bounded_and_non_finite_values_reset() {
+        let mut settings = PlaybackSettings::default();
+        settings.subtitles.delay_seconds = 99.0;
+        settings.normalize();
+        assert_eq!(settings.subtitles.delay_seconds, 10.0);
+        settings.subtitles.delay_seconds = -99.0;
+        settings.normalize();
+        assert_eq!(settings.subtitles.delay_seconds, -10.0);
+        settings.subtitles.delay_seconds = f64::INFINITY;
+        settings.normalize();
+        assert_eq!(settings.subtitles.delay_seconds, 0.0);
     }
 
     #[test]

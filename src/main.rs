@@ -273,6 +273,59 @@ impl SenzoApp {
         cx.notify();
     }
 
+    fn open_subtitle_file(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Open subtitle")
+            .add_filter("Subtitle files", &["srt", "ass", "ssa", "vtt", "sub", "idx", "sup"])
+            .pick_file()
+        else {
+            return;
+        };
+
+        let result = self
+            .playback_worker
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("open a media file before adding subtitles"))
+            .and_then(|worker| {
+                let worker = worker
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("playback worker lock is unavailable"))?;
+                worker.add_subtitle_file(path.clone())
+            });
+
+        match result {
+            Ok(()) => self.playback_status = format!(
+                "Subtitle queued: {}",
+                path.file_name().and_then(|name| name.to_str()).unwrap_or("subtitle")
+            ),
+            Err(error) => self.playback_status = format!("Could not load subtitle: {error:#}"),
+        }
+        cx.notify();
+    }
+
+    fn set_subtitle_font_size(&mut self, size: u8, cx: &mut Context<Self>) {
+        self.settings.subtitles.font_size = size.clamp(12, 96);
+        self.send_playback_command(
+            "subtitle font size",
+            move |worker| worker.set_subtitle_font_size(size.clamp(12, 96)),
+            cx,
+        );
+    }
+
+    fn set_subtitle_delay(&mut self, seconds: f64, cx: &mut Context<Self>) {
+        let seconds = if seconds.is_finite() {
+            seconds.clamp(-10.0, 10.0)
+        } else {
+            0.0
+        };
+        self.settings.subtitles.delay_seconds = seconds;
+        self.send_playback_command(
+            "subtitle synchronization",
+            move |worker| worker.set_subtitle_delay(seconds),
+            cx,
+        );
+    }
+
     fn persist_playback_progress(&mut self, force: bool) {
         let Some(media_id) = self.active_media_id.as_deref() else {
             return;
@@ -408,6 +461,34 @@ where
             cx.listener(move |this, _event, _window, cx| {
                 action(this, cx);
                 this.persist(cx);
+            }),
+        )
+}
+
+fn dynamic_choice_chip<F>(
+    label: String,
+    selected: bool,
+    action: F,
+    cx: &mut Context<SenzoApp>,
+) -> impl IntoElement
+where
+    F: Fn(&mut SenzoApp, &mut Context<SenzoApp>) + 'static,
+{
+    div()
+        .px_3()
+        .py_2()
+        .rounded_md()
+        .bg(if selected { rgb(0x12343A) } else { rgb(0x202327) })
+        .text_color(if selected { rgb(0x67E8F9) } else { rgb(0xD4D4D8) })
+        .text_sm()
+        .cursor_pointer()
+        .hover(|style| style.bg(rgb(0x30363B)))
+        .child(label)
+        .on_mouse_down(
+            gpui::MouseButton::Left,
+            cx.listener(move |this, _event, _window, cx| {
+                action(this, cx);
+                cx.notify();
             }),
         )
 }
@@ -723,24 +804,67 @@ impl Render for SenzoApp {
                     ))
                     .child(section(
                         "Available tracks",
-                        "Audio and subtitle tracks reported by the active MPV session.",
+                        "Choose an embedded audio or subtitle track. Subtitle Off disables subtitle rendering.",
                         div()
                             .flex()
                             .flex_col()
-                            .gap_2()
-                            .children(self.playback_state.tracks.iter().map(|track| {
-                                let label = format!(
-                                    "{} · {}{}{}",
-                                    if track.kind == "audio" { "Audio" } else { "Subtitle" },
-                                    track.title.as_deref().unwrap_or("Track"),
-                                    track.language.as_deref().map(|language| format!(" · {language}")).unwrap_or_default(),
-                                    if track.selected { " · Selected" } else { "" },
-                                );
+                            .gap_3()
+                            .child(
                                 div()
-                                    .text_sm()
-                                    .text_color(rgb(0xB7BEC6))
-                                    .child(label)
-                            })),
+                                    .text_xs()
+                                    .text_color(rgb(0x9299A1))
+                                    .child("AUDIO"),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_wrap()
+                                    .gap_2()
+                                    .children(self.playback_state.tracks.iter().filter(|track| track.kind == "audio").map(|track| {
+                                        let id = track.id;
+                                        let label = format!(
+                                            "{}{}",
+                                            track.title.as_deref().unwrap_or("Audio"),
+                                            track.language.as_deref().map(|language| format!(" · {language}")).unwrap_or_default()
+                                        );
+                                        dynamic_choice_chip(label, track.selected, move |this, cx| {
+                                            this.send_playback_command("select audio track", move |worker| worker.set_audio_track(id), cx);
+                                        }, cx)
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0x9299A1))
+                                    .child("SUBTITLES"),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_wrap()
+                                    .gap_2()
+                                    .child(choice_chip("Off", !self.playback_state.tracks.iter().any(|track| track.kind == "sub" && track.selected), |this, cx| {
+                                        this.send_playback_command("disable subtitles", |worker| worker.set_subtitle_track(None), cx);
+                                    }, cx))
+                                    .children(self.playback_state.tracks.iter().filter(|track| track.kind == "sub").map(|track| {
+                                        let id = track.id;
+                                        let label = format!(
+                                            "{}{}",
+                                            track.title.as_deref().unwrap_or("Subtitle"),
+                                            track.language.as_deref().map(|language| format!(" · {language}")).unwrap_or_default()
+                                        );
+                                        dynamic_choice_chip(label, track.selected, move |this, cx| {
+                                            this.send_playback_command("select subtitle track", move |worker| worker.set_subtitle_track(Some(id)), cx);
+                                        }, cx)
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_wrap()
+                                    .gap_2()
+                                    .child(choice_chip("Load subtitle file", false, |this, cx| this.open_subtitle_file(cx), cx)),
+                            ),
                     ))
                     .child(section(
                         "Hardware acceleration",
@@ -896,7 +1020,7 @@ impl Render for SenzoApp {
                     ))
                     .child(section(
                         "Subtitles",
-                        "Set a comfortable baseline for subtitle readability. Per-track overrides can be added with the playback engine.",
+                        "Adjust subtitle timing and readability while media is playing. Changes are saved locally.",
                         div()
                             .flex()
                             .flex_col()
@@ -911,7 +1035,33 @@ impl Render for SenzoApp {
                                     .child(choice_chip("Small · 32", settings.subtitles.font_size == 32, |this, _cx| this.settings.subtitles.font_size = 32, cx))
                                     .child(choice_chip("Default · 42", settings.subtitles.font_size == 42, |this, _cx| this.settings.subtitles.font_size = 42, cx))
                                     .child(choice_chip("Large · 52", settings.subtitles.font_size == 52, |this, _cx| this.settings.subtitles.font_size = 52, cx))
-                                    .child(choice_chip("Extra large · 64", settings.subtitles.font_size == 64, |this, _cx| this.settings.subtitles.font_size = 64, cx)),
+                                    .child(choice_chip("Extra large · 64", settings.subtitles.font_size == 64, |this, cx| this.set_subtitle_font_size(64, cx), cx))
+                                    .child(choice_chip("− size", false, |this, cx| {
+                                        let size = this.settings.subtitles.font_size.saturating_sub(2).max(12);
+                                        this.set_subtitle_font_size(size, cx);
+                                    }, cx))
+                                    .child(choice_chip("+ size", false, |this, cx| {
+                                        let size = this.settings.subtitles.font_size.saturating_add(2).min(96);
+                                        this.set_subtitle_font_size(size, cx);
+                                    }, cx)),
+                            ))
+                            .child(option_row(
+                                "Subtitle synchronization",
+                                "Move subtitles earlier or later in 100 ms steps. Positive values delay subtitles.",
+                                div()
+                                    .flex()
+                                    .flex_wrap()
+                                    .gap_2()
+                                    .child(choice_chip("−0.1 s", false, |this, cx| {
+                                        let delay = (this.settings.subtitles.delay_seconds - 0.1).max(-10.0);
+                                        this.set_subtitle_delay(delay, cx);
+                                    }, cx))
+                                    .child(choice_chip("Reset", false, |this, cx| this.set_subtitle_delay(0.0, cx), cx))
+                                    .child(choice_chip("+0.1 s", false, |this, cx| {
+                                        let delay = (this.settings.subtitles.delay_seconds + 0.1).min(10.0);
+                                        this.set_subtitle_delay(delay, cx);
+                                    }, cx))
+                                    .child(div().text_sm().text_color(rgb(0xB7BEC6)).child(format!("{:+.1} s", settings.subtitles.delay_seconds))),
                             ))
                             .child(option_row(
                                 "Vertical margin",

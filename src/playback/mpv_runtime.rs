@@ -133,6 +133,31 @@ impl MpvRuntime {
         self.command(&["set", "sid", &track_id])
     }
 
+    /// Set the subtitle synchronization offset in seconds.
+    pub fn set_subtitle_delay(&self, seconds: f64) -> anyhow::Result<()> {
+        if !seconds.is_finite() || !(-10.0..=10.0).contains(&seconds) {
+            bail!("subtitle delay must be finite and between -10 and 10 seconds");
+        }
+        let seconds = seconds.to_string();
+        self.command(&["set", "sub-delay", &seconds])
+    }
+
+    /// Set the subtitle font size in MPV's native size units.
+    pub fn set_subtitle_font_size(&self, size: u8) -> anyhow::Result<()> {
+        if !(12..=96).contains(&size) {
+            bail!("subtitle font size must be between 12 and 96");
+        }
+        let size = size.to_string();
+        self.command(&["set", "sub-font-size", &size])
+    }
+
+    /// Load and select a user-chosen external subtitle file.
+    pub fn add_subtitle_file(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
+        let path = path.as_ref().to_str()
+            .context("subtitle path cannot be represented as UTF-8")?;
+        self.command(&["sub-add", path, "select"])
+    }
+
     /// Seek to an absolute playback position in seconds.
     pub fn seek_absolute(&self, seconds: f64) -> anyhow::Result<()> {
         let seconds = seek_argument(seconds)?;
@@ -260,6 +285,14 @@ mod tests {
     fn track_ids_must_be_positive() {
         assert!(track_argument(0).is_err());
         assert_eq!(track_argument(3).unwrap(), "3");
+    }
+
+    #[test]
+    fn subtitle_delay_and_font_size_are_bounded() {
+        assert!(!(-10.0..=10.0).contains(&10.1));
+        assert!((-10.0..=10.0).contains(&-0.5));
+        assert!(!(11..=96).contains(&11));
+        assert!((12..=96).contains(&42));
     }
 
     #[test]

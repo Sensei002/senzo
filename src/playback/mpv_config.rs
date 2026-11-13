@@ -211,6 +211,7 @@ fn apply_buffering(config: &mut MpvConfig, settings: &PlaybackSettings) {
 fn apply_subtitles(config: &mut MpvConfig, settings: &PlaybackSettings) {
     config.set("sub-font-size", settings.subtitles.font_size.clamp(12, 96));
     config.set("sub-margin-y", settings.subtitles.vertical_margin.min(100));
+    config.set("sub-delay", settings.subtitles.delay_seconds.clamp(-10.0, 10.0));
     config.set(
         "sub-bold",
         if settings.subtitles.bold { "yes" } else { "no" },
@@ -339,6 +340,7 @@ mod tests {
             config.options.get("sub-margin-y").map(String::as_str),
             Some("18")
         );
+        assert_eq!(config.options.get("sub-delay").map(String::as_str), Some("0"));
         assert_eq!(
             config.options.get("sub-bold").map(String::as_str),
             Some("yes")
