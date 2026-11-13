@@ -40,6 +40,45 @@ impl SurfaceBounds {
         }
         Ok(self)
     }
+
+    /// Convert GPUI logical-pixel bounds to physical Win32 client pixels.
+    ///
+    /// GPUI reports layout geometry in logical pixels. Win32 child-window
+    /// placement uses physical pixels, so the current window scale factor
+    /// must be applied on every layout/DPI update.
+    pub fn from_logical_pixels(
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        scale_factor: f32,
+    ) -> anyhow::Result<Self> {
+        if ![x, y, width, height, scale_factor]
+            .iter()
+            .all(|value| value.is_finite())
+        {
+            bail!("video surface geometry and scale factor must be finite");
+        }
+        if width <= 0.0 || height <= 0.0 || scale_factor <= 0.0 {
+            bail!("video surface dimensions and scale factor must be positive");
+        }
+
+        fn physical(value: f32, scale: f32) -> anyhow::Result<i32> {
+            let scaled = (f64::from(value) * f64::from(scale)).round();
+            if scaled < f64::from(i32::MIN) || scaled > f64::from(i32::MAX) {
+                bail!("video surface coordinate exceeds Win32 limits");
+            }
+            Ok(scaled as i32)
+        }
+
+        let bounds = Self {
+            x: physical(x, scale_factor)?,
+            y: physical(y, scale_factor)?,
+            width: physical(width, scale_factor)?,
+            height: physical(height, scale_factor)?,
+        };
+        bounds.validate()
+    }
 }
 
 /// Owns a child HWND. Create, resize, and drop it on its parent window's UI thread.
@@ -165,5 +204,77 @@ mod tests {
             height: 360,
         };
         assert_eq!(bounds.validate().unwrap(), bounds);
+    }
+
+    #[test]
+    fn logical_bounds_convert_at_100_percent_scale() {
+        let bounds = SurfaceBounds::from_logical_pixels(12.0, 24.0, 640.0, 360.0, 1.0)
+            .unwrap();
+        assert_eq!(
+            bounds,
+            SurfaceBounds {
+                x: 12,
+                y: 24,
+                width: 640,
+                height: 360,
+            }
+        );
+    }
+
+    #[test]
+    fn logical_bounds_convert_at_150_percent_scale() {
+        let bounds = SurfaceBounds::from_logical_pixels(10.0, 20.0, 640.0, 360.0, 1.5)
+            .unwrap();
+        assert_eq!(
+            bounds,
+            SurfaceBounds {
+                x: 15,
+                y: 30,
+                width: 960,
+                height: 540,
+            }
+        );
+    }
+
+    #[test]
+    fn logical_bounds_round_fractional_physical_pixels() {
+        let bounds = SurfaceBounds::from_logical_pixels(1.0, 1.0, 10.3, 5.7, 1.25)
+            .unwrap();
+        assert_eq!(
+            bounds,
+            SurfaceBounds {
+                x: 1,
+                y: 1,
+                width: 13,
+                height: 7,
+            }
+        );
+    }
+
+    #[test]
+    fn logical_bounds_reject_invalid_geometry_and_scale() {
+        assert!(SurfaceBounds::from_logical_pixels(0.0, 0.0, 10.0, 10.0, 0.0).is_err());
+        assert!(SurfaceBounds::from_logical_pixels(0.0, 0.0, -1.0, 10.0, 1.0).is_err());
+        assert!(SurfaceBounds::from_logical_pixels(f32::NAN, 0.0, 10.0, 10.0, 1.0).is_err());
+        assert!(SurfaceBounds::from_logical_pixels(
+            0.0,
+            0.0,
+            f32::INFINITY,
+            10.0,
+            1.0
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn logical_bounds_reject_coordinates_outside_win32_range() {
+        assert!(SurfaceBounds::from_logical_pixels(
+            i32::MAX as f32,
+            0.0,
+            10.0,
+            10.0,
+            2.0
+        )
+        .is_err());
     }
 }

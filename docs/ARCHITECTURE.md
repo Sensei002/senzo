@@ -164,11 +164,9 @@ Not yet connected or implemented:
 8. Add Discord Rich Presence and privacy controls.
 9. Add signed Windows Stable/Development update channels and installer packaging.
 
-
 ## GPUI playback bridge
 
 The GPUI application owns the playback worker handle behind a shared mutex. The mutex protects only short, non-blocking queue operations and event reads; all libmpv calls remain on the dedicated playback thread. A cancellable GPUI task checks for worker events every 200 ms using background executor work, then applies snapshots and status changes to the UI entity. The controls expose a native Open Media file picker, pause/resume, stop, mute, 5% volume steps, 10-second seek steps, and fullscreen. SENZO currently looks for a trusted `runtime/libmpv-2.dll` beside the application executable; it does not download or silently load an arbitrary MPV library. Runtime packaging, track enumeration, a seek bar, and native video presentation remain separate follow-up work.
-
 
 ### Native Windows video presentation boundary
 
@@ -177,7 +175,6 @@ The Windows presentation path uses a caller-owned native child HWND as MPV's `wi
 ### Native Windows child-surface primitive
 
 `src/playback/windows_surface.rs` provides a Windows-only RAII wrapper around a child `STATIC` HWND. It validates the parent HWND and positive pixel dimensions, exposes the child handle as the documented non-zero 32-bit MPV `wid` value, supports explicit resize/show operations without activation or z-order changes, and destroys the child HWND on drop. All surface operations must run on the owning UI thread. The caller is responsible for converting GPUI layout coordinates to physical client pixels and for keeping the surface alive until the MPV instance is shut down. This is a platform primitive only: GPUI raw-handle acquisition, automatic layout/DPI updates, and worker/runtime wiring are not yet implemented.
-
 
 ## GPUI native window handle
 
