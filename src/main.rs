@@ -438,7 +438,7 @@ fn choice_chip<F>(
     selected: bool,
     action: F,
     cx: &mut Context<SenzoApp>,
-) -> impl IntoElement
+) -> impl IntoElement + use<F>
 where
     F: Fn(&mut SenzoApp, &mut Context<SenzoApp>) + 'static,
 {
@@ -477,7 +477,7 @@ fn dynamic_choice_chip<F>(
     selected: bool,
     action: F,
     cx: &mut Context<SenzoApp>,
-) -> impl IntoElement
+) -> impl IntoElement + use<F>
 where
     F: Fn(&mut SenzoApp, &mut Context<SenzoApp>) + 'static,
 {
