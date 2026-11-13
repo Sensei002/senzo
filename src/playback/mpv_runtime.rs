@@ -16,12 +16,10 @@ use libloading::Library;
 use super::mpv_config::MpvConfig;
 
 type MpvCreate = unsafe extern "C" fn() -> *mut c_void;
-type MpvSetOptionString =
-    unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char) -> c_int;
+type MpvSetOptionString = unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char) -> c_int;
 type MpvInitialize = unsafe extern "C" fn(*mut c_void) -> c_int;
 type MpvCommand = unsafe extern "C" fn(*mut c_void, *const *const c_char) -> c_int;
-type MpvGetPropertyString =
-    unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_char;
+type MpvGetPropertyString = unsafe extern "C" fn(*mut c_void, *const c_char) -> *mut c_char;
 type MpvFreeData = unsafe extern "C" fn(*mut c_void);
 type MpvTerminateDestroy = unsafe extern "C" fn(*mut c_void);
 
@@ -128,8 +126,8 @@ impl MpvRuntime {
     ///
     /// A missing or currently unavailable property returns Ok(None).
     pub fn property_string(&self, property: &str) -> anyhow::Result<Option<String>> {
-        let property = CString::new(property)
-            .context("MPV property name contains an interior NUL byte")?;
+        let property =
+            CString::new(property).context("MPV property name contains an interior NUL byte")?;
         let value =
             unsafe { (self.get_property_string_fn)(self.handle.as_ptr(), property.as_ptr()) };
         let Some(value) = NonNull::new(value) else {
