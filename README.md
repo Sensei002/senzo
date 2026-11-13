@@ -1,15 +1,18 @@
 # SENZO
 
-<h1 align="center">SENZO</h1>
+<p align="center">
+  <img src="assets/branding/senzo-logo.png" width="420" alt="Official SENZO logo" />
+</p>
+
 <p align="center">A native desktop media center for Windows and Linux.</p>
 
 SENZO is being built with **Rust + GPUI** around a cinematic, library-first media experience. It is designed as a native desktop application, not a web wrapper.
 
 > **Status:** Early development. APIs, features, and architecture are subject to change.
 
-## Brand
+## Official brand asset
 
-The official SENZO logo is the user-approved artwork. No alternate or redesigned mark is authorized. The original artwork will be added as the canonical branding asset once its binary source can be committed without altering it.
+The image above is the exact logo artwork supplied and approved by the project owner. It is stored at `assets/branding/senzo-logo.png` and must be used as-is. Do not redraw, reinterpret, simplify, recolor, or substitute it. Use this canonical asset throughout the application, installer, icons, splash screen, and project branding.
 
 ## Project principles
 
