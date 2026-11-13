@@ -1,9 +1,20 @@
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+
 use gpui::{
-    App, ClipboardItem, Context, QuitMode, Render, Window, WindowOptions, div, prelude::*, px, rgb,
+    App, ClipboardItem, Context, QuitMode, Render, Task, Window, WindowOptions, div, prelude::*,
+    px, rgb,
 };
 
 use senzo::{
     diagnostics,
+    playback::{
+        mpv_config::{MpvCapabilities, build_mpv_config},
+        mpv_worker::{PlaybackEvent, PlaybackState, PlaybackWorker},
+    },
     settings::{
         DecoderPreference, HardwareDecoding, HdrMode, PlaybackSettings, RendererPreference,
         ScalingAlgorithm,
@@ -35,7 +46,158 @@ impl SenzoApp {
             database,
             settings,
             status: "Changes are saved on this device".into(),
+            playback_worker: None,
+            playback_state: PlaybackState::default(),
+            playback_status: "MPV runtime not found (expected runtime/mpv-2.dll)".into(),
+            playback_monitor: None,
         }
+    }
+
+    fn start_playback(&mut self, cx: &mut Context<Self>) {
+        let runtime_path = std::env::current_exe()
+            .ok()
+            .and_then(|path| path.parent().map(|parent| parent.join("runtime").join("mpv-2.dll")))
+            .unwrap_or_else(|| PathBuf::from("runtime/mpv-2.dll"));
+
+        if !runtime_path.is_file() {
+            self.playback_status =
+                format!("MPV runtime missing: {}", runtime_path.display());
+            diagnostics::record(
+                diagnostics::Level::Warning,
+                "playback",
+                &self.playback_status,
+            );
+            return;
+        }
+
+        let config = build_mpv_config(&self.settings, &MpvCapabilities::default());
+        match PlaybackWorker::spawn(runtime_path, config) {
+            Ok(worker) => {
+                self.playback_worker = Some(Arc::new(Mutex::new(worker)));
+                self.playback_status = "Starting MPV playback runtime…".into();
+                diagnostics::record(
+                    diagnostics::Level::Audit,
+                    "playback",
+                    "playback worker started",
+                );
+                self.monitor_playback(cx);
+            }
+            Err(error) => {
+                self.playback_status = format!("Could not start playback worker: {error:#}");
+                diagnostics::record(
+                    diagnostics::Level::Error,
+                    "playback",
+                    &self.playback_status,
+                );
+            }
+        }
+        cx.notify();
+    }
+
+    fn monitor_playback(&mut self, cx: &mut Context<Self>) {
+        let Some(worker) = self.playback_worker.clone() else {
+            return;
+        };
+
+        self.playback_monitor = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(200))
+                    .await;
+
+                let events = cx
+                    .background_spawn(async move {
+                        let mut events = Vec::new();
+                        if let Ok(worker) = worker.lock() {
+                            for _ in 0..32 {
+                                match worker.try_event() {
+                                    Ok(Some(event)) => events.push(event),
+                                    Ok(None) | Err(_) => break,
+                                }
+                            }
+                        }
+                        events
+                    })
+                    .await;
+
+                if events.is_empty() {
+                    continue;
+                }
+
+                let keep_running = this
+                    .update(cx, |app, cx| {
+                        for event in events {
+                            match event {
+                                PlaybackEvent::Ready => {
+                                    app.playback_status = "MPV runtime ready".into();
+                                }
+                                PlaybackEvent::StateChanged(state) => {
+                                    app.playback_state = state;
+                                }
+                                PlaybackEvent::CommandCompleted { operation } => {
+                                    diagnostics::record(
+                                        diagnostics::Level::Debug,
+                                        "playback",
+                                        &format!("playback command completed: {operation}"),
+                                    );
+                                }
+                                PlaybackEvent::CommandFailed { operation, message } => {
+                                    app.playback_status =
+                                        format!("{operation} failed: {message}");
+                                    diagnostics::record(
+                                        diagnostics::Level::Error,
+                                        "playback",
+                                        &app.playback_status,
+                                    );
+                                }
+                                PlaybackEvent::Failed { message } => {
+                                    app.playback_status = format!("MPV failed: {message}");
+                                    diagnostics::record(
+                                        diagnostics::Level::Error,
+                                        "playback",
+                                        &app.playback_status,
+                                    );
+                                }
+                                PlaybackEvent::Stopped => {
+                                    app.playback_status = "Playback stopped".into();
+                                    app.playback_worker = None;
+                                    app.playback_monitor = None;
+                                }
+                            }
+                        }
+                        cx.notify();
+                        app.playback_worker.is_some()
+                    })
+                    .unwrap_or(false);
+
+                if !keep_running {
+                    break;
+                }
+            }
+        }));
+    }
+
+    fn send_playback_command(
+        &mut self,
+        operation: &'static str,
+        command: impl FnOnce(&PlaybackWorker) -> anyhow::Result<()>,
+        cx: &mut Context<Self>,
+    ) {
+        let result = self
+            .playback_worker
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("MPV runtime is not available"))
+            .and_then(|worker| {
+                let worker = worker
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("playback worker lock is unavailable"))?;
+                command(&worker)
+            });
+
+        if let Err(error) = result {
+            self.playback_status = format!("{operation}: {error:#}");
+        }
+        cx.notify();
     }
 
     fn persist(&mut self, cx: &mut Context<Self>) {
@@ -262,6 +424,92 @@ impl Render for SenzoApp {
                                     .child("Tune decoding, image processing and playback resources."),
                             ),
                     )
+                    .child(section(
+                        "Playback engine",
+                        "The MPV worker runs separately from the UI. A trusted runtime DLL must be placed beside SENZO in the runtime folder.",
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(0xA5F3FC))
+                                    .child(self.playback_status.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0xA1A1AA))
+                                    .child(
+                                        self.playback_state
+                                            .media_title
+                                            .clone()
+                                            .unwrap_or_else(|| "No media loaded".into()),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_wrap()
+                                    .gap_2()
+                                    .child(choice_chip(
+                                        "Pause / Resume",
+                                        self.playback_state.paused.unwrap_or(false),
+                                        |this, cx| {
+                                            let paused = !this.playback_state.paused.unwrap_or(false);
+                                            this.send_playback_command(
+                                                "pause",
+                                                move |worker| worker.set_paused(paused),
+                                                cx,
+                                            );
+                                        },
+                                        cx,
+                                    ))
+                                    .child(choice_chip(
+                                        "Stop",
+                                        false,
+                                        |this, cx| {
+                                            this.send_playback_command(
+                                                "stop",
+                                                |worker| worker.stop(),
+                                                cx,
+                                            );
+                                        },
+                                        cx,
+                                    ))
+                                    .child(choice_chip(
+                                        "Mute / Unmute",
+                                        self.playback_state.muted.unwrap_or(false),
+                                        |this, cx| {
+                                            let muted = !this.playback_state.muted.unwrap_or(false);
+                                            this.send_playback_command(
+                                                "mute",
+                                                move |worker| worker.set_muted(muted),
+                                                cx,
+                                            );
+                                        },
+                                        cx,
+                                    )),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0x858C94))
+                                    .child(format!(
+                                        "Position: {} s  ·  Duration: {} s  ·  Volume: {}%",
+                                        self.playback_state.position_seconds
+                                            .map(|value| format!("{value:.1}"))
+                                            .unwrap_or_else(|| "—".into()),
+                                        self.playback_state.duration_seconds
+                                            .map(|value| format!("{value:.1}"))
+                                            .unwrap_or_else(|| "—".into()),
+                                        self.playback_state.volume
+                                            .map(|value| format!("{value:.0}"))
+                                            .unwrap_or_else(|| "—".into()),
+                                    )),
+                            ),
+                    ))
                     .child(section(
                         "Hardware acceleration",
                         "Automatic is recommended. Manual decoder choices are advanced compatibility overrides.",
@@ -673,7 +921,11 @@ fn main() {
             move |cx: &mut App| {
                 let database = database.take().expect("SENZO window initialized once");
                 cx.open_window(WindowOptions::default(), move |_window, cx| {
-                    cx.new(move |_cx| SenzoApp::new(database))
+                    cx.new(move |cx| {
+                        let mut app = SenzoApp::new(database);
+                        app.start_playback(cx);
+                        app
+                    })
                 })
                 .expect("failed to open SENZO window");
 

@@ -57,10 +57,10 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [x] Add a dedicated MPV playback worker with a bounded command queue, non-blocking events, orderly shutdown, and graceful missing-runtime reporting.
 - [x] Add a playback-state snapshot with change-only 500 ms polling for playback position, duration, pause, buffering, title, volume, mute, and fullscreen.
 - [x] Add validated worker/runtime commands for volume, mute, fullscreen, audio-track selection, and subtitle-track selection/disable.
-- [ ] Connect the playback worker to GPUI through bounded messages; never call blocking playback operations on the UI thread.
+- [x] Connect the playback worker to GPUI through a cancellable monitor task and bounded command queue; MPV operations remain on the dedicated worker thread.
 - [ ] Enumerate audio/subtitle tracks and expose player controls in GPUI.
 - [ ] Implement a native video presentation surface and validate GPU/renderer compatibility.
-- [ ] Add play, pause, seek, volume, fullscreen, audio-track and subtitle selection controls.
+- [ ] Add file selection, play, seek, volume, fullscreen, audio-track and subtitle selection controls. Initial GPUI controls currently expose pause/resume, stop, and mute when a trusted MPV runtime is present.
 - [ ] Detect runtime decoder/renderer/HDR capabilities and apply settings to a live MPV instance.
 - [ ] Persist playback progress and resume positions.
 - [ ] Add live playback diagnostics and graceful error/recovery states.

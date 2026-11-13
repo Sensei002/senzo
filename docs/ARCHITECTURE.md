@@ -159,3 +159,8 @@ Not yet connected or implemented:
 7. Evaluate optional torrent transport only after source selection and playback boundaries are established.
 8. Add Discord Rich Presence and privacy controls.
 9. Add signed Windows Stable/Development update channels and installer packaging.
+
+
+## GPUI playback bridge
+
+The GPUI application owns the playback worker handle behind a shared mutex. The mutex protects only short, non-blocking queue operations and event reads; all libmpv calls remain on the dedicated playback thread. A cancellable GPUI task checks for worker events every 200 ms using background executor work, then applies snapshots and status changes to the UI entity. The first controls expose pause/resume, stop, and mute. SENZO currently looks for a trusted `runtime/mpv-2.dll` beside the application executable; it does not download or silently load an arbitrary MPV library. Runtime packaging, file selection, track enumeration, seeking, and native video presentation remain separate follow-up work.
