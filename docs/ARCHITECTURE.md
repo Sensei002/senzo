@@ -19,13 +19,13 @@ SENZO is **accountless by design**. There is no SENZO sign-up, login, cloud prof
 ### SENZO does not promise
 
 - That any third-party source is available or lawful in every region.
-- That every Stremio add-on or Nuvio plugin is compatible.
+- That every Stremio add-on or provider-specific extension is compatible.
 - A SENZO-hosted account, cloud sync, or remote history service.
 - A built-in catalog of torrent sources or preinstalled Torrentio integration.
 
 ## 2. Metadata and discovery
 
-- **Primary provider:** The Movie Database (TMDB), following the broad metadata workflow observed in Nuvio.
+- **Primary provider:** The Movie Database (TMDB), used for movie and television discovery and metadata enrichment.
 - **Search:** Search movies or TV shows and retain the TMDB ID as stable internal identity.
 - **TV navigation:** Fetch typed season responses (including episode lists) and individual episode details. Season zero is supported for specials; episode numbers must be positive.
 - **External IDs:** Resolve movie and TV external identifiers, including IMDb and TVDB IDs, through dedicated TMDB endpoints for source-provider mapping.
@@ -37,7 +37,7 @@ SENZO is **accountless by design**. There is no SENZO sign-up, login, cloud prof
 
 ## 3. Add-ons and streaming sources
 
-SENZO uses a user-managed add-on registry inspired by Nuvio's Stremio-compatible add-on flow.
+SENZO uses a user-managed registry for explicitly installed Stremio-compatible HTTP add-ons.
 
 ### Installation and management
 
@@ -58,7 +58,7 @@ Initial compatibility targets the Stremio HTTP add-on protocol:
 - Stream resources.
 - Subtitle resources, where supported.
 
-Each resource must be implemented and tested before being advertised as supported. This does not imply support for Nuvio's separate local JavaScript plugin runtime or every provider-specific extension.
+Each resource must be implemented and tested before being advertised as supported. This does not imply support for every provider-specific extension or a separate local JavaScript plugin runtime.
 
 ### Trust and network safety
 
