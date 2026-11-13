@@ -1,5 +1,5 @@
 use gpui::{
-    App, ClipboardItem, Context, QuitMode, Render, Window, WindowOptions, div, prelude::*, rgb,
+    App, ClipboardItem, Context, QuitMode, Render, Window, WindowOptions, div, prelude::*, px, rgb,
 };
 
 use senzo::{
@@ -107,7 +107,7 @@ where
         .cursor_pointer()
         .hover(|style| style.bg(rgb(0x30363B)))
         .child(label)
-        .on_click(cx.listener(move |this, _event, _window, cx| {
+        .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |this, _event, _window, cx| {
             action(this, cx);
             this.persist(cx);
         }))
