@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 260">
+  <title>SENZO wordmark</title>
+  <g fill="#F5F5F5">
+    <path d="M40 65h190v35H82v25h105c34 0 52 18 52 49s-18 49-52 49H40v-35h146c8 0 12-4 12-14s-4-14-12-14H92c-34 0-52-18-52-49V65Z"/>
+    <path d="M275 65h190v35H317v34h148v35H317v19h148v35H275V65Z"/>
+    <path d="M510 65h42l106 130V65h42v158h-42L552 93v130h-42V65Z"/>
+    <path d="M735 65h190v35L789 188h136v35H735v-35l136-88H735V65Z"/>
+  </g>
+  <path d="M317 134h148v35H317z" fill="#18C7E8"/>
+</svg>
