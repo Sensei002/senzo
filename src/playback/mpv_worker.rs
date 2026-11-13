@@ -82,7 +82,8 @@ fn read_tracks(runtime: &MpvRuntime) -> Vec<PlaybackTrack> {
 
     (0..count)
         .filter_map(|index| {
-            let property = |name: &str| read_property(runtime, &format!("track-list/{index}/{name}"));
+            let property =
+                |name: &str| read_property(runtime, &format!("track-list/{index}/{name}"));
             let kind = property("type")?;
             if kind != "audio" && kind != "sub" {
                 return None;
@@ -93,9 +94,8 @@ fn read_tracks(runtime: &MpvRuntime) -> Vec<PlaybackTrack> {
                 kind,
                 title: property("title").filter(|value| !value.is_empty()),
                 language: property("lang").filter(|value| !value.is_empty()),
-                selected: property("selected").is_some_and(|value| {
-                    matches!(value.as_str(), "yes" | "true" | "1")
-                }),
+                selected: property("selected")
+                    .is_some_and(|value| matches!(value.as_str(), "yes" | "true" | "1")),
             })
         })
         .collect()
