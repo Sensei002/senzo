@@ -1232,7 +1232,7 @@ impl Render for SenzoApp {
                                             )
                                             .on_mouse_move(cx.listener({
                                                 let bounds = bounds.clone();
-                                                move |this, event, _window, cx| {
+                                                move |this, event: &gpui::MouseMoveEvent, _window, cx| {
                                                     if event.pressed_button == Some(MouseButton::Left) {
                                                         this.seek_from_pointer(
                                                             f32::from(event.position.x),
@@ -1464,7 +1464,7 @@ impl Render for SenzoApp {
                                             )
                                             .on_mouse_move(cx.listener({
                                                 let bounds = bounds.clone();
-                                                move |this, event, _window, cx| {
+                                                move |this, event: &gpui::MouseMoveEvent, _window, cx| {
                                                     if event.pressed_button == Some(MouseButton::Left) {
                                                         this.set_volume_from_pointer(
                                                             f32::from(event.position.x),
