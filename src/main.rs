@@ -6,8 +6,8 @@ use std::{
 
 use anyhow::Context as _;
 use gpui::{
-    App, ClipboardItem, Context, QuitMode, Render, Task, Window, WindowOptions, div, prelude::*,
-    px, rgb,
+    App, ClipboardItem, Context, MouseButton, QuitMode, Render, Task, Window, WindowOptions, div,
+    prelude::*, px, rgb,
 };
 
 use senzo::{
@@ -45,6 +45,8 @@ struct SenzoApp {
     native_viewport_bounds: Arc<Mutex<Option<SurfaceBounds>>>,
     native_video_surface: Arc<Mutex<Option<WindowsVideoSurface>>>,
     native_surface_error: Arc<Mutex<Option<String>>>,
+    seek_bar_bounds: Arc<Mutex<Option<(f32, f32)>>>,
+    volume_bar_bounds: Arc<Mutex<Option<(f32, f32)>>>,
 }
 
 impl SenzoApp {
@@ -83,6 +85,8 @@ impl SenzoApp {
             native_viewport_bounds: Arc::new(Mutex::new(None)),
             native_video_surface: Arc::new(Mutex::new(None)),
             native_surface_error: Arc::new(Mutex::new(None)),
+            seek_bar_bounds: Arc::new(Mutex::new(None)),
+            volume_bar_bounds: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -291,10 +295,7 @@ impl SenzoApp {
                 let worker = worker
                     .lock()
                     .map_err(|_| anyhow::anyhow!("playback worker lock is unavailable"))?;
-                worker.load_file(path)?;
-                if let Some(position) = resume_position {
-                    worker.seek_absolute(position)?;
-                }
+                worker.load_file_with_resume(path, resume_position)?;
                 Ok(())
             });
 
@@ -561,6 +562,32 @@ impl SenzoApp {
         );
     }
 
+    fn seek_from_pointer(&mut self, x: f32, bounds: &Arc<Mutex<Option<(f32, f32)>>>, cx: &mut Context<Self>) {
+        let Some((left, width)) = bounds.lock().ok().and_then(|value| *value) else { return; };
+        let Some(duration) = self.playback_state.duration_seconds.filter(|value| value.is_finite() && *value > 0.0) else { return; };
+        if !x.is_finite() || !width.is_finite() || width <= 0.0 { return; }
+        let target = duration * f64::from(((x - left) / width).clamp(0.0, 1.0));
+        self.send_playback_command("seek", move |worker| worker.seek_absolute(target), cx);
+    }
+
+    fn set_volume_from_pointer(&mut self, x: f32, bounds: &Arc<Mutex<Option<(f32, f32)>>>, cx: &mut Context<Self>) {
+        let Some((left, width)) = bounds.lock().ok().and_then(|value| *value) else { return; };
+        if !x.is_finite() || !width.is_finite() || width <= 0.0 { return; }
+        let volume = f64::from(((x - left) / width).clamp(0.0, 1.0)) * 100.0;
+        self.send_playback_command("volume", move |worker| worker.set_volume(volume), cx);
+    }
+
+    fn set_subtitle_margin(&mut self, margin: u8, cx: &mut Context<Self>) {
+        let margin = margin.min(100);
+        self.settings.subtitles.vertical_margin = margin;
+        self.send_playback_command("subtitle vertical margin", move |worker| worker.set_subtitle_margin(margin), cx);
+    }
+
+    fn set_subtitle_bold(&mut self, bold: bool, cx: &mut Context<Self>) {
+        self.settings.subtitles.bold = bold;
+        self.send_playback_command("subtitle weight", move |worker| worker.set_subtitle_bold(bold), cx);
+    }
+
     fn persist_playback_progress(&mut self, force: bool) {
         let Some(media_id) = self.active_media_id.as_deref() else {
             return;
@@ -624,7 +651,7 @@ impl SenzoApp {
 
     fn persist(&mut self, cx: &mut Context<Self>) {
         match self.database.save_playback_settings(&self.settings) {
-            Ok(()) => self.status = "Saved locally".into(),
+            Ok(()) => self.status = "Playback preferences saved locally".into(),
             Err(error) => {
                 self.status = format!("Could not save settings: {error}");
                 diagnostics::record(
@@ -788,6 +815,11 @@ fn option_row(
 impl Render for SenzoApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let settings = self.settings.clone();
+        let seek_bar_bounds = self.seek_bar_bounds.clone();
+        let volume_bar_bounds = self.volume_bar_bounds.clone();
+        let playback_position = self.playback_state.position_seconds;
+        let playback_duration = self.playback_state.duration_seconds;
+        let playback_volume = self.playback_state.volume.unwrap_or(100.0).clamp(0.0, 100.0);
         let native_surface_status = self
             .native_surface_error
             .lock()
@@ -983,7 +1015,7 @@ impl Render for SenzoApp {
                     )
                     .child(section(
                         "Video viewport",
-                        "This is the native video presentation target. The GPUI layout now reports its physical pixel bounds; child-window creation and MPV attachment are the next integration steps.",
+                        "Native Win32 child-window target for MPV video. The surface is created and resized from GPUI layout; actual rendering, alignment, and teardown still need Windows runtime verification.",
                         {
                             let viewport_bounds = self.native_viewport_bounds.clone();
                             let native_parent_hwnd = self.native_parent_hwnd;
@@ -1107,6 +1139,89 @@ impl Render for SenzoApp {
                                             .unwrap_or_else(|| "No media loaded".into()),
                                     ),
                             )
+                            .child({
+                                let bounds = seek_bar_bounds.clone();
+                                let progress = match (playback_position, playback_duration) {
+                                    (Some(position), Some(duration)) if duration > 0.0 => {
+                                        (position / duration).clamp(0.0, 1.0) as f32
+                                    }
+                                    _ => 0.0,
+                                };
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .justify_between()
+                                            .text_xs()
+                                            .text_color(rgb(0xA1A1AA))
+                                            .child(format_playback_time(playback_position))
+                                            .child(format_playback_time(playback_duration)),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("playback-seek-bar")
+                                            .w(px(420.0))
+                                            .h(px(18.0))
+                                            .flex()
+                                            .items_center()
+                                            .cursor_pointer()
+                                            .on_children_prepainted({
+                                                let bounds = bounds.clone();
+                                                move |children, _window, _cx| {
+                                                    if let Some(track) = children.first()
+                                                        && let Ok(mut current) = bounds.lock()
+                                                    {
+                                                        *current = Some((
+                                                            f32::from(track.origin.x),
+                                                            f32::from(track.size.width),
+                                                        ));
+                                                    }
+                                                }
+                                            })
+                                            .on_mouse_down(
+                                                MouseButton::Left,
+                                                cx.listener({
+                                                    let bounds = bounds.clone();
+                                                    move |this, event, _window, cx| {
+                                                        this.seek_from_pointer(
+                                                            f32::from(event.position.x),
+                                                            &bounds,
+                                                            cx,
+                                                        );
+                                                    }
+                                                }),
+                                            )
+                                            .on_mouse_move(cx.listener({
+                                                let bounds = bounds.clone();
+                                                move |this, event, _window, cx| {
+                                                    if event.pressed_button == Some(MouseButton::Left) {
+                                                        this.seek_from_pointer(
+                                                            f32::from(event.position.x),
+                                                            &bounds,
+                                                            cx,
+                                                        );
+                                                    }
+                                                }
+                                            }))
+                                            .child(
+                                                div()
+                                                    .w(px(420.0))
+                                                    .h(px(6.0))
+                                                    .rounded_full()
+                                                    .bg(rgb(0x30363B))
+                                                    .child(
+                                                        div()
+                                                            .w(px(420.0 * progress))
+                                                            .h(px(6.0))
+                                                            .rounded_full()
+                                                            .bg(rgb(0x22D3EE)),
+                                                    ),
+                                            ),
+                                    )
+                            })
                             .child(
                                 div()
                                     .flex()
@@ -1264,23 +1379,81 @@ impl Render for SenzoApp {
                                         cx,
                                     )),
                             )
-                            .child(
+                            .child({
+                                let bounds = volume_bar_bounds.clone();
+                                let fraction = (playback_volume / 100.0) as f32;
                                 div()
-                                    .text_xs()
-                                    .text_color(rgb(0x858C94))
-                                    .child(format!(
-                                        "Position: {} s  ·  Duration: {} s  ·  Volume: {}%",
-                                        self.playback_state.position_seconds
-                                            .map(|value| format!("{value:.1}"))
-                                            .unwrap_or_else(|| "—".into()),
-                                        self.playback_state.duration_seconds
-                                            .map(|value| format!("{value:.1}"))
-                                            .unwrap_or_else(|| "—".into()),
-                                        self.playback_state.volume
-                                            .map(|value| format!("{value:.0}"))
-                                            .unwrap_or_else(|| "—".into()),
-                                    )),
-                            )
+                                    .flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgb(0xA1A1AA))
+                                            .child(format!("Volume · {:.0}%", playback_volume)),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("playback-volume-bar")
+                                            .w(px(220.0))
+                                            .h(px(18.0))
+                                            .flex()
+                                            .items_center()
+                                            .cursor_pointer()
+                                            .on_children_prepainted({
+                                                let bounds = bounds.clone();
+                                                move |children, _window, _cx| {
+                                                    if let Some(track) = children.first()
+                                                        && let Ok(mut current) = bounds.lock()
+                                                    {
+                                                        *current = Some((
+                                                            f32::from(track.origin.x),
+                                                            f32::from(track.size.width),
+                                                        ));
+                                                    }
+                                                }
+                                            })
+                                            .on_mouse_down(
+                                                MouseButton::Left,
+                                                cx.listener({
+                                                    let bounds = bounds.clone();
+                                                    move |this, event, _window, cx| {
+                                                        this.set_volume_from_pointer(
+                                                            f32::from(event.position.x),
+                                                            &bounds,
+                                                            cx,
+                                                        );
+                                                    }
+                                                }),
+                                            )
+                                            .on_mouse_move(cx.listener({
+                                                let bounds = bounds.clone();
+                                                move |this, event, _window, cx| {
+                                                    if event.pressed_button == Some(MouseButton::Left) {
+                                                        this.set_volume_from_pointer(
+                                                            f32::from(event.position.x),
+                                                            &bounds,
+                                                            cx,
+                                                        );
+                                                    }
+                                                }
+                                            }))
+                                            .child(
+                                                div()
+                                                    .w(px(220.0))
+                                                    .h(px(6.0))
+                                                    .rounded_full()
+                                                    .bg(rgb(0x30363B))
+                                                    .child(
+                                                        div()
+                                                            .w(px(220.0 * fraction))
+                                                            .h(px(6.0))
+                                                            .rounded_full()
+                                                            .bg(rgb(0x22D3EE)),
+                                                    ),
+                                            ),
+                                    )
+                            })
                             .child(
                                 div()
                                     .text_xs()
@@ -1429,7 +1602,7 @@ impl Render for SenzoApp {
                             ))
                             .child(option_row(
                                 "Video renderer",
-                                "Renderer selection will be applied when the playback backend is connected.",
+                                "Renderer preference is applied when the MPV playback session starts.",
                                 div()
                                     .flex()
                                     .flex_wrap()
@@ -1560,9 +1733,9 @@ impl Render for SenzoApp {
                                     .flex()
                                     .flex_wrap()
                                     .gap_2()
-                                    .child(choice_chip("Small · 32", settings.subtitles.font_size == 32, |this, _cx| this.settings.subtitles.font_size = 32, cx))
-                                    .child(choice_chip("Default · 42", settings.subtitles.font_size == 42, |this, _cx| this.settings.subtitles.font_size = 42, cx))
-                                    .child(choice_chip("Large · 52", settings.subtitles.font_size == 52, |this, _cx| this.settings.subtitles.font_size = 52, cx))
+                                    .child(choice_chip("Small · 32", settings.subtitles.font_size == 32, |this, cx| this.set_subtitle_font_size(32, cx), cx))
+                                    .child(choice_chip("Default · 42", settings.subtitles.font_size == 42, |this, cx| this.set_subtitle_font_size(42, cx), cx))
+                                    .child(choice_chip("Large · 52", settings.subtitles.font_size == 52, |this, cx| this.set_subtitle_font_size(52, cx), cx))
                                     .child(choice_chip("Extra large · 64", settings.subtitles.font_size == 64, |this, cx| this.set_subtitle_font_size(64, cx), cx))
                                     .child(choice_chip("− size", false, |this, cx| {
                                         let size = this.settings.subtitles.font_size.saturating_sub(2).max(12);
@@ -1593,26 +1766,29 @@ impl Render for SenzoApp {
                             ))
                             .child(option_row(
                                 "Vertical margin",
-                                "Distance from the bottom edge, expressed as a percentage.",
+                                "Vertical distance from the bottom edge, in pixels.",
                                 div()
                                     .flex()
                                     .flex_wrap()
                                     .gap_2()
-                                    .child(choice_chip("12%", settings.subtitles.vertical_margin == 12, |this, _cx| this.settings.subtitles.vertical_margin = 12, cx))
-                                    .child(choice_chip("24%", settings.subtitles.vertical_margin == 24, |this, _cx| this.settings.subtitles.vertical_margin = 24, cx))
-                                    .child(choice_chip("36%", settings.subtitles.vertical_margin == 36, |this, _cx| this.settings.subtitles.vertical_margin = 36, cx)),
+                                    .child(choice_chip("12 px", settings.subtitles.vertical_margin == 12, |this, cx| this.set_subtitle_margin(12, cx), cx))
+                                    .child(choice_chip("24 px", settings.subtitles.vertical_margin == 24, |this, cx| this.set_subtitle_margin(24, cx), cx))
+                                    .child(choice_chip("36 px", settings.subtitles.vertical_margin == 36, |this, cx| this.set_subtitle_margin(36, cx), cx)),
                             ))
                             .child(toggle_row(
                                 "Bold subtitles",
                                 "Use a heavier subtitle weight for improved legibility.",
                                 settings.subtitles.bold,
-                                |this, _cx| this.settings.subtitles.bold = !this.settings.subtitles.bold,
+                                |this, cx| {
+                                    let bold = !this.settings.subtitles.bold;
+                                    this.set_subtitle_bold(bold, cx);
+                                },
                                 cx,
                             )),
                     ))
                     .child(section(
                         "Buffering",
-                        "Limits are normalized before being stored. These preferences are not yet connected to a streaming engine.",
+                        "MPV applies these bounded cache and memory preferences when the playback session starts.",
                         div()
                             .flex()
                             .flex_col()
@@ -1692,10 +1868,25 @@ impl Render for SenzoApp {
                                 div()
                                     .text_xs()
                                     .text_color(rgb(0x65707A))
-                                    .child("Playback engine integration is planned"),
+                                    .child("Restart SENZO to apply engine-level preferences; subtitle appearance changes apply live."),
                             ),
                     ),
             )
+    }
+}
+
+fn format_playback_time(seconds: Option<f64>) -> String {
+    let Some(seconds) = seconds.filter(|value| value.is_finite() && *value >= 0.0) else {
+        return "—:—".into();
+    };
+    let total = seconds.floor() as u64;
+    let hours = total / 3600;
+    let minutes = (total % 3600) / 60;
+    let seconds = total % 60;
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes:02}:{seconds:02}")
     }
 }
 

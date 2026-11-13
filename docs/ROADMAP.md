@@ -72,7 +72,7 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [x] Add native local-file selection and queue file-load commands through the GPUI playback bridge (requires a trusted runtime DLL).
 - [x] Add initial GPUI pause/resume, stop, mute, 10-second seek-step, and fullscreen command controls.
 - [x] Add GPUI volume down/up controls in 5% steps using the live MPV volume snapshot.
-- [ ] Add a seek bar and continuous volume adjustment.
+- [x] Add an interactive seek bar with click/drag seeking and a continuous volume slider.
 - [x] Add live playback-speed controls (0.5×, 0.75×, 1.0×, 1.25×, 1.5×, and 2.0×) with the active speed read from MPV.
 - [x] Add a UI-independent OpenSubtitles.com API v1 client for explicit title/IMDb/TMDB searches, language filtering, typed results, download-link retrieval, HTTPS host validation, and bounded subtitle downloads.
 - [x] Add a Windows Credential Manager adapter for saving, loading, checking, and clearing the OpenSubtitles API key without SQLite or log persistence.
@@ -83,7 +83,9 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [ ] Detect runtime decoder/renderer/HDR capabilities and apply settings to a live MPV instance.
 - [x] Persist local-file playback progress periodically, flush before stop/media switch, and resume from the saved position when the same file is reopened.
 - [ ] Extend progress persistence to metadata-backed movie/episode IDs and watch-history completion rules.
-- [ ] Add live playback diagnostics and graceful error/recovery states.
+- [x] Add live playback diagnostics and visible runtime/command failure states.
+- [x] Defer resume seeking until MPV reports the newly loaded file and its duration, with bounded timeout and end-of-file clamping.
+- [x] Apply subtitle font size, vertical margin, and bold changes to the active MPV session.
 
 ## Phase 5 — Add-ons and streaming sources
 

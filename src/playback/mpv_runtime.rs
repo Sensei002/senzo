@@ -151,6 +151,18 @@ impl MpvRuntime {
         self.command(&["set", "sub-font-size", &size])
     }
 
+    /// Set subtitle vertical margin in pixels.
+    pub fn set_subtitle_margin(&self, margin: u8) -> anyhow::Result<()> {
+        if margin > 100 { bail!("subtitle vertical margin must be between 0 and 100 pixels"); }
+        let margin = margin.to_string();
+        self.command(&["set", "sub-margin-y", &margin])
+    }
+
+    /// Set subtitle weight.
+    pub fn set_subtitle_bold(&self, bold: bool) -> anyhow::Result<()> {
+        self.command(&["set", "sub-bold", if bold { "yes" } else { "no" }])
+    }
+
     /// Load and select a user-chosen external subtitle file.
     pub fn add_subtitle_file(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
         let path = path

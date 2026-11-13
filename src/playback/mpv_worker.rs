@@ -7,7 +7,7 @@ use std::{
     path::PathBuf,
     sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TryRecvError},
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context as _, anyhow, bail};
@@ -138,7 +138,7 @@ fn read_tracks(runtime: &MpvRuntime) -> Vec<PlaybackTrack> {
 
 /// Commands accepted by the playback worker.
 enum PlaybackCommand {
-    LoadFile(PathBuf),
+    LoadFile(PathBuf, Option<f64>),
     SetPaused(bool),
     SetVolume(f64),
     SetMuted(bool),
@@ -147,6 +147,8 @@ enum PlaybackCommand {
     SetSubtitleTrack(Option<u64>),
     SetSubtitleDelay(f64),
     SetSubtitleFontSize(u8),
+    SetSubtitleMargin(u8),
+    SetSubtitleBold(bool),
     AddSubtitleFile(PathBuf),
     SeekAbsolute(f64),
     SetSpeed(f64),
@@ -170,6 +172,20 @@ pub enum PlaybackEvent {
         message: String,
     },
     Stopped,
+}
+
+struct PendingResume {
+    position: f64,
+    expected_path: String,
+    not_before: Instant,
+    deadline: Instant,
+}
+
+fn resume_target(position: f64, duration: f64) -> f64 {
+    if !position.is_finite() || position < 0.0 || !duration.is_finite() || duration <= 0.0 {
+        return 0.0;
+    }
+    position.min((duration - 0.5).max(0.0))
 }
 
 /// Handle for a single MPV instance running on its own thread.
@@ -206,13 +222,25 @@ impl PlaybackWorker {
 
                 let _ = event_tx.send(PlaybackEvent::Ready);
                 let mut previous_state: Option<PlaybackState> = None;
+                let mut pending_resume: Option<PendingResume> = None;
 
                 loop {
                     match command_rx.recv_timeout(STATE_POLL_INTERVAL) {
                         Ok(command) => {
                             let (operation, result, shutdown) = match command {
-                                PlaybackCommand::LoadFile(path) => {
-                                    ("load_file", runtime.load_file(path), false)
+                                PlaybackCommand::LoadFile(path, resume_position) => {
+                                    let expected_path = path.to_string_lossy().into_owned();
+                                    pending_resume = None;
+                                    let result = runtime.load_file(path);
+                                    if result.is_ok() {
+                                        pending_resume = resume_position.map(|position| PendingResume {
+                                            position,
+                                            expected_path,
+                                            not_before: Instant::now() + Duration::from_millis(500),
+                                            deadline: Instant::now() + Duration::from_secs(30),
+                                        });
+                                    }
+                                    ("load_file", result, false)
                                 }
                                 PlaybackCommand::SetPaused(paused) => {
                                     ("set_paused", runtime.set_paused(paused), false)
@@ -242,6 +270,16 @@ impl PlaybackWorker {
                                 PlaybackCommand::SetSubtitleFontSize(size) => (
                                     "set_subtitle_font_size",
                                     runtime.set_subtitle_font_size(size),
+                                    false,
+                                ),
+                                PlaybackCommand::SetSubtitleMargin(margin) => (
+                                    "set_subtitle_margin",
+                                    runtime.set_subtitle_margin(margin),
+                                    false,
+                                ),
+                                PlaybackCommand::SetSubtitleBold(bold) => (
+                                    "set_subtitle_bold",
+                                    runtime.set_subtitle_bold(bold),
                                     false,
                                 ),
                                 PlaybackCommand::AddSubtitleFile(path) => {
@@ -275,6 +313,30 @@ impl PlaybackWorker {
                     }
 
                     let state = PlaybackState::read(&runtime);
+                    if let Some(pending) = pending_resume.as_ref() {
+                        let current_path = read_property(&runtime, "path");
+                        if Instant::now() >= pending.not_before
+                            && current_path.as_deref().is_some_and(|path| path.eq_ignore_ascii_case(&pending.expected_path))
+                            && let Some(duration) = state.duration_seconds.filter(|value| *value > 0.0)
+                        {
+                            let result = runtime.seek_absolute(resume_target(pending.position, duration));
+                            let event = match result {
+                                Ok(()) => PlaybackEvent::CommandCompleted { operation: "resume_seek" },
+                                Err(error) => PlaybackEvent::CommandFailed {
+                                    operation: "resume_seek",
+                                    message: format!("{error:#}"),
+                                },
+                            };
+                            let _ = event_tx.send(event);
+                            pending_resume = None;
+                        } else if Instant::now() >= pending.deadline {
+                            let _ = event_tx.send(PlaybackEvent::CommandFailed {
+                                operation: "resume_seek",
+                                message: "the media did not become ready within 30 seconds".into(),
+                            });
+                            pending_resume = None;
+                        }
+                    }
                     if previous_state.as_ref() != Some(&state) {
                         previous_state = Some(state.clone());
                         let _ = event_tx.send(PlaybackEvent::StateChanged(state));
@@ -295,7 +357,15 @@ impl PlaybackWorker {
 
     /// Queue a local media file for playback.
     pub fn load_file(&self, path: impl Into<PathBuf>) -> anyhow::Result<()> {
-        self.enqueue(PlaybackCommand::LoadFile(path.into()))
+        self.load_file_with_resume(path, None)
+    }
+
+    /// Queue a file and defer resume until MPV reports the new path and duration.
+    pub fn load_file_with_resume(&self, path: impl Into<PathBuf>, resume_position: Option<f64>) -> anyhow::Result<()> {
+        if resume_position.is_some_and(|position| !position.is_finite() || position < 0.0) {
+            bail!("resume position must be finite and non-negative");
+        }
+        self.enqueue(PlaybackCommand::LoadFile(path.into(), resume_position))
     }
 
     /// Queue a pause or resume transition.
@@ -351,6 +421,17 @@ impl PlaybackWorker {
             bail!("subtitle font size must be between 12 and 96");
         }
         self.enqueue(PlaybackCommand::SetSubtitleFontSize(size))
+    }
+
+    /// Queue a subtitle vertical margin from 0 to 100 pixels.
+    pub fn set_subtitle_margin(&self, margin: u8) -> anyhow::Result<()> {
+        if margin > 100 { bail!("subtitle vertical margin must be between 0 and 100 pixels"); }
+        self.enqueue(PlaybackCommand::SetSubtitleMargin(margin))
+    }
+
+    /// Queue the subtitle bold preference.
+    pub fn set_subtitle_bold(&self, bold: bool) -> anyhow::Result<()> {
+        self.enqueue(PlaybackCommand::SetSubtitleBold(bold))
     }
 
     /// Queue a user-selected external subtitle file.
@@ -438,10 +519,21 @@ mod tests {
         assert!(worker.set_subtitle_delay(11.0).is_err());
         assert!(worker.set_subtitle_font_size(42).is_ok());
         assert!(worker.set_subtitle_font_size(100).is_err());
-        for _ in 0..3 {
+        assert!(worker.set_subtitle_margin(24).is_ok());
+        assert!(worker.set_subtitle_margin(101).is_err());
+        assert!(worker.set_subtitle_bold(true).is_ok());
+        for _ in 0..5 {
             assert!(command_rx.try_recv().is_ok());
         }
         assert!(command_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn resume_target_stays_inside_the_loaded_media_duration() {
+        assert_eq!(resume_target(45.0, 120.0), 45.0);
+        assert_eq!(resume_target(180.0, 120.0), 119.5);
+        assert_eq!(resume_target(180.0, 0.25), 0.0);
+        assert_eq!(resume_target(f64::NAN, 120.0), 0.0);
     }
 
     #[test]
