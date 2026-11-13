@@ -229,11 +229,7 @@ impl SenzoApp {
             }
             Err(error) => {
                 self.playback_status = format!("Could not open media: {error:#}");
-                diagnostics::record(
-                    diagnostics::Level::Error,
-                    "playback",
-                    &self.playback_status,
-                );
+                diagnostics::record(diagnostics::Level::Error, "playback", &self.playback_status);
             }
         }
         cx.notify();
