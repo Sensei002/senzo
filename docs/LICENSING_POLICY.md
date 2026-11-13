@@ -1,8 +1,8 @@
 # SENZO licensing
 
-SENZO is licensed under the **GNU Affero General Public License, version 3.0 or (at your option) any later version**.
+SENZO is licensed under the **GNU Affero General Public License, version 3.0**.
 
-The complete license text is in the repository-root `LICENSE` file. The SPDX identifier is `AGPL-3.0-or-later`.
+The complete license text is in the repository-root `LICENSE` file. The SPDX identifier is `AGPL-3.0-only`.
 
 ## What this means
 
@@ -23,7 +23,7 @@ SENZO includes or plans to integrate third-party libraries and services with the
 
 ## Contributor note
 
-Contributions intended for inclusion in SENZO are submitted under the repository's AGPL-3.0-or-later licensing terms, subject to applicable copyright ownership and contribution policies. A separate Contributor License Agreement has not been adopted.
+Contributions intended for inclusion in SENZO are submitted under the repository's AGPL-3.0-only licensing terms, subject to applicable copyright ownership and contribution policies. A separate Contributor License Agreement has not been adopted.
 
 ## Legal note
 
