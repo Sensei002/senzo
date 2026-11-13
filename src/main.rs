@@ -562,29 +562,65 @@ impl Render for SenzoApp {
         let settings = self.settings.clone();
 
         let mut audio_track_chips = Vec::new();
-        for track in self.playback_state.tracks.iter().filter(|track| track.kind == "audio") {
+        for track in self
+            .playback_state
+            .tracks
+            .iter()
+            .filter(|track| track.kind == "audio")
+        {
             let id = track.id;
             let label = format!(
                 "{}{}",
                 track.title.as_deref().unwrap_or("Audio"),
-                track.language.as_deref().map(|language| format!(" · {language}")).unwrap_or_default()
+                track
+                    .language
+                    .as_deref()
+                    .map(|language| format!(" · {language}"))
+                    .unwrap_or_default()
             );
-            audio_track_chips.push(dynamic_choice_chip(label, track.selected, move |this, cx| {
-                this.send_playback_command("select audio track", move |worker| worker.set_audio_track(id), cx);
-            }, cx));
+            audio_track_chips.push(dynamic_choice_chip(
+                label,
+                track.selected,
+                move |this, cx| {
+                    this.send_playback_command(
+                        "select audio track",
+                        move |worker| worker.set_audio_track(id),
+                        cx,
+                    );
+                },
+                cx,
+            ));
         }
 
         let mut subtitle_track_chips = Vec::new();
-        for track in self.playback_state.tracks.iter().filter(|track| track.kind == "sub") {
+        for track in self
+            .playback_state
+            .tracks
+            .iter()
+            .filter(|track| track.kind == "sub")
+        {
             let id = track.id;
             let label = format!(
                 "{}{}",
                 track.title.as_deref().unwrap_or("Subtitle"),
-                track.language.as_deref().map(|language| format!(" · {language}")).unwrap_or_default()
+                track
+                    .language
+                    .as_deref()
+                    .map(|language| format!(" · {language}"))
+                    .unwrap_or_default()
             );
-            subtitle_track_chips.push(dynamic_choice_chip(label, track.selected, move |this, cx| {
-                this.send_playback_command("select subtitle track", move |worker| worker.set_subtitle_track(Some(id)), cx);
-            }, cx));
+            subtitle_track_chips.push(dynamic_choice_chip(
+                label,
+                track.selected,
+                move |this, cx| {
+                    this.send_playback_command(
+                        "select subtitle track",
+                        move |worker| worker.set_subtitle_track(Some(id)),
+                        cx,
+                    );
+                },
+                cx,
+            ));
         }
 
         div()
