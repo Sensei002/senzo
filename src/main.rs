@@ -26,6 +26,10 @@ struct SenzoApp {
     database: LocalDatabase,
     settings: PlaybackSettings,
     status: String,
+    playback_worker: Option<Arc<Mutex<PlaybackWorker>>>,
+    playback_state: PlaybackState,
+    playback_status: String,
+    playback_monitor: Option<Task<()>>,
 }
 
 impl SenzoApp {
@@ -65,7 +69,7 @@ impl SenzoApp {
         if !runtime_path.is_file() {
             self.playback_status = format!("MPV runtime missing: {}", runtime_path.display());
             diagnostics::record(
-                diagnostics::Level::Warning,
+                diagnostics::Level::Warn,
                 "playback",
                 &self.playback_status,
             );
