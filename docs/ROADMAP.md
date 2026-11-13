@@ -73,6 +73,7 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [x] Add initial GPUI pause/resume, stop, mute, 10-second seek-step, and fullscreen command controls.
 - [x] Add GPUI volume down/up controls in 5% steps using the live MPV volume snapshot.
 - [ ] Add a seek bar and continuous volume adjustment.
+- [x] Add live playback-speed controls (0.5×, 0.75×, 1.0×, 1.25×, 1.5×, and 2.0×) with the active speed read from MPV.
 - [x] Add a UI-independent OpenSubtitles.com API v1 client for explicit title/IMDb/TMDB searches, language filtering, typed results, download-link retrieval, HTTPS host validation, and bounded subtitle downloads.
 - [x] Add a Windows Credential Manager adapter for saving, loading, checking, and clearing the OpenSubtitles API key without SQLite or log persistence.
 - [x] Add collision-safe local subtitle-cache persistence for validated OpenSubtitles downloads; cache writes enforce size and extension limits and never overwrite existing files.

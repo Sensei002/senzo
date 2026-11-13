@@ -1085,7 +1085,7 @@ impl Render for SenzoApp {
                     ))
                     .child(section(
                         "Playback engine",
-                        "The MPV worker runs separately from the UI. A trusted runtime DLL must be placed beside SENZO in the runtime folder.",
+                        "The MPV worker runs separately from the UI. Playback speed can be changed without interrupting the current media.",
                         div()
                             .flex()
                             .flex_col()
@@ -1212,6 +1212,42 @@ impl Render for SenzoApp {
                                                 );
                                             }
                                         },
+                                        cx,
+                                    ))
+                                    .child(dynamic_choice_chip(
+                                        "0.5×".into(),
+                                        self.playback_state.speed.is_some_and(|speed| (speed - 0.5).abs() < 0.01),
+                                        |this, cx| this.send_playback_command("playback speed", |worker| worker.set_speed(0.5), cx),
+                                        cx,
+                                    ))
+                                    .child(dynamic_choice_chip(
+                                        "0.75×".into(),
+                                        self.playback_state.speed.is_some_and(|speed| (speed - 0.75).abs() < 0.01),
+                                        |this, cx| this.send_playback_command("playback speed", |worker| worker.set_speed(0.75), cx),
+                                        cx,
+                                    ))
+                                    .child(dynamic_choice_chip(
+                                        "1.0×".into(),
+                                        self.playback_state.speed.is_some_and(|speed| (speed - 1.0).abs() < 0.01),
+                                        |this, cx| this.send_playback_command("playback speed", |worker| worker.set_speed(1.0), cx),
+                                        cx,
+                                    ))
+                                    .child(dynamic_choice_chip(
+                                        "1.25×".into(),
+                                        self.playback_state.speed.is_some_and(|speed| (speed - 1.25).abs() < 0.01),
+                                        |this, cx| this.send_playback_command("playback speed", |worker| worker.set_speed(1.25), cx),
+                                        cx,
+                                    ))
+                                    .child(dynamic_choice_chip(
+                                        "1.5×".into(),
+                                        self.playback_state.speed.is_some_and(|speed| (speed - 1.5).abs() < 0.01),
+                                        |this, cx| this.send_playback_command("playback speed", |worker| worker.set_speed(1.5), cx),
+                                        cx,
+                                    ))
+                                    .child(dynamic_choice_chip(
+                                        "2.0×".into(),
+                                        self.playback_state.speed.is_some_and(|speed| (speed - 2.0).abs() < 0.01),
+                                        |this, cx| this.send_playback_command("playback speed", |worker| worker.set_speed(2.0), cx),
                                         cx,
                                     ))
                                     .child(choice_chip(

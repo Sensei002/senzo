@@ -37,6 +37,7 @@ pub struct PlaybackState {
     pub volume: Option<f64>,
     pub muted: Option<bool>,
     pub fullscreen: Option<bool>,
+    pub speed: Option<f64>,
     pub diagnostics: PlaybackDiagnostics,
     pub tracks: Vec<PlaybackTrack>,
 }
@@ -66,6 +67,7 @@ impl PlaybackState {
             volume: read_number(runtime, "volume"),
             muted: read_boolean(runtime, "mute"),
             fullscreen: read_boolean(runtime, "fullscreen"),
+            speed: read_number(runtime, "speed"),
             diagnostics: PlaybackDiagnostics {
                 video_codec: read_property(runtime, "video-codec"),
                 video_decoder: read_property(runtime, "video-dec-params/codec"),
