@@ -1198,12 +1198,6 @@ impl Render for SenzoApp {
                                     )
                                     .child(
                                         div()
-                                            .id("playback-seek-bar")
-                                            .w(px(420.0))
-                                            .h(px(18.0))
-                                            .flex()
-                                            .items_center()
-                                            .cursor_pointer()
                                             .on_children_prepainted({
                                                 let bounds = bounds.clone();
                                                 move |children, _window, _cx| {
@@ -1217,6 +1211,12 @@ impl Render for SenzoApp {
                                                     }
                                                 }
                                             })
+                                            .id("playback-seek-bar")
+                                            .w(px(420.0))
+                                            .h(px(18.0))
+                                            .flex()
+                                            .items_center()
+                                            .cursor_pointer()
                                             .on_mouse_down(
                                                 MouseButton::Left,
                                                 cx.listener({
@@ -1430,12 +1430,6 @@ impl Render for SenzoApp {
                                     )
                                     .child(
                                         div()
-                                            .id("playback-volume-bar")
-                                            .w(px(220.0))
-                                            .h(px(18.0))
-                                            .flex()
-                                            .items_center()
-                                            .cursor_pointer()
                                             .on_children_prepainted({
                                                 let bounds = bounds.clone();
                                                 move |children, _window, _cx| {
@@ -1449,6 +1443,12 @@ impl Render for SenzoApp {
                                                     }
                                                 }
                                             })
+                                            .id("playback-volume-bar")
+                                            .w(px(220.0))
+                                            .h(px(18.0))
+                                            .flex()
+                                            .items_center()
+                                            .cursor_pointer()
                                             .on_mouse_down(
                                                 MouseButton::Left,
                                                 cx.listener({
