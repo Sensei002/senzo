@@ -19,6 +19,7 @@ SENZO is an independent project with its own architecture and product decisions.
 - **Application:** Native desktop media center.
 - **Language and UI:** Rust + GPUI.
 - **Current platform:** Windows (MSVC).
+- **Planned Windows installation:** Per-machine installation in `C:\\Program Files\\SENZO`; user data remains in `%LOCALAPPDATA%\\SENZO`.
 - **Later platform:** Linux, after the Windows application is established.
 - **Metadata:** TMDB is the primary metadata provider.
 - **Sources:** Optional, user-installed add-ons using the Stremio HTTP add-on protocol as the initial compatibility target.

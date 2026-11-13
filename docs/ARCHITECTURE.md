@@ -6,6 +6,10 @@ SENZO is a native desktop media center built with Rust + GPUI. Windows is the on
 
 SENZO is **accountless by design**. There is no SENZO sign-up, login, cloud profile, or required remote watch-history service. User settings, installed add-ons, watch history, and resume positions are stored in the local SENZO application-data directory.
 
+### Windows installation and writable data
+
+The Windows distribution is a **per-machine system installation** under `%ProgramFiles%\\SENZO` (normally `C:\\Program Files\\SENZO`). The installer requests elevation through Windows UAC. Application binaries, bundled resources, and the trusted MPV runtime belong in the installation directory; the running application must never write mutable user data there. Per-user writable data remains separate under `%LOCALAPPDATA%\\SENZO` (database, settings, logs, and disposable caches). Secrets remain in Windows Credential Manager. The installer should create Start Menu shortcuts and register a normal Windows uninstall entry. Uninstall must offer a clear choice about retaining or removing user data; updates must preserve it. Do not install the application itself under AppData or use a per-user-only installation by default.
+
 ### SENZO owns
 
 - Native desktop interface, navigation, and application state.

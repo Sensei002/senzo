@@ -98,7 +98,9 @@ The Settings experience will use progressive disclosure: essential controls firs
 ## Phase 7 — Windows distribution
 
 - [ ] Build optimized Windows release binaries in GitHub Actions.
-- [ ] Package Windows installers.
+- [ ] Build a per-machine Windows installer targeting `%ProgramFiles%\\SENZO` (normally `C:\\Program Files\\SENZO`), with UAC elevation, Start Menu shortcuts, and a Windows uninstall entry.
+- [ ] Bundle the application binaries, resources, and validated MPV runtime under the installation directory; keep all mutable user data under `%LOCALAPPDATA%\\SENZO` and secrets in Windows Credential Manager.
+- [ ] Ensure upgrades preserve user data and uninstall offers an explicit retain/remove-data choice.
 - [ ] Add Stable and Development update channels.
 - [ ] Sign update metadata and verify downloaded artifacts.
 - [ ] Add staged installation and rollback-safe update behavior.
