@@ -117,7 +117,7 @@ The repository currently contains early service and persistence foundations. It 
 | Local SQLite storage | Initial settings, progress, history, and add-on tables |
 | Local diagnostics service | Initial bounded event logging and recent-log export API; Settings/clipboard UI pending |
 | Typed playback preferences | Persisted settings model and initial GPUI controls; settings persist locally |
-| MPV configuration adapter | Pure MPV option mapping with capability-aware fallbacks and unit tests |\n| MPV runtime and worker | Dynamic libmpv loader, dedicated worker, bounded commands and playback-state polling; GPUI can open a local file and issue basic transport, seek, mute, fullscreen and volume-step commands when a trusted runtime is supplied; runtime is not yet packaged and no native video surface exists |
+| MPV configuration adapter | Pure MPV option mapping with capability-aware fallbacks and unit tests |\n| MPV runtime and worker | Dynamic libmpv loader, dedicated worker, bounded commands and playback-state polling; GPUI can open a local file and issue basic transport, seek, mute, fullscreen and volume-step commands when a trusted runtime is supplied; local-file resume positions are saved to SQLite and restored when the same file is opened again. Runtime is not yet packaged and no native video surface exists |
 | TMDB service | Initial movie/TV search, detail requests, season/episode and external-ID services, image URL construction |
 | Add-on service | Initial manifest URL validation/installation storage and stream request foundation |
 | GPUI media-center screens | Settings shell only; Home/Search/Library/Details/Player/Add-ons remain planned |

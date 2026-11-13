@@ -1,7 +1,7 @@
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use gpui::{
@@ -29,6 +29,8 @@ struct SenzoApp {
     playback_worker: Option<Arc<Mutex<PlaybackWorker>>>,
     playback_state: PlaybackState,
     playback_status: String,
+    active_media_id: Option<String>,
+    last_progress_save: Option<Instant>,
     playback_monitor: Option<Task<()>>,
 }
 
@@ -53,6 +55,8 @@ impl SenzoApp {
             playback_worker: None,
             playback_state: PlaybackState::default(),
             playback_status: "MPV runtime not found (expected runtime/mpv-2.dll)".into(),
+            active_media_id: None,
+            last_progress_save: None,
             playback_monitor: None,
         }
     }
@@ -131,7 +135,8 @@ impl SenzoApp {
                                     app.playback_status = "MPV runtime ready".into();
                                 }
                                 PlaybackEvent::StateChanged(state) => {
-                                    app.playback_state = state;
+                                    app.playback_state = state.clone();
+                                    app.persist_playback_progress(false);
                                 }
                                 PlaybackEvent::CommandCompleted { operation } => {
                                     diagnostics::record(
@@ -206,6 +211,25 @@ impl SenzoApp {
             .and_then(|name| name.to_str())
             .unwrap_or("selected media")
             .to_owned();
+        let media_id = format!(
+            "local-file:{}",
+            path.canonicalize()
+                .unwrap_or_else(|_| path.clone())
+                .to_string_lossy()
+        );
+        let resume_position = match self.database.playback_progress(&media_id) {
+            Ok(progress) => progress
+                .filter(|progress| progress.position_seconds > 5.0)
+                .map(|progress| progress.position_seconds),
+            Err(error) => {
+                diagnostics::record(
+                    diagnostics::Level::Warn,
+                    "playback",
+                    &format!("could not read saved playback progress: {error:#}"),
+                );
+                None
+            }
+        };
 
         let result = self
             .playback_worker
@@ -215,12 +239,23 @@ impl SenzoApp {
                 let worker = worker
                     .lock()
                     .map_err(|_| anyhow::anyhow!("playback worker lock is unavailable"))?;
-                worker.load_file(path)
+                worker.load_file(path)?;
+                if let Some(position) = resume_position {
+                    worker.seek_absolute(position)?;
+                }
+                Ok(())
             });
 
         match result {
             Ok(()) => {
-                self.playback_status = format!("Queued for playback: {file_name}");
+                self.active_media_id = Some(media_id);
+                self.last_progress_save = None;
+                self.playback_status = match resume_position {
+                    Some(position) => {
+                        format!("Resuming {file_name} from {:.0} seconds", position)
+                    }
+                    None => format!("Queued for playback: {file_name}"),
+                };
                 diagnostics::record(
                     diagnostics::Level::Audit,
                     "playback",
@@ -233,6 +268,44 @@ impl SenzoApp {
             }
         }
         cx.notify();
+    }
+
+    fn persist_playback_progress(&mut self, force: bool) {
+        let Some(media_id) = self.active_media_id.as_deref() else {
+            return;
+        };
+        let (Some(position), duration) = (
+            self.playback_state.position_seconds,
+            self.playback_state.duration_seconds,
+        ) else {
+            return;
+        };
+        if !position.is_finite() || position < 0.0 {
+            return;
+        }
+        let now = Instant::now();
+        if !force
+            && self
+                .last_progress_save
+                .is_some_and(|last| now.duration_since(last) < Duration::from_secs(10))
+        {
+            return;
+        }
+        let updated_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|value| value.as_secs() as i64)
+            .unwrap_or_default();
+        match self
+            .database
+            .save_playback_progress(media_id, position, duration, updated_at)
+        {
+            Ok(()) => self.last_progress_save = Some(now),
+            Err(error) => diagnostics::record(
+                diagnostics::Level::Warn,
+                "playback",
+                &format!("could not persist playback progress: {error:#}"),
+            ),
+        }
     }
 
     fn send_playback_command(
