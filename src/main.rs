@@ -21,7 +21,7 @@ use senzo::{
         ScalingAlgorithm,
     },
     storage::LocalDatabase,
-    subtitles::{OpenSubtitlesClient, OpenSubtitlesResult, SubtitleSearch},
+    subtitles::{OpenSubtitlesClient, OpenSubtitlesCredentialStore, OpenSubtitlesResult, SubtitleSearch},
 };
 
 struct SenzoApp {
@@ -36,6 +36,7 @@ struct SenzoApp {
     playback_monitor: Option<Task<()>>,
     online_subtitle_results: Vec<OpenSubtitlesResult>,
     subtitle_provider_status: String,
+    subtitle_credentials_status: String,
     subtitle_task: Option<Task<()>>,
 }
 
@@ -65,6 +66,11 @@ impl SenzoApp {
             playback_monitor: None,
             online_subtitle_results: Vec::new(),
             subtitle_provider_status: "Online subtitles have not been searched".into(),
+            subtitle_credentials_status: match OpenSubtitlesCredentialStore::has_api_key() {
+                Ok(true) => "API key saved in Windows Credential Manager".into(),
+                Ok(false) => "No API key saved in Windows Credential Manager".into(),
+                Err(_) => "Could not inspect Windows Credential Manager".into(),
+            },
             subtitle_task: None,
         }
     }
@@ -276,6 +282,57 @@ impl SenzoApp {
             Err(error) => {
                 self.playback_status = format!("Could not open media: {error:#}");
                 diagnostics::record(diagnostics::Level::Error, "playback", &self.playback_status);
+            }
+        }
+        cx.notify();
+    }
+
+    fn configure_opensubtitles_key(&mut self, cx: &mut Context<Self>) {
+        match OpenSubtitlesCredentialStore::prompt_and_save_api_key() {
+            Ok(true) => {
+                self.subtitle_credentials_status =
+                    "API key saved in Windows Credential Manager".into();
+                self.subtitle_provider_status =
+                    "OpenSubtitles is ready. Search for subtitles while media is playing.".into();
+                diagnostics::record(
+                    diagnostics::Level::Audit,
+                    "subtitles",
+                    "OpenSubtitles API key configured in Windows Credential Manager",
+                );
+            }
+            Ok(false) => {
+                self.subtitle_credentials_status = "API key setup cancelled; no changes made".into();
+            }
+            Err(error) => {
+                self.subtitle_credentials_status = format!("Could not save API key: {error:#}");
+                diagnostics::record(
+                    diagnostics::Level::Warn,
+                    "subtitles",
+                    "OpenSubtitles API key configuration failed",
+                );
+            }
+        }
+        cx.notify();
+    }
+
+    fn clear_opensubtitles_key(&mut self, cx: &mut Context<Self>) {
+        match OpenSubtitlesCredentialStore::clear_api_key() {
+            Ok(()) => {
+                self.subtitle_credentials_status =
+                    "Saved API key removed from Windows Credential Manager".into();
+                diagnostics::record(
+                    diagnostics::Level::Audit,
+                    "subtitles",
+                    "OpenSubtitles API key removed from Windows Credential Manager",
+                );
+            }
+            Err(error) => {
+                self.subtitle_credentials_status = format!("Could not remove API key: {error:#}");
+                diagnostics::record(
+                    diagnostics::Level::Warn,
+                    "subtitles",
+                    "OpenSubtitles API key removal failed",
+                );
             }
         }
         cx.notify();
@@ -1242,6 +1299,38 @@ impl Render for SenzoApp {
                                 |this, _cx| this.settings.interpolation = !this.settings.interpolation,
                                 cx,
                             )),
+                    ))
+                    .child(section(
+                        "OpenSubtitles",
+                        "Enter the API key through a masked Windows credential prompt. SENZO stores it only in Windows Credential Manager and never displays it again.",
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(0xB7BEC6))
+                                    .child(self.subtitle_credentials_status.clone()),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_wrap()
+                                    .gap_2()
+                                    .child(choice_chip(
+                                        "Set / replace API key",
+                                        false,
+                                        |this, cx| this.configure_opensubtitles_key(cx),
+                                        cx,
+                                    ))
+                                    .child(choice_chip(
+                                        "Remove saved key",
+                                        false,
+                                        |this, cx| this.clear_opensubtitles_key(cx),
+                                        cx,
+                                    )),
+                            ),
                     ))
                     .child(section(
                         "Subtitles",
