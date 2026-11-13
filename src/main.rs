@@ -105,12 +105,10 @@ impl SenzoApp {
             .native_video_surface
             .lock()
             .map_err(|_| anyhow::anyhow!("native video surface state is unavailable"))
-            .and_then(|surface| {
-                surface
-                    .as_ref()
-                    .ok_or_else(|| anyhow::anyhow!("native video surface is not ready"))
-            })
-            .and_then(WindowsVideoSurface::mpv_window_id);
+            .and_then(|surface| match surface.as_ref() {
+                Some(surface) => surface.mpv_window_id(),
+                None => Err(anyhow::anyhow!("native video surface is not ready")),
+            });
         let window_id = match window_id {
             Ok(window_id) => window_id,
             Err(error) => {
@@ -1815,7 +1813,7 @@ fn main() {
                             None
                         }
                     };
-                    cx.new(move |cx| SenzoApp::new(database, native_parent_hwnd))
+                    cx.new(move |_cx| SenzoApp::new(database, native_parent_hwnd))
                 })
                 .expect("failed to open SENZO window");
 
