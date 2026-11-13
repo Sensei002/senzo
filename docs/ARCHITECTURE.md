@@ -69,7 +69,7 @@ Manifests and responses are untrusted remote input. Validate URL schemes, respon
 - **Source adapters:** Stremio-compatible add-ons behind a normalized source interface. Future source types should not be coupled to UI code.
 - **Playback:** MPV behind an internal playback interface. Hardware decoding, subtitle/audio selection, seeking, speed, and fullscreen belong to the playback layer.
 - **Torrent transport:** Evaluate a Rust torrent engine such as librqbit only if a user-selected source requires it. Validate license, Windows compatibility, buffering, piece prioritization, seek behavior, and platform support before adoption. It is not a bundled source or default torrent catalog.
-- **Local persistence:** SQLite stores settings, add-on registry, playback progress, watch history, and future library state. Current Windows database path: `%LOCALAPPDATA%\\SENZO\\senzo.db`.
+- **Local persistence:** SQLite stores settings, add-on registry, playback progress, watch history, and future library state. Current Windows database path: `%LOCALAPPDATA%\SENZO\senzo.db`.
 - **Networking:** Tokio, Reqwest, and Serde.
 - **Presence:** Discord Rich Presence through Discord IPC, with privacy settings and explicit playback-state mapping.
 - **Updater:** Windows Stable and Development channels with signed update metadata, integrity verification, staged installation, and rollback strategy.
