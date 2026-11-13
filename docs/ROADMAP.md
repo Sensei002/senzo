@@ -51,8 +51,9 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [ ] Add source capability matching and user-controlled source selection.
 - [ ] Keep all streaming add-ons absent by default; Torrentio may only be added manually by the user.
 - [ ] Harden remote manifest fetching, redirects, and stream URL validation.
+- [x] Add a pure MPV option-mapping layer with capability-aware fallback reporting and unit tests (live runtime application remains pending).
 - [ ] Integrate MPV with subtitles, audio tracks, seeking, speed, and fullscreen.
-- [ ] Add capability-aware hardware decoding controls (Auto, enabled, disabled; supported Windows decoder backends).
+- [ ] Detect runtime decoder/renderer/HDR capabilities and apply settings to a live MPV instance.
 - [ ] Add renderer selection, scaling algorithms, debanding, HDR handling, and safe fallback behavior.
 - [ ] Add bounded buffer and memory controls, subtitle appearance, and live playback diagnostics.
 - [ ] Keep advanced image-processing controls opt-in and expose only capabilities supported by the active GPU/output path.

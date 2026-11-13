@@ -77,7 +77,7 @@ MPV is the planned playback engine. Target player capabilities include:
 - Renderer selection, scaling algorithms, HDR handling, and optional image processing.
 - Buffer and memory controls, subtitle appearance, and playback diagnostics.
 
-These controls will be capability-aware: SENZO will only apply options supported by the active playback backend, GPU, and display. Defaults will favor automatic hardware selection and balanced quality with low resource use. The exact native video-surface integration will be validated during implementation. Playback is not yet implemented.
+These controls will be capability-aware: SENZO will only apply options supported by the active playback backend, GPU, and display. Defaults will favor automatic hardware selection and balanced quality with low resource use. The exact native video-surface integration will be validated during implementation. Playback is not yet implemented. An initial MPV configuration adapter now translates saved preferences into MPV option values and reports capability fallbacks; live runtime integration and capability detection remain pending.
 
 ### Additional planned capabilities
 
@@ -116,7 +116,8 @@ The repository currently contains early service and persistence foundations. It 
 | Windows CI | Configured; current changes require successful CI verification |
 | Local SQLite storage | Initial settings, progress, history, and add-on tables |
 | Local diagnostics service | Initial bounded event logging and recent-log export API; Settings/clipboard UI pending |
-| Typed playback preferences | Initial persisted settings model with safe defaults and resource limits; not yet connected to MPV or Settings UI |
+| Typed playback preferences | Persisted settings model and initial GPUI controls; settings persist locally |
+| MPV configuration adapter | Pure MPV option mapping with capability-aware fallbacks and unit tests; not yet connected to a live MPV runtime |
 | TMDB service | Initial movie/TV search, detail requests, season/episode and external-ID services, image URL construction |
 | Add-on service | Initial manifest URL validation/installation storage and stream request foundation |
 | GPUI media-center screens | Not connected; placeholder shell |

@@ -129,6 +129,6 @@ Provider-specific logic must remain behind service or adapter interfaces. UI com
 
 ## Current status
 
-Early development. The repository has initial SQLite, TMDB client, add-on manifest/stream service, typed playback preferences, and a first native GPUI Settings screen. Settings persist locally and diagnostic reports can be copied; playback preferences are not yet connected to an MPV runtime. MPV, the full add-on manager, torrent transport, Discord Rich Presence, installers, and updater remain planned.
+Early development. The repository has initial SQLite, TMDB client, add-on manifest/stream service, typed playback preferences, a first native GPUI Settings screen, and a pure MPV option-mapping layer with capability-aware fallback tests. Settings persist locally; the mapper is not yet connected to a live MPV instance. MPV runtime integration, the full add-on manager, torrent transport, Discord Rich Presence, installers, and updater remain planned.
 
 See [README](../README.md), [Architecture](ARCHITECTURE.md), and [Roadmap](ROADMAP.md).

@@ -128,6 +128,7 @@ Initial foundations exist in the repository. Windows CI is the source of truth f
 - `src/diagnostics.rs`: local diagnostic event logging, bounded log rotation, recent-event collection, and basic credential redaction.
 - `src/metadata.rs`: TMDB movie/TV search, detail enrichment, seasons/episodes, external-ID lookup, and image URL construction.
 - `src/settings.rs`: typed playback preferences, conservative defaults, and resource-limit normalization.
+- `src/playback/mpv_config.rs`: pure mapping from user preferences to MPV option values, runtime-capability-aware fallback reporting, and unit tests. It does not load or apply a live MPV instance yet.
 - `src/addons.rs`: Stremio manifest URL normalization/validation, explicit installation, local registry persistence, and an initial stream request method.
 - `src/main.rs`: initializes diagnostics and SQLite, loads persisted playback preferences, and renders the initial GPUI Settings screen with local persistence and Copy Logs.
 
@@ -137,8 +138,8 @@ Not yet connected or implemented:
 - TMDB-powered Home/Search/Details, season/episode browsing, and ID mapping.
 - Persistent metadata/artwork cache.
 - User-facing add-on manager and complete catalog/meta/stream/subtitle routing.
-- MPV playback integration and playback UI.
-- Runtime GPU/decoder capability detection and application of playback preferences.
+- Live MPV playback integration and playback UI.
+- Runtime GPU/decoder capability detection; the configuration mapper currently accepts capability data but does not discover it.
 - Torrent transport.
 - Discord Rich Presence.
 - Windows installers and updater.
