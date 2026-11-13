@@ -105,6 +105,7 @@ impl SenzoApp {
                     .timer(Duration::from_millis(200))
                     .await;
 
+                let worker = worker.clone();
                 let events = cx
                     .background_spawn(async move {
                         let mut events = Vec::new();
@@ -136,7 +137,7 @@ impl SenzoApp {
                                 }
                                 PlaybackEvent::CommandCompleted { operation } => {
                                     diagnostics::record(
-                                        diagnostics::Level::Debug,
+                                        diagnostics::Level::Info,
                                         "playback",
                                         &format!("playback command completed: {operation}"),
                                     );
@@ -157,6 +158,7 @@ impl SenzoApp {
                                         "playback",
                                         &app.playback_status,
                                     );
+                                    app.playback_worker = None;
                                 }
                                 PlaybackEvent::Stopped => {
                                     app.playback_status = "Playback stopped".into();
