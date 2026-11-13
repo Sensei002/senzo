@@ -153,9 +153,11 @@ impl PlaybackWorker {
                                 PlaybackCommand::SetAudioTrack(track_id) => {
                                     ("set_audio_track", runtime.set_audio_track(track_id), false)
                                 }
-                                PlaybackCommand::SetSubtitleTrack(track_id) => {
-                                    ("set_subtitle_track", runtime.set_subtitle_track(track_id), false)
-                                }
+                                PlaybackCommand::SetSubtitleTrack(track_id) => (
+                                    "set_subtitle_track",
+                                    runtime.set_subtitle_track(track_id),
+                                    false,
+                                ),
                                 PlaybackCommand::SeekAbsolute(seconds) => {
                                     ("seek_absolute", runtime.seek_absolute(seconds), false)
                                 }
