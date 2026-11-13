@@ -62,7 +62,8 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [ ] Implement a native video presentation surface and validate GPU/renderer compatibility.
 - [x] Add native local-file selection and queue file-load commands through the GPUI playback bridge (requires a trusted runtime DLL).
 - [x] Add initial GPUI pause/resume, stop, mute, 10-second seek-step, and fullscreen command controls.
-- [ ] Add a seek bar, volume adjustment, audio/subtitle track enumeration and selection UI.
+- [x] Add GPUI volume down/up controls in 5% steps using the live MPV volume snapshot.
+- [ ] Add a seek bar, continuous volume adjustment, audio/subtitle track enumeration and selection UI.
 - [ ] Detect runtime decoder/renderer/HDR capabilities and apply settings to a live MPV instance.
 - [ ] Persist playback progress and resume positions.
 - [ ] Add live playback diagnostics and graceful error/recovery states.

@@ -556,6 +556,34 @@ impl Render for SenzoApp {
                                         cx,
                                     ))
                                     .child(choice_chip(
+                                        "Volume −5%",
+                                        false,
+                                        |this, cx| {
+                                            let volume = this.playback_state.volume.unwrap_or(100.0);
+                                            let volume = (volume - 5.0).clamp(0.0, 100.0);
+                                            this.send_playback_command(
+                                                "volume down",
+                                                move |worker| worker.set_volume(volume),
+                                                cx,
+                                            );
+                                        },
+                                        cx,
+                                    ))
+                                    .child(choice_chip(
+                                        "Volume +5%",
+                                        false,
+                                        |this, cx| {
+                                            let volume = this.playback_state.volume.unwrap_or(100.0);
+                                            let volume = (volume + 5.0).clamp(0.0, 100.0);
+                                            this.send_playback_command(
+                                                "volume up",
+                                                move |worker| worker.set_volume(volume),
+                                                cx,
+                                            );
+                                        },
+                                        cx,
+                                    ))
+                                    .child(choice_chip(
                                         "−10 seconds",
                                         false,
                                         |this, cx| {
