@@ -83,7 +83,7 @@ The initial SQLite schema contains:
 - `watch_history`: watched media identity, title, media type, and timestamp.
 - `addons`: add-on identity, version, manifest URL, enabled state, manifest JSON, and installation timestamp.
 
-The database is created under the user's local application-data directory and initialized during application startup. Future schema changes must use versioned migrations and must not discard history or settings.
+The database is created under the user's local application-data directory and initialized during application startup. SQLite `PRAGMA user_version` tracks schema version 1. Schema creation runs transactionally; future schema changes must add ordered migrations and must not discard history or settings. A build refuses to open a database whose schema version is newer than it supports.
 
 Planned additions include metadata cache entries, artwork cache indexing, favorites/library state, and migration metadata. Cache data is bounded and disposable; personal history and settings are not disposable cache.
 

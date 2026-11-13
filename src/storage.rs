@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +22,8 @@ pub struct StoredAddon {
     pub manifest_json: String,
     pub installed_at: i64,
 }
+
+const CURRENT_SCHEMA_VERSION: i64 = 1;
 
 pub struct LocalDatabase {
     connection: Connection,
@@ -47,46 +49,65 @@ impl LocalDatabase {
                 .with_context(|| format!("failed to create {}", parent.display()))?;
         }
 
-        let connection = Connection::open(path)
+        let mut connection = Connection::open(path)
             .with_context(|| format!("failed to open local database at {}", path.display()))?;
         connection.pragma_update(None, "journal_mode", "WAL")?;
         connection.pragma_update(None, "foreign_keys", "ON")?;
-        connection.execute_batch(
-            "
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY NOT NULL,
-                value TEXT NOT NULL
+        let schema_version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .context("failed to read the local database schema version")?;
+        if schema_version > CURRENT_SCHEMA_VERSION {
+            bail!(
+                "the local database schema version {schema_version} is newer than this SENZO build supports ({CURRENT_SCHEMA_VERSION})"
             );
+        }
 
-            CREATE TABLE IF NOT EXISTS playback_progress (
-                media_id TEXT PRIMARY KEY NOT NULL,
-                position_seconds REAL NOT NULL,
-                duration_seconds REAL,
-                updated_at INTEGER NOT NULL
-            );
+        if schema_version < 1 {
+            let transaction = connection
+                .transaction()
+                .context("failed to begin the local database schema migration")?;
+            transaction.execute_batch(
+                "
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY NOT NULL,
+                    value TEXT NOT NULL
+                );
 
-            CREATE TABLE IF NOT EXISTS watch_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                media_id TEXT NOT NULL,
-                title TEXT NOT NULL,
-                media_type TEXT NOT NULL,
-                watched_at INTEGER NOT NULL
-            );
+                CREATE TABLE IF NOT EXISTS playback_progress (
+                    media_id TEXT PRIMARY KEY NOT NULL,
+                    position_seconds REAL NOT NULL,
+                    duration_seconds REAL,
+                    updated_at INTEGER NOT NULL
+                );
 
-            CREATE INDEX IF NOT EXISTS idx_watch_history_watched_at
-                ON watch_history(watched_at DESC);
+                CREATE TABLE IF NOT EXISTS watch_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    media_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    media_type TEXT NOT NULL,
+                    watched_at INTEGER NOT NULL
+                );
 
-            CREATE TABLE IF NOT EXISTS addons (
-                id TEXT PRIMARY KEY NOT NULL,
-                name TEXT NOT NULL,
-                version TEXT NOT NULL,
-                manifest_url TEXT NOT NULL,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                manifest_json TEXT NOT NULL,
-                installed_at INTEGER NOT NULL
-            );
-            ",
-        )?;
+                CREATE INDEX IF NOT EXISTS idx_watch_history_watched_at
+                    ON watch_history(watched_at DESC);
+
+                CREATE TABLE IF NOT EXISTS addons (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    name TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    manifest_url TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    manifest_json TEXT NOT NULL,
+                    installed_at INTEGER NOT NULL
+                );
+
+                PRAGMA user_version = 1;
+                ",
+            )?;
+            transaction
+                .commit()
+                .context("failed to commit the local database schema migration")?;
+        }
 
         Ok(Self { connection })
     }
@@ -298,4 +319,46 @@ mod tests {
 
         assert_eq!(database.installed_addons().expect("list add-ons").len(), 1);
     }
+    #[test]
+    fn schema_migration_is_versioned_and_idempotent() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let path = directory.path().join("senzo.db");
+
+        for _ in 0..2 {
+            let database = LocalDatabase::open(&path).expect("open migrated database");
+            let version: i64 = database
+                .connection
+                .pragma_query_value(None, "user_version", |row| row.get(0))
+                .expect("read schema version");
+            assert_eq!(version, CURRENT_SCHEMA_VERSION);
+
+            let settings_table_exists: bool = database
+                .connection
+                .query_row(
+                    "SELECT EXISTS(
+                        SELECT 1 FROM sqlite_master
+                        WHERE type = 'table' AND name = 'settings'
+                    )",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("check settings table");
+            assert!(settings_table_exists);
+        }
+    }
+
+    #[test]
+    fn refuses_a_database_from_a_newer_schema_version() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let path = directory.path().join("senzo.db");
+        let connection = Connection::open(&path).expect("create database");
+        connection
+            .pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION + 1)
+            .expect("set future schema version");
+        drop(connection);
+
+        let error = LocalDatabase::open(&path).expect_err("future schema must be rejected");
+        assert!(error.to_string().contains("newer than this SENZO build supports"));
+    }
+
 }

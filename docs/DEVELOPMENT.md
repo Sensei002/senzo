@@ -43,7 +43,7 @@ As the application grows, keep UI, metadata, persistence, source adapters, playb
 - Use stable internal media identifiers and explicit external-ID mapping.
 - Treat remote manifests, JSON, URLs, and media metadata as untrusted input.
 - Keep secrets out of source control, logs, and artifacts.
-- Add migrations when changing persistent database schemas.
+- Track the SQLite schema with `PRAGMA user_version`; implement schema changes as ordered, transactional migrations and test both repeat opens and unsupported future versions.
 - Add tests for parsing, persistence, URL validation, and error handling.
 - Do not bundle or automatically install streaming add-ons.
 - Do not integrate Torrentio as a default source.

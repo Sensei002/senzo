@@ -19,7 +19,7 @@ Status definitions:
 - [x] Add TMDB artwork URL construction.
 - [x] Add Stremio manifest URL normalization/validation and explicit add-on installation service.
 - [ ] Verify the latest service/persistence changes in a successful Windows CI run.
-- [ ] Add database schema versioning and migration tests.
+- [x] Add database schema versioning and migration tests.
 
 ## Phase 1 — Native desktop experience
 
