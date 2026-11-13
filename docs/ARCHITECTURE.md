@@ -173,3 +173,7 @@ The GPUI application owns the playback worker handle behind a shared mutex. The 
 ### Native Windows video presentation boundary
 
 The Windows presentation path uses a caller-owned native child HWND as MPV's `wid` target. `MpvConfig::set_native_window_id` validates the non-zero 32-bit Win32 handle and passes it to libmpv before initialization. The owner must keep that child window alive until the MPV instance is destroyed. The GPUI-to-HWND acquisition, child-surface placement/resizing, and MPV lifecycle wiring are separate remaining integration work; this boundary alone does not display video yet.
+
+### Native Windows child-surface primitive
+
+`src/playback/windows_surface.rs` provides a Windows-only RAII wrapper around a child `STATIC` HWND. It validates the parent HWND and positive pixel dimensions, exposes the child handle as the documented non-zero 32-bit MPV `wid` value, supports explicit resize/show operations without activation or z-order changes, and destroys the child HWND on drop. All surface operations must run on the owning UI thread. The caller is responsible for converting GPUI layout coordinates to physical client pixels and for keeping the surface alive until the MPV instance is shut down. This is a platform primitive only: GPUI raw-handle acquisition, automatic layout/DPI updates, and worker/runtime wiring are not yet implemented.
