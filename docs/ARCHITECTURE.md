@@ -71,7 +71,7 @@ Manifests and responses are untrusted remote input. Validate URL schemes, respon
 - **Metadata service:** TMDB search, details, seasons/episodes, external-ID mapping, and image URL construction.
 - **Artwork/cache service:** Bounded local image and metadata cache with eviction and failure handling.
 - **Source adapters:** Stremio-compatible add-ons behind a normalized source interface. Future source types should not be coupled to UI code.
-- **Playback:** MPV behind an internal playback interface. Hardware decoding, subtitle/audio selection, seeking, speed, and fullscreen belong to the playback layer.
+- **Playback:** MPV behind an internal playback interface. Hardware decoding, renderer selection, scaling, HDR handling, subtitles/audio selection, buffering, seeking, speed, and fullscreen belong to the playback layer. UI settings express user intent; the playback adapter checks runtime capabilities and applies only supported options.
 - **Torrent transport:** Evaluate a Rust torrent engine such as librqbit only if a user-selected source requires it. Validate license, Windows compatibility, buffering, piece prioritization, seek behavior, and platform support before adoption. It is not a bundled source or default torrent catalog.
 - **Local persistence:** SQLite stores settings, add-on registry, playback progress, watch history, and future library state. Current Windows database path: `%LOCALAPPDATA%\SENZO\senzo.db`.
 - **Networking:** Tokio, Reqwest, and Serde.
@@ -82,7 +82,7 @@ Manifests and responses are untrusted remote input. Validate URL schemes, respon
 
 The initial SQLite schema contains:
 
-- `settings`: key/value application settings.
+- `settings`: key/value application settings, including a typed JSON playback-preferences record.
 - `playback_progress`: latest resume position and optional duration per media ID.
 - `watch_history`: watched media identity, title, media type, and timestamp.
 - `addons`: add-on identity, version, manifest URL, enabled state, manifest JSON, and installation timestamp.
@@ -127,6 +127,7 @@ Initial foundations exist in the repository; the current Windows CI run must ver
 - `src/storage.rs`: SQLite initialization, local settings, playback progress, watch history, and installed add-on registry.
 - `src/diagnostics.rs`: local diagnostic event logging, bounded log rotation, recent-event collection, and basic credential redaction.
 - `src/metadata.rs`: TMDB movie/TV search, detail enrichment, seasons/episodes, external-ID lookup, and image URL construction.
+- `src/settings.rs`: typed playback preferences, conservative defaults, and resource-limit normalization.
 - `src/addons.rs`: Stremio manifest URL normalization/validation, explicit installation, local registry persistence, and an initial stream request method.
 - `src/main.rs`: initializes diagnostics and the local database during startup.
 
@@ -137,6 +138,7 @@ Not yet connected or implemented:
 - Persistent metadata/artwork cache.
 - User-facing add-on manager and complete catalog/meta/stream/subtitle routing.
 - MPV playback integration and playback UI.
+- Runtime GPU/decoder capability detection and application of playback preferences.
 - Torrent transport.
 - Discord Rich Presence.
 - Windows installers and updater.

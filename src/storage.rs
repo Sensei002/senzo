@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use crate::settings::PlaybackSettings;
+
 use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -134,6 +136,26 @@ impl LocalDatabase {
                 row.get(0)
             })
             .optional()?)
+    }
+
+    /// Loads typed playback preferences. Missing or invalid legacy values use safe defaults.
+    pub fn playback_settings(&self) -> Result<PlaybackSettings> {
+        let mut settings = match self.get_setting("playback.preferences")? {
+            Some(value) => serde_json::from_str::<PlaybackSettings>(&value)
+                .unwrap_or_default(),
+            None => PlaybackSettings::default(),
+        };
+        settings.normalize();
+        Ok(settings)
+    }
+
+    /// Persists normalized playback preferences as one atomic settings value.
+    pub fn save_playback_settings(&self, settings: &PlaybackSettings) -> Result<()> {
+        let mut settings = settings.clone();
+        settings.normalize();
+        let value = serde_json::to_string(&settings)
+            .context("failed to serialize playback preferences")?;
+        self.set_setting("playback.preferences", &value)
     }
 
     pub fn save_playback_progress(

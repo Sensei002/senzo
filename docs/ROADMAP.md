@@ -23,6 +23,8 @@ Status definitions:
 
 ## Phase 1 — Native desktop experience
 
+The Settings experience will use progressive disclosure: essential controls first, advanced playback controls in a separate expandable section. Defaults prioritize automatic hardware selection, balanced image quality, low background overhead, and bounded memory use.
+
 - [ ] Build main SENZO navigation and cinematic layout.
 - [ ] Add reusable poster, backdrop, title, and detail components.
 - [ ] Build Home, Search, Library, Details, Player, Add-ons, Settings, and About/Credits screens.
@@ -50,6 +52,10 @@ Status definitions:
 - [ ] Keep all streaming add-ons absent by default; Torrentio may only be added manually by the user.
 - [ ] Harden remote manifest fetching, redirects, and stream URL validation.
 - [ ] Integrate MPV with subtitles, audio tracks, seeking, speed, and fullscreen.
+- [ ] Add capability-aware hardware decoding controls (Auto, enabled, disabled; supported Windows decoder backends).
+- [ ] Add renderer selection, scaling algorithms, debanding, HDR handling, and safe fallback behavior.
+- [ ] Add bounded buffer and memory controls, subtitle appearance, and live playback diagnostics.
+- [ ] Keep advanced image-processing controls opt-in and expose only capabilities supported by the active GPU/output path.
 - [ ] Connect player progress and history events to local storage.
 
 ## Phase 4 — Additional sources and presence

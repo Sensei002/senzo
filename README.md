@@ -9,7 +9,7 @@
 
 SENZO is a desktop media center in development, designed to bring movie and television discovery, personal watch history, optional streaming sources, and playback into one focused application. It is being built in **Rust + GPUI** for a cinematic, responsive native desktop experience.
 
-SENZO takes inspiration from the discovery and add-on workflows of applications such as Nuvio and Stremio, but it is an independent project with its own architecture and product decisions. Its central idea is simple: **no SENZO account, no mandatory cloud profile, and no streaming provider silently installed for the user.**
+SENZO is an independent project with its own architecture and product decisions. Its central idea is simple: **no SENZO account, no mandatory cloud profile, and no streaming provider silently installed for the user.**
 
 > [!IMPORTANT]
 > **Early development:** The current implementation phase targets **Windows only**. The interface and several planned features are not complete. Linux is a later target; Android and iOS are not targets. This repository describes both the current implementation and the intended product—planned features are clearly labelled as such.
@@ -52,7 +52,7 @@ SENZO is designed around a user-managed add-on list. The planned **Add-ons** scr
 - A user who deliberately chooses to use Torrentio may manually add their own configured manifest URL, just like any other compatible add-on.
 - Only add-ons that the user has installed and enabled should be queried.
 
-Initial compatibility targets the Stremio add-on HTTP protocol. Compatibility with every Stremio add-on, provider-specific extension, or Nuvio's separate local JavaScript plugin runtime is not guaranteed and will be tested incrementally.
+Initial compatibility targets the Stremio add-on HTTP protocol. Compatibility with every Stremio add-on and provider-specific extension is not guaranteed and will be tested incrementally.
 
 ### Keep personal data on your device
 
@@ -73,9 +73,11 @@ MPV is the planned playback engine. Target player capabilities include:
 - Audio-track selection.
 - Playback speed.
 - Fullscreen.
-- Hardware decoding where supported by the device and MPV.
+- Hardware decoding with supported Windows decoder preferences.
+- Renderer selection, scaling algorithms, HDR handling, and optional image processing.
+- Buffer and memory controls, subtitle appearance, and playback diagnostics.
 
-The exact native video-surface integration will be validated during implementation. Playback is not yet implemented.
+These controls will be capability-aware: SENZO will only apply options supported by the active playback backend, GPU, and display. Defaults will favor automatic hardware selection and balanced quality with low resource use. The exact native video-surface integration will be validated during implementation. Playback is not yet implemented.
 
 ### Additional planned capabilities
 
@@ -114,6 +116,7 @@ The repository currently contains early service and persistence foundations. It 
 | Windows CI | Configured; current changes require successful CI verification |
 | Local SQLite storage | Initial settings, progress, history, and add-on tables |
 | Local diagnostics service | Initial bounded event logging and recent-log export API; Settings/clipboard UI pending |
+| Typed playback preferences | Initial persisted settings model with safe defaults and resource limits; not yet connected to MPV or Settings UI |
 | TMDB service | Initial movie/TV search, detail requests, season/episode and external-ID services, image URL construction |
 | Add-on service | Initial manifest URL validation/installation storage and stream request foundation |
 | GPUI media-center screens | Not connected; placeholder shell |

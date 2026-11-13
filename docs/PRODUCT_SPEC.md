@@ -21,7 +21,7 @@ SENZO is for desktop users who want one interface for media discovery and playba
 - Streaming providers are optional user-installed add-ons.
 - No streaming add-on is bundled or preinstalled.
 - Torrentio is not integrated into the default source list; users may manually add their own configured manifest URL.
-- MPV is the planned playback engine.
+- MPV is the planned playback engine, with user-adjustable decoding, rendering, image processing, subtitles, and buffering.
 - All builds and tests are run through GitHub Actions.
 
 ## Functional scope
@@ -64,18 +64,23 @@ The planned Add-ons screen will:
 
 The app must not silently install a source or automatically add Torrentio. Third-party add-ons may have independent configuration, account requirements, availability, and terms.
 
-### Playback
+### Playback and picture quality
 
-MPV is the planned playback engine. Target capabilities include:
-- Play, pause, seek, and playback progress.
-- Resume playback.
-- Subtitle selection.
-- Audio-track selection.
-- Playback speed.
-- Fullscreen.
-- Hardware decoding where supported by the system and playback engine.
+MPV is the planned playback engine. The playback experience must expose meaningful controls without making the default experience complicated or resource-heavy.
 
-The precise native video-surface integration must be validated during implementation.
+Target capabilities include:
+- Play, pause, seek, resume, playback progress, and fullscreen.
+- Subtitle and audio-track selection, playback speed, and subtitle appearance.
+- Automatic, enabled, or disabled hardware decoding, with supported Windows decoder preferences such as D3D11VA and DXVA2.
+- Renderer selection and capability-aware fallback.
+- Configurable upscaling and downscaling algorithms, debanding, dithering, and other supported image-processing options.
+- HDR auto-detection, tone mapping, passthrough, or disablement where the output path supports them.
+- Buffer duration, back-buffer duration, and a bounded memory budget.
+- Playback diagnostics showing codec, resolution, active decoder, renderer, dropped frames, and relevant capability information.
+
+Settings must represent real backend capabilities. Unsupported options must be hidden or clearly unavailable, not presented as working controls. The default profile should favor automatic hardware selection, balanced scaling, disabled expensive optional processing, and bounded buffering. RTX-specific enhancement features must only appear when compatible hardware and a supported processing path are detected.
+
+The precise native video-surface integration and each MPV option must be validated during implementation.
 
 ### Discord Rich Presence
 
