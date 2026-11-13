@@ -24,7 +24,7 @@ This document describes requirements and planned controls. A control is not impl
 - Never log authorization headers, API tokens, passwords, private manifest URLs containing credentials, or sensitive query parameters.
 - Official build secrets must be injected through protected GitHub Actions configuration and must not be exposed in logs or public artifacts.
 - Do not assume a client-embedded API key is confidential; desktop binaries can be inspected. Use provider-approved restrictions and rotate compromised credentials.
-- User-supplied provider credentials, if supported, should be stored using an appropriate OS credential facility rather than plaintext settings.
+- User-supplied OpenSubtitles API credentials are stored through the Windows Credential Manager adapter (`src/subtitles/credentials.rs`), not in SQLite, settings JSON, logs, or support bundles. The application UI for entering/removing the key is still pending. Other provider credentials must follow the same OS-backed approach.
 - Signing keys must be kept outside the repository and CI logs.
 
 ## Add-on trust boundary
