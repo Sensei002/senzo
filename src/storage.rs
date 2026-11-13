@@ -357,7 +357,9 @@ mod tests {
             .expect("set future schema version");
         drop(connection);
 
-        let error = LocalDatabase::open(&path).expect_err("future schema must be rejected");
+        let result = LocalDatabase::open(&path);
+        assert!(result.is_err(), "future schema must be rejected");
+        let error = result.err().expect("the error was checked above");
         assert!(error.to_string().contains("newer than this SENZO build supports"));
     }
 
