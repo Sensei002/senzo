@@ -12,6 +12,7 @@ use gpui::{
 
 use senzo::{
     diagnostics,
+    metadata::TmdbCredentialStore,
     playback::{
         mpv_config::{MpvCapabilities, build_mpv_config},
         mpv_worker::{PlaybackEvent, PlaybackState, PlaybackWorker},
@@ -22,7 +23,6 @@ use senzo::{
         ScalingAlgorithm,
     },
     storage::LocalDatabase,
-    metadata::TmdbCredentialStore,
     subtitles::{
         OpenSubtitlesClient, OpenSubtitlesCredentialStore, OpenSubtitlesResult, SubtitleSearch,
     },
@@ -103,8 +103,12 @@ impl SenzoApp {
             },
             tmdb_credentials_status: match TmdbCredentialStore::has_access_token() {
                 Ok(true) => "TMDB Read Access Token saved in Windows Credential Manager".into(),
-                Ok(false) => "TMDB is not configured; add a Read Access Token to enable discovery".into(),
-                Err(_) => "Could not inspect Windows Credential Manager for TMDB credentials".into(),
+                Ok(false) => {
+                    "TMDB is not configured; add a Read Access Token to enable discovery".into()
+                }
+                Err(_) => {
+                    "Could not inspect Windows Credential Manager for TMDB credentials".into()
+                }
             },
             subtitle_task: None,
             native_parent_hwnd,
@@ -404,13 +408,24 @@ impl SenzoApp {
     fn configure_tmdb_key(&mut self, cx: &mut Context<Self>) {
         match TmdbCredentialStore::prompt_and_save_access_token() {
             Ok(true) => {
-                self.tmdb_credentials_status = "TMDB Read Access Token saved in Windows Credential Manager".into();
-                diagnostics::record(diagnostics::Level::Audit, "metadata", "TMDB Read Access Token configured securely");
+                self.tmdb_credentials_status =
+                    "TMDB Read Access Token saved in Windows Credential Manager".into();
+                diagnostics::record(
+                    diagnostics::Level::Audit,
+                    "metadata",
+                    "TMDB Read Access Token configured securely",
+                );
             }
-            Ok(false) => self.tmdb_credentials_status = "TMDB token setup cancelled; no changes made".into(),
+            Ok(false) => {
+                self.tmdb_credentials_status = "TMDB token setup cancelled; no changes made".into()
+            }
             Err(error) => {
                 self.tmdb_credentials_status = format!("Could not save TMDB token: {error:#}");
-                diagnostics::record(diagnostics::Level::Warn, "metadata", "TMDB token configuration failed");
+                diagnostics::record(
+                    diagnostics::Level::Warn,
+                    "metadata",
+                    "TMDB token configuration failed",
+                );
             }
         }
         cx.notify();
@@ -419,12 +434,21 @@ impl SenzoApp {
     fn clear_tmdb_key(&mut self, cx: &mut Context<Self>) {
         match TmdbCredentialStore::clear_access_token() {
             Ok(()) => {
-                self.tmdb_credentials_status = "TMDB token removed from Windows Credential Manager".into();
-                diagnostics::record(diagnostics::Level::Audit, "metadata", "TMDB token removed from secure storage");
+                self.tmdb_credentials_status =
+                    "TMDB token removed from Windows Credential Manager".into();
+                diagnostics::record(
+                    diagnostics::Level::Audit,
+                    "metadata",
+                    "TMDB token removed from secure storage",
+                );
             }
             Err(error) => {
                 self.tmdb_credentials_status = format!("Could not remove TMDB token: {error:#}");
-                diagnostics::record(diagnostics::Level::Warn, "metadata", "TMDB token removal failed");
+                diagnostics::record(
+                    diagnostics::Level::Warn,
+                    "metadata",
+                    "TMDB token removal failed",
+                );
             }
         }
         cx.notify();

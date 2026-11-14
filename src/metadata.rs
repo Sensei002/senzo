@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+use keyring::Entry;
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::Value;
