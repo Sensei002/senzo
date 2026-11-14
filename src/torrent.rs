@@ -135,6 +135,11 @@ impl TorrentSessionDirectory {
         self.remove_directory()
     }
 
+    /// Disarm Drop cleanup so the next startup can safely recover after an unawaited shutdown.
+    pub fn preserve_for_recovery(mut self) {
+        self.path.take();
+    }
+
     fn remove_directory(&mut self) -> Result<()> {
         let Some(path) = self.path.take() else {
             return Ok(());
