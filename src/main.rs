@@ -1947,12 +1947,21 @@ fn render_discovery_page(
     cx: &mut Context<SenzoApp>,
 ) -> impl IntoElement {
     let (heading, description) = match page {
-        AppPage::Home => ("Welcome to SENZO", "Your personal space for movies and television"),
+        AppPage::Home => (
+            "Welcome to SENZO",
+            "Your personal space for movies and television",
+        ),
         AppPage::Movies => ("Movies", "Explore the movie catalogue"),
         AppPage::TvShows => ("TV Shows", "Explore series, seasons and episodes"),
         AppPage::Search => ("Search", "Find movies and TV shows in one place"),
-        AppPage::Library => ("Your Library", "Your saved titles and viewing activity stay on this device"),
-        AppPage::Details => ("Title details", "A closer look at the selected movie or series"),
+        AppPage::Library => (
+            "Your Library",
+            "Your saved titles and viewing activity stay on this device",
+        ),
+        AppPage::Details => (
+            "Title details",
+            "A closer look at the selected movie or series",
+        ),
         AppPage::Addons => ("Add-ons", "Manage the sources you choose to install"),
         AppPage::Settings => ("Settings", "Application preferences"),
     };
