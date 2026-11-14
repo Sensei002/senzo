@@ -25,9 +25,10 @@ SENZO is an independent project with its own architecture and product decisions.
 - **Later platform:** Linux, after the Windows application is established.
 - **Metadata:** TMDB is the primary metadata provider.
 - **Sources:** Optional, user-installed add-ons using the Stremio HTTP add-on protocol; catalog browsing, metadata lookup, stream discovery, and direct HTTP(S) MPV handoff are now connected.
-- **Torrent transport:** Batch 5 code now connects user-selected Stremio BitTorrent v1 streams to MPV through a token-protected loopback HTTP Range server. Torrent data is temporary, upload/seeding is disabled, and SQLite progress remains separate. Real-world Windows playback still needs runtime validation.
+- **Torrent transport:** Batch 5 connects user-selected Stremio BitTorrent v1 streams to MPV through a token-protected loopback HTTP Range server. The embedded `librqbit` 9.1.0 engine is statically linked with upload/seeding support compiled out; torrent payloads are temporary and playback progress remains in SQLite. Windows CI builds a downloadable x64 application package with the MPV runtime and direct engine license notices. Real-world peer discovery, buffering, seeking, and playback still need manual Windows validation.
 - **Playback:** MPV through a dynamically loaded libmpv C API adapter; the Windows runtime is not yet packaged.
 - **Personal data:** Local SQLite database under the SENZO app-data directory.
+- **Third-party engine notice:** The embedded torrent engine's Apache-2.0 license and attribution are included in [licenses/librqbit-NOTICE.md](licenses/librqbit-NOTICE.md).
 - **Accounts:** No SENZO sign-up, login, or cloud account.
 - **Builds and tests:** GitHub Actions; no local build is required for the project's CI workflow.
 

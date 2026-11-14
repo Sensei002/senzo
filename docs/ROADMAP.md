@@ -112,7 +112,9 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [x] Stop MPV and the torrent engine before deleting session payloads; terminate the session-owned runtime on orderly exit and recover abandoned sessions after crashes.
 - [x] Keep playback progress and watch history in SQLite, separate from temporary torrent data.
 - [x] Surface live downloaded/total/uploaded byte counts, engine state, and engine errors in the UI without blocking playback; peer-count detail remains a follow-up because the current stats API does not expose a stable peer-count field. Peer-count detail remains a follow-up because the current engine stats API does not expose a stable peer-count field.
-- [ ] Verify Windows runtime packaging, license notices, and end-to-end playback through CI fixtures and manual runtime testing.
+- [x] Include the upstream Apache-2.0 license text and attribution notice for the embedded `librqbit` engine.
+- [x] Build the Windows x64 release executable in CI with the torrent engine statically linked, and upload a package containing the executable, MPV runtime, branding asset, and license notices.
+- [ ] Manually validate real peer discovery, buffering, seeking, and orderly shutdown on Windows hardware before release.
 
 ## Phase 7 — Additional sources and presence (Batch 6)
 
