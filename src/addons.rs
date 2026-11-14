@@ -133,7 +133,12 @@ fn is_valid_info_hash(value: &str) -> bool {
 }
 
 #[derive(Debug, Clone)]
-pub struct AddonStreamResult { pub addon_id: String, pub addon_name: String, pub streams: Vec<StremioStream>, pub error: Option<String> }
+pub struct AddonStreamResult {
+    pub addon_id: String,
+    pub addon_name: String,
+    pub streams: Vec<StremioStream>,
+    pub error: Option<String>,
+}
 
 #[derive(Clone, Default)]
 pub struct AddonClient;
