@@ -614,7 +614,6 @@ mod tests {
         assert_eq!(first_series_episode_id(&meta, "series"), "series:1:1");
     }
 
-
     use super::*;
 
     fn stored_addon(resources: &[&str]) -> StoredAddon {
