@@ -139,7 +139,7 @@ fn read_tracks(runtime: &MpvRuntime) -> Vec<PlaybackTrack> {
 /// Commands accepted by the playback worker.
 enum PlaybackCommand {
     LoadFile(PathBuf, Option<f64>),
-    LoadUrl(String),
+    LoadUrl(String, Option<f64>),
     SetPaused(bool),
     SetVolume(f64),
     SetMuted(bool),
@@ -296,9 +296,21 @@ impl PlaybackWorker {
                     match command_rx.recv_timeout(STATE_POLL_INTERVAL) {
                         Ok(command) => {
                             let (operation, result, shutdown) = match command {
-                                PlaybackCommand::LoadUrl(url) => {
+                                PlaybackCommand::LoadUrl(url, resume_position) => {
+                                    let expected_path = url.clone();
                                     pending_resume = None;
-                                    ("load_url", runtime.load_url(&url), false)
+                                    let result = runtime.load_url(&url);
+                                    if result.is_ok() {
+                                        pending_resume =
+                                            resume_position.map(|position| PendingResume {
+                                                position,
+                                                expected_path,
+                                                not_before: Instant::now()
+                                                    + Duration::from_millis(500),
+                                                deadline: Instant::now() + Duration::from_secs(30),
+                                            });
+                                    }
+                                    ("load_url", result, false)
                                 }
                                 PlaybackCommand::LoadFile(path, resume_position) => {
                                     let expected_path = path.to_string_lossy().into_owned();
@@ -453,14 +465,26 @@ impl PlaybackWorker {
     /// Queue a validated HTTP(S) stream URL for MPV playback.
     pub fn load_url(&self, input: &str) -> anyhow::Result<()> {
         let url = validate_playback_url(input)?;
-        self.enqueue(PlaybackCommand::LoadUrl(url))
+        self.enqueue(PlaybackCommand::LoadUrl(url, None))
     }
 
     /// Queue a URL served by SENZO's token-protected loopback torrent server.
     /// This narrow path permits 127.0.0.1; general provider URLs do not.
     pub fn load_local_url(&self, input: &str) -> anyhow::Result<()> {
+        self.load_local_url_with_resume(input, None)
+    }
+
+    /// Queue a token-protected local torrent URL and resume at a saved position.
+    pub fn load_local_url_with_resume(
+        &self,
+        input: &str,
+        resume_position: Option<f64>,
+    ) -> anyhow::Result<()> {
+        if resume_position.is_some_and(|position| !position.is_finite() || position < 0.0) {
+            bail!("resume position must be finite and non-negative");
+        }
         let url = validate_local_stream_url(input)?;
-        self.enqueue(PlaybackCommand::LoadUrl(url))
+        self.enqueue(PlaybackCommand::LoadUrl(url, resume_position))
     }
 
     /// Queue a pause or resume transition.

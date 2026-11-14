@@ -95,6 +95,7 @@ pub struct TorrentPlaybackSession {
     api: Option<Api>,
     temp: Option<TorrentSessionDirectory>,
     magnet_uri: String,
+    info_hash: String,
     files: Vec<TorrentVideoFile>,
     torrent_id: Option<usize>,
     stream_cancel: Option<CancellationToken>,
@@ -197,6 +198,7 @@ impl TorrentPlaybackSession {
             api: Some(api),
             temp: Some(temp),
             magnet_uri,
+            info_hash: hash,
             files: files.clone(),
             torrent_id: None,
             stream_cancel: None,
@@ -326,6 +328,14 @@ impl TorrentPlaybackSession {
 
     pub fn files(&self) -> &[TorrentVideoFile] {
         &self.files
+    }
+
+    /// Stable SQLite key for playback progress of a selected torrent file.
+    pub fn media_id_for_file(&self, file_index: usize) -> Result<String> {
+        if !self.files.iter().any(|file| file.index == file_index) {
+            bail!("selected file is not part of this torrent");
+        }
+        Ok(torrent_media_id(&self.info_hash, file_index))
     }
 
     pub fn stream_url(&self) -> Option<&str> {
@@ -555,6 +565,10 @@ fn parse_single_byte_range(value: &str, total: u64) -> Result<(u64, u64)> {
     Ok((start, end))
 }
 
+fn torrent_media_id(info_hash: &str, file_index: usize) -> String {
+    format!("torrent:v1:{info_hash}:{file_index}")
+}
+
 fn build_magnet_uri(hash: &str, trackers: &[String]) -> Result<String> {
     let mut magnet = url::Url::parse(&format!("magnet:?xt=urn:btih:{hash}"))?;
     {
@@ -639,6 +653,16 @@ mod tests {
         assert!(normalize_v1_info_hash(&"a".repeat(64)).is_err());
         assert!(normalize_v1_info_hash("magnet:?xt=urn:btih:abcd").is_err());
         assert!(normalize_v1_info_hash(&"g".repeat(40)).is_err());
+    }
+
+    #[test]
+    fn torrent_media_id_is_stable_per_hash_and_file() {
+        let hash = "0123456789abcdef0123456789abcdef01234567";
+        assert_eq!(
+            torrent_media_id(hash, 4),
+            format!("torrent:v1:{hash}:4")
+        );
+        assert_ne!(torrent_media_id(hash, 4), torrent_media_id(hash, 5));
     }
 
     #[test]

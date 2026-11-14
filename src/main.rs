@@ -299,6 +299,7 @@ impl SenzoApp {
                                     );
                                 }
                                 PlaybackEvent::Failed { message } => {
+                                    app.persist_playback_progress(true);
                                     app.playback_status = format!("MPV failed: {message}");
                                     diagnostics::record(
                                         diagnostics::Level::Error,
@@ -308,6 +309,7 @@ impl SenzoApp {
                                     app.playback_worker = None;
                                 }
                                 PlaybackEvent::Stopped => {
+                                    app.persist_playback_progress(true);
                                     app.playback_status = "Playback stopped".into();
                                     app.playback_worker = None;
                                     app.playback_monitor = None;
@@ -632,6 +634,7 @@ impl SenzoApp {
     }
 
     fn inspect_torrent_stream(&mut self, stream: StremioStream, cx: &mut Context<Self>) {
+        self.persist_playback_progress(true);
         let Some(info_hash) = stream.info_hash.clone() else {
             self.stream_status = "Torrent source is missing its info hash".into();
             cx.notify();
@@ -699,6 +702,7 @@ impl SenzoApp {
     }
 
     fn start_torrent_file(&mut self, file_index: usize, cx: &mut Context<Self>) {
+        self.persist_playback_progress(true);
         let Some(session) = self.torrent_session.take() else {
             self.torrent_status = "No inspected torrent session is available".into();
             cx.notify();
@@ -708,6 +712,14 @@ impl SenzoApp {
             self.start_playback(cx);
         }
         let worker = self.playback_worker.clone();
+        let media_id = session.media_id_for_file(file_index).ok();
+        let resume_position = media_id
+            .as_deref()
+            .and_then(|id| self.database.playback_progress(id).ok().flatten())
+            .map(|progress| progress.position_seconds)
+            .filter(|position| *position > 5.0);
+        let media_id_for_update = media_id.clone();
+        self.active_media_id = None;
         self.torrent_status = "Preparing the selected file and loopback stream…".into();
         self.torrent_task = Some(cx.spawn(async move |this, cx| {
             let (session, result) = cx
@@ -737,7 +749,7 @@ impl SenzoApp {
                                     .map_err(|_| {
                                         anyhow::anyhow!("MPV playback worker lock is unavailable")
                                     })?
-                                    .load_local_url(&url)
+                                    .load_local_url_with_resume(&url, resume_position)
                             });
                         match queued {
                             Ok(()) => {
@@ -747,7 +759,8 @@ impl SenzoApp {
                                 app.stream_status = "Torrent source queued in MPV".into();
                                 app.playback_status =
                                     "Playing torrent stream from the local loopback server".into();
-                                app.active_media_id = None;
+                                app.active_media_id = media_id_for_update;
+                                app.last_progress_save = None;
                             }
                             Err(error) => {
                                 app.torrent_status =
@@ -807,6 +820,7 @@ impl SenzoApp {
             cx.notify();
             return;
         };
+        self.persist_playback_progress(true);
         self.stop_torrent_session(cx);
         if self.playback_worker.is_none() {
             self.start_playback(cx);
@@ -2612,6 +2626,7 @@ impl Render for SenzoApp {
 
 impl Drop for SenzoApp {
     fn drop(&mut self) {
+        self.persist_playback_progress(true);
         if let Some(worker) = self.playback_worker.take() {
             if let Ok(worker) = worker.lock() {
                 let _ = worker.stop();
