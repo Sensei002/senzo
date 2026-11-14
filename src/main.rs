@@ -26,7 +26,7 @@ use senzo::{
     },
     storage::{LocalDatabase, StoredAddon},
     torrent::TorrentSessionDirectory,
-    torrent_engine::{TorrentPlaybackSession, TorrentVideoFile},
+    torrent_engine::{TorrentPlaybackSession, TorrentProgress, TorrentVideoFile},
     subtitles::{
         OpenSubtitlesClient, OpenSubtitlesCredentialStore, OpenSubtitlesResult, SubtitleSearch,
     },
@@ -77,6 +77,7 @@ struct SenzoApp {
     stream_status: String,
     torrent_session: Option<TorrentPlaybackSession>,
     torrent_files: Vec<TorrentVideoFile>,
+    torrent_progress: Option<TorrentProgress>,
     torrent_status: String,
     torrent_task: Option<Task<()>>,
     native_parent_hwnd: Option<usize>,
@@ -146,6 +147,7 @@ impl SenzoApp {
             stream_status: "Choose a title or catalog item to discover sources".into(),
             torrent_session: None,
             torrent_files: Vec::new(),
+            torrent_progress: None,
             torrent_status: "No torrent session active".into(),
             torrent_task: None,
             native_parent_hwnd,
@@ -244,6 +246,25 @@ impl SenzoApp {
                     .await;
 
                 if events.is_empty() {
+                    let _ = this.update(cx, |app, cx| {
+                        let progress = app
+                            .torrent_session
+                            .as_ref()
+                            .and_then(TorrentPlaybackSession::progress_snapshot);
+                        if progress != app.torrent_progress {
+                            app.torrent_progress = progress.clone();
+                            if let Some(progress) = progress {
+                                app.torrent_status = format!(
+                                    "{:.1} / {:.1} MiB downloaded · {:.1} MiB uploaded · {}",
+                                    progress.downloaded_bytes as f64 / 1_048_576.0,
+                                    progress.total_bytes as f64 / 1_048_576.0,
+                                    progress.uploaded_bytes as f64 / 1_048_576.0,
+                                    progress.state
+                                );
+                            }
+                            cx.notify();
+                        }
+                    });
                     continue;
                 }
 
@@ -623,6 +644,7 @@ impl SenzoApp {
             }
         }
         self.torrent_files.clear();
+        self.torrent_progress = None;
         self.torrent_status = "Resolving torrent metadata and available video files…".into();
         self.stream_status = "Starting a temporary, non-seeding torrent session…".into();
         self.torrent_task = Some(cx.spawn(async move |this, cx| {
@@ -743,6 +765,7 @@ impl SenzoApp {
             return;
         };
         self.torrent_files.clear();
+        self.torrent_progress = None;
         self.torrent_status = "Stopping torrent engine and removing temporary session data…".into();
         self.torrent_task = Some(cx.spawn(async move |this, cx| {
             let result = cx

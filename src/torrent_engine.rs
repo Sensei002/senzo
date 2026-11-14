@@ -1,5 +1,10 @@
 //! Embedded torrent engine and loopback-only HTTP range streaming.
-use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    net::SocketAddr,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use anyhow::{Context, Result, bail};
 use axum::{
@@ -59,6 +64,9 @@ pub struct TorrentPlaybackSession {
     stream_task: Option<JoinHandle<Result<()>>>,
     stream_url: Option<String>,
     runtime: Option<Runtime>,
+    progress_cache: Arc<Mutex<Option<TorrentProgress>>>,
+    progress_cancel: Option<CancellationToken>,
+    progress_task: Option<JoinHandle<()>>,
 }
 
 impl TorrentPlaybackSession {
@@ -125,6 +133,9 @@ impl TorrentPlaybackSession {
             stream_task: None,
             stream_url: None,
             runtime: Some(runtime),
+            progress_cache: Arc::new(Mutex::new(None)),
+            progress_cancel: None,
+            progress_task: None,
         };
         Ok((playback, files))
     }
@@ -187,7 +198,37 @@ impl TorrentPlaybackSession {
                 .context("local torrent stream server failed")
         });
         let url = format!("http://{address}/{token}/{torrent_id}/{file_index}");
+        let progress_cache = self.progress_cache.clone();
+        let progress_cancel = CancellationToken::new();
+        let monitor_cancel = progress_cancel.clone();
+        let progress_api = api.clone();
+        let progress_runtime = self.runtime.as_ref().context("torrent runtime is closed")?;
+        let progress_task = progress_runtime.handle().spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(1));
+            loop {
+                tokio::select! {
+                    _ = monitor_cancel.cancelled() => break,
+                    _ = interval.tick() => {
+                        let snapshot = progress_api
+                            .api_stats_v1(TorrentIdOrHash::Id(torrent_id))
+                            .ok()
+                            .map(|stats| TorrentProgress {
+                                downloaded_bytes: stats.progress_bytes,
+                                total_bytes: stats.total_bytes,
+                                uploaded_bytes: stats.uploaded_bytes,
+                                finished: stats.finished,
+                                state: format!("{:?}", stats.state),
+                            });
+                        if let Ok(mut cache) = progress_cache.lock() {
+                            *cache = snapshot;
+                        }
+                    }
+                }
+            }
+        });
         self.torrent_id = Some(torrent_id);
+        self.progress_cancel = Some(progress_cancel);
+        self.progress_task = Some(progress_task);
         self.stream_cancel = Some(cancel);
         self.stream_task = Some(task);
         self.stream_url = Some(url.clone());
@@ -200,6 +241,10 @@ impl TorrentPlaybackSession {
 
     pub fn stream_url(&self) -> Option<&str> {
         self.stream_url.as_deref()
+    }
+
+    pub fn progress_snapshot(&self) -> Option<TorrentProgress> {
+        self.progress_cache.lock().ok().and_then(|cache| cache.clone())
     }
 
     pub fn progress(&self) -> Result<Option<TorrentProgress>> {
@@ -218,6 +263,18 @@ impl TorrentPlaybackSession {
 
     /// Stop the HTTP endpoint and torrent before deleting temporary payloads.
     pub async fn shutdown(mut self) -> Result<()> {
+        if let Some(cancel) = self.progress_cancel.take() {
+            cancel.cancel();
+        }
+        if let Some(mut task) = self.progress_task.take() {
+            if tokio::time::timeout(Duration::from_secs(2), &mut task)
+                .await
+                .is_err()
+            {
+                task.abort();
+                let _ = task.await;
+            }
+        }
         if let Some(cancel) = self.stream_cancel.take() {
             cancel.cancel();
         }
@@ -259,6 +316,10 @@ impl TorrentPlaybackSession {
 
 impl Drop for TorrentPlaybackSession {
     fn drop(&mut self) {
+        if let Some(cancel) = self.progress_cancel.take() {
+            cancel.cancel();
+        }
+        self.progress_task.take();
         if let Some(cancel) = self.stream_cancel.take() {
             cancel.cancel();
         }
