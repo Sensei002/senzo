@@ -22,13 +22,43 @@ use librqbit::{
 use tokio::{
     io::{AsyncReadExt, AsyncSeekExt, SeekFrom},
     net::TcpListener,
-    runtime::Runtime,
+    runtime::{Handle, Runtime},
     task::JoinHandle,
 };
 use tokio_util::{io::ReaderStream, sync::CancellationToken};
 use uuid::Uuid;
 
 use crate::torrent::TorrentSessionDirectory;
+
+struct TorrentRuntime {
+    runtime: Option<TorrentRuntime>,
+}
+
+impl TorrentRuntime {
+    fn new() -> Result<Self> {
+        let runtime = TorrentRuntime::new()?;
+        Ok(Self {
+            runtime: Some(runtime),
+        })
+    }
+
+    fn handle(&self) -> &Handle {
+        self.runtime
+            .as_ref()
+            .expect("torrent runtime remains available until shutdown")
+            .handle()
+    }
+
+    fn shutdown(&mut self) {
+        self.runtime.take();
+    }
+}
+
+impl Drop for TorrentRuntime {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TorrentVideoFile {
@@ -106,7 +136,7 @@ impl TorrentPlaybackSession {
 
         let session_runtime = runtime.handle().clone();
         let listing_magnet_uri = magnet_uri.clone();
-        let session_task = session_runtime.spawn(async move {
+        let mut session_task = session_runtime.spawn(async move {
             let session = Session::new_with_opts(PathBuf::from(&output_folder), options)
                 .await
                 .context("could not start the temporary torrent engine")?;
@@ -136,15 +166,23 @@ impl TorrentPlaybackSession {
             }
             Ok::<_, anyhow::Error>((session, api, files))
         });
-        let (session, api, files) = match session_task.await {
-            Ok(Ok(result)) => result,
-            Ok(Err(error)) => {
-                runtime.shutdown_background();
+        let task_result =
+            tokio::time::timeout(Duration::from_secs(45), &mut session_task).await;
+        let (session, api, files) = match task_result {
+            Ok(Ok(Ok(result))) => result,
+            Ok(Ok(Err(error))) => {
+                runtime.shutdown();
                 return Err(error);
             }
-            Err(error) => {
-                runtime.shutdown_background();
+            Ok(Err(error)) => {
+                runtime.shutdown();
                 return Err(error).context("torrent metadata task panicked");
+            }
+            Err(_) => {
+                session_task.abort();
+                let _ = session_task.await;
+                runtime.shutdown();
+                bail!("timed out while resolving torrent metadata; no peers supplied metadata");
             }
         };
 
@@ -363,9 +401,7 @@ impl TorrentPlaybackSession {
         } else if let Some(session) = session {
             session.cancellation_token().cancel();
         }
-        if let Some(runtime) = self.runtime.take() {
-            runtime.shutdown_background();
-        }
+        self.runtime.take();
         if let Some(temp) = self.temp.take() {
             if let Err(error) = temp.close() {
                 cleanup_errors.push(format!("temporary session cleanup failed: {error:#}"));
