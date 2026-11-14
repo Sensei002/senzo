@@ -62,6 +62,27 @@ pub struct StremioMetaResponse {
     pub meta: Value,
 }
 
+/// Selects the first episode advertised by a Stremio series meta response.
+/// Falls back to S01E01 only when the provider exposes no episode list.
+pub fn first_series_episode_id(meta: &Value, series_id: &str) -> String {
+    meta.get("videos")
+        .and_then(Value::as_array)
+        .and_then(|videos| {
+            videos.iter().find_map(|video| {
+                let season = video.get("season").and_then(Value::as_u64)?;
+                let episode = video.get("episode").and_then(Value::as_u64)?;
+                if season == 0 || episode == 0 {
+                    return None;
+                }
+                video.get("id").and_then(Value::as_str)
+                    .filter(|id| !id.trim().is_empty())
+                    .map(str::to_owned)
+                    .or_else(|| Some(format!("{series_id}:{season}:{episode}")))
+            })
+        })
+        .unwrap_or_else(|| format!("{series_id}:1:1"))
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct StremioStreamResponse {
     #[serde(default)]
@@ -576,6 +597,22 @@ fn unix_timestamp() -> i64 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn first_series_episode_uses_provider_episode_metadata() {
+        let meta = serde_json::json!({"videos":[
+            {"id":"series:2:3","season":2,"episode":3},
+            {"id":"series:2:4","season":2,"episode":4}
+        ]});
+        assert_eq!(first_series_episode_id(&meta, "series"), "series:2:3");
+    }
+
+    #[test]
+    fn first_series_episode_falls_back_when_provider_has_no_valid_episodes() {
+        let meta = serde_json::json!({"videos":[{"id":"bad","season":0,"episode":0}]});
+        assert_eq!(first_series_episode_id(&meta, "series"), "series:1:1");
+    }
+
+
     use super::*;
 
     fn stored_addon(resources: &[&str]) -> StoredAddon {

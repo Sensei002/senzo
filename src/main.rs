@@ -12,7 +12,7 @@ use gpui::{
 use serde_json::Value;
 
 use senzo::{
-    addons::{AddonClient, AddonManifest, AddonManifestPreview, AddonStreamResult, StremioStream},
+    addons::{first_series_episode_id, AddonClient, AddonManifest, AddonManifestPreview, AddonStreamResult, StremioStream},
     diagnostics,
     metadata::{TmdbClient, TmdbCredentialStore, TmdbSearchResult},
     playback::{
@@ -849,7 +849,11 @@ impl SenzoApp {
                     .context("could not initialize add-on metadata runtime")?;
                 runtime.block_on(async {
                     let metadata = client.metadata(&addon, &media_type, &media_id).await.ok().map(|value| value.meta).unwrap_or(meta);
-                    let stream_id = if media_type == "series" { format!("{media_id}:1:1") } else { media_id.clone() };
+                    let stream_id = if media_type == "series" {
+                        first_series_episode_id(&metadata, &media_id)
+                    } else {
+                        media_id.clone()
+                    };
                     let streams = client.streams(&addon, &media_type, &stream_id).await?;
                     Ok::<_, anyhow::Error>((metadata, streams.streams, media_id))
                 })
