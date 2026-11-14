@@ -240,25 +240,24 @@ impl Drop for TorrentPlaybackSession {
     }
 }
 
-struct StreamHttpError(anyhow::Error);
-
-impl From<anyhow::Error> for StreamHttpError {
-    fn from(error: anyhow::Error) -> Self {
-        Self(error)
-    }
-}
-
-impl IntoResponse for StreamHttpError {
-    fn into_response(self) -> Response {
-        (StatusCode::BAD_GATEWAY, self.0.to_string()).into_response()
-    }
-}
-
 async fn stream_torrent_file(
     State(state): State<StreamServerState>,
     Path((token, torrent_id, file_id)): Path<(String, usize, usize)>,
     headers: HeaderMap,
-) -> std::result::Result<Response, StreamHttpError> {
+) -> Response {
+    match stream_torrent_file_inner(state, token, torrent_id, file_id, headers).await {
+        Ok(response) => response,
+        Err(error) => (StatusCode::BAD_GATEWAY, error.to_string()).into_response(),
+    }
+}
+
+async fn stream_torrent_file_inner(
+    state: StreamServerState,
+    token: String,
+    torrent_id: usize,
+    file_id: usize,
+    headers: HeaderMap,
+) -> Result<Response> {
     if token != state.token || torrent_id != state.torrent_id {
         bail!("invalid local torrent stream token");
     }
