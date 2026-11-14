@@ -674,7 +674,8 @@ impl SenzoApp {
                             preferred.or_else(|| (files.len() == 1).then_some(files[0].index));
                         app.torrent_session = Some(session);
                         app.torrent_files = files;
-                        app.torrent_status = format!("{} video file(s) available", app.torrent_files.len());
+                        app.torrent_status =
+                            format!("{} video file(s) available", app.torrent_files.len());
                         app.stream_status = "Select a video file to begin torrent playback".into();
                         if let Some(index) = automatic {
                             app.start_torrent_file(index, cx);

@@ -118,7 +118,7 @@ impl TorrentPlaybackSession {
             .context("could not resolve torrent metadata or list its files")?;
         let files = video_files_from_response(&listing);
         if files.is_empty() {
-            session.cancellation_token().cancel();
+            session.stop().await;
             bail!("this torrent does not contain a supported video file");
         }
 
@@ -294,7 +294,7 @@ impl TorrentPlaybackSession {
             }
         }
         if let Some(session) = self.session.take() {
-            session.cancellation_token().cancel();
+            session.stop().await;
             drop(session);
         }
         self.api.take();
