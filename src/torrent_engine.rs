@@ -36,11 +36,7 @@ struct TorrentRuntime {
 
 impl TorrentRuntime {
     fn new() -> Result<Self> {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .build()
-            .context("could not create the torrent session runtime")?;
+        let runtime = TorrentRuntime::new()?;
         Ok(Self {
             runtime: Some(runtime),
         })
@@ -447,8 +443,8 @@ impl Drop for TorrentPlaybackSession {
         // for startup recovery rather than deleting files while engine tasks may exit.
         self.api.take();
         self.stream_task.take();
-        if let Some(runtime) = self.runtime.take() {
-            runtime.shutdown_background();
+        if let Some(mut runtime) = self.runtime.take() {
+            runtime.shutdown();
         }
         if let Some(temp) = self.temp.take() {
             temp.preserve_for_recovery();

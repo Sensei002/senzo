@@ -689,6 +689,7 @@ mod tests {
     #[test]
     fn validates_direct_streams_and_torrent_hashes() {
         let direct = StremioStream {
+            sources: Vec::new(),
             name: Some("1080p".into()),
             title: None,
             description: None,
@@ -785,6 +786,7 @@ mod tests {
     #[test]
     fn rejects_local_or_credentialed_direct_stream_urls() {
         let stream = |url: &str| StremioStream {
+            sources: Vec::new(),
             name: None,
             title: None,
             description: None,
