@@ -223,25 +223,32 @@ fn resource_endpoint(
     }
 
     let mut endpoint = addon_base_url(&addon.manifest_url)?;
+    let final_segment = if extra.is_empty() {
+        format!("{resource_id}.json")
+    } else {
+        format!(
+            "{}.json",
+            extra
+                .iter()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect::<Vec<_>>()
+                .join("&")
+        )
+    };
     {
         let mut segments = endpoint
             .path_segments_mut()
             .map_err(|_| anyhow::anyhow!("invalid add-on base URL"))?;
-        segments.pop_if_empty();
-        segments.push(resource).push(media_type).push(resource_id);
-        if !extra.is_empty() {
-            let extra_segment = extra
-                .iter()
-                .map(|(key, value)| format!("{key}={value}"))
-                .collect::<Vec<_>>()
-                .join("&");
-            segments.push(&extra_segment);
-        }
-        if !endpoint.path().ends_with(".json") {
-            // The protocol suffix belongs to the final path segment, not the query string.
-            let _ = segments;
-            let path = endpoint.path().to_owned();
-            endpoint.set_path(&format!("{path}.json"));
+        segments
+            .pop_if_empty()
+            .push(resource)
+            .push(media_type)
+            .push(resource_id);
+        if extra.is_empty() {
+            // The JSON suffix belongs to the final path segment.
+            segments.pop().push(&final_segment);
+        } else {
+            segments.push(&final_segment);
         }
     }
     Ok(endpoint)
@@ -386,8 +393,8 @@ fn is_disallowed_ip(address: IpAddr) -> bool {
         IpAddr::V6(ip) => {
             let octets = ip.octets();
             let global_unicast = octets[0] & 0xe0 == 0x20;
-            let documentation = octets[0] == 0x20 && octets[1] == 0x01
-                && octets[2] == 0x0d && octets[3] == 0xb8;
+            let documentation =
+                octets[0] == 0x20 && octets[1] == 0x01 && octets[2] == 0x0d && octets[3] == 0xb8;
             let unique_local = octets[0] & 0xfe == 0xfc;
             let link_local = octets[0] == 0xfe && octets[1] & 0xc0 == 0x80;
             let ipv4_mapped = octets[..10].iter().all(|byte| *byte == 0)
@@ -458,7 +465,10 @@ mod tests {
     fn keeps_configured_manifest_paths() {
         let url = normalize_manifest_url("https://example.org/torrentio/key/manifest.json")
             .expect("valid URL");
-        assert_eq!(url.as_str(), "https://example.org/torrentio/key/manifest.json");
+        assert_eq!(
+            url.as_str(),
+            "https://example.org/torrentio/key/manifest.json"
+        );
         assert_eq!(
             addon_base_url(url.as_str()).expect("base URL").as_str(),
             "https://example.org/torrentio/key/"
@@ -484,10 +494,17 @@ mod tests {
     #[test]
     fn rejects_special_use_ipv4_and_non_global_ipv6() {
         for address in [
-            "100.64.0.1", "192.0.2.1", "198.18.0.1", "198.51.100.1",
-            "203.0.113.1", "240.0.0.1",
+            "100.64.0.1",
+            "192.0.2.1",
+            "198.18.0.1",
+            "198.51.100.1",
+            "203.0.113.1",
+            "240.0.0.1",
         ] {
-            assert!(is_disallowed_ip(address.parse().expect("IPv4")), "{address}");
+            assert!(
+                is_disallowed_ip(address.parse().expect("IPv4")),
+                "{address}"
+            );
         }
         for address in ["2001:db8::1", "fc00::1", "fe80::1", "2001:4860:4860::8888"] {
             let ip = address.parse().expect("IPv6");
@@ -510,8 +527,8 @@ mod tests {
             url.as_str(),
             "https://example.org/addon/catalog/movie/top/genre%3DAction%26skip%3D20.json"
         );
-        let stream = resource_endpoint(&addon, "stream", "series", "tt123:1:2", &[])
-            .expect("stream route");
+        let stream =
+            resource_endpoint(&addon, "stream", "series", "tt123:1:2", &[]).expect("stream route");
         assert_eq!(
             stream.as_str(),
             "https://example.org/addon/stream/series/tt123:1:2.json"
@@ -540,7 +557,11 @@ mod tests {
             behavior_hints: None,
         };
         assert_eq!(
-            direct.direct_url().expect("valid URL").expect("URL").scheme(),
+            direct
+                .direct_url()
+                .expect("valid URL")
+                .expect("URL")
+                .scheme(),
             "https"
         );
         let unsafe_stream = StremioStream {
