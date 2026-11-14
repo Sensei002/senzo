@@ -1,4 +1,4 @@
-use std::{net::IpAddr, time::Duration};
+use std::{net::{IpAddr, ToSocketAddrs}, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use reqwest::{Client, StatusCode, redirect::Policy};
@@ -72,8 +72,8 @@ impl AddonClient {
         input: &str,
     ) -> Result<StoredAddon> {
         let manifest_url = normalize_manifest_url(input)?;
-        let mut response = self
-            .client
+        let client = client_for_public_url(&manifest_url).await?;
+        let mut response = client
             .get(manifest_url.clone())
             .send()
             .await
@@ -155,7 +155,8 @@ impl AddonClient {
                 .push(&format!("{media_id}.json"));
         }
 
-        self.client
+        let client = client_for_public_url(&endpoint).await?;
+        client
             .get(endpoint)
             .send()
             .await
@@ -166,6 +167,46 @@ impl AddonClient {
             .await
             .context("add-on returned an invalid stream response")
     }
+}
+
+async fn client_for_public_url(url: &Url) -> Result<Client> {
+    let host = url.host_str().context("add-on URL has no host")?.to_owned();
+    let port = url.port_or_known_default().context("add-on URL has no known port")?;
+
+    if url.host().is_some_and(|host| !matches!(host, Host::Domain(_))) {
+        return Ok(Client::builder()
+            .user_agent(concat!("SENZO/", env!("CARGO_PKG_VERSION")))
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15))
+            .redirect(Policy::none())
+            .build()?);
+    }
+
+    let lookup_host = host.clone();
+    let addresses = tokio::task::spawn_blocking(move || {
+        (lookup_host.as_str(), port)
+            .to_socket_addrs()
+            .map(|addresses| addresses.collect::<Vec<_>>())
+    })
+    .await
+    .context("DNS lookup task failed")?
+    .context("could not resolve the add-on hostname")?;
+
+    if addresses.is_empty() {
+        bail!("the add-on hostname did not resolve to any addresses");
+    }
+    if addresses.iter().any(|address| is_disallowed_ip(address.ip())) {
+        bail!("the add-on hostname resolves to a local or reserved IP address");
+    }
+
+    Client::builder()
+        .user_agent(concat!("SENZO/", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(15))
+        .redirect(Policy::none())
+        .resolve_to_addrs(&host, &addresses)
+        .build()
+        .context("failed to create a DNS-pinned add-on HTTP client")
 }
 
 fn normalize_manifest_url(input: &str) -> Result<Url> {
