@@ -83,13 +83,13 @@ impl TorrentPlaybackSession {
     ) -> Result<(Self, Vec<TorrentVideoFile>)> {
         let hash = normalize_v1_info_hash(info_hash)?;
         let magnet_uri = build_magnet_uri(&hash, trackers)?;
+        let temp = TorrentSessionDirectory::create_default()?;
+        let output_folder = temp.path().to_string_lossy().into_owned();
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
             .build()
             .context("could not create the torrent session runtime")?;
-        let temp = TorrentSessionDirectory::create_default()?;
-        let output_folder = temp.path().to_string_lossy().into_owned();
 
         let mut options = SessionOptions::default();
         options.disable_upload = true;
@@ -136,9 +136,17 @@ impl TorrentPlaybackSession {
             }
             Ok::<_, anyhow::Error>((session, api, files))
         });
-        let (session, api, files) = session_task
-            .await
-            .context("torrent metadata task panicked")??;
+        let (session, api, files) = match session_task.await {
+            Ok(Ok(result)) => result,
+            Ok(Err(error)) => {
+                runtime.shutdown_background();
+                return Err(error);
+            }
+            Err(error) => {
+                runtime.shutdown_background();
+                return Err(error).context("torrent metadata task panicked");
+            }
+        };
 
         let playback = Self {
             session: Some(session),
