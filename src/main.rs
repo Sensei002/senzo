@@ -5,11 +5,11 @@ use std::{
 };
 
 use anyhow::Context as _;
-use serde_json::Value;
 use gpui::{
     App, ClipboardItem, Context, MouseButton, QuitMode, Render, Task, Window, WindowOptions, div,
     prelude::*, px, rgb,
 };
+use serde_json::Value;
 
 use senzo::{
     addons::{AddonClient, AddonManifest, AddonManifestPreview, AddonStreamResult, StremioStream},
@@ -129,7 +129,8 @@ impl SenzoApp {
             addon_status: "Copy a Stremio manifest URL, then choose Paste URL to preview it".into(),
             addon_task: None,
             tmdb_results: Vec::new(),
-            tmdb_status: "Configure a TMDB Read Access Token in Settings, then load a catalogue".into(),
+            tmdb_status: "Configure a TMDB Read Access Token in Settings, then load a catalogue"
+                .into(),
             tmdb_details: None,
             tmdb_task: None,
             addon_catalog_items: Vec::new(),
@@ -379,36 +380,52 @@ impl SenzoApp {
         cx.notify();
     }
 
-    fn load_tmdb_catalog(&mut self, media_type: &'static str, query: Option<String>, cx: &mut Context<Self>) {
+    fn load_tmdb_catalog(
+        &mut self,
+        media_type: &'static str,
+        query: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         self.tmdb_status = match query.as_deref() {
             Some(value) => format!("Searching TMDB for {value}…"),
             None => format!("Loading popular {media_type}…"),
         };
         self.tmdb_results.clear();
         self.tmdb_task = Some(cx.spawn(async move |this, cx| {
-            let result = cx.background_spawn(async move {
-                let client = TmdbClient::from_credential_store("en-US")?;
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .context("could not initialize TMDB runtime")?;
-                runtime.block_on(async {
-                    let page = match (media_type, query.as_deref()) {
-                        ("movie", Some(query)) => client.search_movies(query, 1).await?,
-                        ("tv", Some(query)) => client.search_tv(query, 1).await?,
-                        ("movie", None) => client.popular_movies(1).await?,
-                        ("tv", None) => client.popular_tv(1).await?,
-                        _ => anyhow::bail!("unsupported TMDB media type"),
-                    };
-                    Ok::<_, anyhow::Error>(page.results.into_iter().map(|item| (media_type.to_owned(), item)).collect::<Vec<_>>())
+            let result = cx
+                .background_spawn(async move {
+                    let client = TmdbClient::from_credential_store("en-US")?;
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .context("could not initialize TMDB runtime")?;
+                    runtime.block_on(async {
+                        let page = match (media_type, query.as_deref()) {
+                            ("movie", Some(query)) => client.search_movies(query, 1).await?,
+                            ("tv", Some(query)) => client.search_tv(query, 1).await?,
+                            ("movie", None) => client.popular_movies(1).await?,
+                            ("tv", None) => client.popular_tv(1).await?,
+                            _ => anyhow::bail!("unsupported TMDB media type"),
+                        };
+                        Ok::<_, anyhow::Error>(
+                            page.results
+                                .into_iter()
+                                .map(|item| (media_type.to_owned(), item))
+                                .collect::<Vec<_>>(),
+                        )
+                    })
                 })
-            }).await;
+                .await;
             let _ = this.update(cx, |app, cx| {
                 match result {
                     Ok(results) => {
                         let count = results.len();
                         app.tmdb_results = results;
-                        app.tmdb_status = if count == 0 { "No matching titles found".into() } else { format!("{count} titles loaded from TMDB") };
+                        app.tmdb_status = if count == 0 {
+                            "No matching titles found".into()
+                        } else {
+                            format!("{count} titles loaded from TMDB")
+                        };
                     }
                     Err(error) => app.tmdb_status = format!("TMDB request failed: {error:#}"),
                 }
@@ -419,7 +436,11 @@ impl SenzoApp {
     }
 
     fn search_tmdb_from_clipboard(&mut self, media_type: &'static str, cx: &mut Context<Self>) {
-        let Some(query) = cx.read_from_clipboard().and_then(|item| item.text()).filter(|text| !text.trim().is_empty()) else {
+        let Some(query) = cx
+            .read_from_clipboard()
+            .and_then(|item| item.text())
+            .filter(|text| !text.trim().is_empty())
+        else {
             self.tmdb_status = "Copy a title or search phrase, then choose Paste search".into();
             cx.notify();
             return;
@@ -427,8 +448,15 @@ impl SenzoApp {
         self.load_tmdb_catalog(media_type, Some(query.trim().to_owned()), cx);
     }
 
-    fn select_tmdb_title(&mut self, media_type: String, title: TmdbSearchResult, cx: &mut Context<Self>) {
-        let Some(display_title) = title.display_title().map(str::to_owned) else { return; };
+    fn select_tmdb_title(
+        &mut self,
+        media_type: String,
+        title: TmdbSearchResult,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(display_title) = title.display_title().map(str::to_owned) else {
+            return;
+        };
         let tmdb_id = title.id;
         let addons = self.database.installed_addons().unwrap_or_default();
         self.selected_title = Some(display_title.clone());
@@ -475,17 +503,27 @@ impl SenzoApp {
         cx.notify();
     }
 
-    fn load_addon_catalog(&mut self, addon: StoredAddon, media_type: String, catalog_id: String, cx: &mut Context<Self>) {
+    fn load_addon_catalog(
+        &mut self,
+        addon: StoredAddon,
+        media_type: String,
+        catalog_id: String,
+        cx: &mut Context<Self>,
+    ) {
         self.addon_catalog_status = format!("Loading {} catalog…", addon.name);
         self.addon_catalog_items.clear();
         self.addon_catalog_addon = Some(addon.clone());
         self.addon_task = Some(cx.spawn(async move |this, cx| {
-            let result = cx.background_spawn(async move {
-                let client = AddonClient::new();
-                let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
-                    .context("could not initialize add-on catalog runtime")?;
-                runtime.block_on(client.catalog(&addon, &media_type, &catalog_id, &[]))
-            }).await;
+            let result = cx
+                .background_spawn(async move {
+                    let client = AddonClient::new();
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .context("could not initialize add-on catalog runtime")?;
+                    runtime.block_on(client.catalog(&addon, &media_type, &catalog_id, &[]))
+                })
+                .await;
             let _ = this.update(cx, |app, cx| {
                 match result {
                     Ok(response) => {
@@ -493,7 +531,9 @@ impl SenzoApp {
                         app.addon_catalog_items = response.metas;
                         app.addon_catalog_status = format!("{count} catalog entries loaded");
                     }
-                    Err(error) => app.addon_catalog_status = format!("Catalog request failed: {error:#}"),
+                    Err(error) => {
+                        app.addon_catalog_status = format!("Catalog request failed: {error:#}")
+                    }
                 }
                 cx.notify();
             });
@@ -501,17 +541,30 @@ impl SenzoApp {
         cx.notify();
     }
 
-    fn select_addon_catalog_meta(&mut self, addon: StoredAddon, meta: Value, cx: &mut Context<Self>) {
+    fn select_addon_catalog_meta(
+        &mut self,
+        addon: StoredAddon,
+        meta: Value,
+        cx: &mut Context<Self>,
+    ) {
         let Some(media_id) = meta.get("id").and_then(Value::as_str).map(str::to_owned) else {
             self.addon_catalog_status = "Catalog item has no valid Stremio ID".into();
             cx.notify();
             return;
         };
-        let media_type = meta.get("type").and_then(Value::as_str).unwrap_or("movie").to_owned();
+        let media_type = meta
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("movie")
+            .to_owned();
         let addon_id = addon.id.clone();
         let addon_name = addon.name.clone();
         self.addon_catalog_status = format!("Loading details and streams for {media_id}…");
-        self.selected_title = meta.get("name").or_else(|| meta.get("title")).and_then(Value::as_str).map(str::to_owned);
+        self.selected_title = meta
+            .get("name")
+            .or_else(|| meta.get("title"))
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         self.active_page = AppPage::Details;
         self.tmdb_details = Some(meta.clone());
         self.addon_stream_results.clear();
@@ -545,11 +598,15 @@ impl SenzoApp {
 
     fn play_addon_stream(&mut self, stream: StremioStream, cx: &mut Context<Self>) {
         let Ok(Some(url)) = stream.direct_url() else {
-            self.stream_status = "This entry is not a direct HTTP(S) stream. Torrent playback is part of Batch 5.".into();
+            self.stream_status =
+                "This entry is not a direct HTTP(S) stream. Torrent playback is part of Batch 5."
+                    .into();
             cx.notify();
             return;
         };
-        if self.playback_worker.is_none() { self.start_playback(cx); }
+        if self.playback_worker.is_none() {
+            self.start_playback(cx);
+        }
         let Some(worker) = self.playback_worker.clone() else {
             self.stream_status = "MPV is not ready; check the playback runtime status".into();
             cx.notify();
@@ -558,18 +615,24 @@ impl SenzoApp {
         let url_string = url.to_string();
         self.stream_status = "Validating stream destination and queuing MPV playback…".into();
         self.addon_task = Some(cx.spawn(async move |this, cx| {
-            let result = cx.background_spawn(async move {
-                let client = AddonClient::new();
-                let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
-                    .context("could not initialize stream validation runtime")?;
-                runtime.block_on(async {
-                    let parsed = url::Url::parse(&url_string)?;
-                    client.validate_direct_stream_url(&parsed).await?;
-                    let worker = worker.lock().map_err(|_| anyhow::anyhow!("playback worker lock is unavailable"))?;
-                    worker.load_url(parsed.as_str())?;
-                    Ok::<_, anyhow::Error>(())
+            let result = cx
+                .background_spawn(async move {
+                    let client = AddonClient::new();
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .context("could not initialize stream validation runtime")?;
+                    runtime.block_on(async {
+                        let parsed = url::Url::parse(&url_string)?;
+                        client.validate_direct_stream_url(&parsed).await?;
+                        let worker = worker
+                            .lock()
+                            .map_err(|_| anyhow::anyhow!("playback worker lock is unavailable"))?;
+                        worker.load_url(parsed.as_str())?;
+                        Ok::<_, anyhow::Error>(())
+                    })
                 })
-            }).await;
+                .await;
             let _ = this.update(cx, |app, cx| {
                 match result {
                     Ok(()) => {
@@ -577,7 +640,9 @@ impl SenzoApp {
                         app.playback_status = "Playing selected add-on stream".into();
                         app.active_media_id = None;
                     }
-                    Err(error) => app.stream_status = format!("Could not play selected stream: {error:#}"),
+                    Err(error) => {
+                        app.stream_status = format!("Could not play selected stream: {error:#}")
+                    }
                 }
                 cx.notify();
             });
@@ -1214,30 +1279,116 @@ fn section(
                         .child(title),
                 )
                 .child(div().text_sm().text_color(rgb(0x9299A1)).child(description))
-        .when(page != AppPage::Addons && page != AppPage::Library && page != AppPage::Details, |panel| {
-            panel.child(div().flex().flex_wrap().gap_2()
-                .child(dynamic_choice_chip("Popular movies".into(), false, |this, cx| this.load_tmdb_catalog("movie", None, cx), cx))
-                .child(dynamic_choice_chip("Popular TV".into(), false, |this, cx| this.load_tmdb_catalog("tv", None, cx), cx))
-                .child(dynamic_choice_chip("Paste movie search".into(), false, |this, cx| this.search_tmdb_from_clipboard("movie", cx), cx))
-                .child(dynamic_choice_chip("Paste TV search".into(), false, |this, cx| this.search_tmdb_from_clipboard("tv", cx), cx)))
-                .child(div().text_xs().text_color(rgb(0x9299A1)).child(tmdb_status.clone()))
-                .child(div().flex().flex_wrap().gap_2().children(title_chips))
-        })
-        .when(is_details, |panel| {
-            let details = tmdb_details.clone().unwrap_or(Value::Null);
-            let overview = details.get("overview").and_then(Value::as_str).unwrap_or("No synopsis available.");
-            let date = details.get("release_date").or_else(|| details.get("first_air_date")).and_then(Value::as_str).unwrap_or("Release date unavailable");
-            let rating = details.get("vote_average").and_then(Value::as_f64).map(|v| format!("{v:.1}/10")).unwrap_or_else(|| "No rating".into());
-            panel.child(div().p_4().rounded_lg().bg(rgb(0x151719)).flex().flex_col().gap_2()
-                .child(div().text_xs().text_color(rgb(0x67E8F9)).child(format!("{date} · {rating}")))
-                .child(div().text_sm().text_color(rgb(0xD4D4D8)).child(overview.to_owned()))
-                .child(div().text_xs().text_color(rgb(0x9299A1)).child(tmdb_status.clone())))
-                .child(div().flex().flex_col().gap_2()
-                    .child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child("Available sources"))
-                    .child(div().text_xs().text_color(rgb(0x9299A1)).child(stream_status.clone()))
-                    .child(div().flex().flex_wrap().gap_2().children(stream_chips))
-                    .children(source_notes.into_iter().map(|label| div().text_xs().text_color(rgb(0xA1A1AA)).child(label))))
-        })
+                .when(
+                    page != AppPage::Addons && page != AppPage::Library && page != AppPage::Details,
+                    |panel| {
+                        panel
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_wrap()
+                                    .gap_2()
+                                    .child(dynamic_choice_chip(
+                                        "Popular movies".into(),
+                                        false,
+                                        |this, cx| this.load_tmdb_catalog("movie", None, cx),
+                                        cx,
+                                    ))
+                                    .child(dynamic_choice_chip(
+                                        "Popular TV".into(),
+                                        false,
+                                        |this, cx| this.load_tmdb_catalog("tv", None, cx),
+                                        cx,
+                                    ))
+                                    .child(dynamic_choice_chip(
+                                        "Paste movie search".into(),
+                                        false,
+                                        |this, cx| this.search_tmdb_from_clipboard("movie", cx),
+                                        cx,
+                                    ))
+                                    .child(dynamic_choice_chip(
+                                        "Paste TV search".into(),
+                                        false,
+                                        |this, cx| this.search_tmdb_from_clipboard("tv", cx),
+                                        cx,
+                                    )),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0x9299A1))
+                                    .child(tmdb_status.clone()),
+                            )
+                            .child(div().flex().flex_wrap().gap_2().children(title_chips))
+                    },
+                )
+                .when(is_details, |panel| {
+                    let details = tmdb_details.clone().unwrap_or(Value::Null);
+                    let overview = details
+                        .get("overview")
+                        .and_then(Value::as_str)
+                        .unwrap_or("No synopsis available.");
+                    let date = details
+                        .get("release_date")
+                        .or_else(|| details.get("first_air_date"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("Release date unavailable");
+                    let rating = details
+                        .get("vote_average")
+                        .and_then(Value::as_f64)
+                        .map(|v| format!("{v:.1}/10"))
+                        .unwrap_or_else(|| "No rating".into());
+                    panel
+                        .child(
+                            div()
+                                .p_4()
+                                .rounded_lg()
+                                .bg(rgb(0x151719))
+                                .flex()
+                                .flex_col()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(0x67E8F9))
+                                        .child(format!("{date} · {rating}")),
+                                )
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(rgb(0xD4D4D8))
+                                        .child(overview.to_owned()),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(0x9299A1))
+                                        .child(tmdb_status.clone()),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .text_base()
+                                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                                        .child("Available sources"),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(0x9299A1))
+                                        .child(stream_status.clone()),
+                                )
+                                .child(div().flex().flex_wrap().gap_2().children(stream_chips))
+                                .children(source_notes.into_iter().map(|label| {
+                                    div().text_xs().text_color(rgb(0xA1A1AA)).child(label)
+                                })),
+                        )
+                }),
         )
         .child(content)
 }
@@ -2406,25 +2557,56 @@ fn render_discovery_page(
     let mut title_chips = Vec::new();
     for (media_type, item) in &tmdb_results {
         let title = item.display_title().unwrap_or("Untitled").to_owned();
-        let year = item.release_date.as_deref().or(item.first_air_date.as_deref()).and_then(|date| date.get(0..4)).unwrap_or("—");
-        let rating = item.vote_average.map(|value| format!(" · {value:.1}/10")).unwrap_or_default();
+        let year = item
+            .release_date
+            .as_deref()
+            .or(item.first_air_date.as_deref())
+            .and_then(|date| date.get(0..4))
+            .unwrap_or("—");
+        let rating = item
+            .vote_average
+            .map(|value| format!(" · {value:.1}/10"))
+            .unwrap_or_default();
         let label = format!("{title} · {year}{rating}");
         let selected = item.clone();
         let kind = media_type.clone();
-        title_chips.push(dynamic_choice_chip(label, false, move |this, cx| this.select_tmdb_title(kind.clone(), selected.clone(), cx), cx));
+        title_chips.push(dynamic_choice_chip(
+            label,
+            false,
+            move |this, cx| this.select_tmdb_title(kind.clone(), selected.clone(), cx),
+            cx,
+        ));
     }
     let mut catalog_chips = Vec::new();
     for addon in &installed_addons {
         if let Ok(manifest) = serde_json::from_str::<AddonManifest>(&addon.manifest_json) {
             if manifest.supports_resource("catalog") {
                 for catalog in &manifest.catalogs {
-                    let Some(id) = catalog.get("id").and_then(Value::as_str) else { continue; };
-                    let kind = catalog.get("type").and_then(Value::as_str).unwrap_or("movie").to_owned();
+                    let Some(id) = catalog.get("id").and_then(Value::as_str) else {
+                        continue;
+                    };
+                    let kind = catalog
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .unwrap_or("movie")
+                        .to_owned();
                     let name = catalog.get("name").and_then(Value::as_str).unwrap_or(id);
                     let label = format!("{} · {}", addon.name, name);
                     let addon_copy = addon.clone();
                     let catalog_id = id.to_owned();
-                    catalog_chips.push(dynamic_choice_chip(label, false, move |this, cx| this.load_addon_catalog(addon_copy.clone(), kind.clone(), catalog_id.clone(), cx), cx));
+                    catalog_chips.push(dynamic_choice_chip(
+                        label,
+                        false,
+                        move |this, cx| {
+                            this.load_addon_catalog(
+                                addon_copy.clone(),
+                                kind.clone(),
+                                catalog_id.clone(),
+                                cx,
+                            )
+                        },
+                        cx,
+                    ));
                 }
             }
         }
@@ -2432,10 +2614,21 @@ fn render_discovery_page(
     let mut catalog_item_chips = Vec::new();
     if let Some(addon) = addon_catalog_addon.clone() {
         for item in &addon_catalog_items {
-            let title = item.get("name").or_else(|| item.get("title")).and_then(Value::as_str).unwrap_or("Untitled catalog item");
+            let title = item
+                .get("name")
+                .or_else(|| item.get("title"))
+                .and_then(Value::as_str)
+                .unwrap_or("Untitled catalog item");
             let item_copy = item.clone();
             let addon_copy = addon.clone();
-            catalog_item_chips.push(dynamic_choice_chip(title.to_owned(), false, move |this, cx| this.select_addon_catalog_meta(addon_copy.clone(), item_copy.clone(), cx), cx));
+            catalog_item_chips.push(dynamic_choice_chip(
+                title.to_owned(),
+                false,
+                move |this, cx| {
+                    this.select_addon_catalog_meta(addon_copy.clone(), item_copy.clone(), cx)
+                },
+                cx,
+            ));
         }
     }
     let mut stream_chips = Vec::new();
@@ -2446,13 +2639,37 @@ fn render_discovery_page(
         }
         for stream in &provider.streams {
             if stream.direct_url().ok().flatten().is_some() {
-                let label = format!("{} · {}", provider.addon_name, stream.name.as_deref().or(stream.title.as_deref()).unwrap_or("Direct stream"));
+                let label = format!(
+                    "{} · {}",
+                    provider.addon_name,
+                    stream
+                        .name
+                        .as_deref()
+                        .or(stream.title.as_deref())
+                        .unwrap_or("Direct stream")
+                );
                 let selected = stream.clone();
-                stream_chips.push(dynamic_choice_chip(label, false, move |this, cx| this.play_addon_stream(selected.clone(), cx), cx));
+                stream_chips.push(dynamic_choice_chip(
+                    label,
+                    false,
+                    move |this, cx| this.play_addon_stream(selected.clone(), cx),
+                    cx,
+                ));
             } else if stream.is_torrent() {
-                source_notes.push(format!("{} · {} · torrent detected (transport arrives in Batch 5)", provider.addon_name, stream.title.as_deref().or(stream.name.as_deref()).unwrap_or("Torrent source")));
+                source_notes.push(format!(
+                    "{} · {} · torrent detected (transport arrives in Batch 5)",
+                    provider.addon_name,
+                    stream
+                        .title
+                        .as_deref()
+                        .or(stream.name.as_deref())
+                        .unwrap_or("Torrent source")
+                ));
             } else if stream.external_url.is_some() {
-                source_notes.push(format!("{} · external link supplied by provider", provider.addon_name));
+                source_notes.push(format!(
+                    "{} · external link supplied by provider",
+                    provider.addon_name
+                ));
             }
         }
     }
