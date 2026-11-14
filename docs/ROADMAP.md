@@ -25,7 +25,7 @@ Status definitions:
 
 ## Phase 1 — Native desktop experience
 
-The Settings experience will use progressive disclosure: essential controls first, advanced playback controls in a separate expandable section. Defaults prioritize automatic hardware selection, balanced image quality, low background overhead, and bounded memory use.
+The Settings experience will follow Nuvio's simple, user-friendly approach: clear everyday categories, plain-language labels, sensible defaults, and progressive disclosure for technical controls. TMDB and OpenSubtitles are built-in integrations in official builds; ordinary users must not need to supply API keys. Advanced diagnostics and technical playback controls stay out of the main settings flow.
 
 - [ ] Build main SENZO navigation and cinematic layout.
 - [ ] Add reusable poster, backdrop, title, and detail components.
@@ -132,7 +132,7 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [ ] Add responsive layout for common desktop resolutions and display scaling; lazy-load artwork and catalog rows and use bounded local image/catalog caches.
 - [ ] Connect poster/hero activation to existing TMDB details, season/episode browsing, source discovery, and MPV playback instead of placeholder buttons.
 - [ ] Add automated UI/state tests for shelf ordering, focus navigation, empty states, and catalog loading; validate the packaged Windows build in addition to CI checks.
-- [ ] Document the final Home navigation model and user-configurable categories.
+- [ ] Document the final Home navigation model and user-configurable categories.\n- [ ] Redesign Settings around simple, plain-language categories and safe defaults, closely following Nuvio's user-friendly Settings UX while preserving SENZO identity.\n- [ ] Move decoder/renderer/cache/diagnostic and other technical controls into clearly explained Advanced areas.\n- [ ] Make TMDB and OpenSubtitles work by default in official builds with application-managed integration credentials; no API-key entry or setup for ordinary users.\n- [ ] Keep developer/self-build credential overrides optional and out of the normal Settings flow; review provider terms and client-side credential exposure before release.
 
 **Reference implementation to study:** `NuvioMedia/NuvioDesktop` on branch `Dev`, especially `HomeScreen.kt`, `HomeRepository.kt`, `HomeCatalogDefinitions.kt`, `HomeHeroSection.kt`, `HomeCatalogSection.kt`, `HomePosterCard.kt`, and `HomeSectionLayout.kt`. These files demonstrate the hero + dynamic catalog shelves + Continue Watching composition and should inform SENZO's equivalent GPUI components and data flow.
 

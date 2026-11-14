@@ -37,7 +37,7 @@ The Windows distribution is a **per-machine system installation** under `%Progra
 - **Artwork:** Convert TMDB poster, backdrop, logo, and episode-still paths into image CDN URLs. Cache artwork locally with bounded storage and eviction.
 - **Source identifiers:** Map TMDB IDs to IMDb or other identifiers when an add-on requires them. Never assume every provider accepts TMDB IDs.
 - **Attribution:** Include the TMDB logo and the required notice in About/Credits: "This product uses the TMDB API but is not endorsed or certified by TMDB."
-- **Credential model:** A TMDB API Read Access Token is an application integration credential, not a SENZO user identity. Official builds may receive it through protected CI configuration. It must not be committed to source control, printed in logs, or exposed through diagnostic output. The approach for self-built binaries must be documented before public distribution; possible options include a user-supplied token or building without metadata access.
+- **Credential model:** Official SENZO builds must provide TMDB access through application-managed release configuration so ordinary users never need to paste an API token. The credential is not a SENZO user identity. Never commit it to source control or print it in logs/diagnostics. Developer/self-build overrides may be optional and documented separately. Before public distribution, review TMDB terms and the practical exposure of client-side credentials; do not represent a client-embedded token as secret.
 
 ## 2.1 Console-first Home and discovery UI
 
@@ -200,3 +200,10 @@ SENZO obtains its Windows parent HWND through GPUI's public `HasWindowHandle` im
 ## Torrent temporary-storage boundary
 
 Torrent payloads use a dedicated per-user directory at `%LOCALAPPDATA%\\SENZO\\torrent-temp`, separate from SQLite, metadata, artwork, and subtitle caches. Each playback session receives a unique `session-*` child directory. The application removes that directory after the torrent engine and MPV have stopped; startup recovery removes leftover session directories after crashes or forced termination. Cleanup only enumerates direct child directories with the SENZO session prefix and does not follow symlinks. Playback progress and watch history remain in SQLite and are never stored in, or removed with, the torrent session.
+
+
+## User-facing Settings and built-in integrations
+
+The Settings screen follows a simple consumer-facing information architecture inspired by Nuvio Desktop: clear categories, plain-language labels, short descriptions, and safe defaults. Everyday settings are visible first; advanced decoder, renderer, cache, diagnostics, and provider implementation details are progressively disclosed in clearly labelled Advanced areas. Do not make the user understand internal technology to configure the application.
+
+TMDB discovery and OpenSubtitles subtitle search are built-in integrations enabled by default in official builds. Application-managed release configuration supplies the required integration credentials so ordinary users do not need to create provider accounts or paste API keys. Credentials must never be committed to source control or logged. Optional developer/self-build overrides are separate from the ordinary user flow. Review each provider's terms and client-side credential exposure before public distribution; a credential embedded in a client binary must not be described as secret.

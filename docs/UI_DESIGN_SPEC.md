@@ -84,3 +84,31 @@ Use these as architecture and UX references for dynamic catalog shelves, hero co
 - Focus and scroll position behave predictably across Home/details/back navigation.
 - Loading, error, empty, and missing-artwork states are polished.
 - Windows CI passes, and the resulting packaged application is manually reviewed at common desktop resolutions before this batch is marked complete.
+
+## Settings experience
+
+Settings must be redesigned as a simple, approachable consumer-facing screen, using the official Nuvio Desktop Settings experience as the primary UX reference. The overall SENZO interface should follow Nuvio's user-facing layout and interaction philosophy closely (approximately 90% similarity in structure, clarity, and behavior), while retaining SENZO's own identity, logo, visual language, and original implementation.
+
+- Present a small set of clearly named, plain-language categories and everyday controls first (for example: Appearance, Playback, Subtitles, Language, and About).
+- Use short descriptions and sensible defaults. Avoid exposing raw backend terminology, credential fields, renderer internals, decoder flags, cache limits, or diagnostics in the normal settings flow.
+- Use progressive disclosure: place infrequently changed or technical options under clearly labelled Advanced sections, with safe defaults and brief explanations.
+- Keep diagnostics and support actions in a separate, low-prominence area.
+- Settings must be keyboard accessible, focusable, readable, and consistent with the console-style navigation model.
+- Persist user choices locally and make reset/default behavior clear.
+
+## Built-in provider integrations and credentials
+
+TMDB metadata/discovery and OpenSubtitles subtitle search must be enabled by default in official SENZO builds. An ordinary user must not be asked to obtain, paste, or manage API credentials to use these integrations.
+
+- Use application-managed integration credentials/configuration supplied through the official release/build process, never committed to source control or printed in logs.
+- Do not expose API-key entry as a required first-run or ordinary Settings task. Keep optional developer/self-build override configuration in Advanced settings or documented environment/build configuration only where necessary.
+- If an official integration credential is unavailable or a provider is temporarily unreachable, show a clear, friendly status and preserve the rest of the app; never present a raw credential error as the normal user experience.
+- Explain provider attribution and independent service availability in About/Credits.
+- This requirement does not authorize a SENZO account, mandatory cloud profile, or remote watch-history service.
+
+## Settings acceptance criteria
+
+- A first-time user can understand and use the main Settings screen without knowing what TMDB, API keys, decoders, renderers, or cache internals are.
+- TMDB discovery and OpenSubtitles search work in an official build without user-entered credentials.
+- Advanced configuration remains available without dominating the normal Settings experience.
+- No API secret is committed to the repository, embedded in public source, or written to logs. Release credential handling must be reviewed for provider terms and practical client-side exposure before public distribution.
