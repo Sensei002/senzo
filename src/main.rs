@@ -668,8 +668,10 @@ impl SenzoApp {
             let _ = this.update(cx, |app, cx| {
                 match result {
                     Ok((session, files)) => {
-                        let preferred = requested_file.filter(|index| files.iter().any(|file| file.index == *index));
-                        let automatic = preferred.or_else(|| (files.len() == 1).then_some(files[0].index));
+                        let preferred = requested_file
+                            .filter(|index| files.iter().any(|file| file.index == *index));
+                        let automatic =
+                            preferred.or_else(|| (files.len() == 1).then_some(files[0].index));
                         app.torrent_session = Some(session);
                         app.torrent_files = files;
                         app.torrent_status = format!("{} video file(s) available", app.torrent_files.len());
