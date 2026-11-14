@@ -3,9 +3,12 @@ use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use axum::{
-    Router, body::Body, extract::{Path, State},
+    Router,
+    body::Body,
+    extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
-    response::Response, routing::get,
+    response::Response,
+    routing::get,
 };
 use librqbit::{
     AddTorrent, AddTorrentOptions, Session, SessionOptions,
@@ -84,7 +87,10 @@ impl TorrentPlaybackSession {
             ..Default::default()
         };
         let listing = api
-            .api_add_torrent(AddTorrent::from_url(magnet_uri.as_str()), Some(list_options))
+            .api_add_torrent(
+                AddTorrent::from_url(magnet_uri.as_str()),
+                Some(list_options),
+            )
             .await
             .context("could not resolve torrent metadata or list its files")?;
         let files = video_files_from_response(&listing);
@@ -115,9 +121,13 @@ impl TorrentPlaybackSession {
         if !self.files.iter().any(|file| file.index == file_index) {
             bail!("selected file is not a video in the inspected torrent");
         }
-        let output_folder = self.temp.as_ref()
+        let output_folder = self
+            .temp
+            .as_ref()
             .context("torrent session is closed")?
-            .path().to_string_lossy().into_owned();
+            .path()
+            .to_string_lossy()
+            .into_owned();
         let api = self.api.as_ref().context("torrent engine is closed")?;
         let add_options = AddTorrentOptions {
             only_files: Some(vec![file_index]),
@@ -125,10 +135,15 @@ impl TorrentPlaybackSession {
             ..Default::default()
         };
         let added: ApiAddTorrentResponse = api
-            .api_add_torrent(AddTorrent::from_url(self.magnet_uri.as_str()), Some(add_options))
+            .api_add_torrent(
+                AddTorrent::from_url(self.magnet_uri.as_str()),
+                Some(add_options),
+            )
             .await
             .context("could not start downloading the selected video")?;
-        let torrent_id = added.id.context("torrent engine returned no active torrent ID")?;
+        let torrent_id = added
+            .id
+            .context("torrent engine returned no active torrent ID")?;
 
         let token = Uuid::new_v4().simple().to_string();
         let cancel = CancellationToken::new();
@@ -137,7 +152,8 @@ impl TorrentPlaybackSession {
             torrent_id,
             token: token.clone(),
         };
-        let listener = TcpListener::bind("127.0.0.1:0").await
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
             .context("could not bind the loopback torrent stream endpoint")?;
         let address: SocketAddr = listener.local_addr()?;
         let router = Router::new()
@@ -186,7 +202,8 @@ impl TorrentPlaybackSession {
             cancel.cancel();
         }
         if let Some(task) = self.stream_task.take() {
-            task.await.context("torrent stream server task panicked")??;
+            task.await
+                .context("torrent stream server task panicked")??;
         }
         if let (Some(api), Some(id)) = (self.api.as_ref(), self.torrent_id.take()) {
             api.api_torrent_action_delete(TorrentIdOrHash::Id(id))
@@ -231,7 +248,8 @@ async fn stream_torrent_file(
     if token != state.token || torrent_id != state.torrent_id {
         bail!("invalid local torrent stream token");
     }
-    let mut stream = state.api
+    let mut stream = state
+        .api
         .api_stream(TorrentIdOrHash::Id(torrent_id), file_id)
         .await
         .context("could not open torrent file stream")?;
@@ -243,7 +261,10 @@ async fn stream_torrent_file(
     let mut status = StatusCode::OK;
     let mut response_headers = HeaderMap::new();
     response_headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-    response_headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
+    response_headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
     if start > 0 || end < total {
         status = StatusCode::PARTIAL_CONTENT;
         stream.seek(SeekFrom::Start(start)).await?;
@@ -253,16 +274,23 @@ async fn stream_torrent_file(
         );
     }
     let length = end.saturating_sub(start);
-    response_headers.insert(header::CONTENT_LENGTH, HeaderValue::from_str(&length.to_string())?);
+    response_headers.insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&length.to_string())?,
+    );
     let body = Body::from_stream(ReaderStream::new(stream.take(length)));
-    let mut response = Response::builder().status(status).body(body)
+    let mut response = Response::builder()
+        .status(status)
+        .body(body)
         .context("could not construct torrent stream response")?;
     response.headers_mut().extend(response_headers);
     Ok(response)
 }
 
 fn parse_single_byte_range(value: &str, total: u64) -> Result<(u64, u64)> {
-    let range = value.strip_prefix("bytes=").context("unsupported range unit")?;
+    let range = value
+        .strip_prefix("bytes=")
+        .context("unsupported range unit")?;
     if range.contains(',') {
         bail!("multiple byte ranges are not supported");
     }
@@ -271,8 +299,10 @@ fn parse_single_byte_range(value: &str, total: u64) -> Result<(u64, u64)> {
     let end = if end.is_empty() {
         total
     } else {
-        end.parse::<u64>().context("invalid range end")?
-            .checked_add(1).context("range end overflow")?
+        end.parse::<u64>()
+            .context("invalid range end")?
+            .checked_add(1)
+            .context("range end overflow")?
     };
     if start >= total || end <= start || end > total {
         bail!("requested byte range is not satisfiable");
@@ -289,7 +319,13 @@ fn normalize_v1_info_hash(input: &str) -> Result<String> {
 }
 
 fn video_files_from_response(response: &ApiAddTorrentResponse) -> Vec<TorrentVideoFile> {
-    response.details.files.as_ref().into_iter().flatten().enumerate()
+    response
+        .details
+        .files
+        .as_ref()
+        .into_iter()
+        .flatten()
+        .enumerate()
         .filter(|(_, file)| file.included && is_video_filename(&file.name))
         .map(|(index, file)| TorrentVideoFile {
             index,
@@ -300,9 +336,25 @@ fn video_files_from_response(response: &ApiAddTorrentResponse) -> Vec<TorrentVid
 }
 
 fn is_video_filename(name: &str) -> bool {
-    let extension = name.rsplit('.').next().unwrap_or_default().to_ascii_lowercase();
-    matches!(extension.as_str(),
-        "mkv" | "mp4" | "m4v" | "avi" | "mov" | "webm" | "wmv" | "flv" | "ts" | "m2ts" | "mpg" | "mpeg"
+    let extension = name
+        .rsplit('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    matches!(
+        extension.as_str(),
+        "mkv"
+            | "mp4"
+            | "m4v"
+            | "avi"
+            | "mov"
+            | "webm"
+            | "wmv"
+            | "flv"
+            | "ts"
+            | "m2ts"
+            | "mpg"
+            | "mpeg"
     )
 }
 
@@ -321,8 +373,14 @@ mod tests {
 
     #[test]
     fn validates_single_byte_ranges() {
-        assert_eq!(parse_single_byte_range("bytes=10-19", 100).unwrap(), (10, 20));
-        assert_eq!(parse_single_byte_range("bytes=90-", 100).unwrap(), (90, 100));
+        assert_eq!(
+            parse_single_byte_range("bytes=10-19", 100).unwrap(),
+            (10, 20)
+        );
+        assert_eq!(
+            parse_single_byte_range("bytes=90-", 100).unwrap(),
+            (90, 100)
+        );
         assert!(parse_single_byte_range("bytes=0-10,20-30", 100).is_err());
         assert!(parse_single_byte_range("bytes=100-", 100).is_err());
         assert!(parse_single_byte_range("bytes=20-10", 100).is_err());
