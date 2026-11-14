@@ -24,7 +24,7 @@ use senzo::{
         DecoderPreference, HardwareDecoding, HdrMode, PlaybackSettings, RendererPreference,
         ScalingAlgorithm,
     },
-    storage::{LocalDatabase, StoredAddon},
+    storage::{LocalDatabase, PlaybackProgress, StoredAddon},
     subtitles::{
         OpenSubtitlesClient, OpenSubtitlesCredentialStore, OpenSubtitlesResult, SubtitleSearch,
     },
@@ -48,6 +48,7 @@ enum AppPage {
 struct SenzoApp {
     database: LocalDatabase,
     active_page: AppPage,
+    settings_advanced_open: bool,
     selected_title: Option<String>,
     search_query: String,
     settings: PlaybackSettings,
@@ -108,6 +109,7 @@ impl SenzoApp {
         Self {
             database,
             active_page: AppPage::Home,
+            settings_advanced_open: false,
             selected_title: None,
             search_query: String::new(),
             settings,
@@ -1411,6 +1413,53 @@ impl SenzoApp {
         );
     }
 
+    fn resume_saved_media(&mut self, media_id: String, cx: &mut Context<Self>) {
+        let Some(raw_path) = media_id.strip_prefix("local-file:") else {
+            self.playback_status = "This saved item cannot be resumed from a local file path yet".into();
+            cx.notify();
+            return;
+        };
+        let path = PathBuf::from(raw_path);
+        if !path.is_file() {
+            self.playback_status = "The original media file could not be found".into();
+            cx.notify();
+            return;
+        }
+        let resume_position = match self.database.playback_progress(&media_id) {
+            Ok(Some(progress)) => Some(progress.position_seconds),
+            Ok(None) => None,
+            Err(error) => {
+                self.playback_status = format!("Could not read saved position: {error:#}");
+                cx.notify();
+                return;
+            }
+        };
+        if self.playback_worker.is_none() {
+            self.start_playback(cx);
+        }
+        let result = self.playback_worker.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("MPV runtime is unavailable"))
+            .and_then(|worker| {
+                let worker = worker.lock()
+                    .map_err(|_| anyhow::anyhow!("playback worker lock is unavailable"))?;
+                worker.load_file_with_resume(path.clone(), resume_position)?;
+                Ok(())
+            });
+        match result {
+            Ok(()) => {
+                self.persist_playback_progress(true);
+                self.active_media_id = Some(media_id);
+                self.last_progress_save = None;
+                self.playback_status = format!(
+                    "Resuming {}",
+                    path.file_name().and_then(|name| name.to_str()).unwrap_or("media")
+                );
+            }
+            Err(error) => self.playback_status = format!("Could not resume media: {error:#}"),
+        }
+        cx.notify();
+    }
+
     fn persist_playback_progress(&mut self, force: bool) {
         let Some(media_id) = self.active_media_id.as_deref() else {
             return;
@@ -1845,6 +1894,52 @@ impl Render for SenzoApp {
                                     .child("Make SENZO feel right for you. Your preferences stay on this device."),
                             ),
                     )
+                    .when(!self.settings_advanced_open, |panel| {
+                        panel
+                            .child(section(
+                                "Playback",
+                                "SENZO automatically chooses compatible playback settings for your device.",
+                                div().flex().flex_col().gap_2()
+                                    .child(div().text_sm().text_color(rgb(0xD4D4D8)).child("Hardware acceleration · Automatic"))
+                                    .child(div().text_xs().text_color(rgb(0x9299A1)).child("Recommended for smooth playback on most PCs.")),
+                            ))
+                            .child(section(
+                                "Subtitles",
+                                "Make subtitles easier to read. These preferences are saved on this device.",
+                                div().flex().flex_col().gap_2()
+                                    .child(div().text_sm().text_color(rgb(0xD4D4D8)).child(format!("Subtitle size · {}", settings.subtitles.font_size)))
+                                    .child(div().flex().gap_2()
+                                        .child(choice_chip("Smaller", false, |this, cx| {
+                                            let size = this.settings.subtitles.font_size.saturating_sub(2).max(12);
+                                            this.set_subtitle_font_size(size, cx);
+                                        }, cx))
+                                        .child(choice_chip("Larger", false, |this, cx| {
+                                            let size = this.settings.subtitles.font_size.saturating_add(2).min(96);
+                                            this.set_subtitle_font_size(size, cx);
+                                        }, cx))),
+                            ))
+                            .child(section(
+                                "About SENZO",
+                                "A local-first media center. Your settings and watch progress stay on this device.",
+                                div().flex().flex_col().gap_1()
+                                    .child(div().text_sm().text_color(rgb(0xD4D4D8)).child("SENZO · Windows desktop"))
+                                    .child(div().text_xs().text_color(rgb(0x9299A1)).child("Metadata powered by TMDB. Subtitles provided by OpenSubtitles when configured.")),
+                            ))
+                            .child(div().flex().items_center().justify_between().py_2()
+                                .child(div().text_xs().text_color(rgb(0x858C94)).child(self.status.clone()))
+                                .child(dynamic_choice_chip("Advanced settings".into(), true, |this, cx| {
+                                    this.settings_advanced_open = true;
+                                    cx.notify();
+                                }, cx)))
+                    })
+                    .when(self.settings_advanced_open, |panel| {
+                        panel
+                            .child(div().flex().items_center().justify_between().py_2()
+                                .child(div().text_sm().text_color(rgb(0xA1A1AA)).child("Advanced settings · Technical playback and provider controls"))
+                                .child(dynamic_choice_chip("Back to simple settings".into(), false, |this, cx| {
+                                    this.settings_advanced_open = false;
+                                    cx.notify();
+                                }, cx)))
                     .child(section(
                         "Video viewport",
                         "Native Win32 child-window target for MPV video. The surface is created and resized from GPUI layout; actual rendering, alignment, and teardown still need Windows runtime verification.",
@@ -2715,7 +2810,8 @@ impl Render for SenzoApp {
                                     .text_color(rgb(0x65707A))
                                     .child("Restart SENZO to apply engine-level preferences; subtitle appearance changes apply live."),
                             ),
-                    ),
+                    ),                    })
+
             )
             .when(self.active_page != AppPage::Settings, |root| {
                 root.child(render_discovery_page(
@@ -2737,6 +2833,7 @@ impl Render for SenzoApp {
                     self.stream_status.clone(),
                     self.torrent_files.clone(),
                     self.torrent_status.clone(),
+                    self.database.recent_playback_progress(8).unwrap_or_default(),
                     cx,
                 ))
             })
@@ -2789,6 +2886,7 @@ fn render_discovery_page(
     stream_status: String,
     torrent_files: Vec<TorrentVideoFile>,
     torrent_status: String,
+    continue_watching: Vec<PlaybackProgress>,
     cx: &mut Context<SenzoApp>,
 ) -> impl IntoElement {
     let (heading, description) = match page {
@@ -2949,6 +3047,24 @@ fn render_discovery_page(
             cx,
         ));
     }
+
+    let continue_watching_cards = continue_watching.into_iter().map(|progress| {
+        let media_id = progress.media_id.clone();
+        let title = progress.media_id.strip_prefix("local-file:")
+            .and_then(|path| PathBuf::from(path).file_name().and_then(|name| name.to_str()).map(str::to_owned))
+            .unwrap_or_else(|| "Recently watched".into());
+        let progress_label = progress.duration_seconds
+            .filter(|duration| duration.is_finite() && *duration > 0.0)
+            .map(|duration| format!("{:.0}% watched", (progress.position_seconds / duration * 100.0).clamp(0.0, 99.0)))
+            .unwrap_or_else(|| format!("Continue at {}", format_playback_time(Some(progress.position_seconds))));
+        div().w(px(220.)).flex_shrink_0().rounded_lg().bg(rgb(0x171D20))
+            .border_1().border_color(rgb(0x263238)).p_3().flex().flex_col().gap_2()
+            .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
+            .child(div().text_xs().text_color(rgb(0x9299A1)).child(progress_label))
+            .child(dynamic_choice_chip("Continue watching".into(), true, move |this, cx| {
+                this.resume_saved_media(media_id.clone(), cx)
+            }, cx))
+    }).collect::<Vec<_>>();
 
     div()
         .id("discovery-page")
@@ -3166,6 +3282,11 @@ fn render_discovery_page(
                         .child(div().text_sm().text_color(rgb(0xA1A1AA)).child(home_catalog_status.clone())))
             };
             this.child(hero).child(div().text_xs().text_color(rgb(0x858C94)).child(home_catalog_status.clone()))
+                .when(!continue_watching_cards.is_empty(), |panel| {
+                    panel.child(div().flex().flex_col().gap_3()
+                        .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child("Continue watching"))
+                        .child(div().w_full().id("continue-watching-shelf").overflow_x_scroll().flex().gap_3().children(continue_watching_cards)))
+                })
                 .children(["Trending this week", "Popular movies", "Popular TV"].into_iter().filter_map(|shelf_name| {
                     let entries = home_catalogs.iter().filter(|(name, _, _)| name == shelf_name).cloned().collect::<Vec<_>>();
                     if entries.is_empty() { return None; }

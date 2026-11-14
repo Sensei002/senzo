@@ -201,6 +201,29 @@ impl LocalDatabase {
             .optional()?)
     }
 
+    /// Returns recent unfinished items for the Home Continue Watching shelf.
+    pub fn recent_playback_progress(&self, limit: usize) -> Result<Vec<PlaybackProgress>> {
+        let mut statement = self.connection.prepare(
+            "SELECT media_id, position_seconds, duration_seconds, updated_at
+             FROM playback_progress
+             WHERE position_seconds > 5.0
+               AND (duration_seconds IS NULL OR duration_seconds <= 0.0
+                    OR position_seconds < duration_seconds - 30.0)
+             ORDER BY updated_at DESC
+             LIMIT ?1",
+        )?;
+        let rows = statement.query_map([limit.clamp(1, 50) as i64], |row| {
+            Ok(PlaybackProgress {
+                media_id: row.get(0)?,
+                position_seconds: row.get(1)?,
+                duration_seconds: row.get(2)?,
+                updated_at: row.get(3)?,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("failed to read recent playback progress")
+    }
+
     pub fn record_watch_history(
         &self,
         media_id: &str,
@@ -304,6 +327,9 @@ mod tests {
 
         assert_eq!(progress.position_seconds, 123.5);
         assert_eq!(progress.duration_seconds, Some(7200.0));
+        let recent = database.recent_playback_progress(8).expect("read recent progress");
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].media_id, "tmdb:movie:550");
         assert_eq!(
             database
                 .get_setting("metadata.language")
