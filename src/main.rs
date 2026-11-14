@@ -3651,13 +3651,16 @@ fn render_discovery_page(
                         let poster = tmdb_artwork_url(item.poster_path.as_deref(), "w342");
                         div().w(poster_width).flex_shrink_0().rounded_lg().bg(rgb(0x171D20))
                             .border_1().border_color(rgb(0x263238)).overflow_hidden().flex().flex_col().gap_2()
+                            .cursor_pointer().hover(|style| style.border_color(rgb(0x22D3EE)))
                             .child(div().w_full().h(poster_height).bg(rgb(0x20272B)).when_some(poster, |panel, url| {
                                 panel.child(img(url).w_full().h(poster_height).object_fit(ObjectFit::Cover))
                             }))
                             .child(div().px_2().pb_2().flex().flex_col().gap_1()
                                 .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
-                                .child(div().text_xs().text_color(rgb(0x9299A1)).child(format!("{year} · {rating}")))
-                                .child(dynamic_choice_chip("Details".into(), false, move |this, cx| this.select_tmdb_title(selected_kind.clone(), selected.clone(), cx), cx)))
+                                .child(div().text_xs().text_color(rgb(0x9299A1)).child(format!("{year} · {rating}"))))
+                            .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |this, _event, _window, cx| {
+                                this.select_tmdb_title(selected_kind.clone(), selected.clone(), cx);
+                            }))
                     }).collect::<Vec<_>>();
                     Some(div().flex().flex_col().gap_3()
                         .child(div().flex().items_center().justify_between()
@@ -3687,16 +3690,17 @@ fn render_discovery_page(
                             .unwrap_or(" ");
                         Some(div().w(poster_width).flex_shrink_0().rounded_lg().bg(rgb(0x171D20))
                             .border_1().border_color(rgb(0x263238)).overflow_hidden().flex().flex_col().gap_2()
+                            .cursor_pointer().hover(|style| style.border_color(rgb(0x22D3EE)))
                             .child(div().w_full().h(poster_height).bg(rgb(0x20272B))
                                 .when_some(poster, |panel, url| {
                                     panel.child(img(url).w_full().h(poster_height).object_fit(ObjectFit::Cover))
                                 }))
                             .child(div().px_2().pb_2().flex().flex_col().gap_1()
                                 .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
-                                .child(div().text_xs().text_color(rgb(0x9299A1)).child(year.to_owned()))
-                                .child(dynamic_choice_chip("Details".into(), false, move |this, cx| {
-                                    this.select_addon_catalog_meta(selected_addon.clone(), selected.clone(), cx)
-                                }, cx)))
+                                .child(div().text_xs().text_color(rgb(0x9299A1)).child(year.to_owned())))
+                            .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |this, _event, _window, cx| {
+                                this.select_addon_catalog_meta(selected_addon.clone(), selected.clone(), cx);
+                            }))
                         )
                     }).collect::<Vec<_>>();
                     div().flex().flex_col().gap_3()
