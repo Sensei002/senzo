@@ -1971,7 +1971,8 @@ impl Render for SenzoApp {
                             ),
                     ),
             )
-            .child(
+            .when(self.active_page == AppPage::Settings, |root| {
+                root.child(
                 div()
                     .id("settings-content")
                     .flex_1()
@@ -2916,6 +2917,7 @@ impl Render for SenzoApp {
                     )                    })
 
             )
+            })
             .when(self.active_page != AppPage::Settings, |root| {
                 root.child(render_discovery_page(
                     self.active_page,
@@ -2996,8 +2998,8 @@ fn render_discovery_page(
 ) -> impl IntoElement {
     let (heading, description) = match page {
         AppPage::Home => (
-            "Welcome to SENZO",
-            "Your personal space for movies and television",
+            "Discover",
+            "Find your next movie or series",
         ),
         AppPage::Movies => ("Movies", "Explore the movie catalogue"),
         AppPage::TvShows => ("TV Shows", "Explore series, seasons and episodes"),
@@ -3155,6 +3157,7 @@ fn render_discovery_page(
 
     let continue_watching_cards = continue_watching
         .into_iter()
+        .filter(|progress| progress.media_id.starts_with("local-file:"))
         .map(|progress| {
             let media_id = progress.media_id.clone();
             let title = progress
@@ -3377,7 +3380,7 @@ fn render_discovery_page(
                             .text_sm()
                             .text_color(rgb(0x9299A1))
                             .child(if search_query.is_empty() {
-                                "Search movies and TV shows — metadata search connects in the next integration batch".to_string()
+                                "Paste a copied title to search TMDB, or choose a catalogue below.".to_string()
                             } else {
                                 search_query.clone()
                             }),
@@ -3459,7 +3462,9 @@ fn render_discovery_page(
                     Some(div().flex().flex_col().gap_3()
                         .child(div().flex().items_center().justify_between()
                             .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child(shelf_name))
-                            .child(div().text_xs().text_color(rgb(0x67E8F9)).child("VIEW ALL")))
+                            .child(dynamic_choice_chip("View all".into(), false, move |this, cx| {
+                                this.load_tmdb_catalog(if shelf_name == "Popular TV" { "tv" } else { "movie" }, None, cx);
+                            }, cx)))
                         .child(div().w_full().id(shelf_name).overflow_x_scroll().flex().gap_3().children(cards)))
                 }))
                 .children(home_addon_catalogs.iter().map(|(shelf_name, addon, media_type, items)| {
@@ -3667,6 +3672,7 @@ fn render_discovery_page(
                                                 Ok(false) => this.status = "The add-on no longer exists".into(),
                                                 Err(error) => this.status = format!("Could not update add-on: {error:#}"),
                                             }
+                                            this.home_catalog_requested = false;
                                             cx.notify();
                                         },
                                         cx,
@@ -3678,6 +3684,7 @@ fn render_discovery_page(
                                             match this.database.remove_addon(&addon_id) {
                                                 Ok(true) => {
                                                     this.status = "Add-on removed from this device".into();
+                                                    this.home_catalog_requested = false;
                                                     diagnostics::record(diagnostics::Level::Audit, "addons", "user removed an add-on");
                                                 }
                                                 Ok(false) => this.status = "The add-on no longer exists".into(),
@@ -3697,7 +3704,7 @@ fn render_discovery_page(
                     .p_5()
                     .rounded_lg()
                     .bg(rgb(0x151719))
-                    .child(div().text_sm().text_color(rgb(0x9299A1)).child("Enter a title to search the movie and TV catalogues. Live results and keyboard input are part of the upcoming TMDB integration.")),
+                    .child(div().text_sm().text_color(rgb(0x9299A1)).child("Search TMDB using a copied title. Choose Paste movie search or Paste TV search above; matching titles appear here and open their details and available sources.")),
             )
         })
 }
