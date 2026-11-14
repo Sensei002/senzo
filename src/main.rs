@@ -3300,80 +3300,6 @@ fn render_discovery_page(
                     .child(div().flex().flex_wrap().gap_2().children(title_chips))
             },
         )
-        .when(is_details, |panel| {
-            let details = tmdb_details.clone().unwrap_or(Value::Null);
-            let overview = details
-                .get("overview")
-                .and_then(Value::as_str)
-                .unwrap_or("No synopsis available.");
-            let date = details
-                .get("release_date")
-                .or_else(|| details.get("first_air_date"))
-                .and_then(Value::as_str)
-                .unwrap_or("Release date unavailable");
-            let rating = details
-                .get("vote_average")
-                .and_then(Value::as_f64)
-                .map(|value| format!("{value:.1}/10"))
-                .unwrap_or_else(|| "No rating".into());
-            panel
-                .child(
-                    div()
-                        .p_4()
-                        .rounded_lg()
-                        .bg(rgb(0x151719))
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(0x67E8F9))
-                                .child(format!("{date} · {rating}")),
-                        )
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(rgb(0xD4D4D8))
-                                .child(overview.to_owned()),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(0x9299A1))
-                                .child(tmdb_status.clone()),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .child(
-                            div()
-                                .text_base()
-                                .font_weight(gpui::FontWeight::SEMIBOLD)
-                                .child("Available sources"),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(0x9299A1))
-                                .child(stream_status.clone()),
-                        )
-                        .child(div().flex().flex_wrap().gap_2().children(stream_chips))
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(0x9299A1))
-                                .child(torrent_status.clone()),
-                        )
-                        .child(div().flex().flex_wrap().gap_2().children(torrent_file_chips))
-                        .children(source_notes.into_iter().map(|label| {
-                            div().text_xs().text_color(rgb(0xA1A1AA)).child(label)
-                        })),
-                )
-        })
         .when(is_search, |this| {
             this.child(
                 div()
@@ -3481,7 +3407,7 @@ fn render_discovery_page(
                             .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child(shelf_name))
                             .child(dynamic_choice_chip("View all".into(), false, move |this, cx| {
                                 this.load_tmdb_catalog(
-                                    match shelf_name.as_str() {
+                                    match shelf_name {
                                         "Trending this week" => "trending",
                                         "Popular TV" => "tv",
                                         _ => "movie",
