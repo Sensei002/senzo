@@ -143,6 +143,7 @@ impl SenzoApp {
             tmdb_results: Vec::new(),
             tmdb_status: "TMDB discovery is ready".into(),
             home_catalogs: Vec::new(),
+            home_addon_catalogs: Vec::new(),
             home_catalog_status: "Loading recommendations…".into(),
             home_catalog_requested: false,
             tmdb_details: None,
