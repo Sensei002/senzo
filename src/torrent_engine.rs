@@ -54,7 +54,9 @@ impl TorrentRuntime {
     }
 
     fn shutdown(&mut self) {
-        self.runtime.take();
+        if let Some(runtime) = self.runtime.take() {
+            runtime.shutdown_background();
+        }
     }
 }
 
