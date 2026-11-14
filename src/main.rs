@@ -643,13 +643,13 @@ impl SenzoApp {
         let requested_file = stream.file_index.map(|index| index as usize);
         let trackers = stream.sources.clone();
         let previous = self.torrent_session.take();
-        if previous.is_some() {
-            if let Some(worker) = self.playback_worker.as_ref() {
-                if let Ok(worker) = worker.lock() {
-                    let _ = worker.stop();
-                }
+        if let Some(worker) = self.playback_worker.as_ref() {
+            if let Ok(worker) = worker.lock() {
+                let _ = worker.stop();
             }
         }
+        self.active_media_id = None;
+        self.last_progress_save = None;
         self.torrent_files.clear();
         self.torrent_progress = None;
         self.torrent_status = "Resolving torrent metadata and available video files…".into();

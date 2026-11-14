@@ -658,10 +658,7 @@ mod tests {
     #[test]
     fn torrent_media_id_is_stable_per_hash_and_file() {
         let hash = "0123456789abcdef0123456789abcdef01234567";
-        assert_eq!(
-            torrent_media_id(hash, 4),
-            format!("torrent:v1:{hash}:4")
-        );
+        assert_eq!(torrent_media_id(hash, 4), format!("torrent:v1:{hash}:4"));
         assert_ne!(torrent_media_id(hash, 4), torrent_media_id(hash, 5));
     }
 
