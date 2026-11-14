@@ -17,7 +17,9 @@ Status definitions:
 - [x] Add initial local settings, playback progress, watch history, and add-on registry storage.
 - [x] Add initial TMDB movie/TV search and detail client.
 - [x] Add TMDB artwork URL construction.
-- [x] Add Stremio manifest URL normalization/validation and explicit add-on installation service.
+- [x] Add an initial Stremio manifest installation service and local add-on registry.
+- [x] Harden manifest fetching with HTTPS-only URLs, redirect rejection, bounded response size, request timeouts, and local/reserved IP-literal and hostname checks.
+- [ ] Complete DNS-resolution-aware SSRF protection, typed catalog/metadata/stream routing, add-on management UI, and playback handoff.
 - [x] Add database schema versioning and migration tests.
 - [x] Add local rolling diagnostic log service and bounded recent-log export API (Settings/clipboard UI remains pending).
 
@@ -89,6 +91,7 @@ The Settings experience will use progressive disclosure: essential controls firs
 
 ## Phase 5 — Add-ons and streaming sources
 
+- [x] Add bounded, timeout-limited HTTPS manifest fetching with redirects disabled and basic local-destination URL validation.
 - [ ] Build Add-ons UI with manual manifest URL entry.
 - [ ] Add manifest preview/validation and add-on enable/disable/remove/reorder.
 - [ ] Implement Stremio catalog, metadata, stream, and subtitle resource routing.

@@ -1,8 +1,12 @@
+use std::{net::IpAddr, time::Duration};
+
 use anyhow::{Context, Result, bail};
-use reqwest::Client;
+use reqwest::{Client, StatusCode, redirect::Policy};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
+
+const MAX_ADDON_MANIFEST_BYTES: usize = 1024 * 1024;
 
 use crate::storage::{LocalDatabase, StoredAddon};
 
@@ -52,6 +56,9 @@ impl AddonClient {
         Self {
             client: Client::builder()
                 .user_agent(concat!("SENZO/", env!("CARGO_PKG_VERSION")))
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(15))
+                .redirect(Policy::none())
                 .build()
                 .expect("the default HTTP client configuration is valid"),
         }
@@ -65,18 +72,39 @@ impl AddonClient {
         input: &str,
     ) -> Result<StoredAddon> {
         let manifest_url = normalize_manifest_url(input)?;
-        let response = self
+        let mut response = self
             .client
             .get(manifest_url.clone())
             .send()
             .await
-            .context("failed to contact the add-on manifest URL")?
-            .error_for_status()
-            .context("the add-on server returned an unsuccessful status")?;
+            .context("failed to contact the add-on manifest URL")?;
 
-        let manifest_value: Value = response
-            .json()
+        if response.status() != StatusCode::OK {
+            bail!(
+                "the add-on manifest endpoint returned HTTP status {}",
+                response.status()
+            );
+        }
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_ADDON_MANIFEST_BYTES as u64)
+        {
+            bail!("the add-on manifest exceeds the 1 MiB size limit");
+        }
+
+        let mut body = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
             .await
+            .context("failed while reading the add-on manifest response")?
+        {
+            if body.len().saturating_add(chunk.len()) > MAX_ADDON_MANIFEST_BYTES {
+                bail!("the add-on manifest exceeds the 1 MiB size limit");
+            }
+            body.extend_from_slice(&chunk);
+        }
+
+        let manifest_value: Value = serde_json::from_slice(&body)
             .context("the add-on did not return valid manifest JSON")?;
         let manifest: AddonManifest = serde_json::from_value(manifest_value.clone())
             .context("the manifest is missing required Stremio add-on fields")?;
@@ -142,8 +170,26 @@ impl AddonClient {
 
 fn normalize_manifest_url(input: &str) -> Result<Url> {
     let mut url = Url::parse(input.trim()).context("enter a valid add-on URL")?;
-    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
-        bail!("add-on URLs must use HTTP or HTTPS");
+    if url.scheme() != "https" || url.host_str().is_none() {
+        bail!("add-on manifest URLs must use HTTPS");
+    }
+    if !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
+        bail!("add-on manifest URLs cannot contain credentials or fragments");
+    }
+
+    let host = url.host_str().expect("host was validated");
+    let normalized_host = host.trim_end_matches('.').to_ascii_lowercase();
+    if normalized_host == "localhost"
+        || normalized_host.ends_with(".localhost")
+        || normalized_host.ends_with(".local")
+        || normalized_host.ends_with(".internal")
+    {
+        bail!("add-on manifest URLs cannot target local network hostnames");
+    }
+    if let Ok(address) = normalized_host.parse::<IpAddr>()
+        && is_disallowed_ip(address)
+    {
+        bail!("add-on manifest URLs cannot target local or reserved IP addresses");
     }
 
     if !url.path().ends_with("manifest.json") {
@@ -153,6 +199,37 @@ fn normalize_manifest_url(input: &str) -> Result<Url> {
         segments.pop_if_empty().push("manifest.json");
     }
     Ok(url)
+}
+
+fn is_disallowed_ip(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(ip) => {
+            ip.is_private()
+                || ip.is_loopback()
+                || ip.is_link_local()
+                || ip.is_unspecified()
+                || ip.is_multicast()
+                || ip.is_broadcast()
+                || ip.octets()[0] == 0
+        }
+        IpAddr::V6(ip) => {
+            let octets = ip.octets();
+            let unique_local = octets[0] & 0xfe == 0xfc;
+            let link_local = octets[0] == 0xfe && octets[1] & 0xc0 == 0x80;
+            let ipv4_mapped = octets[..10].iter().all(|byte| *byte == 0)
+                && octets[10] == 0xff
+                && octets[11] == 0xff;
+            let mapped_ipv4 = ipv4_mapped.then(|| {
+                std::net::Ipv4Addr::new(octets[12], octets[13], octets[14], octets[15])
+            });
+            ip.is_unspecified()
+                || ip.is_loopback()
+                || ip.is_multicast()
+                || unique_local
+                || link_local
+                || mapped_ipv4.is_some_and(|mapped| is_disallowed_ip(mapped.into()))
+        }
+    }
 }
 
 fn addon_base_url(manifest_url: &str) -> Result<Url> {
@@ -198,8 +275,24 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_http_addon_urls() {
+    fn rejects_non_https_addon_urls() {
+        assert!(normalize_manifest_url("http://example.org/manifest.json").is_err());
         assert!(normalize_manifest_url("file:///tmp/manifest.json").is_err());
+    }
+
+    #[test]
+    fn rejects_credentials_fragments_and_local_destinations() {
+        assert!(normalize_manifest_url("https://user:pass@example.org/manifest.json").is_err());
+        assert!(normalize_manifest_url("https://example.org/manifest.json#fragment").is_err());
+        assert!(normalize_manifest_url("https://localhost/manifest.json").is_err());
+        assert!(normalize_manifest_url("https://127.0.0.1/manifest.json").is_err());
+        assert!(normalize_manifest_url("https://192.168.1.20/manifest.json").is_err());
+        assert!(normalize_manifest_url("https://[::1]/manifest.json").is_err());
+    }
+
+    #[test]
+    fn accepts_public_https_manifest_hosts() {
+        assert!(normalize_manifest_url("https://addons.example.org/manifest.json").is_ok());
     }
 
     #[test]

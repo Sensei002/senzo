@@ -35,7 +35,9 @@ Before production release, the add-on networking layer must:
 
 - Require HTTPS by default; any exception must be explicit and clearly warned.
 - Reject malformed URLs and unsupported schemes.
-- Limit response size, redirects, request duration, and JSON nesting/shape.
+- Limit response size and request duration; redirects are currently disabled for manifest requests.
+- Reject obvious localhost/private/reserved IP literals and local hostname suffixes before manifest requests.
+- Complete DNS-resolution-aware private-address blocking and revalidation against DNS rebinding before production release.
 - Validate manifest identity, resources, supported types, and response schemas.
 - Avoid sending SENZO credentials to add-on servers.
 - Validate returned stream and subtitle URLs before handing them to playback.
