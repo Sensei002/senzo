@@ -432,7 +432,7 @@ mod tests {
         assert_eq!(validate_tmdb_token(" token ").unwrap(), "token");
         assert!(validate_tmdb_token("  ").is_err());
         assert!(validate_tmdb_token(&"x".repeat(MAX_TMDB_TOKEN_BYTES + 1)).is_err());
-        assert!(validate_tmdb_token("token\\nvalue").is_err());
+        assert!(validate_tmdb_token("token\nvalue").is_err());
     }
 
     #[test]
