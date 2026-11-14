@@ -327,7 +327,9 @@ mod tests {
 
         assert_eq!(progress.position_seconds, 123.5);
         assert_eq!(progress.duration_seconds, Some(7200.0));
-        let recent = database.recent_playback_progress(8).expect("read recent progress");
+        let recent = database
+            .recent_playback_progress(8)
+            .expect("read recent progress");
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0].media_id, "tmdb:movie:550");
         assert_eq!(

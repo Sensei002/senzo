@@ -2810,7 +2810,7 @@ impl Render for SenzoApp {
                                     .text_color(rgb(0x65707A))
                                     .child("Restart SENZO to apply engine-level preferences; subtitle appearance changes apply live."),
                             ),
-                    ),                    })
+                    )                    })
 
             )
             .when(self.active_page != AppPage::Settings, |root| {
