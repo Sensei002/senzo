@@ -2997,10 +2997,7 @@ fn render_discovery_page(
     cx: &mut Context<SenzoApp>,
 ) -> impl IntoElement {
     let (heading, description) = match page {
-        AppPage::Home => (
-            "Discover",
-            "Find your next movie or series",
-        ),
+        AppPage::Home => ("Discover", "Find your next movie or series"),
         AppPage::Movies => ("Movies", "Explore the movie catalogue"),
         AppPage::TvShows => ("TV Shows", "Explore series, seasons and episodes"),
         AppPage::Search => ("Search", "Find movies and TV shows in one place"),
