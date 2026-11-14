@@ -189,7 +189,6 @@ fn resume_target(position: f64, duration: f64) -> f64 {
     position.min((duration - 0.5).max(0.0))
 }
 
-
 fn validate_playback_url(input: &str) -> anyhow::Result<String> {
     let url = url::Url::parse(input).context("stream URL is invalid")?;
     if !matches!(url.scheme(), "http" | "https")

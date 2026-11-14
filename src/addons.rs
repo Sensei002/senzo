@@ -88,13 +88,33 @@ impl StremioStream {
             return Ok(None);
         };
         let url = Url::parse(raw_url).context("add-on returned an invalid stream URL")?;
-        if !matches!(url.scheme(), "http" | "https") || url.host().is_none() || !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
-            bail!("add-on stream URLs must be absolute HTTP or HTTPS URLs without credentials or fragments");
+        if !matches!(url.scheme(), "http" | "https")
+            || url.host().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.fragment().is_some()
+        {
+            bail!(
+                "add-on stream URLs must be absolute HTTP or HTTPS URLs without credentials or fragments"
+            );
         }
         match url.host().expect("host was validated") {
-            Host::Domain(host) => { let host = host.trim_end_matches('.').to_ascii_lowercase(); if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local") || host.ends_with(".internal") { bail!("add-on stream URLs cannot target local network hostnames"); } }
-            Host::Ipv4(ip) if is_disallowed_ip(IpAddr::V4(ip)) => bail!("add-on stream URLs cannot target local or reserved IP addresses"),
-            Host::Ipv6(ip) if is_disallowed_ip(IpAddr::V6(ip)) => bail!("add-on stream URLs cannot target local or reserved IP addresses"),
+            Host::Domain(host) => {
+                let host = host.trim_end_matches('.').to_ascii_lowercase();
+                if host == "localhost"
+                    || host.ends_with(".localhost")
+                    || host.ends_with(".local")
+                    || host.ends_with(".internal")
+                {
+                    bail!("add-on stream URLs cannot target local network hostnames");
+                }
+            }
+            Host::Ipv4(ip) if is_disallowed_ip(IpAddr::V4(ip)) => {
+                bail!("add-on stream URLs cannot target local or reserved IP addresses")
+            }
+            Host::Ipv6(ip) if is_disallowed_ip(IpAddr::V6(ip)) => {
+                bail!("add-on stream URLs cannot target local or reserved IP addresses")
+            }
             Host::Ipv4(_) | Host::Ipv6(_) => {}
         }
         Ok(Some(url))
@@ -706,5 +726,4 @@ mod tests {
                 .is_some()
         );
     }
-
 }
