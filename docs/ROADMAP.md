@@ -111,7 +111,7 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [x] Create isolated per-session temporary storage, remove it on normal shutdown, and recover abandoned session directories at next startup.
 - [x] Stop MPV and the torrent engine before deleting session payloads; terminate the session-owned runtime on orderly exit and recover abandoned sessions after crashes.
 - [x] Keep playback progress and watch history in SQLite, separate from temporary torrent data.
-- [x] Surface live downloaded/total/uploaded byte counts and engine state in the UI without blocking playback; provider/engine failures are surfaced. Peer-count detail remains a follow-up because the current engine stats API does not expose a stable peer-count field.
+- [x] Surface live downloaded/total/uploaded byte counts, engine state, and engine errors in the UI without blocking playback; peer-count detail remains a follow-up because the current stats API does not expose a stable peer-count field. Peer-count detail remains a follow-up because the current engine stats API does not expose a stable peer-count field.
 - [ ] Verify Windows runtime packaging, license notices, and end-to-end playback through CI fixtures and manual runtime testing.
 
 ## Phase 7 — Additional sources and presence (Batch 6)

@@ -105,6 +105,7 @@ impl TorrentPlaybackSession {
         options.runtime_worker_threads = Some(2);
 
         let session_runtime = runtime.handle().clone();
+        let listing_magnet_uri = magnet_uri.clone();
         let session_task = session_runtime.spawn(async move {
             let session = Session::new_with_opts(PathBuf::from(&output_folder), options)
                 .await
@@ -117,7 +118,7 @@ impl TorrentPlaybackSession {
             };
             let listing = match api
                 .api_add_torrent(
-                    AddTorrent::from_url(magnet_uri.as_str()),
+                    AddTorrent::from_url(listing_magnet_uri.as_str()),
                     Some(list_options),
                 )
                 .await

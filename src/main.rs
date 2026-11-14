@@ -254,13 +254,17 @@ impl SenzoApp {
                         if progress != app.torrent_progress {
                             app.torrent_progress = progress.clone();
                             if let Some(progress) = progress {
-                                app.torrent_status = format!(
-                                    "{:.1} / {:.1} MiB downloaded · {:.1} MiB uploaded · {}",
-                                    progress.downloaded_bytes as f64 / 1_048_576.0,
-                                    progress.total_bytes as f64 / 1_048_576.0,
-                                    progress.uploaded_bytes as f64 / 1_048_576.0,
-                                    progress.state
-                                );
+                                if let Some(error) = progress.error {
+                                    app.torrent_status = format!("Torrent engine error: {error}");
+                                } else {
+                                    app.torrent_status = format!(
+                                        "{:.1} / {:.1} MiB downloaded · {:.1} MiB uploaded · {}",
+                                        progress.downloaded_bytes as f64 / 1_048_576.0,
+                                        progress.total_bytes as f64 / 1_048_576.0,
+                                        progress.uploaded_bytes as f64 / 1_048_576.0,
+                                        progress.state
+                                    );
+                                }
                             }
                             cx.notify();
                         }
