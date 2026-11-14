@@ -6,8 +6,8 @@ use std::{
 
 use anyhow::Context as _;
 use gpui::{
-    App, ClipboardItem, Context, MouseButton, ObjectFit, QuitMode, Render, Task, Window, WindowOptions, div, img,
-    prelude::*, px, rgb,
+    App, ClipboardItem, Context, MouseButton, ObjectFit, QuitMode, Render, Task, Window,
+    WindowOptions, div, img, prelude::*, px, rgb,
 };
 use serde_json::Value;
 
@@ -3405,7 +3405,9 @@ fn render_discovery_page(
 
 fn tmdb_artwork_url(path: Option<&str>, size: &str) -> Option<String> {
     let path = path?.strip_prefix('/')?;
-    if path.is_empty() || path.split('/').any(|part| part == "." || part == "..") { return None; }
+    if path.is_empty() || path.split('/').any(|part| part == "." || part == "..") {
+        return None;
+    }
     Some(format!("https://image.tmdb.org/t/p/{size}/{path}"))
 }
 
