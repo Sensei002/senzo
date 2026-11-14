@@ -271,7 +271,8 @@ impl TmdbCredentialStore {
     }
 
     pub fn load_access_token() -> Result<Option<String>> {
-        let _guard = TMDB_CREDENTIAL_LOCK.lock()
+        let _guard = TMDB_CREDENTIAL_LOCK
+            .lock()
             .map_err(|_| anyhow::anyhow!("credential store lock is unavailable"))?;
         match Self::entry()?.get_password() {
             Ok(value) => Ok(Some(value)),
