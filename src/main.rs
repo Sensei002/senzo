@@ -643,11 +643,7 @@ impl SenzoApp {
         let requested_file = stream.file_index.map(|index| index as usize);
         let trackers = stream.sources.clone();
         let previous = self.torrent_session.take();
-        if let Some(worker) = self.playback_worker.as_ref() {
-            if let Ok(worker) = worker.lock() {
-                let _ = worker.stop();
-            }
-        }
+        let worker = self.playback_worker.clone();
         self.active_media_id = None;
         self.last_progress_save = None;
         self.torrent_files.clear();
@@ -662,6 +658,16 @@ impl SenzoApp {
                         .build()
                         .context("could not initialize torrent setup runtime")?;
                     runtime.block_on(async move {
+                        if let Some(worker) = worker {
+                            tokio::task::spawn_blocking(move || {
+                                let worker = worker.lock().map_err(|_| {
+                                    anyhow::anyhow!("playback worker lock is unavailable")
+                                })?;
+                                worker.stop_and_wait()
+                            })
+                            .await
+                            .context("MPV stop task failed")??;
+                        }
                         if let Some(previous) = previous {
                             previous
                                 .shutdown()
@@ -703,15 +709,22 @@ impl SenzoApp {
 
     fn start_torrent_file(&mut self, file_index: usize, cx: &mut Context<Self>) {
         self.persist_playback_progress(true);
-        let Some(session) = self.torrent_session.take() else {
+        if self.playback_worker.is_none() {
+            self.start_playback(cx);
+        }
+        let Some(worker) = self.playback_worker.clone() else {
+            self.torrent_status = "MPV is not ready; the torrent session was not started".into();
+            self.stream_status = self.torrent_status.clone();
+            self.stop_torrent_session(cx);
+            cx.notify();
+            return;
+        };
+        let Some(mut session) = self.torrent_session.take() else {
             self.torrent_status = "No inspected torrent session is available".into();
             cx.notify();
             return;
         };
-        if self.playback_worker.is_none() {
-            self.start_playback(cx);
-        }
-        let worker = self.playback_worker.clone();
+        let worker = Some(worker);
         let media_id = session.media_id_for_file(file_index).ok();
         let resume_position = media_id
             .as_deref()
@@ -787,15 +800,30 @@ impl SenzoApp {
         };
         self.torrent_files.clear();
         self.torrent_progress = None;
-        self.torrent_status = "Stopping torrent engine and removing temporary session data…".into();
+        self.torrent_status = "Stopping MPV and torrent engine; removing temporary session data…".into();
+        let worker = self.playback_worker.clone();
         self.torrent_task = Some(cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
+                    let stop_result = if let Some(worker) = worker {
+                        tokio::task::spawn_blocking(move || {
+                            let worker = worker.lock().map_err(|_| {
+                                anyhow::anyhow!("playback worker lock is unavailable")
+                            })?;
+                            worker.stop_and_wait()
+                        })
+                        .await
+                        .context("MPV stop task failed")?
+                    } else {
+                        Ok(())
+                    };
                     let runtime = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
                         .build()
                         .context("could not initialize torrent shutdown runtime")?;
-                    runtime.block_on(session.shutdown())
+                    let shutdown_result = runtime.block_on(session.shutdown());
+                    stop_result?;
+                    shutdown_result
                 })
                 .await;
             let _ = this.update(cx, |app, cx| {
@@ -821,7 +849,6 @@ impl SenzoApp {
             return;
         };
         self.persist_playback_progress(true);
-        self.stop_torrent_session(cx);
         if self.playback_worker.is_none() {
             self.start_playback(cx);
         }
@@ -831,6 +858,9 @@ impl SenzoApp {
             return;
         };
         let url_string = url.to_string();
+        let previous = self.torrent_session.take();
+        self.torrent_files.clear();
+        self.torrent_progress = None;
         self.stream_status = "Validating stream destination and queuing MPV playback…".into();
         self.addon_task = Some(cx.spawn(async move |this, cx| {
             let result = cx
@@ -841,6 +871,21 @@ impl SenzoApp {
                         .build()
                         .context("could not initialize stream validation runtime")?;
                     runtime.block_on(async {
+                        if let Some(previous) = previous {
+                            let worker_for_stop = worker.clone();
+                            tokio::task::spawn_blocking(move || {
+                                let worker = worker_for_stop.lock().map_err(|_| {
+                                    anyhow::anyhow!("playback worker lock is unavailable")
+                                })?;
+                                worker.stop_and_wait()
+                            })
+                            .await
+                            .context("MPV stop task failed")??;
+                            previous
+                                .shutdown()
+                                .await
+                                .context("could not close the previous torrent session")?;
+                        }
                         let parsed = url::Url::parse(&url_string)?;
                         client.validate_direct_stream_url(&parsed).await?;
                         let worker = worker
@@ -2628,8 +2673,9 @@ impl Drop for SenzoApp {
     fn drop(&mut self) {
         self.persist_playback_progress(true);
         if let Some(worker) = self.playback_worker.take() {
-            if let Ok(worker) = worker.lock() {
-                let _ = worker.stop();
+            if let Ok(mut worker) = worker.lock() {
+                let _ = worker.stop_and_wait();
+                worker.shutdown();
             }
         }
         if let Some(session) = self.torrent_session.take() {
@@ -2791,7 +2837,9 @@ fn render_discovery_page(
                 stream_chips.push(dynamic_choice_chip(
                     label,
                     false,
-                    move |this, cx| this.play_addon_stream(selected.clone(), cx),
+                    move |this: &mut SenzoApp, cx: &mut Context<SenzoApp>| {
+                        this.play_addon_stream(selected.clone(), cx)
+                    },
                     cx,
                 ));
             } else if stream.is_torrent() {
@@ -2808,7 +2856,9 @@ fn render_discovery_page(
                 stream_chips.push(dynamic_choice_chip(
                     label,
                     false,
-                    move |this, cx| this.play_addon_stream(selected.clone(), cx),
+                    move |this: &mut SenzoApp, cx: &mut Context<SenzoApp>| {
+                        this.play_addon_stream(selected.clone(), cx)
+                    },
                     cx,
                 ));
             } else if stream.external_url.is_some() {

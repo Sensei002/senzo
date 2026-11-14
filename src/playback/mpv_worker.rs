@@ -154,6 +154,7 @@ enum PlaybackCommand {
     SeekAbsolute(f64),
     SetSpeed(f64),
     Stop,
+    StopAndWait(SyncSender<std::result::Result<(), String>>),
     Shutdown,
 }
 
@@ -376,6 +377,15 @@ impl PlaybackWorker {
                                     ("set_speed", runtime.set_speed(speed), false)
                                 }
                                 PlaybackCommand::Stop => ("stop", runtime.stop(), false),
+                                PlaybackCommand::StopAndWait(acknowledgment) => {
+                                    let result = runtime.stop();
+                                    let acknowledgment_result = result
+                                        .as_ref()
+                                        .map(|_| ())
+                                        .map_err(|error| format!("{error:#}"));
+                                    let _ = acknowledgment.send(acknowledgment_result);
+                                    ("stop", result, false)
+                                }
                                 PlaybackCommand::Shutdown => ("shutdown", Ok(()), true),
                             };
 
@@ -581,6 +591,25 @@ impl PlaybackWorker {
         self.enqueue(PlaybackCommand::Stop)
     }
 
+    /// Stop the active media and wait until MPV has processed the stop command.
+    /// This is required before deleting a file that MPV may still be reading.
+    pub fn stop_and_wait(&self) -> anyhow::Result<()> {
+        let (acknowledgment_tx, acknowledgment_rx) = mpsc::sync_channel(1);
+        self.enqueue(PlaybackCommand::StopAndWait(acknowledgment_tx))?;
+        acknowledgment_rx
+            .recv_timeout(Duration::from_secs(10))
+            .context("timed out waiting for MPV to stop")?
+            .map_err(|message| anyhow!(message))
+    }
+
+    /// Shut down the MPV worker thread and wait for libmpv to be destroyed.
+    pub fn shutdown(&mut self) {
+        let _ = self.commands.send(PlaybackCommand::Shutdown);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+
     /// Read one pending event without waiting for the playback thread.
     pub fn try_event(&self) -> anyhow::Result<Option<PlaybackEvent>> {
         match self.events.try_recv() {
@@ -604,12 +633,7 @@ impl PlaybackWorker {
 
 impl Drop for PlaybackWorker {
     fn drop(&mut self) {
-        // A blocking send is intentional here: it waits for a queue slot while
-        // the worker drains prior commands, then guarantees orderly shutdown.
-        let _ = self.commands.send(PlaybackCommand::Shutdown);
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
+        self.shutdown();
     }
 }
 
