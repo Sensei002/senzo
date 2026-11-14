@@ -282,7 +282,8 @@ impl TmdbCredentialStore {
     }
 
     pub fn clear_access_token() -> Result<()> {
-        let _guard = TMDB_CREDENTIAL_LOCK.lock()
+        let _guard = TMDB_CREDENTIAL_LOCK
+            .lock()
             .map_err(|_| anyhow::anyhow!("credential store lock is unavailable"))?;
         match Self::entry()?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
