@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail};
 use reqwest::{Client, StatusCode, redirect::Policy};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use url::Url;
+use url::{Host, Url};
 
 const MAX_ADDON_MANIFEST_BYTES: usize = 1024 * 1024;
 
@@ -170,26 +170,31 @@ impl AddonClient {
 
 fn normalize_manifest_url(input: &str) -> Result<Url> {
     let mut url = Url::parse(input.trim()).context("enter a valid add-on URL")?;
-    if url.scheme() != "https" || url.host_str().is_none() {
+    if url.scheme() != "https" || url.host().is_none() {
         bail!("add-on manifest URLs must use HTTPS");
     }
     if !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
         bail!("add-on manifest URLs cannot contain credentials or fragments");
     }
 
-    let host = url.host_str().expect("host was validated");
-    let normalized_host = host.trim_end_matches('.').to_ascii_lowercase();
-    if normalized_host == "localhost"
-        || normalized_host.ends_with(".localhost")
-        || normalized_host.ends_with(".local")
-        || normalized_host.ends_with(".internal")
-    {
-        bail!("add-on manifest URLs cannot target local network hostnames");
-    }
-    if let Ok(address) = normalized_host.parse::<IpAddr>()
-        && is_disallowed_ip(address)
-    {
-        bail!("add-on manifest URLs cannot target local or reserved IP addresses");
+    match url.host().expect("host was validated") {
+        Host::Domain(host) => {
+            let normalized_host = host.trim_end_matches('.').to_ascii_lowercase();
+            if normalized_host == "localhost"
+                || normalized_host.ends_with(".localhost")
+                || normalized_host.ends_with(".local")
+                || normalized_host.ends_with(".internal")
+            {
+                bail!("add-on manifest URLs cannot target local network hostnames");
+            }
+        }
+        Host::Ipv4(address) if is_disallowed_ip(IpAddr::V4(address)) => {
+            bail!("add-on manifest URLs cannot target local or reserved IP addresses");
+        }
+        Host::Ipv6(address) if is_disallowed_ip(IpAddr::V6(address)) => {
+            bail!("add-on manifest URLs cannot target local or reserved IP addresses");
+        }
+        Host::Ipv4(_) | Host::Ipv6(_) => {}
     }
 
     if !url.path().ends_with("manifest.json") {
