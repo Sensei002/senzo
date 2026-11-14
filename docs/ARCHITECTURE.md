@@ -62,7 +62,7 @@ Initial compatibility targets the Stremio HTTP add-on protocol:
 - Stream resources.
 - Subtitle resources, where supported.
 
-Catalog, metadata, stream, and subtitle request services are implemented. The native UI can browse declared catalogs, inspect returned title metadata, discover streams for TMDB-selected titles or catalog entries, and hand validated direct HTTP(S) streams to MPV. Torrent info-hash results are classified and displayed but are not transported or played until the separate torrent-engine phase. Fixture tests cover Torrentio-style manifest and stream response shapes. This does not imply support for unrelated local plugin runtimes or every provider-specific extension.
+Catalog, metadata, stream, and subtitle request services are implemented. The native UI can browse declared catalogs, inspect returned title metadata, discover streams for TMDB-selected titles or catalog entries, hand validated direct HTTP(S) streams to MPV, and route selected BitTorrent v1 info-hash results into the torrent transport. Fixture tests cover Torrentio-style manifest and stream response shapes. Fixture tests cover Torrentio-style manifest and stream response shapes. This does not imply support for unrelated local plugin runtimes or every provider-specific extension.
 
 ### Trust and network safety
 
@@ -76,7 +76,7 @@ Manifests and responses are untrusted remote input. Validate URL schemes, respon
 - **Artwork/cache service:** Bounded local image and metadata cache with eviction and failure handling.
 - **Source adapters:** Stremio-compatible add-ons behind a normalized source interface. Future source types should not be coupled to UI code.
 - **Playback:** MPV behind an internal playback interface. The pure configuration adapter translates persisted preferences into MPV options and records capability fallbacks. The dynamic runtime loader owns the libmpv DLL and exposes a narrow command/property API; it does not expose MPV pointers to GPUI. The playback worker creates and owns the runtime on a dedicated thread, accepts commands through a bounded queue, and returns non-blocking command and state events. It polls a compact state snapshot (position, duration, pause, cache-wait, media title, volume, mute, fullscreen, video codec/decoder, active hardware decoder, video output, output dimensions, estimated frame rate, and dropped-frame count) every 500 ms and emits only changes. The GPUI playback panel exposes these live diagnostics so decoder and renderer behavior can be verified on real Windows hardware. Its command boundary covers local-file load, pause/resume, seek, speed, stop, volume, mute, fullscreen, audio-track selection, and subtitle-track selection/disable. The playback snapshot also reads MPV's live `speed` property, and GPUI exposes selectable 0.5×, 0.75×, 1.0×, 1.25×, 1.5×, and 2.0× speed presets. Volume and track IDs are validated before commands enter the queue. The GPUI bridge stores local-file progress in SQLite at a bounded interval, force-flushes the latest known position before stop or media switch, and queues a resume seek after reopening the same canonical file path. MPV calls never run on the UI thread. Audio/subtitle track enumeration is read from MPV's track-list properties and surfaced in GPUI, with selection controls. The GPUI bridge also provides a native video viewport backed by a child Win32 HWND passed to MPV as `wid`; actual rendering and lifecycle behavior still require runtime validation. The player UI includes pointer-driven seek and volume controls. Renderer, hardware-decoder, image-processing, HDR, and buffer preferences are supplied to MPV at session initialization; subtitle typography and timing controls are applied live. Local-file playback position is persisted periodically and restored on reopen. GPUI is connected to the worker for local-file selection and basic transport, seek, mute, fullscreen, and volume-step commands. Hardware decoding, renderer selection, scaling, HDR handling, subtitles/audio selection, buffering, seeking, speed, and fullscreen belong to this layer.
-- **Torrent transport:** Evaluate a Rust torrent engine such as librqbit only if a user-selected source requires it. Validate license, Windows compatibility, buffering, piece prioritization, seek behavior, and platform support before adoption. It is not a bundled source or default torrent catalog.
+- **Torrent transport:** `src/torrent_engine.rs` embeds pinned `librqbit` with upload/seeding disabled, no persistence/fast-resume, and no local service discovery. User-selected Stremio v1 info hashes and optional tracker sources are resolved into video-file metadata; `fileIdx` is honored when present, otherwise the user selects a video file. Only the selected file is added for download. An authenticated tokenized HTTP endpoint binds to `127.0.0.1` on an ephemeral port and supports single byte ranges, suffix ranges, and HEAD requests for MPV. The MPV worker permits this loopback URL only through a separate validator; general provider URLs remain blocked from private/local destinations. Orderly stop cancels the HTTP server, removes the torrent from the engine, cancels the session, drops the session-owned runtime, and deletes the temporary directory. Startup recovery removes abandoned `session-*` directories after crashes. Current support is BitTorrent v1 (40-character hashes); v2-only hashes are not yet supported. Peer discovery, buffering, seek latency, and Windows hardware playback still require runtime validation.
 - **Local persistence:** SQLite stores settings, add-on registry, playback progress, watch history, and future library state. Current Windows database path: `%LOCALAPPDATA%\SENZO\senzo.db`.
 - **Networking:** Tokio, Reqwest, and Serde.
 - **Presence:** Discord Rich Presence through Discord IPC, with privacy settings and explicit playback-state mapping.
@@ -148,7 +148,7 @@ Not yet connected or implemented:
 - Integrating the packaged MPV runtime into the final installer and validating playback on Windows hardware.
 - Runtime GPU/decoder/HDR capability detection.
 - Runtime verification of native MPV video rendering, child-window alignment/lifetime, and GPU/decoder behavior.
-- Torrent transport.
+- BitTorrent v1 torrent transport is implemented; real-world playback and Windows runtime validation remain outstanding.
 - Discord Rich Presence.
 - Windows installers and updater.
 
@@ -160,7 +160,7 @@ Not yet connected or implemented:
 4. Build the user-managed Add-ons UI and source-selection flow.
 5. Implement and test Stremio catalog, metadata, stream, and subtitle routing.
 6. Complete Windows MPV runtime deployment and validate native video rendering, lifecycle, GPU/decoder behavior, and seek-bar interaction.
-7. Evaluate optional torrent transport only after source selection and playback boundaries are established.
+7. Implement the optional torrent transport behind the source-selection and playback boundaries; validate real-world peer discovery, buffering, seek behavior, and orderly shutdown on Windows.
 8. Add Discord Rich Presence and privacy controls.
 9. Add signed Windows Stable/Development update channels and installer packaging.
 

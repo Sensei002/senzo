@@ -589,7 +589,7 @@ impl Drop for PlaybackWorker {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_playback_url;
+    use super::*;
     #[test]
     fn accepts_only_the_authenticated_loopback_stream_shape() {
         assert!(validate_local_stream_url("http://127.0.0.1:3456/token/1/0").is_ok());
@@ -599,6 +599,7 @@ mod tests {
         assert!(validate_local_stream_url("http://192.168.1.2:3456/token/1/0").is_err());
     }
 
+    #[test]
     fn validates_direct_playback_urls() {
         assert!(validate_playback_url("https://cdn.example.org/video.mp4").is_ok());
         assert!(validate_playback_url("file:///C:/video.mp4").is_err());
@@ -607,8 +608,6 @@ mod tests {
         assert!(validate_playback_url("https://user:pass@example.org/video.mp4").is_err());
         assert!(validate_playback_url("https://example.org/video.mp4#fragment").is_err());
     }
-
-    use super::*;
 
     #[test]
     fn invalid_seek_speed_volume_and_track_ids_are_rejected_before_queueing() {

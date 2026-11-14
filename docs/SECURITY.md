@@ -74,10 +74,15 @@ This document is a design and implementation checklist. Many controls above are 
 
 ## Torrent transport and temporary data
 
-- Accept torrent identifiers only from an explicitly selected stream returned by a user-installed add-on. Validate 40-character v1 or 64-character v2 info hashes before constructing a magnet URI.
+- Accept torrent identifiers only from an explicitly selected stream returned by a user-installed add-on. Validate 40-character BitTorrent v1 info hashes before constructing a magnet URI; v2-only hashes are not supported yet.
 - Keep torrent engine state and payloads in a dedicated session directory under `%LOCALAPPDATA%\\SENZO\\torrent-temp`; never reuse metadata, subtitle, or application cache directories.
 - Bind any local streaming HTTP endpoint to loopback only. Do not expose the torrent HTTP API to the LAN.
 - Do not persist torrent session state across application launches. A new playback session must not silently resume downloading or seeding from a prior run.
 - On normal exit, stop MPV, stop and terminate the torrent engine, then remove the session directory. On startup, remove abandoned session directories from prior crashes; do not follow symlinks or delete unrelated directories.
 - Keep playback progress and watch history in SQLite independently of temporary payload files.
 - Never create a permanent-download or background-seeding task as part of playback. Any future permanent download capability must be a separate explicit opt-in feature.
+
+
+## Implemented torrent transport safeguards
+
+The current Windows implementation embeds the pinned librqbit engine with upload/seeding disabled, persistence and fast-resume disabled, and local service discovery disabled. Only user-selected torrent results from explicitly installed add-ons enter the transport. A random token protects the HTTP stream path, which binds to IPv4 loopback on an ephemeral port and supports byte ranges. MPV's general provider URL validation remains strict; a separate narrow validator permits only SENZO's tokenized loopback path. The application owns a dedicated torrent runtime for the life of the playback session, stops MPV before torrent teardown, deletes temporary payloads during orderly shutdown, and recovers abandoned session directories on next launch. Current info-hash support is BitTorrent v1 only. Real-world runtime behavior still requires manual validation.

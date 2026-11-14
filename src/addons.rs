@@ -740,7 +740,8 @@ mod tests {
                     "name": "Torrentio",
                     "title": "1080p · HEVC · 8.2 GB",
                     "infoHash": "0123456789abcdef0123456789abcdef01234567",
-                    "fileIdx": 3
+                    "fileIdx": 3,
+                    "sources": ["tracker:udp://tracker.example:1337/announce"]
                 },
                 {
                     "name": "Direct",
@@ -753,6 +754,10 @@ mod tests {
         assert_eq!(response.streams.len(), 2);
         assert!(response.streams[0].is_torrent());
         assert_eq!(response.streams[0].file_index, Some(3));
+        assert_eq!(
+            response.streams[0].sources,
+            vec!["tracker:udp://tracker.example:1337/announce"]
+        );
         assert_eq!(
             response.streams[1]
                 .direct_url()

@@ -25,7 +25,8 @@ SENZO is an independent project with its own architecture and product decisions.
 - **Later platform:** Linux, after the Windows application is established.
 - **Metadata:** TMDB is the primary metadata provider.
 - **Sources:** Optional, user-installed add-ons using the Stremio HTTP add-on protocol; catalog browsing, metadata lookup, stream discovery, and direct HTTP(S) MPV handoff are now connected.
-- **Torrent transport:** Batch 5 implementation in progress; torrent payloads use dedicated temporary playback sessions, with SQLite progress kept separately.\n- **Playback:** MPV through a dynamically loaded libmpv C API adapter; the Windows runtime is not yet packaged.
+- **Torrent transport:** Batch 5 code now connects user-selected Stremio BitTorrent v1 streams to MPV through a token-protected loopback HTTP Range server. Torrent data is temporary, upload/seeding is disabled, and SQLite progress remains separate. Real-world Windows playback still needs runtime validation.
+- **Playback:** MPV through a dynamically loaded libmpv C API adapter; the Windows runtime is not yet packaged.
 - **Personal data:** Local SQLite database under the SENZO app-data directory.
 - **Accounts:** No SENZO sign-up, login, or cloud account.
 - **Builds and tests:** GitHub Actions; no local build is required for the project's CI workflow.
@@ -55,7 +56,7 @@ SENZO uses a user-managed add-on list. The **Add-ons** screen lets users paste a
 - A user who deliberately chooses to use Torrentio may manually add their own configured manifest URL, just like any other compatible add-on.
 - Only add-ons that the user has installed and enabled should be queried.
 
-Initial compatibility targets the Stremio add-on HTTP protocol. Enabled providers can supply catalog entries and title metadata; movie/episode source discovery isolates provider failures and presents direct HTTP(S), torrent-info-hash, and external-link results. Direct HTTP(S) sources can be handed to MPV after URL and DNS destination validation. Torrent results are identified but not downloaded or played yet; the torrent transport, buffering, temporary-session cleanup, and crash recovery belong to the next implementation phase. Compatibility with every Stremio add-on and provider-specific extension is not guaranteed.
+Initial compatibility targets the Stremio add-on HTTP protocol. Enabled providers can supply catalog entries and title metadata; movie/episode source discovery isolates provider failures and presents direct HTTP(S), torrent-info-hash, and external-link results. Direct HTTP(S) sources can be handed to MPV after URL and DNS destination validation. Torrent v1 results can be inspected, video files selected, and selected files streamed to MPV through a loopback-only byte-range endpoint. Torrent upload/seeding and persistent engine state are disabled; normal shutdown removes temporary payloads and startup recovery removes abandoned sessions. BitTorrent v2-only hashes are not yet supported. Real-world peer availability, buffering, and seek behavior still require runtime validation. Compatibility with every Stremio add-on and provider-specific extension is not guaranteed.
 
 ### Keep personal data on your device
 
@@ -128,7 +129,7 @@ The repository currently contains early service and persistence foundations. It 
 | User-facing add-on manager | Initial installed-provider list and enable/disable/remove controls; URL entry and install confirmation remain in progress |
 | Stremio catalog/meta/stream/subtitle routing | Service layer implemented; browsing and source-selection UI remain in progress |
 | End-user MPV playback | Early integration only: local-file selection and command controls are wired; actual video presentation and packaged runtime remain planned |
-| Torrent transport | Not integrated; evaluate only behind a transport abstraction if needed |
+| Torrent transport | Integrated for BitTorrent v1 info hashes; runtime validation pending |
 | Discord Rich Presence | Planned |
 | Windows installer and updater | Planned |
 

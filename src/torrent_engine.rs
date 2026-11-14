@@ -387,7 +387,7 @@ fn build_magnet_uri(hash: &str, trackers: &[String]) -> Result<String> {
             query.append_pair("tr", parsed.as_str());
         }
     }
-    Ok(magnet.into())
+    Ok(magnet.to_string())
 }
 
 fn normalize_v1_info_hash(input: &str) -> Result<String> {
