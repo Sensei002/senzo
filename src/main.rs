@@ -1278,117 +1278,7 @@ fn section(
                         .font_weight(gpui::FontWeight::SEMIBOLD)
                         .child(title),
                 )
-                .child(div().text_sm().text_color(rgb(0x9299A1)).child(description))
-                .when(
-                    page != AppPage::Addons && page != AppPage::Library && page != AppPage::Details,
-                    |panel| {
-                        panel
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_wrap()
-                                    .gap_2()
-                                    .child(dynamic_choice_chip(
-                                        "Popular movies".into(),
-                                        false,
-                                        |this, cx| this.load_tmdb_catalog("movie", None, cx),
-                                        cx,
-                                    ))
-                                    .child(dynamic_choice_chip(
-                                        "Popular TV".into(),
-                                        false,
-                                        |this, cx| this.load_tmdb_catalog("tv", None, cx),
-                                        cx,
-                                    ))
-                                    .child(dynamic_choice_chip(
-                                        "Paste movie search".into(),
-                                        false,
-                                        |this, cx| this.search_tmdb_from_clipboard("movie", cx),
-                                        cx,
-                                    ))
-                                    .child(dynamic_choice_chip(
-                                        "Paste TV search".into(),
-                                        false,
-                                        |this, cx| this.search_tmdb_from_clipboard("tv", cx),
-                                        cx,
-                                    )),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(rgb(0x9299A1))
-                                    .child(tmdb_status.clone()),
-                            )
-                            .child(div().flex().flex_wrap().gap_2().children(title_chips))
-                    },
-                )
-                .when(is_details, |panel| {
-                    let details = tmdb_details.clone().unwrap_or(Value::Null);
-                    let overview = details
-                        .get("overview")
-                        .and_then(Value::as_str)
-                        .unwrap_or("No synopsis available.");
-                    let date = details
-                        .get("release_date")
-                        .or_else(|| details.get("first_air_date"))
-                        .and_then(Value::as_str)
-                        .unwrap_or("Release date unavailable");
-                    let rating = details
-                        .get("vote_average")
-                        .and_then(Value::as_f64)
-                        .map(|v| format!("{v:.1}/10"))
-                        .unwrap_or_else(|| "No rating".into());
-                    panel
-                        .child(
-                            div()
-                                .p_4()
-                                .rounded_lg()
-                                .bg(rgb(0x151719))
-                                .flex()
-                                .flex_col()
-                                .gap_2()
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(rgb(0x67E8F9))
-                                        .child(format!("{date} · {rating}")),
-                                )
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(rgb(0xD4D4D8))
-                                        .child(overview.to_owned()),
-                                )
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(rgb(0x9299A1))
-                                        .child(tmdb_status.clone()),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap_2()
-                                .child(
-                                    div()
-                                        .text_base()
-                                        .font_weight(gpui::FontWeight::SEMIBOLD)
-                                        .child("Available sources"),
-                                )
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(rgb(0x9299A1))
-                                        .child(stream_status.clone()),
-                                )
-                                .child(div().flex().flex_wrap().gap_2().children(stream_chips))
-                                .children(source_notes.into_iter().map(|label| {
-                                    div().text_xs().text_color(rgb(0xA1A1AA)).child(label)
-                                })),
-                        )
-                }),
+                .child(div().text_sm().text_color(rgb(0x9299A1)).child(description)),
         )
         .child(content)
 }
@@ -2697,6 +2587,116 @@ fn render_discovery_page(
                 )
                 .child(div().text_sm().text_color(rgb(0x9299A1)).child(description)),
         )
+        .when(
+            page != AppPage::Addons && page != AppPage::Library && page != AppPage::Details,
+            |panel| {
+                panel
+                    .child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .gap_2()
+                            .child(dynamic_choice_chip(
+                                "Popular movies".into(),
+                                false,
+                                |this, cx| this.load_tmdb_catalog("movie", None, cx),
+                                cx,
+                            ))
+                            .child(dynamic_choice_chip(
+                                "Popular TV".into(),
+                                false,
+                                |this, cx| this.load_tmdb_catalog("tv", None, cx),
+                                cx,
+                            ))
+                            .child(dynamic_choice_chip(
+                                "Paste movie search".into(),
+                                false,
+                                |this, cx| this.search_tmdb_from_clipboard("movie", cx),
+                                cx,
+                            ))
+                            .child(dynamic_choice_chip(
+                                "Paste TV search".into(),
+                                false,
+                                |this, cx| this.search_tmdb_from_clipboard("tv", cx),
+                                cx,
+                            )),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x9299A1))
+                            .child(tmdb_status.clone()),
+                    )
+                    .child(div().flex().flex_wrap().gap_2().children(title_chips))
+            },
+        )
+        .when(is_details, |panel| {
+            let details = tmdb_details.clone().unwrap_or(Value::Null);
+            let overview = details
+                .get("overview")
+                .and_then(Value::as_str)
+                .unwrap_or("No synopsis available.");
+            let date = details
+                .get("release_date")
+                .or_else(|| details.get("first_air_date"))
+                .and_then(Value::as_str)
+                .unwrap_or("Release date unavailable");
+            let rating = details
+                .get("vote_average")
+                .and_then(Value::as_f64)
+                .map(|value| format!("{value:.1}/10"))
+                .unwrap_or_else(|| "No rating".into());
+            panel
+                .child(
+                    div()
+                        .p_4()
+                        .rounded_lg()
+                        .bg(rgb(0x151719))
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(0x67E8F9))
+                                .child(format!("{date} · {rating}")),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(rgb(0xD4D4D8))
+                                .child(overview.to_owned()),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(0x9299A1))
+                                .child(tmdb_status.clone()),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_base()
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .child("Available sources"),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(0x9299A1))
+                                .child(stream_status.clone()),
+                        )
+                        .child(div().flex().flex_wrap().gap_2().children(stream_chips))
+                        .children(source_notes.into_iter().map(|label| {
+                            div().text_xs().text_color(rgb(0xA1A1AA)).child(label)
+                        })),
+                )
+        })
         .when(is_search, |this| {
             this.child(
                 div()
