@@ -1476,8 +1476,15 @@ impl SenzoApp {
             return;
         }
         self.metadata_language = language.to_owned();
-        if let Err(error) = self.database.set_setting("appearance.metadata_language", language) {
-            diagnostics::record(diagnostics::Level::Warn, "settings", &format!("could not save metadata language: {error:#}"));
+        if let Err(error) = self
+            .database
+            .set_setting("appearance.metadata_language", language)
+        {
+            diagnostics::record(
+                diagnostics::Level::Warn,
+                "settings",
+                &format!("could not save metadata language: {error:#}"),
+            );
             self.status = "Could not save language preference".into();
         } else {
             self.status = "Language preference saved on this device".into();
@@ -1495,7 +1502,11 @@ impl SenzoApp {
         }
         self.poster_size = size.to_owned();
         if let Err(error) = self.database.set_setting("appearance.poster_size", size) {
-            diagnostics::record(diagnostics::Level::Warn, "settings", &format!("could not save poster size: {error:#}"));
+            diagnostics::record(
+                diagnostics::Level::Warn,
+                "settings",
+                &format!("could not save poster size: {error:#}"),
+            );
             self.status = "Could not save appearance preference".into();
         } else {
             self.status = "Appearance preference saved on this device".into();
@@ -3111,7 +3122,11 @@ fn render_discovery_page(
     let is_search = page == AppPage::Search;
     let is_library = page == AppPage::Library;
     let is_home = page == AppPage::Home;
-    let (poster_width, poster_height) = if poster_size == "compact" { (px(140.), px(202.)) } else { (px(164.), poster_height) };
+    let (poster_width, poster_height) = if poster_size == "compact" {
+        (px(140.), px(202.))
+    } else {
+        (px(164.), px(236.))
+    };
     let _content_language = metadata_language;
     let mut title_chips = Vec::new();
     for (media_type, item) in &tmdb_results {
