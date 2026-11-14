@@ -44,6 +44,13 @@ impl AddonManifest {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct AddonManifestPreview {
+    pub manifest_url: String,
+    pub manifest: AddonManifest,
+    pub manifest_json: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct StremioCatalogResponse {
     #[serde(default)]
@@ -148,6 +155,20 @@ impl AddonClient {
         Self
     }
 
+    /// Fetches a manifest for user review without installing or enabling it.
+    pub async fn preview_from_url(&self, input: &str) -> Result<AddonManifestPreview> {
+        let manifest_url = normalize_manifest_url(input)?;
+        let value = request_json(&manifest_url, MAX_ADDON_MANIFEST_BYTES).await?;
+        let manifest: AddonManifest = serde_json::from_value(value.clone())
+            .context("the manifest is missing required Stremio add-on fields")?;
+        validate_manifest(&manifest)?;
+        Ok(AddonManifestPreview {
+            manifest_url: manifest_url.to_string(),
+            manifest,
+            manifest_json: serde_json::to_string(&value)?,
+        })
+    }
+
     /// Fetches and validates a Stremio-compatible manifest, then saves it locally.
     /// SENZO ships with no preinstalled streaming add-ons; users explicitly provide URLs.
     pub async fn install_from_url(
@@ -160,12 +181,7 @@ impl AddonClient {
         let manifest: AddonManifest = serde_json::from_value(value.clone())
             .context("the manifest is missing required Stremio add-on fields")?;
 
-        if manifest.id.trim().is_empty()
-            || manifest.name.trim().is_empty()
-            || manifest.version.trim().is_empty()
-        {
-            bail!("the add-on manifest must include id, name, and version");
-        }
+        validate_manifest(&manifest)?;
 
         let stored = StoredAddon {
             id: manifest.id,
@@ -306,6 +322,22 @@ impl AddonClient {
         let endpoint = resource_endpoint(addon, "subtitles", media_type, media_id, &[])?;
         request_json(&endpoint, MAX_ADDON_RESOURCE_BYTES).await
     }
+}
+
+fn validate_manifest(manifest: &AddonManifest) -> Result<()> {
+    if manifest.id.trim().is_empty()
+        || manifest.name.trim().is_empty()
+        || manifest.version.trim().is_empty()
+    {
+        bail!("the add-on manifest must include id, name, and version");
+    }
+    if manifest.id.len() > 512 || manifest.name.len() > 256 || manifest.version.len() > 64 {
+        bail!("the add-on manifest contains an overlong id, name, or version");
+    }
+    if manifest.resources.is_empty() {
+        bail!("the add-on manifest does not declare any resources");
+    }
+    Ok(())
 }
 
 fn resource_endpoint(

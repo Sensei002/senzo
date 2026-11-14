@@ -11,6 +11,7 @@ use gpui::{
 };
 
 use senzo::{
+    addons::StoredAddon,
     diagnostics,
     metadata::TmdbCredentialStore,
     playback::{
@@ -2006,6 +2007,7 @@ impl Render for SenzoApp {
                     self.active_page,
                     self.selected_title.clone(),
                     self.search_query.clone(),
+                    self.database.installed_addons().unwrap_or_default(),
                     cx,
                 ))
             })
@@ -2016,6 +2018,7 @@ fn render_discovery_page(
     page: AppPage,
     selected_title: Option<String>,
     search_query: String,
+    installed_addons: Vec<StoredAddon>,
     cx: &mut Context<SenzoApp>,
 ) -> impl IntoElement {
     let (heading, description) = match page {
@@ -2258,14 +2261,90 @@ fn render_discovery_page(
         .when(page == AppPage::Addons, |this| {
             this.child(
                 div()
-                    .p_5()
-                    .rounded_lg()
-                    .bg(rgb(0x151719))
                     .flex()
                     .flex_col()
-                    .gap_2()
-                    .child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child("No add-ons installed"))
-                    .child(div().text_sm().text_color(rgb(0x9299A1)).child("SENZO does not bundle streaming providers. Add-on management will be built in its dedicated implementation batch.")),
+                    .gap_4()
+                    .child(
+                        div()
+                            .p_5()
+                            .rounded_lg()
+                            .bg(rgb(0x151719))
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child("User-installed Stremio add-ons"))
+                            .child(div().text_sm().text_color(rgb(0x9299A1)).child("SENZO ships with no streaming providers. Only add-ons you explicitly install appear here. Add-on manifests and streams are untrusted and are validated before use.")),
+                    )
+                    .children(installed_addons.into_iter().map(|addon| {
+                        let addon_id = addon.id.clone();
+                        let toggle_id = addon.id.clone();
+                        let enabled = addon.enabled;
+                        let name = addon.name.clone();
+                        let version = addon.version.clone();
+                        let manifest_url = addon.manifest_url.clone();
+                        div()
+                            .p_5()
+                            .rounded_lg()
+                            .bg(rgb(0x151719))
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .justify_between()
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_col()
+                                            .gap_1()
+                                            .child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child(name))
+                                            .child(div().text_xs().text_color(rgb(0x9299A1)).child(format!("Version {version} · {}", if enabled { "Enabled" } else { "Disabled" }))),
+                                    )
+                                    .child(div().text_xs().text_color(rgb(0x858C94)).child("Stremio add-on")),
+                            )
+                            .child(div().text_xs().text_color(rgb(0x67E8F9)).child(manifest_url))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_wrap()
+                                    .gap_2()
+                                    .child(dynamic_choice_chip(
+                                        if enabled { "Disable".into() } else { "Enable".into() },
+                                        enabled,
+                                        move |this, cx| {
+                                            match this.database.set_addon_enabled(&toggle_id, !enabled) {
+                                                Ok(true) => diagnostics::record(
+                                                    diagnostics::Level::Audit,
+                                                    "addons",
+                                                    if enabled { "user disabled an add-on" } else { "user enabled an add-on" },
+                                                ),
+                                                Ok(false) => this.status = "The add-on no longer exists".into(),
+                                                Err(error) => this.status = format!("Could not update add-on: {error:#}"),
+                                            }
+                                            cx.notify();
+                                        },
+                                        cx,
+                                    ))
+                                    .child(dynamic_choice_chip(
+                                        "Remove".into(),
+                                        false,
+                                        move |this, cx| {
+                                            match this.database.remove_addon(&addon_id) {
+                                                Ok(true) => {
+                                                    this.status = "Add-on removed from this device".into();
+                                                    diagnostics::record(diagnostics::Level::Audit, "addons", "user removed an add-on");
+                                                }
+                                                Ok(false) => this.status = "The add-on no longer exists".into(),
+                                                Err(error) => this.status = format!("Could not remove add-on: {error:#}"),
+                                            }
+                                            cx.notify();
+                                        },
+                                        cx,
+                                    )),
+                            )
+                    })),
             )
         })
         .when(page == AppPage::Search, |this| {

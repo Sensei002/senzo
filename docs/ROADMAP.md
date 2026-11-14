@@ -19,7 +19,7 @@ Status definitions:
 - [x] Add TMDB artwork URL construction.
 - [x] Add an initial Stremio manifest installation service and local add-on registry.
 - [x] Harden manifest fetching with HTTPS-only URLs, redirect rejection, bounded response size, request timeouts, and local/reserved IP-literal and hostname checks.
-- [ ] Complete DNS-resolution-aware SSRF protection, typed catalog/metadata/stream routing, add-on management UI, and playback handoff.
+- [x] Add DNS-resolution-aware SSRF protection, typed catalog/metadata/stream routing, initial add-on management UI, and validated MPV URL handoff.
 - [x] Add database schema versioning and migration tests.
 - [x] Add local rolling diagnostic log service and bounded recent-log export API (Settings/clipboard UI remains pending).
 
@@ -92,12 +92,12 @@ The Settings experience will use progressive disclosure: essential controls firs
 ## Phase 5 — Add-ons and streaming sources
 
 - [x] Add bounded, timeout-limited HTTPS manifest fetching with redirects disabled and basic local-destination URL validation.
-- [ ] Build Add-ons UI with manual manifest URL entry.
-- [ ] Add manifest preview/validation and add-on enable/disable/remove/reorder.
-- [ ] Implement Stremio catalog, metadata, stream, and subtitle resource routing.
-- [ ] Add source capability matching and user-controlled source selection.
-- [ ] Keep all streaming add-ons absent by default; users may add their own configured manifest URLs.
-- [ ] Harden remote manifest fetching, redirects, and stream URL validation.
+- [x] Build an initial native Add-ons management screen listing locally installed providers with enable/disable/remove controls.
+- [x] Add a UI-independent manifest preview and validation API; user-facing manifest URL entry and confirmation flow remain in progress.
+- [x] Implement Stremio catalog, metadata, stream, and subtitle resource request services.
+- [x] Add stream result classification for direct HTTP(S), torrent info-hash, and external-link entries; actual torrent transport is Batch 5.
+- [x] Keep all streaming add-ons absent by default; users must explicitly install their own manifest URLs.
+- [x] Harden remote manifest fetching, DNS pinning, redirects, response limits, and direct stream URL validation.
 
 ## Phase 6 — Additional sources and presence
 
