@@ -161,7 +161,11 @@ impl OpenSubtitlesClient {
         let environment_key = std::env::var("SENZO_OPENSUBTITLES_API_KEY")
             .ok()
             .filter(|value| !value.trim().is_empty())
-            .or_else(|| std::env::var("OPENSUBTITLES_API_KEY").ok().filter(|value| !value.trim().is_empty()));
+            .or_else(|| {
+                std::env::var("OPENSUBTITLES_API_KEY")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty())
+            });
         let key = build_key
             .or(environment_key)
             .or(crate::subtitles::credentials::OpenSubtitlesCredentialStore::load_api_key()?)

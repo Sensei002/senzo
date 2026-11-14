@@ -74,7 +74,9 @@ impl TmdbClient {
         let token = build_token
             .or(environment_token)
             .or(TmdbCredentialStore::load_access_token()?)
-            .ok_or_else(|| anyhow::anyhow!("TMDB metadata service is not configured in this build"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("TMDB metadata service is not configured in this build")
+            })?;
         Self::new(token, language)
     }
 

@@ -30,7 +30,11 @@ impl TmdbArtworkHttpClient {
 }
 
 impl HttpClient for TmdbArtworkHttpClient {
-    fn get(&self, url: &str, _follow_redirects: bool) -> BoxFuture<'static, anyhow::Result<HttpResponse>> {
+    fn get(
+        &self,
+        url: &str,
+        _follow_redirects: bool,
+    ) -> BoxFuture<'static, anyhow::Result<HttpResponse>> {
         let client = self.client.clone();
         let url = match validate_artwork_url(url) {
             Ok(url) => url,
@@ -38,17 +42,30 @@ impl HttpClient for TmdbArtworkHttpClient {
         };
 
         Box::pin(async move {
-            let response = client.get(url).send().await.context("TMDB artwork request failed")?;
+            let response = client
+                .get(url)
+                .send()
+                .await
+                .context("TMDB artwork request failed")?;
             let status = StatusCode::from_u16(response.status().as_u16())
                 .context("TMDB artwork returned an invalid HTTP status")?;
-            if response.content_length().is_some_and(|length| length > MAX_ARTWORK_BYTES as u64) {
+            if response
+                .content_length()
+                .is_some_and(|length| length > MAX_ARTWORK_BYTES as u64)
+            {
                 bail!("TMDB artwork exceeds the 8 MiB safety limit");
             }
-            let body = response.bytes().await.context("could not read TMDB artwork")?;
+            let body = response
+                .bytes()
+                .await
+                .context("could not read TMDB artwork")?;
             if body.len() > MAX_ARTWORK_BYTES {
                 bail!("TMDB artwork exceeds the 8 MiB safety limit");
             }
-            Ok(HttpResponse { status, body: body.to_vec() })
+            Ok(HttpResponse {
+                status,
+                body: body.to_vec(),
+            })
         })
     }
 }
