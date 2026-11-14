@@ -3191,7 +3191,7 @@ fn render_discovery_page(
                         .child(div().flex().items_center().justify_between()
                             .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child(shelf_name))
                             .child(div().text_xs().text_color(rgb(0x67E8F9)).child("VIEW ALL")))
-                        .child(div().w_full().overflow_x_scroll().flex().gap_3().children(cards)))
+                        .child(div().w_full().id(shelf_name).overflow_x_scroll().flex().gap_3().children(cards)))
                 }))
         })
         .when(is_details, |this| {
