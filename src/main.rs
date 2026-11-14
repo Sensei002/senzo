@@ -3376,7 +3376,7 @@ fn main() {
     match TorrentSessionDirectory::recover_default_root() {
         Ok(removed) if removed > 0 => {
             eprintln!("SENZO recovered {removed} abandoned torrent session(s)")
-        },
+        }
         Ok(_) => {}
         Err(error) => eprintln!("SENZO torrent recovery warning: {error:#}"),
     }

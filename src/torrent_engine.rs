@@ -241,7 +241,9 @@ impl TorrentPlaybackSession {
             drop(session);
         }
         self.api.take();
-        self.runtime.take();
+        if let Some(runtime) = self.runtime.take() {
+            runtime.shutdown_background();
+        }
         if let Some(temp) = self.temp.take() {
             if let Err(error) = temp.close() {
                 cleanup_errors.push(format!("temporary session cleanup failed: {error:#}"));
@@ -267,6 +269,9 @@ impl Drop for TorrentPlaybackSession {
         // for startup recovery rather than deleting files while engine tasks may exit.
         self.api.take();
         self.stream_task.take();
+        if let Some(runtime) = self.runtime.take() {
+            runtime.shutdown_background();
+        }
         if let Some(temp) = self.temp.take() {
             temp.preserve_for_recovery();
         }

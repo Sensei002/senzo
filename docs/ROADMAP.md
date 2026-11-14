@@ -104,14 +104,14 @@ The Settings experience will use progressive disclosure: essential controls firs
 
 ## Phase 6 — Torrent playback transport (Batch 5)
 
-- [ ] Add a pinned, license-reviewed torrent engine behind a SENZO-owned transport boundary.
-- [ ] Accept only validated info-hash/magnet data from user-installed Stremio add-ons; never bundle or enable a streaming add-on by default.
-- [ ] Enumerate torrent files and let the user select a video file before downloading it.
-- [ ] Stream selected content to MPV over a loopback-only HTTP endpoint with range/seek support and piece prioritization.
+- [x] Add a pinned, license-reviewed librqbit engine behind a SENZO-owned transport boundary (Apache-2.0 dependency; upload support compiled out).
+- [x] Accept validated BitTorrent v1 info hashes and optional tracker sources from user-installed Stremio add-ons; never bundle or enable a streaming add-on by default.
+- [x] Enumerate torrent files, honor Stremio `fileIdx`, and let the user select a video file when no valid file index is supplied.
+- [x] Stream the selected file to MPV over an authenticated loopback-only HTTP endpoint with HTTP Range/seek support; rqbit's file stream provides on-demand piece scheduling.
 - [x] Create isolated per-session temporary storage, remove it on normal shutdown, and recover abandoned session directories at next startup.
-- [ ] Stop MPV and the torrent engine before deleting session payloads; ensure the engine process is terminated on app exit/crash.
-- [ ] Keep playback progress and watch history in SQLite, separate from temporary torrent data.
-- [ ] Surface download/buffer progress, peer/connection status, and provider/engine failures without blocking the UI.
+- [x] Stop MPV and the torrent engine before deleting session payloads; terminate the session-owned runtime on orderly exit and recover abandoned sessions after crashes.
+- [x] Keep playback progress and watch history in SQLite, separate from temporary torrent data.
+- [ ] Surface live download/buffer progress and peer/connection status without blocking the UI; provider/engine failures are surfaced.
 - [ ] Verify Windows runtime packaging, license notices, and end-to-end playback through CI fixtures and manual runtime testing.
 
 ## Phase 7 — Additional sources and presence (Batch 6)
