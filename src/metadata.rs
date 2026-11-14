@@ -2,9 +2,16 @@ use anyhow::{Context, Result, bail};
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::Value;
+use std::sync::Mutex;
+use keyring::Entry;
+use zeroize::Zeroize;
 
 const TMDB_API_BASE: &str = "https://api.themoviedb.org/3";
 const TMDB_IMAGE_BASE: &str = "https://image.tmdb.org/t/p";
+const TMDB_CREDENTIAL_SERVICE: &str = "SENZO";
+const TMDB_CREDENTIAL_ACCOUNT: &str = "themoviedb.org/read-access-token";
+const MAX_TMDB_TOKEN_BYTES: usize = 8192;
+static TMDB_CREDENTIAL_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TmdbSearchPage {
@@ -52,6 +59,31 @@ pub struct TmdbClient {
 }
 
 impl TmdbClient {
+    /// Loads the user-configured TMDB Read Access Token from Windows Credential Manager.
+    pub fn from_credential_store(language: impl Into<String>) -> Result<Self> {
+        let token = TmdbCredentialStore::load_access_token()?
+            .ok_or_else(|| anyhow::anyhow!("TMDB Read Access Token is not configured"))?;
+        Self::new(token, language)
+    }
+
+    /// Fetches the currently popular movie catalogue page.
+    pub async fn popular_movies(&self, page: u32) -> Result<TmdbSearchPage> {
+        self.popular("movie", page).await
+    }
+
+    /// Fetches the currently popular television catalogue page.
+    pub async fn popular_tv(&self, page: u32) -> Result<TmdbSearchPage> {
+        self.popular("tv", page).await
+    }
+
+    async fn popular(&self, kind: &str, page: u32) -> Result<TmdbSearchPage> {
+        let url = format!("{TMDB_API_BASE}/{kind}/popular");
+        self.client.get(url).bearer_auth(&self.access_token)
+            .query(&[("language", self.language.as_str()), ("page", &page.max(1).to_string())])
+            .send().await.context("TMDB catalogue request failed")?
+            .error_for_status().context("TMDB rejected the catalogue request")?
+            .json::<TmdbSearchPage>().await.context("TMDB returned an invalid catalogue response")
+    }
     /// Creates a TMDB client using a TMDB API Read Access Token.
     /// The token is never included in errors or application logs.
     pub fn new(access_token: impl Into<String>, language: impl Into<String>) -> Result<Self> {
@@ -208,6 +240,92 @@ impl TmdbClient {
     }
 }
 
+
+/// Secure storage for the TMDB application Read Access Token.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TmdbCredentialStore;
+
+impl TmdbCredentialStore {
+    fn entry() -> Result<Entry> {
+        Entry::new(TMDB_CREDENTIAL_SERVICE, TMDB_CREDENTIAL_ACCOUNT)
+            .context("could not access the TMDB credential entry")
+    }
+
+    pub fn save_access_token(token: &str) -> Result<()> {
+        let token = validate_tmdb_token(token)?;
+        let _guard = TMDB_CREDENTIAL_LOCK.lock()
+            .map_err(|_| anyhow::anyhow!("credential store lock is unavailable"))?;
+        Self::entry()?.set_password(token)
+            .context("could not save the TMDB token to Windows Credential Manager")
+    }
+
+    pub fn load_access_token() -> Result<Option<String>> {
+        let _guard = TMDB_CREDENTIAL_LOCK.lock()
+            .map_err(|_| anyhow::anyhow!("credential store lock is unavailable"))?;
+        match Self::entry()?.get_password() {
+            Ok(value) => Ok(Some(value)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(error) => Err(error).context("could not read Windows Credential Manager"),
+        }
+    }
+
+    pub fn clear_access_token() -> Result<()> {
+        let _guard = TMDB_CREDENTIAL_LOCK.lock()
+            .map_err(|_| anyhow::anyhow!("credential store lock is unavailable"))?;
+        match Self::entry()?.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(error) => Err(error).context("could not remove the TMDB token from Windows Credential Manager"),
+        }
+    }
+
+    pub fn has_access_token() -> Result<bool> {
+        Ok(Self::load_access_token()?.is_some())
+    }
+
+    /// Uses the native masked Windows credential prompt; the prompt itself never persists secrets.
+    pub fn prompt_and_save_access_token() -> Result<bool> {
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::Security::Credentials::{
+                CREDUI_FLAGS_ALWAYS_SHOW_UI, CREDUI_FLAGS_DO_NOT_PERSIST,
+                CREDUI_FLAGS_GENERIC_CREDENTIALS, CREDUI_FLAGS_PASSWORD_ONLY_OK,
+                CredUIPromptForCredentialsW,
+            };
+            let target: Vec<u16> = "TMDB Read Access Token - SENZO".encode_utf16()
+                .chain(std::iter::once(0)).collect();
+            let mut username = [0u16; 1];
+            let mut password = vec![0u16; MAX_TMDB_TOKEN_BYTES + 1];
+            let flags = CREDUI_FLAGS_ALWAYS_SHOW_UI | CREDUI_FLAGS_DO_NOT_PERSIST
+                | CREDUI_FLAGS_GENERIC_CREDENTIALS | CREDUI_FLAGS_PASSWORD_ONLY_OK;
+            let result = unsafe {
+                CredUIPromptForCredentialsW(std::ptr::null(), target.as_ptr(), std::ptr::null(),
+                    0, username.as_mut_ptr(), username.len() as u32, password.as_mut_ptr(),
+                    password.len() as u32, std::ptr::null_mut(), flags)
+            };
+            if result == 1223 { password.zeroize(); return Ok(false); }
+            if result != 0 { password.zeroize(); bail!("Windows secure credential prompt failed (error {result})"); }
+            let length = password.iter().position(|unit| *unit == 0).unwrap_or(password.len());
+            let decoded = String::from_utf16(&password[..length]);
+            password.zeroize();
+            let mut token = decoded.context("the entered TMDB token contains invalid text")?;
+            let saved = Self::save_access_token(&token);
+            token.zeroize();
+            saved?;
+            Ok(true)
+        }
+        #[cfg(not(windows))]
+        { bail!("secure TMDB token entry is currently supported on Windows only") }
+    }
+}
+
+fn validate_tmdb_token(value: &str) -> Result<&str> {
+    let value = value.trim();
+    if value.is_empty() { bail!("TMDB Read Access Token cannot be empty"); }
+    if value.len() > MAX_TMDB_TOKEN_BYTES { bail!("TMDB Read Access Token exceeds the supported length"); }
+    if value.chars().any(char::is_control) { bail!("TMDB Read Access Token contains unsupported control characters"); }
+    Ok(value)
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct TmdbSeason {
     pub id: u64,
@@ -264,6 +382,14 @@ impl ImageSize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tmdb_token_validation_rejects_empty_oversized_and_control_input() {
+        assert_eq!(validate_tmdb_token(" token ").unwrap(), "token");
+        assert!(validate_tmdb_token("  ").is_err());
+        assert!(validate_tmdb_token(&"x".repeat(MAX_TMDB_TOKEN_BYTES + 1)).is_err());
+        assert!(validate_tmdb_token("token\\nvalue").is_err());
+    }
 
     #[test]
     fn deserializes_tv_season_and_external_ids() {

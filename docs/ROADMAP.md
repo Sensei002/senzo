@@ -35,7 +35,7 @@ The Settings experience will use progressive disclosure: essential controls firs
 
 ## Phase 4 — Metadata, discovery, and local library
 
-- [ ] Configure TMDB credentials for official builds without exposing secrets in source control or logs.
+- [x] Add masked Windows Credential Manager storage and Settings controls for the TMDB Read Access Token; secrets are excluded from SQLite and logs. Official-build credential injection remains a distribution task.
 - [ ] Connect TMDB search and detail services to GPUI screens.
 - [x] Add TMDB TV season/episode detail endpoints and typed response models (UI browsing remains pending).
 - [x] Add TMDB movie/TV external-ID lookup models and endpoints (source-provider integration remains pending).

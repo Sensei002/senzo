@@ -22,6 +22,7 @@ use senzo::{
         ScalingAlgorithm,
     },
     storage::LocalDatabase,
+    metadata::TmdbCredentialStore,
     subtitles::{
         OpenSubtitlesClient, OpenSubtitlesCredentialStore, OpenSubtitlesResult, SubtitleSearch,
     },
@@ -56,6 +57,7 @@ struct SenzoApp {
     online_subtitle_results: Vec<OpenSubtitlesResult>,
     subtitle_provider_status: String,
     subtitle_credentials_status: String,
+    tmdb_credentials_status: String,
     subtitle_task: Option<Task<()>>,
     native_parent_hwnd: Option<usize>,
     native_viewport_bounds: Arc<Mutex<Option<SurfaceBounds>>>,
@@ -98,6 +100,11 @@ impl SenzoApp {
                 Ok(true) => "API key saved in Windows Credential Manager".into(),
                 Ok(false) => "No API key saved in Windows Credential Manager".into(),
                 Err(_) => "Could not inspect Windows Credential Manager".into(),
+            },
+            tmdb_credentials_status: match TmdbCredentialStore::has_access_token() {
+                Ok(true) => "TMDB Read Access Token saved in Windows Credential Manager".into(),
+                Ok(false) => "TMDB is not configured; add a Read Access Token to enable discovery".into(),
+                Err(_) => "Could not inspect Windows Credential Manager for TMDB credentials".into(),
             },
             subtitle_task: None,
             native_parent_hwnd,
@@ -389,6 +396,35 @@ impl SenzoApp {
                     "subtitles",
                     "OpenSubtitles API key removal failed",
                 );
+            }
+        }
+        cx.notify();
+    }
+
+    fn configure_tmdb_key(&mut self, cx: &mut Context<Self>) {
+        match TmdbCredentialStore::prompt_and_save_access_token() {
+            Ok(true) => {
+                self.tmdb_credentials_status = "TMDB Read Access Token saved in Windows Credential Manager".into();
+                diagnostics::record(diagnostics::Level::Audit, "metadata", "TMDB Read Access Token configured securely");
+            }
+            Ok(false) => self.tmdb_credentials_status = "TMDB token setup cancelled; no changes made".into(),
+            Err(error) => {
+                self.tmdb_credentials_status = format!("Could not save TMDB token: {error:#}");
+                diagnostics::record(diagnostics::Level::Warn, "metadata", "TMDB token configuration failed");
+            }
+        }
+        cx.notify();
+    }
+
+    fn clear_tmdb_key(&mut self, cx: &mut Context<Self>) {
+        match TmdbCredentialStore::clear_access_token() {
+            Ok(()) => {
+                self.tmdb_credentials_status = "TMDB token removed from Windows Credential Manager".into();
+                diagnostics::record(diagnostics::Level::Audit, "metadata", "TMDB token removed from secure storage");
+            }
+            Err(error) => {
+                self.tmdb_credentials_status = format!("Could not remove TMDB token: {error:#}");
+                diagnostics::record(diagnostics::Level::Warn, "metadata", "TMDB token removal failed");
             }
         }
         cx.notify();
@@ -1743,6 +1779,18 @@ impl Render for SenzoApp {
                                 |this, _cx| this.settings.interpolation = !this.settings.interpolation,
                                 cx,
                             )),
+                    ))
+                    .child(section(
+                        "TMDB metadata",
+                        "Configure the official TMDB Read Access Token. SENZO stores it only in Windows Credential Manager; it is never written to settings, SQLite, or logs.",
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .child(div().text_sm().text_color(rgb(0xB7BEC6)).child(self.tmdb_credentials_status.clone()))
+                            .child(div().flex().flex_wrap().gap_2()
+                                .child(choice_chip("Set / replace TMDB token", false, |this, cx| this.configure_tmdb_key(cx), cx))
+                                .child(choice_chip("Remove TMDB token", false, |this, cx| this.clear_tmdb_key(cx), cx))),
                     ))
                     .child(section(
                         "OpenSubtitles",
