@@ -779,6 +779,7 @@ impl SenzoApp {
                                 app.torrent_status =
                                     format!("Could not hand torrent stream to MPV: {error:#}");
                                 app.stream_status = app.torrent_status.clone();
+                                app.stop_torrent_session(cx);
                             }
                         }
                     }
@@ -800,7 +801,8 @@ impl SenzoApp {
         };
         self.torrent_files.clear();
         self.torrent_progress = None;
-        self.torrent_status = "Stopping MPV and torrent engine; removing temporary session data…".into();
+        self.torrent_status =
+            "Stopping MPV and torrent engine; removing temporary session data…".into();
         let worker = self.playback_worker.clone();
         self.torrent_task = Some(cx.spawn(async move |this, cx| {
             let result = cx
@@ -821,9 +823,8 @@ impl SenzoApp {
                         .enable_all()
                         .build()
                         .context("could not initialize torrent shutdown runtime")?;
-                    let shutdown_result = runtime.block_on(session.shutdown());
                     stop_result?;
-                    shutdown_result
+                    runtime.block_on(session.shutdown())
                 })
                 .await;
             let _ = this.update(cx, |app, cx| {
@@ -2673,10 +2674,11 @@ impl Drop for SenzoApp {
     fn drop(&mut self) {
         self.persist_playback_progress(true);
         if let Some(worker) = self.playback_worker.take() {
-            if let Ok(mut worker) = worker.lock() {
-                let _ = worker.stop_and_wait();
-                worker.shutdown();
-            }
+            let mut worker = worker
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let _ = worker.stop_and_wait();
+            worker.shutdown();
         }
         if let Some(session) = self.torrent_session.take() {
             let _ = std::thread::spawn(move || {
