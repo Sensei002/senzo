@@ -64,7 +64,10 @@ impl TorrentSessionDirectory {
                 }
                 Err(error) => {
                     return Err(error).with_context(|| {
-                        format!("failed to remove abandoned torrent session {}", entry.path().display())
+                        format!(
+                            "failed to remove abandoned torrent session {}",
+                            entry.path().display()
+                        )
                     });
                 }
             }
@@ -88,7 +91,12 @@ impl TorrentSessionDirectory {
                 std::process::id()
             ));
             match fs::create_dir(&path) {
-                Ok(()) => return Ok(Self { root, path: Some(path) }),
+                Ok(()) => {
+                    return Ok(Self {
+                        root,
+                        path: Some(path),
+                    });
+                }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(error) => {
                     return Err(error).with_context(|| {
@@ -106,7 +114,9 @@ impl TorrentSessionDirectory {
     }
 
     pub fn path(&self) -> &Path {
-        self.path.as_deref().expect("session path is present until close")
+        self.path
+            .as_deref()
+            .expect("session path is present until close")
     }
 
     pub fn root(&self) -> &Path {
@@ -133,9 +143,7 @@ impl TorrentSessionDirectory {
             }
             Err(error) => {
                 self.path = Some(path.clone());
-                Err(error).with_context(|| {
-                    format!("failed to remove torrent session {}", path.display())
-                })
+                Err(error).with_context(|| format!("failed to remove torrent session {}", path.display()))
             }
         }
     }
