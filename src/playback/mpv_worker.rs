@@ -139,6 +139,7 @@ fn read_tracks(runtime: &MpvRuntime) -> Vec<PlaybackTrack> {
 /// Commands accepted by the playback worker.
 enum PlaybackCommand {
     LoadFile(PathBuf, Option<f64>),
+    LoadUrl(String),
     SetPaused(bool),
     SetVolume(f64),
     SetMuted(bool),
@@ -188,6 +189,21 @@ fn resume_target(position: f64, duration: f64) -> f64 {
     position.min((duration - 0.5).max(0.0))
 }
 
+
+fn validate_playback_url(input: &str) -> anyhow::Result<String> {
+    let url = url::Url::parse(input).context("stream URL is invalid")?;
+    if !matches!(url.scheme(), "http" | "https") || url.host().is_none() || !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
+        bail!("playback URLs must be absolute HTTP(S) URLs without credentials or fragments");
+    }
+    match url.host().expect("host was validated") {
+        url::Host::Domain(host) => { let host = host.trim_end_matches('.').to_ascii_lowercase(); if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local") || host.ends_with(".internal") { bail!("playback URLs cannot target local network hostnames"); } }
+        url::Host::Ipv4(ip) if ip.is_private() || ip.is_loopback() || ip.is_link_local() || ip.is_unspecified() || ip.is_multicast() || ip.is_broadcast() => bail!("playback URLs cannot target local or reserved IP addresses"),
+        url::Host::Ipv6(ip) if (ip.segments()[0] & 0xe000) != 0x2000 || ip.is_loopback() || ip.is_unspecified() || ip.is_multicast() || (ip.segments()[0] & 0xfe00) == 0xfc00 || (ip.segments()[0] & 0xffc0) == 0xfe80 => bail!("playback URLs cannot target local or reserved IP addresses"),
+        url::Host::Ipv4(_) | url::Host::Ipv6(_) => {}
+    }
+    Ok(url.to_string())
+}
+
 /// Handle for a single MPV instance running on its own thread.
 ///
 /// The command queue is bounded so a stalled player cannot accumulate an
@@ -228,6 +244,7 @@ impl PlaybackWorker {
                     match command_rx.recv_timeout(STATE_POLL_INTERVAL) {
                         Ok(command) => {
                             let (operation, result, shutdown) = match command {
+                                PlaybackCommand::LoadUrl(url) => { pending_resume = None; ("load_url", runtime.load_url(&url), false) }
                                 PlaybackCommand::LoadFile(path, resume_position) => {
                                     let expected_path = path.to_string_lossy().into_owned();
                                     pending_resume = None;
@@ -378,6 +395,9 @@ impl PlaybackWorker {
         self.enqueue(PlaybackCommand::LoadFile(path.into(), resume_position))
     }
 
+    /// Queue a validated HTTP(S) stream URL for MPV playback.
+    pub fn load_url(&self, input: &str) -> anyhow::Result<()> { let url = validate_playback_url(input)?; self.enqueue(PlaybackCommand::LoadUrl(url)) }
+
     /// Queue a pause or resume transition.
     pub fn set_paused(&self, paused: bool) -> anyhow::Result<()> {
         self.enqueue(PlaybackCommand::SetPaused(paused))
@@ -506,6 +526,17 @@ impl Drop for PlaybackWorker {
 
 #[cfg(test)]
 mod tests {
+    use super::validate_playback_url;
+    #[test]
+    fn validates_direct_playback_urls() {
+        assert!(validate_playback_url("https://cdn.example.org/video.mp4").is_ok());
+        assert!(validate_playback_url("file:///C:/video.mp4").is_err());
+        assert!(validate_playback_url("http://127.0.0.1/video.mp4").is_err());
+        assert!(validate_playback_url("http://localhost/video.mp4").is_err());
+        assert!(validate_playback_url("https://user:pass@example.org/video.mp4").is_err());
+        assert!(validate_playback_url("https://example.org/video.mp4#fragment").is_err());
+    }
+
     use super::*;
 
     #[test]

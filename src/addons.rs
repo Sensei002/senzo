@@ -88,12 +88,14 @@ impl StremioStream {
             return Ok(None);
         };
         let url = Url::parse(raw_url).context("add-on returned an invalid stream URL")?;
-        if !matches!(url.scheme(), "http" | "https")
-            || url.host().is_none()
-            || !url.username().is_empty()
-            || url.password().is_some()
-        {
-            bail!("add-on stream URLs must be absolute HTTP or HTTPS URLs without credentials");
+        if !matches!(url.scheme(), "http" | "https") || url.host().is_none() || !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
+            bail!("add-on stream URLs must be absolute HTTP or HTTPS URLs without credentials or fragments");
+        }
+        match url.host().expect("host was validated") {
+            Host::Domain(host) => { let host = host.trim_end_matches('.').to_ascii_lowercase(); if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local") || host.ends_with(".internal") { bail!("add-on stream URLs cannot target local network hostnames"); } }
+            Host::Ipv4(ip) if is_disallowed_ip(IpAddr::V4(ip)) => bail!("add-on stream URLs cannot target local or reserved IP addresses"),
+            Host::Ipv6(ip) if is_disallowed_ip(IpAddr::V6(ip)) => bail!("add-on stream URLs cannot target local or reserved IP addresses"),
+            Host::Ipv4(_) | Host::Ipv6(_) => {}
         }
         Ok(Some(url))
     }
@@ -109,6 +111,9 @@ fn is_valid_info_hash(value: &str) -> bool {
     (value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
         || (value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
 }
+
+#[derive(Debug, Clone)]
+pub struct AddonStreamResult { pub addon_id: String, pub addon_name: String, pub streams: Vec<StremioStream>, pub error: Option<String> }
 
 #[derive(Clone, Default)]
 pub struct AddonClient;
@@ -185,6 +190,40 @@ impl AddonClient {
         let endpoint = resource_endpoint(addon, "stream", media_type, media_id, &[])?;
         let value = request_json(&endpoint, MAX_ADDON_RESOURCE_BYTES).await?;
         serde_json::from_value(value).context("add-on returned an invalid stream response")
+    }
+
+    /// Queries enabled stream-capable add-ons independently so one provider failure does not
+    /// discard results from other providers.
+    pub async fn discover_streams(&self, addons: &[StoredAddon], media_type: &str, media_id: &str) -> Vec<AddonStreamResult> {
+        let mut results = Vec::new();
+        for addon in addons.iter().filter(|addon| addon.enabled) {
+            match serde_json::from_str::<AddonManifest>(&addon.manifest_json) {
+                Ok(manifest) if manifest.supports_resource("stream") => {}
+                Ok(_) => continue,
+                Err(error) => { results.push(AddonStreamResult { addon_id: addon.id.clone(), addon_name: addon.name.clone(), streams: Vec::new(), error: Some(format!("invalid saved manifest: {error}")) }); continue; }
+            }
+            match self.streams(addon, media_type, media_id).await {
+                Ok(response) => results.push(AddonStreamResult { addon_id: addon.id.clone(), addon_name: addon.name.clone(), streams: response.streams, error: None }),
+                Err(error) => results.push(AddonStreamResult { addon_id: addon.id.clone(), addon_name: addon.name.clone(), streams: Vec::new(), error: Some(format!("{error:#}")) }),
+            }
+        }
+        results
+    }
+
+    /// Resolve a stream hostname and reject every local/reserved DNS answer before handoff.
+    pub async fn validate_direct_stream_url(&self, url: &Url) -> Result<()> {
+        if !matches!(url.scheme(), "http" | "https") { bail!("only HTTP and HTTPS streams can be handed to MPV"); }
+        match url.host().context("stream URL has no host")? {
+            Host::Ipv4(ip) if is_disallowed_ip(IpAddr::V4(ip)) => bail!("stream resolves to a local or reserved address"),
+            Host::Ipv6(ip) if is_disallowed_ip(IpAddr::V6(ip)) => bail!("stream resolves to a local or reserved address"),
+            Host::Ipv4(_) | Host::Ipv6(_) => return Ok(()),
+            Host::Domain(host) => {
+                let host = host.to_owned(); let port = url.port_or_known_default().context("stream URL has no known port")?;
+                let addresses = tokio::task::spawn_blocking(move || (host.as_str(), port).to_socket_addrs().map(|items| items.collect::<Vec<_>>())).await.context("stream DNS lookup task failed")?.context("could not resolve stream hostname")?;
+                if addresses.is_empty() || addresses.iter().any(|address| is_disallowed_ip(address.ip())) { bail!("stream hostname resolves to a local or reserved address"); }
+            }
+        }
+        Ok(())
     }
 
     /// Retrieves subtitle tracks from an enabled add-on.
@@ -591,4 +630,14 @@ mod tests {
         assert!(manifest.supports_resource("stream"));
         assert!(!manifest.supports_resource("subtitles"));
     }
+    #[test]
+    fn rejects_local_or_credentialed_direct_stream_urls() {
+        let stream = |url: &str| StremioStream { name: None, title: None, description: None, url: Some(url.into()), info_hash: None, file_index: None, external_url: None, behavior_hints: None };
+        assert!(stream("http://127.0.0.1/video.mp4").direct_url().is_err());
+        assert!(stream("https://localhost/video.mp4").direct_url().is_err());
+        assert!(stream("https://user:pass@example.org/video.mp4").direct_url().is_err());
+        assert!(stream("https://example.org/video.mp4#fragment").direct_url().is_err());
+        assert!(stream("https://cdn.example.org/video.mp4").direct_url().unwrap().is_some());
+    }
+
 }
