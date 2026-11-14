@@ -27,8 +27,24 @@ use senzo::{
     },
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum AppPage {
+    Home,
+    Movies,
+    TvShows,
+    Search,
+    Library,
+    Details,
+    Addons,
+    Settings,
+}
+
 struct SenzoApp {
     database: LocalDatabase,
+    active_page: AppPage,
+    selected_title: Option<String>,
+    search_query: String,
     settings: PlaybackSettings,
     status: String,
     playback_worker: Option<Arc<Mutex<PlaybackWorker>>>,
@@ -65,6 +81,9 @@ impl SenzoApp {
 
         Self {
             database,
+            active_page: AppPage::Settings,
+            selected_title: None,
+            search_query: String::new(),
             settings,
             status: "Changes are saved on this device".into(),
             playback_worker: None,
@@ -995,11 +1014,13 @@ impl Render for SenzoApp {
                             .flex()
                             .flex_col()
                             .gap_2()
-                            .child(nav_item("Home", false))
-                            .child(nav_item("Discover", false))
-                            .child(nav_item("Library", false))
-                            .child(nav_item("Add-ons", false))
-                            .child(nav_item("Settings", true)),
+                            .child(dynamic_choice_chip("Home".into(), self.active_page == AppPage::Home, |this, _cx| this.active_page = AppPage::Home, cx))
+                            .child(dynamic_choice_chip("Movies".into(), self.active_page == AppPage::Movies, |this, _cx| this.active_page = AppPage::Movies, cx))
+                            .child(dynamic_choice_chip("TV Shows".into(), self.active_page == AppPage::TvShows, |this, _cx| this.active_page = AppPage::TvShows, cx))
+                            .child(dynamic_choice_chip("Search".into(), self.active_page == AppPage::Search, |this, _cx| this.active_page = AppPage::Search, cx))
+                            .child(dynamic_choice_chip("Library".into(), self.active_page == AppPage::Library, |this, _cx| this.active_page = AppPage::Library, cx))
+                            .child(dynamic_choice_chip("Add-ons".into(), self.active_page == AppPage::Addons, |this, _cx| this.active_page = AppPage::Addons, cx))
+                            .child(dynamic_choice_chip("Settings".into(), self.active_page == AppPage::Settings, |this, _cx| this.active_page = AppPage::Settings, cx)),
                     )
                     .child(div().flex_1())
                     .child(
@@ -1908,7 +1929,273 @@ impl Render for SenzoApp {
                             ),
                     ),
             )
+            .when(self.active_page != AppPage::Settings, |root| {
+                root.child(render_discovery_page(
+                    self.active_page,
+                    self.selected_title.clone(),
+                    self.search_query.clone(),
+                    cx,
+                ))
+            })
     }
+}
+
+fn render_discovery_page(
+    page: AppPage,
+    selected_title: Option<String>,
+    search_query: String,
+    cx: &mut Context<SenzoApp>,
+) -> impl IntoElement {
+    let (heading, description) = match page {
+        AppPage::Home => ("Welcome to SENZO", "Your personal space for movies and television"),
+        AppPage::Movies => ("Movies", "Explore the movie catalogue"),
+        AppPage::TvShows => ("TV Shows", "Explore series, seasons and episodes"),
+        AppPage::Search => ("Search", "Find movies and TV shows in one place"),
+        AppPage::Library => ("Your Library", "Your saved titles and viewing activity stay on this device"),
+        AppPage::Details => ("Title details", "A closer look at the selected movie or series"),
+        AppPage::Addons => ("Add-ons", "Manage the sources you choose to install"),
+        AppPage::Settings => ("Settings", "Application preferences"),
+    };
+
+    let is_details = page == AppPage::Details;
+    let is_search = page == AppPage::Search;
+    let is_library = page == AppPage::Library;
+    let is_home = page == AppPage::Home;
+
+    div()
+        .id("discovery-page")
+        .flex_1()
+        .h_full()
+        .overflow_y_scroll()
+        .p_8()
+        .flex()
+        .flex_col()
+        .gap_6()
+        .bg(rgb(0x0A0C0E))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    div()
+                        .text_2xl()
+                        .font_weight(gpui::FontWeight::BOLD)
+                        .child(heading),
+                )
+                .child(div().text_sm().text_color(rgb(0x9299A1)).child(description)),
+        )
+        .when(is_search, |this| {
+            this.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .p_4()
+                    .rounded_lg()
+                    .bg(rgb(0x151719))
+                    .border_1()
+                    .border_color(rgb(0x263238))
+                    .child(
+                        div()
+                            .text_base()
+                            .text_color(rgb(0x67E8F9))
+                            .child("⌕"),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_sm()
+                            .text_color(rgb(0x9299A1))
+                            .child(if search_query.is_empty() {
+                                "Search movies and TV shows — metadata search connects in the next integration batch".to_string()
+                            } else {
+                                search_query.clone()
+                            }),
+                    )
+                    .child(dynamic_choice_chip(
+                        "Movies".into(),
+                        false,
+                        |this, _cx| this.active_page = AppPage::Movies,
+                        cx,
+                    ))
+                    .child(dynamic_choice_chip(
+                        "TV Shows".into(),
+                        false,
+                        |this, _cx| this.active_page = AppPage::TvShows,
+                        cx,
+                    )),
+            )
+        })
+        .when(is_home, |this| {
+            this.child(
+                div()
+                    .h(px(260.))
+                    .w_full()
+                    .rounded_xl()
+                    .bg(rgb(0x151D20))
+                    .border_1()
+                    .border_color(rgb(0x263238))
+                    .p_6()
+                    .flex()
+                    .flex_col()
+                    .justify_between()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x67E8F9))
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .child("FEATURED"),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_xl()
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .child("Your next favourite starts here"),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(0xA1A1AA))
+                                    .child("Cinematic artwork and recommendations will appear when TMDB discovery is connected."),
+                            ),
+                    ),
+            )
+        })
+        .when(is_details, |this| {
+            this.child(
+                div()
+                    .flex()
+                    .gap_6()
+                    .p_5()
+                    .rounded_xl()
+                    .bg(rgb(0x151719))
+                    .child(
+                        div()
+                            .w(px(190.))
+                            .h(px(285.))
+                            .rounded_lg()
+                            .bg(rgb(0x20272B))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(div().text_xs().text_color(rgb(0x858C94)).child("POSTER")),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .text_xl()
+                                    .font_weight(gpui::FontWeight::BOLD)
+                                    .child(selected_title.unwrap_or_else(|| "Choose a title to see its details".into())),
+                            )
+                            .child(div().text_sm().text_color(rgb(0xA1A1AA)).child("Release information, synopsis, ratings, cast, trailers and artwork will be populated from TMDB in the metadata integration batch."))
+                            .child(dynamic_choice_chip(
+                                "Back to Home".into(),
+                                false,
+                                |this, _cx| this.active_page = AppPage::Home,
+                                cx,
+                            )),
+                    ),
+            )
+        })
+        .when(!is_details && !is_library && page != AppPage::Addons, |this| {
+            this.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_4()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child(if is_home { "Continue exploring" } else { "Browse titles" }))
+                            .child(div().text_xs().text_color(rgb(0x858C94)).child("Artwork placeholders · live catalogue in Batch 3")),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .gap_4()
+                            .children((0..6).map(|index| {
+                                let title = format!("Untitled preview {}", index + 1);
+                                let selected_title = title.clone();
+                                div()
+                                    .w(px(148.))
+                                    .flex()
+                                    .flex_col()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .w(px(148.))
+                                            .h(px(218.))
+                                            .rounded_lg()
+                                            .bg(rgb(0x1B2226))
+                                            .border_1()
+                                            .border_color(rgb(0x263238))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .child(div().text_xs().text_color(rgb(0x65707A)).child("POSTER")),
+                                    )
+                                    .child(div().text_xs().text_color(rgb(0xA1A1AA)).child("Artwork placeholder"))
+                                    .child(dynamic_choice_chip(
+                                        "View details".into(),
+                                        false,
+                                        move |this, _cx| {
+                                            this.selected_title = Some(selected_title.clone());
+                                            this.active_page = AppPage::Details;
+                                        },
+                                        cx,
+                                    ))
+                            })),
+                    ),
+            )
+        })
+        .when(is_library, |this| {
+            this.child(
+                div()
+                    .p_5()
+                    .rounded_lg()
+                    .bg(rgb(0x151719))
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child("Your library is ready for titles"))
+                    .child(div().text_sm().text_color(rgb(0x9299A1)).child("No saved titles yet. Add favourites and watchlist support will be connected to local storage in a later batch.")),
+            )
+        })
+        .when(page == AppPage::Addons, |this| {
+            this.child(
+                div()
+                    .p_5()
+                    .rounded_lg()
+                    .bg(rgb(0x151719))
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child("No add-ons installed"))
+                    .child(div().text_sm().text_color(rgb(0x9299A1)).child("SENZO does not bundle streaming providers. Add-on management will be built in its dedicated implementation batch.")),
+            )
+        })
+        .when(page == AppPage::Search, |this| {
+            this.child(
+                div()
+                    .p_5()
+                    .rounded_lg()
+                    .bg(rgb(0x151719))
+                    .child(div().text_sm().text_color(rgb(0x9299A1)).child("Enter a title to search the movie and TV catalogues. Live results and keyboard input are part of the upcoming TMDB integration.")),
+            )
+        })
 }
 
 fn format_playback_time(seconds: Option<f64>) -> String {
