@@ -75,6 +75,9 @@ struct SenzoApp {
     home_addon_catalogs: Vec<(String, StoredAddon, String, Vec<Value>)>,
     home_catalog_status: String,
     home_catalog_requested: bool,
+    home_shelf_order: Vec<String>,
+    hidden_home_shelves: Vec<String>,
+    home_customize_open: bool,
     tmdb_details: Option<Value>,
     tmdb_task: Option<Task<()>>,
     addon_catalog_items: Vec<Value>,
@@ -121,6 +124,32 @@ impl SenzoApp {
             .flatten()
             .filter(|value| matches!(value.as_str(), "compact" | "comfortable"))
             .unwrap_or_else(|| "comfortable".into());
+        let known_home_shelves = [
+            "Trending this week",
+            "Popular movies",
+            "Popular TV",
+        ];
+        let mut home_shelf_order = database
+            .get_setting("home.shelf_order")
+            .ok()
+            .flatten()
+            .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok())
+            .unwrap_or_default();
+        home_shelf_order.retain(|shelf| known_home_shelves.contains(&shelf.as_str()));
+        for shelf in known_home_shelves {
+            if !home_shelf_order.iter().any(|saved| saved == shelf) {
+                home_shelf_order.push(shelf.to_owned());
+            }
+        }
+        let hidden_home_shelves = database
+            .get_setting("home.hidden_shelves")
+            .ok()
+            .flatten()
+            .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|shelf| known_home_shelves.contains(&shelf.as_str()))
+            .collect();
 
         Self {
             database,
@@ -164,6 +193,9 @@ impl SenzoApp {
             home_addon_catalogs: Vec::new(),
             home_catalog_status: "Loading recommendations…".into(),
             home_catalog_requested: false,
+            home_shelf_order,
+            hidden_home_shelves,
+            home_customize_open: false,
             tmdb_details: None,
             tmdb_task: None,
             addon_catalog_items: Vec::new(),
@@ -1510,6 +1542,81 @@ impl SenzoApp {
             self.status = "Could not save appearance preference".into();
         } else {
             self.status = "Appearance preference saved on this device".into();
+        }
+        cx.notify();
+    }
+
+    fn set_home_shelf_hidden(
+        &mut self,
+        shelf: &'static str,
+        hidden: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let mut updated = self.hidden_home_shelves.clone();
+        if hidden {
+            if !updated.iter().any(|saved| saved == shelf) {
+                updated.push(shelf.to_owned());
+            }
+        } else {
+            updated.retain(|saved| saved != shelf);
+        }
+        match serde_json::to_string(&updated)
+            .context("failed to serialize Home shelf visibility")
+            .and_then(|value| {
+                self.database
+                    .set_setting("home.hidden_shelves", &value)
+                    .context("failed to save Home shelf visibility")
+            }) {
+            Ok(()) => {
+                self.hidden_home_shelves = updated;
+                self.status = "Home layout saved on this device".into();
+            }
+            Err(error) => {
+                self.status = format!("Could not save Home layout: {error:#}");
+                diagnostics::record(
+                    diagnostics::Level::Warn,
+                    "settings",
+                    &self.status,
+                );
+            }
+        }
+        cx.notify();
+    }
+
+    fn move_home_shelf(
+        &mut self,
+        shelf: &'static str,
+        direction: isize,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(index) = self.home_shelf_order.iter().position(|saved| saved == shelf) else {
+            return;
+        };
+        let target = index as isize + direction;
+        if target < 0 || target >= self.home_shelf_order.len() as isize {
+            return;
+        }
+        let mut updated = self.home_shelf_order.clone();
+        updated.swap(index, target as usize);
+        match serde_json::to_string(&updated)
+            .context("failed to serialize Home shelf order")
+            .and_then(|value| {
+                self.database
+                    .set_setting("home.shelf_order", &value)
+                    .context("failed to save Home shelf order")
+            }) {
+            Ok(()) => {
+                self.home_shelf_order = updated;
+                self.status = "Home layout saved on this device".into();
+            }
+            Err(error) => {
+                self.status = format!("Could not save Home layout: {error:#}");
+                diagnostics::record(
+                    diagnostics::Level::Warn,
+                    "settings",
+                    &self.status,
+                );
+            }
         }
         cx.notify();
     }
@@ -3043,6 +3150,9 @@ impl Render for SenzoApp {
                     self.database.recent_playback_progress(8).unwrap_or_default(),
                     self.metadata_language.clone(),
                     self.poster_size.clone(),
+                    self.home_shelf_order.clone(),
+                    self.hidden_home_shelves.clone(),
+                    self.home_customize_open,
                     cx,
                 ))
             })
@@ -3099,6 +3209,9 @@ fn render_discovery_page(
     continue_watching: Vec<PlaybackProgress>,
     metadata_language: String,
     poster_size: String,
+    home_shelf_order: Vec<String>,
+    hidden_home_shelves: Vec<String>,
+    home_customize_open: bool,
     cx: &mut Context<SenzoApp>,
 ) -> impl IntoElement {
     let (heading, description) = match page {
@@ -3434,6 +3547,17 @@ fn render_discovery_page(
             )
         })
         .when(is_home, |this| {
+            let mut ordered_shelf_names = [
+                "Trending this week",
+                "Popular movies",
+                "Popular TV",
+            ];
+            ordered_shelf_names.sort_by_key(|name| {
+                home_shelf_order
+                    .iter()
+                    .position(|saved| saved == name)
+                    .unwrap_or(usize::MAX)
+            });
             let featured = home_catalogs.iter().find(|(shelf, _, _)| shelf == "Trending this week")
                 .or_else(|| home_catalogs.first()).cloned();
             let hero = if let Some((_, kind, item)) = featured {
@@ -3472,7 +3596,55 @@ fn render_discovery_page(
                         .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child("Continue watching"))
                         .child(div().w_full().id("continue-watching-shelf").overflow_x_scroll().flex().gap_3().children(continue_watching_cards)))
                 })
-                .children(["Trending this week", "Popular movies", "Popular TV"].into_iter().filter_map(|shelf_name| {
+                .child(div().flex().items_center().justify_between()
+                    .child(div().text_sm().text_color(rgb(0xA1A1AA)).child("Make Home yours"))
+                    .child(dynamic_choice_chip(
+                        if home_customize_open { "Done".into() } else { "Customize shelves".into() },
+                        home_customize_open,
+                        |this, cx| {
+                            this.home_customize_open = !this.home_customize_open;
+                            cx.notify();
+                        },
+                        cx,
+                    )))
+                .when(home_customize_open, |panel| {
+                    panel.child(section(
+                        "Home shelves",
+                        "Hide categories you do not use, or change their order. Your layout is saved on this device.",
+                        div().flex().flex_col().gap_3().children(
+                            ordered_shelf_names.iter().enumerate().map(|(index, shelf)| {
+                                let hidden = hidden_home_shelves.iter().any(|saved| saved == shelf);
+                                let shelf_label = (*shelf).to_owned();
+                                let visibility_label = if hidden { "Show" } else { "Hide" };
+                                div().flex().items_center().justify_between().gap_2()
+                                    .child(div().flex_1().text_sm().text_color(rgb(0xE4E4E7)).child(shelf_label))
+                                    .child(div().flex().gap_1()
+                                        .child(dynamic_choice_chip(
+                                            visibility_label.into(),
+                                            hidden,
+                                            move |this, cx| this.set_home_shelf_hidden(shelf, !hidden, cx),
+                                            cx,
+                                        ))
+                                        .child(dynamic_choice_chip(
+                                            "↑".into(),
+                                            false,
+                                            move |this, cx| this.move_home_shelf(shelf, -1, cx),
+                                            cx,
+                                        ))
+                                        .child(dynamic_choice_chip(
+                                            "↓".into(),
+                                            false,
+                                            move |this, cx| this.move_home_shelf(shelf, 1, cx),
+                                            cx,
+                                        )))
+                                    .when(index == 0, |row| row.opacity(0.9))
+                            })
+                        ),
+                    ))
+                })
+                .children(ordered_shelf_names.into_iter().filter(|shelf| {
+                    !hidden_home_shelves.iter().any(|hidden| hidden == shelf)
+                }).filter_map(|shelf_name| {
                     let entries = home_catalogs.iter().filter(|(name, _, _)| name == shelf_name).cloned().collect::<Vec<_>>();
                     if entries.is_empty() { return None; }
                     let cards = entries.into_iter().map(|(_, kind, item)| {
