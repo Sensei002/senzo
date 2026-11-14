@@ -4,7 +4,6 @@ use reqwest::Client;
 use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Mutex;
-use keyring::Entry;
 use zeroize::Zeroize;
 
 const TMDB_API_BASE: &str = "https://api.themoviedb.org/3";
@@ -79,11 +78,21 @@ impl TmdbClient {
 
     async fn popular(&self, kind: &str, page: u32) -> Result<TmdbSearchPage> {
         let url = format!("{TMDB_API_BASE}/{kind}/popular");
-        self.client.get(url).bearer_auth(&self.access_token)
-            .query(&[("language", self.language.as_str()), ("page", &page.max(1).to_string())])
-            .send().await.context("TMDB catalogue request failed")?
-            .error_for_status().context("TMDB rejected the catalogue request")?
-            .json::<TmdbSearchPage>().await.context("TMDB returned an invalid catalogue response")
+        self.client
+            .get(url)
+            .bearer_auth(&self.access_token)
+            .query(&[
+                ("language", self.language.as_str()),
+                ("page", &page.max(1).to_string()),
+            ])
+            .send()
+            .await
+            .context("TMDB catalogue request failed")?
+            .error_for_status()
+            .context("TMDB rejected the catalogue request")?
+            .json::<TmdbSearchPage>()
+            .await
+            .context("TMDB returned an invalid catalogue response")
     }
     /// Creates a TMDB client using a TMDB API Read Access Token.
     /// The token is never included in errors or application logs.
@@ -241,7 +250,6 @@ impl TmdbClient {
     }
 }
 
-
 /// Secure storage for the TMDB application Read Access Token.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TmdbCredentialStore;
@@ -254,9 +262,11 @@ impl TmdbCredentialStore {
 
     pub fn save_access_token(token: &str) -> Result<()> {
         let token = validate_tmdb_token(token)?;
-        let _guard = TMDB_CREDENTIAL_LOCK.lock()
+        let _guard = TMDB_CREDENTIAL_LOCK
+            .lock()
             .map_err(|_| anyhow::anyhow!("credential store lock is unavailable"))?;
-        Self::entry()?.set_password(token)
+        Self::entry()?
+            .set_password(token)
             .context("could not save the TMDB token to Windows Credential Manager")
     }
 
@@ -275,7 +285,8 @@ impl TmdbCredentialStore {
             .map_err(|_| anyhow::anyhow!("credential store lock is unavailable"))?;
         match Self::entry()?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(error) => Err(error).context("could not remove the TMDB token from Windows Credential Manager"),
+            Err(error) => Err(error)
+                .context("could not remove the TMDB token from Windows Credential Manager"),
         }
     }
 
@@ -292,20 +303,42 @@ impl TmdbCredentialStore {
                 CREDUI_FLAGS_GENERIC_CREDENTIALS, CREDUI_FLAGS_PASSWORD_ONLY_OK,
                 CredUIPromptForCredentialsW,
             };
-            let target: Vec<u16> = "TMDB Read Access Token - SENZO".encode_utf16()
-                .chain(std::iter::once(0)).collect();
+            let target: Vec<u16> = "TMDB Read Access Token - SENZO"
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
             let mut username = [0u16; 1];
             let mut password = vec![0u16; MAX_TMDB_TOKEN_BYTES + 1];
-            let flags = CREDUI_FLAGS_ALWAYS_SHOW_UI | CREDUI_FLAGS_DO_NOT_PERSIST
-                | CREDUI_FLAGS_GENERIC_CREDENTIALS | CREDUI_FLAGS_PASSWORD_ONLY_OK;
+            let flags = CREDUI_FLAGS_ALWAYS_SHOW_UI
+                | CREDUI_FLAGS_DO_NOT_PERSIST
+                | CREDUI_FLAGS_GENERIC_CREDENTIALS
+                | CREDUI_FLAGS_PASSWORD_ONLY_OK;
             let result = unsafe {
-                CredUIPromptForCredentialsW(std::ptr::null(), target.as_ptr(), std::ptr::null(),
-                    0, username.as_mut_ptr(), username.len() as u32, password.as_mut_ptr(),
-                    password.len() as u32, std::ptr::null_mut(), flags)
+                CredUIPromptForCredentialsW(
+                    std::ptr::null(),
+                    target.as_ptr(),
+                    std::ptr::null(),
+                    0,
+                    username.as_mut_ptr(),
+                    username.len() as u32,
+                    password.as_mut_ptr(),
+                    password.len() as u32,
+                    std::ptr::null_mut(),
+                    flags,
+                )
             };
-            if result == 1223 { password.zeroize(); return Ok(false); }
-            if result != 0 { password.zeroize(); bail!("Windows secure credential prompt failed (error {result})"); }
-            let length = password.iter().position(|unit| *unit == 0).unwrap_or(password.len());
+            if result == 1223 {
+                password.zeroize();
+                return Ok(false);
+            }
+            if result != 0 {
+                password.zeroize();
+                bail!("Windows secure credential prompt failed (error {result})");
+            }
+            let length = password
+                .iter()
+                .position(|unit| *unit == 0)
+                .unwrap_or(password.len());
             let decoded = String::from_utf16(&password[..length]);
             password.zeroize();
             let mut token = decoded.context("the entered TMDB token contains invalid text")?;
@@ -315,15 +348,23 @@ impl TmdbCredentialStore {
             Ok(true)
         }
         #[cfg(not(windows))]
-        { bail!("secure TMDB token entry is currently supported on Windows only") }
+        {
+            bail!("secure TMDB token entry is currently supported on Windows only")
+        }
     }
 }
 
 fn validate_tmdb_token(value: &str) -> Result<&str> {
     let value = value.trim();
-    if value.is_empty() { bail!("TMDB Read Access Token cannot be empty"); }
-    if value.len() > MAX_TMDB_TOKEN_BYTES { bail!("TMDB Read Access Token exceeds the supported length"); }
-    if value.chars().any(char::is_control) { bail!("TMDB Read Access Token contains unsupported control characters"); }
+    if value.is_empty() {
+        bail!("TMDB Read Access Token cannot be empty");
+    }
+    if value.len() > MAX_TMDB_TOKEN_BYTES {
+        bail!("TMDB Read Access Token exceeds the supported length");
+    }
+    if value.chars().any(char::is_control) {
+        bail!("TMDB Read Access Token contains unsupported control characters");
+    }
     Ok(value)
 }
 
