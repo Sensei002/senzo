@@ -6265,6 +6265,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "futures",
+ "http",
  "dirs 6.0.0",
  "gpui-ce",
  "gpui_ce_platform",
