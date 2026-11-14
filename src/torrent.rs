@@ -108,9 +108,14 @@ impl TorrentSessionDirectory {
         bail!("could not allocate a unique torrent session directory")
     }
 
+    pub fn default_root() -> Result<PathBuf> {
+        let local_data = dirs::data_local_dir()
+            .context("the operating system did not provide a local app-data directory")?;
+        Ok(local_data.join("SENZO").join("torrent-temp"))
+    }
+
     pub fn create_default() -> Result<Self> {
-        let root = Self::recover_default_root()?;
-        Self::create_at(root)
+        Self::create_at(Self::default_root()?)
     }
 
     pub fn path(&self) -> &Path {

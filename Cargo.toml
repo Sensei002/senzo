@@ -8,18 +8,22 @@ publish = false
 
 [dependencies]
 anyhow = "1"
+axum = "0.8"
 dirs = "6"
 gpui = { package = "gpui-ce", version = "=0.2.2" }
 raw-window-handle = "0.6"
 gpui_platform = { package = "gpui_ce_platform", version = "0.1" }
 keyring = { version = "=3.6.3", default-features = false, features = ["windows-native"] }
+librqbit = { version = "=9.1.0", default-features = false, features = ["rust-tls", "disable-upload"] }
 libloading = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rfd = "0.15"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "net", "io-util"] }
+tokio-util = { version = "0.7", features = ["io", "sync"] }
+uuid = { version = "1", features = ["v4"] }
 url = "2"
 zeroize = "1"
 
