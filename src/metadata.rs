@@ -511,6 +511,7 @@ mod tests {
             first_air_date: None,
             vote_average: None,
             vote_count: None,
+            media_type: None,
         };
         assert_eq!(result.media_id("movie"), "tmdb:movie:550");
         assert_eq!(result.display_title(), Some("Fight Club"));
