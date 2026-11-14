@@ -1213,7 +1213,7 @@ fn section(
                         .font_weight(gpui::FontWeight::SEMIBOLD)
                         .child(title),
                 )
-                .child(div().text_sm().text_color(rgb(0x9299A1)).child(description)),
+                .child(div().text_sm().text_color(rgb(0x9299A1)).child(description))
         .when(page != AppPage::Addons && page != AppPage::Library && page != AppPage::Details, |panel| {
             panel.child(div().flex().flex_wrap().gap_2()
                 .child(dynamic_choice_chip("Popular movies".into(), false, |this, cx| this.load_tmdb_catalog("movie", None, cx), cx))

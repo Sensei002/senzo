@@ -729,7 +729,8 @@ mod tests {
             ],
             "types": ["movie", "series"],
             "idPrefixes": ["tt"]
-        })).expect("Torrentio-compatible manifest");
+        }))
+        .expect("Torrentio-compatible manifest");
         assert!(manifest.supports_resource("stream"));
 
         let response: StremioStreamResponse = serde_json::from_value(serde_json::json!({
@@ -746,12 +747,17 @@ mod tests {
                     "url": "https://cdn.example.test/video.mkv"
                 }
             ]
-        })).expect("Stremio stream response");
+        }))
+        .expect("Stremio stream response");
         assert_eq!(response.streams.len(), 2);
         assert!(response.streams[0].is_torrent());
         assert_eq!(response.streams[0].file_index, Some(3));
         assert_eq!(
-            response.streams[1].direct_url().expect("direct URL").expect("URL").scheme(),
+            response.streams[1]
+                .direct_url()
+                .expect("direct URL")
+                .expect("URL")
+                .scheme(),
             "https"
         );
     }
