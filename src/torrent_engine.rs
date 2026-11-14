@@ -7,7 +7,7 @@ use axum::{
     body::Body,
     extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
-    response::Response,
+    response::{IntoResponse, Response},
     routing::get,
 };
 use librqbit::{
