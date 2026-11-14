@@ -12,7 +12,7 @@ use gpui::{
 use serde_json::Value;
 
 use senzo::{
-    addons::{first_series_episode_id, AddonClient, AddonManifest, AddonManifestPreview, AddonStreamResult, StremioStream},
+    addons::{\n        AddonClient, AddonManifest, AddonManifestPreview, AddonStreamResult, StremioStream,\n        first_series_episode_id,\n    },
     diagnostics,
     metadata::{TmdbClient, TmdbCredentialStore, TmdbSearchResult},
     playback::{

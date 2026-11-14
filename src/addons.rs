@@ -74,7 +74,7 @@ pub fn first_series_episode_id(meta: &Value, series_id: &str) -> String {
                 if season == 0 || episode == 0 {
                     return None;
                 }
-                video.get("id").and_then(Value::as_str)
+                video\n                    .get("id")\n                    .and_then(Value::as_str)
                     .filter(|id| !id.trim().is_empty())
                     .map(str::to_owned)
                     .or_else(|| Some(format!("{series_id}:{season}:{episode}")))
