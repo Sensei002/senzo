@@ -1,4 +1,5 @@
 pub mod addons;
+pub mod artwork;
 pub mod diagnostics;
 pub mod metadata;
 pub mod playback;

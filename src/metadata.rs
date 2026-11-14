@@ -35,6 +35,8 @@ pub struct TmdbSearchResult {
     pub first_air_date: Option<String>,
     pub vote_average: Option<f64>,
     pub vote_count: Option<u64>,
+    #[serde(default)]
+    pub media_type: Option<String>,
 }
 
 impl TmdbSearchResult {
@@ -59,11 +61,40 @@ pub struct TmdbClient {
 }
 
 impl TmdbClient {
-    /// Loads the user-configured TMDB Read Access Token from Windows Credential Manager.
+    /// Loads the application-managed token for official builds, then falls back to an
+    /// optional developer override in the process environment or Windows Credential Manager.
+    /// Ordinary users never need to enter a provider token.
     pub fn from_credential_store(language: impl Into<String>) -> Result<Self> {
-        let token = TmdbCredentialStore::load_access_token()?
-            .ok_or_else(|| anyhow::anyhow!("TMDB Read Access Token is not configured"))?;
+        let build_token = option_env!("SENZO_TMDB_READ_ACCESS_TOKEN")
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_owned);
+        let environment_token = std::env::var("SENZO_TMDB_READ_ACCESS_TOKEN")
+            .ok()
+            .filter(|value| !value.trim().is_empty());
+        let token = build_token
+            .or(environment_token)
+            .or(TmdbCredentialStore::load_access_token()?)
+            .ok_or_else(|| anyhow::anyhow!("TMDB metadata service is not configured in this build"))?;
         Self::new(token, language)
+    }
+
+    /// Fetches the combined trending movie and television catalogue for the current week.
+    pub async fn trending_all_week(&self, page: u32) -> Result<TmdbSearchPage> {
+        self.client
+            .get(format!("{TMDB_API_BASE}/trending/all/week"))
+            .bearer_auth(&self.access_token)
+            .query(&[
+                ("language", self.language.as_str()),
+                ("page", &page.max(1).to_string()),
+            ])
+            .send()
+            .await
+            .context("TMDB trending request failed")?
+            .error_for_status()
+            .context("TMDB rejected the trending request")?
+            .json::<TmdbSearchPage>()
+            .await
+            .context("TMDB returned an invalid trending response")
     }
 
     /// Fetches the currently popular movie catalogue page.

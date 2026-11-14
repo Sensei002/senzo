@@ -42,6 +42,9 @@ jobs:
         run: cargo test --all-targets --locked
 
       - name: Build Windows x64 release executable
+        env:
+          SENZO_TMDB_READ_ACCESS_TOKEN: ${{ secrets.SENZO_TMDB_READ_ACCESS_TOKEN }}
+          SENZO_OPENSUBTITLES_API_KEY: ${{ secrets.SENZO_OPENSUBTITLES_API_KEY }}
         run: cargo build --release --locked --bin senzo
 
       - name: Package upstream LGPL MPV runtime

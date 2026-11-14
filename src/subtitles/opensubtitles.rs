@@ -152,12 +152,20 @@ impl OpenSubtitlesClient {
         Ok(Self { client, api_key })
     }
 
-    /// Loads the saved API key from the operating-system credential store.
+    /// Loads the application-managed key supplied to official release builds, then falls
+    /// back to an optional developer environment override or OS credential-store entry.
     pub fn from_credential_store() -> anyhow::Result<Self> {
-        let key = crate::subtitles::credentials::OpenSubtitlesCredentialStore::load_api_key()?
-            .ok_or_else(|| {
-                anyhow!("OpenSubtitles API key is not configured in Windows Credential Manager")
-            })?;
+        let build_key = option_env!("SENZO_OPENSUBTITLES_API_KEY")
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_owned);
+        let environment_key = std::env::var("SENZO_OPENSUBTITLES_API_KEY")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| std::env::var("OPENSUBTITLES_API_KEY").ok().filter(|value| !value.trim().is_empty()));
+        let key = build_key
+            .or(environment_key)
+            .or(crate::subtitles::credentials::OpenSubtitlesCredentialStore::load_api_key()?)
+            .ok_or_else(|| anyhow!("Online subtitles are unavailable in this build"))?;
         Self::new(key)
     }
 
