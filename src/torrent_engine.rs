@@ -552,10 +552,11 @@ fn parse_single_byte_range(value: &str, total: u64) -> Result<(u64, u64)> {
                 .context("invalid range end")?
                 .checked_add(1)
                 .context("range end overflow")?
+                .min(total)
         };
         (start, end)
     };
-    if start >= total || end <= start || end > total {
+    if start >= total || end <= start {
         bail!("requested byte range is not satisfiable");
     }
     Ok((start, end))
@@ -684,6 +685,14 @@ mod tests {
         );
         assert_eq!(
             parse_single_byte_range("bytes=90-", 100).unwrap(),
+            (90, 100)
+        );
+        assert_eq!(
+            parse_single_byte_range("bytes=0-999", 100).unwrap(),
+            (0, 100)
+        );
+        assert_eq!(
+            parse_single_byte_range("bytes=90-999", 100).unwrap(),
             (90, 100)
         );
         assert_eq!(

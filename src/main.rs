@@ -2835,7 +2835,11 @@ fn render_discovery_page(
                         .name
                         .as_deref()
                         .or(stream.title.as_deref())
-                        .unwrap_or(if is_torrent { "Torrent source" } else { "Direct stream" }),
+                        .unwrap_or(if is_torrent {
+                            "Torrent source"
+                        } else {
+                            "Direct stream"
+                        }),
                     if is_torrent { "torrent" } else { "stream" }
                 );
                 let selected = stream.clone();
