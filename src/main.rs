@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::Context as _;
 use gpui::{
-    App, ClipboardItem, Context, MouseButton, QuitMode, Render, Task, Window, WindowOptions, div,
+    App, ClipboardItem, Context, MouseButton, ObjectFit, QuitMode, Render, Task, Window, WindowOptions, div, img,
     prelude::*, px, rgb,
 };
 use serde_json::Value;
@@ -1836,13 +1836,13 @@ impl Render for SenzoApp {
                                 div()
                                     .text_2xl()
                                     .font_weight(gpui::FontWeight::BOLD)
-                                    .child("Playback settings"),
+                                    .child("Settings"),
                             )
                             .child(
                                 div()
                                     .text_sm()
                                     .text_color(rgb(0x9299A1))
-                                    .child("Tune decoding, image processing and playback resources."),
+                                    .child("Make SENZO feel right for you. Your preferences stay on this device."),
                             ),
                     )
                     .child(section(
@@ -3143,8 +3143,13 @@ fn render_discovery_page(
                 let overview = item.overview.clone().unwrap_or_else(|| "Discover more details and available sources.".into());
                 let selected = item.clone();
                 let selected_kind = kind.clone();
-                div().w_full().min_h(px(250.)).rounded_xl().bg(rgb(0x151D20))
-                    .border_1().border_color(rgb(0x263238)).p_6().flex().flex_col().justify_between()
+                div().w_full().min_h(px(290.)).rounded_xl().bg(rgb(0x151D20))
+                    .border_1().border_color(rgb(0x263238)).relative().overflow_hidden()
+                    .when_some(tmdb_artwork_url(item.backdrop_path.as_deref(), "w1280"), |panel, url| {
+                        panel.child(img(url).w_full().h(px(290.)).object_fit(ObjectFit::Cover))
+                    })
+                    .child(div().absolute().inset_0().bg(rgb(0x090D10)).opacity(0.78))
+                    .child(div().relative().p_6().flex().flex_col().justify_between().min_h(px(290.))
                     .child(div().text_xs().text_color(rgb(0x67E8F9)).font_weight(gpui::FontWeight::SEMIBOLD).child("FEATURED · TRENDING"))
                     .child(div().flex().flex_col().gap_3()
                         .child(div().text_2xl().font_weight(gpui::FontWeight::BOLD).child(title.clone()))
@@ -3152,7 +3157,7 @@ fn render_discovery_page(
                         .child(div().max_w(px(760.)).text_sm().text_color(rgb(0xD4D4D8)).child(overview))
                         .child(div().flex().gap_2()
                             .child(dynamic_choice_chip("View details".into(), true, move |this, cx| this.select_tmdb_title(selected_kind.clone(), selected.clone(), cx), cx))
-                            .child(dynamic_choice_chip("Explore movies".into(), false, |this, cx| this.load_tmdb_catalog("movie", None, cx), cx))))
+                            .child(dynamic_choice_chip("Explore movies".into(), false, |this, cx| this.load_tmdb_catalog("movie", None, cx), cx)))))
             } else {
                 div().w_full().min_h(px(220.)).rounded_xl().bg(rgb(0x151D20)).p_6().flex().flex_col().justify_between()
                     .child(div().text_xs().text_color(rgb(0x67E8F9)).child("WELCOME TO SENZO"))
@@ -3171,15 +3176,22 @@ fn render_discovery_page(
                         let rating = item.vote_average.map(|value| format!("★ {value:.1}")).unwrap_or_default();
                         let selected = item.clone();
                         let selected_kind = kind.clone();
-                        div().w(px(176.)).min_h(px(118.)).p_3().rounded_lg().bg(rgb(0x171D20))
-                            .border_1().border_color(rgb(0x263238)).flex().flex_col().justify_between().gap_2()
-                            .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
-                            .child(div().text_xs().text_color(rgb(0x9299A1)).child(format!("{year} · {rating}")))
-                            .child(dynamic_choice_chip("Details".into(), false, move |this, cx| this.select_tmdb_title(selected_kind.clone(), selected.clone(), cx), cx))
+                        let poster = tmdb_artwork_url(item.poster_path.as_deref(), "w342");
+                        div().w(px(164.)).flex_shrink_0().rounded_lg().bg(rgb(0x171D20))
+                            .border_1().border_color(rgb(0x263238)).overflow_hidden().flex().flex_col().gap_2()
+                            .child(div().w_full().h(px(236.)).bg(rgb(0x20272B)).when_some(poster, |panel, url| {
+                                panel.child(img(url).w_full().h(px(236.)).object_fit(ObjectFit::Cover))
+                            }))
+                            .child(div().px_2().pb_2().flex().flex_col().gap_1()
+                                .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
+                                .child(div().text_xs().text_color(rgb(0x9299A1)).child(format!("{year} · {rating}")))
+                                .child(dynamic_choice_chip("Details".into(), false, move |this, cx| this.select_tmdb_title(selected_kind.clone(), selected.clone(), cx), cx)))
                     });
                     Some(div().flex().flex_col().gap_3()
-                        .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child(shelf_name))
-                        .child(div().flex().gap_3().children(cards)))
+                        .child(div().flex().items_center().justify_between()
+                            .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child(shelf_name))
+                            .child(div().text_xs().text_color(rgb(0x67E8F9)).child("VIEW ALL")))
+                        .child(div().w_full().overflow_x_scroll().flex().gap_3().children(cards)))
                 }))
         })
         .when(is_details, |this| {
@@ -3196,10 +3208,15 @@ fn render_discovery_page(
                             .h(px(285.))
                             .rounded_lg()
                             .bg(rgb(0x20272B))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(div().text_xs().text_color(rgb(0x858C94)).child("POSTER")),
+                            .overflow_hidden()
+                            .when_some(tmdb_artwork_url(
+                                tmdb_details.as_ref().and_then(|details| details.get("poster_path")).and_then(Value::as_str),
+                                "w500",
+                            ), |panel, url| panel.child(img(url).w(px(190.)).h(px(285.)).object_fit(ObjectFit::Cover)))
+                            .when(tmdb_details.as_ref().and_then(|details| details.get("poster_path")).and_then(Value::as_str).is_none(), |panel| {
+                                panel.flex().items_center().justify_center()
+                                    .child(div().text_xs().text_color(rgb(0x858C94)).child("POSTER"))
+                            }),
                     )
                     .child(
                         div()
@@ -3384,6 +3401,12 @@ fn render_discovery_page(
                     .child(div().text_sm().text_color(rgb(0x9299A1)).child("Enter a title to search the movie and TV catalogues. Live results and keyboard input are part of the upcoming TMDB integration.")),
             )
         })
+}
+
+fn tmdb_artwork_url(path: Option<&str>, size: &str) -> Option<String> {
+    let path = path?.strip_prefix('/')?;
+    if path.is_empty() || path.split('/').any(|part| part == "." || part == "..") { return None; }
+    Some(format!("https://image.tmdb.org/t/p/{size}/{path}"))
 }
 
 fn format_playback_time(seconds: Option<f64>) -> String {
