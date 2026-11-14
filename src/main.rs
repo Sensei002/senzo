@@ -497,8 +497,7 @@ impl SenzoApp {
             Some(value) => format!("Searching TMDB for {value}…"),
             None => format!("Loading popular {media_type}…"),
         };
-        self.tmdb_results.clear();
-        self.tmdb_task = Some(cx.spawn(async move |this, cx| {
+        self.tmdb_results.clear();        self.tmdb_task = Some(cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
                     let client = TmdbClient::from_credential_store("en-US")?;
@@ -997,8 +996,7 @@ impl SenzoApp {
 
         self.addon_status = "Fetching and validating add-on manifest…".into();
         self.addon_manifest_preview = None;
-        self.addon_task = Some(cx.spawn(async move |this, cx| {
-            let result = cx
+        self.addon_task = Some(cx.spawn(async move |this, cx| {            let result = cx
                 .background_spawn(async move {
                     let client = AddonClient::new();
                     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -1497,8 +1495,7 @@ impl SenzoApp {
         {
             Ok(()) => self.last_progress_save = Some(now),
             Err(error) => diagnostics::record(
-                diagnostics::Level::Warn,
-                "playback",
+                diagnostics::Level::Warn,                "playback",
                 &format!("could not persist playback progress: {error:#}"),
             ),
         }
@@ -1997,8 +1994,7 @@ impl Render for SenzoApp {
                                                                 Err(error) => {
                                                                     let message = format!("{error:#}");
                                                                     diagnostics::record(
-                                                                        diagnostics::Level::Warn,
-                                                                        "playback",
+                                                                        diagnostics::Level::Warn,                                                                        "playback",
                                                                         &format!("could not create native video surface: {message}"),
                                                                     );
                                                                     if let Ok(mut current_error) = native_surface_error.lock() {
@@ -2497,8 +2493,7 @@ impl Render for SenzoApp {
                                     ))
                                     .child(choice_chip(
                                         "Disabled",
-                                        settings.hardware_decoding == HardwareDecoding::Disabled,
-                                        |this, _cx| this.settings.hardware_decoding = HardwareDecoding::Disabled,
+                                        settings.hardware_decoding == HardwareDecoding::Disabled,                                        |this, _cx| this.settings.hardware_decoding = HardwareDecoding::Disabled,
                                         cx,
                                     )),
                             ))
@@ -2830,6 +2825,7 @@ impl Render for SenzoApp {
                     self.tmdb_results.clone(),
                     self.tmdb_status.clone(),
                     self.home_catalogs.clone(),
+                    self.home_addon_catalogs.clone(),
                     self.home_catalog_status.clone(),
                     self.tmdb_details.clone(),
                     self.addon_catalog_items.clone(),
@@ -2997,8 +2993,7 @@ fn render_discovery_page(
             ));
         }
     }
-    let mut stream_chips = Vec::new();
-    let mut torrent_file_chips = Vec::new();
+    let mut stream_chips = Vec::new();    let mut torrent_file_chips = Vec::new();
     let mut source_notes = Vec::new();
     for provider in &addon_stream_results {
         if let Some(error) = &provider.error {
@@ -3497,8 +3492,7 @@ fn render_discovery_page(
                                         .p_4()
                                         .rounded_md()
                                         .bg(rgb(0x101315))
-                                        .flex()
-                                        .flex_col()
+                                        .flex()                                        .flex_col()
                                         .gap_2()
                                         .child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child(preview.manifest.name.clone()))
                                         .child(div().text_xs().text_color(rgb(0xA1A1AA)).child(format!("{} · version {}", preview.manifest.id, preview.manifest.version)))
