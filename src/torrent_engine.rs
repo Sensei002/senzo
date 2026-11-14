@@ -351,7 +351,9 @@ impl TorrentPlaybackSession {
             });
             match shutdown_task.await {
                 Ok(errors) => cleanup_errors.extend(errors),
-                Err(error) => cleanup_errors.push(format!("torrent engine shutdown task failed: {error}")),
+                Err(error) => {
+                    cleanup_errors.push(format!("torrent engine shutdown task failed: {error}"))
+                }
             }
         } else if let Some(session) = session {
             session.cancellation_token().cancel();
