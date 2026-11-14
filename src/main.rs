@@ -429,54 +429,140 @@ impl SenzoApp {
     fn load_home_catalogs(&mut self, cx: &mut Context<Self>) {
         self.home_catalog_status = "Finding something to watch…".into();
         self.home_catalogs.clear();
+        self.home_addon_catalogs.clear();
         self.home_catalog_requested = true;
+
+        // Snapshot enabled user-installed add-ons on the UI thread. The SQLite connection
+        // is deliberately not moved into the background task.
+        let mut addon_catalog_specs = Vec::new();
+        if let Ok(addons) = self.database.installed_addons() {
+            'addons: for addon in addons.into_iter().filter(|addon| addon.enabled) {
+                let Ok(manifest) = serde_json::from_str::<AddonManifest>(&addon.manifest_json) else {
+                    continue;
+                };
+                if !manifest.supports_resource("catalog") {
+                    continue;
+                }
+                for catalog in manifest.catalogs {
+                    let Some(catalog_id) = catalog.get("id").and_then(Value::as_str) else {
+                        continue;
+                    };
+                    let media_type = catalog.get("type").and_then(Value::as_str).unwrap_or("movie");
+                    if !matches!(media_type, "movie" | "series" | "tv") {
+                        continue;
+                    }
+                    // Catalogs that require user-supplied filters are exposed in the Add-ons
+                    // page, but are not guessed or silently queried from the Home screen.
+                    if catalog.get("extraRequired").and_then(Value::as_array).is_some_and(|items| !items.is_empty()) {
+                        continue;
+                    }
+                    let catalog_name = catalog.get("name").and_then(Value::as_str).unwrap_or(catalog_id);
+                    addon_catalog_specs.push((
+                        addon.clone(),
+                        media_type.to_owned(),
+                        catalog_id.to_owned(),
+                        format!("{} · {}", addon.name, catalog_name),
+                    ));
+                    if addon_catalog_specs.len() >= 12 {
+                        break 'addons;
+                    }
+                }
+            }
+        }
+
         self.tmdb_task = Some(cx.spawn(async move |this, cx| {
             let result = cx.background_spawn(async move {
-                let client = TmdbClient::from_credential_store("en-US")?;
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
                     .context("could not initialize the discovery runtime")?;
-                runtime.block_on(async {
-                    let (trending, movies, shows) = futures::join!(
-                        client.trending_all_week(1),
-                        client.popular_movies(1),
-                        client.popular_tv(1)
-                    );
-                    let mut shelves = Vec::new();
-                    let mut failures = Vec::new();
-                    match trending {
-                        Ok(page) => shelves.extend(page.results.into_iter().map(|item| {
-                            let kind = item.media_type.clone().unwrap_or_else(|| {
-                                if item.title.is_some() || item.original_title.is_some() { "movie".into() } else { "tv".into() }
-                            });
-                            ("Trending this week".to_owned(), kind, item)
-                        })),
-                        Err(_) => failures.push("trending"),
-                    }
-                    match movies {
-                        Ok(page) => shelves.extend(page.results.into_iter().map(|item| ("Popular movies".to_owned(), "movie".to_owned(), item))),
-                        Err(_) => failures.push("popular movies"),
-                    }
-                    match shows {
-                        Ok(page) => shelves.extend(page.results.into_iter().map(|item| ("Popular TV".to_owned(), "tv".to_owned(), item))),
-                        Err(_) => failures.push("popular TV"),
-                    }
-                    if shelves.is_empty() {
+
+                runtime.block_on(async move {
+                    let tmdb_result = async {
+                        let client = TmdbClient::from_credential_store("en-US")?;
+                        let (trending, movies, shows) = futures::join!(
+                            client.trending_all_week(1),
+                            client.popular_movies(1),
+                            client.popular_tv(1)
+                        );
+                        let mut shelves = Vec::new();
+                        let mut failures = Vec::new();
+                        match trending {
+                            Ok(page) => shelves.extend(page.results.into_iter().map(|item| {
+                                let kind = item.media_type.clone().unwrap_or_else(|| {
+                                    if item.title.is_some() || item.original_title.is_some() { "movie".into() } else { "tv".into() }
+                                });
+                                ("Trending this week".to_owned(), kind, item)
+                            })),
+                            Err(_) => failures.push("trending"),
+                        }
+                        match movies {
+                            Ok(page) => shelves.extend(page.results.into_iter().map(|item| ("Popular movies".to_owned(), "movie".to_owned(), item))),
+                            Err(_) => failures.push("popular movies"),
+                        }
+                        match shows {
+                            Ok(page) => shelves.extend(page.results.into_iter().map(|item| ("Popular TV".to_owned(), "tv".to_owned(), item))),
+                            Err(_) => failures.push("popular TV"),
+                        }
+                        Ok::<_, anyhow::Error>((shelves, failures))
+                    };
+
+                    let addon_result = async move {
+                        let client = AddonClient::new();
+                        let requests = addon_catalog_specs.into_iter().map(|(addon, media_type, catalog_id, shelf_name)| {
+                            let client = client.clone();
+                            async move {
+                                let response = client.catalog(&addon, &media_type, &catalog_id, &[]).await;
+                                let metas = response.map(|response| {
+                                    response.metas.into_iter().filter_map(|mut meta| {
+                                        let object = meta.as_object_mut()?;
+                                        if !object.get("id").is_some_and(Value::is_string) {
+                                            return None;
+                                        }
+                                        object.entry("type").or_insert_with(|| Value::String(media_type.clone()));
+                                        Some(meta)
+                                    }).take(20).collect::<Vec<_>>()
+                                });
+                                (addon, media_type, shelf_name, metas)
+                            }
+                        });
+                        futures::future::join_all(requests).await.into_iter()
+                            .filter_map(|(addon, media_type, shelf_name, result)| {
+                                result.ok().filter(|metas| !metas.is_empty())
+                                    .map(|metas| (shelf_name, addon, media_type, metas))
+                            }).collect::<Vec<_>>()
+                    };
+
+                    let (tmdb_result, addon_shelves) = futures::join!(tmdb_result, addon_result);
+                    let (tmdb_shelves, failures) = tmdb_result.unwrap_or_else(|_| (Vec::new(), vec!["TMDB"]));
+                    if tmdb_shelves.is_empty() && addon_shelves.is_empty() {
                         anyhow::bail!("Discovery is temporarily unavailable. Check your connection and try again.");
                     }
-                    Ok::<_, anyhow::Error>((shelves, failures))
+                    Ok::<_, anyhow::Error>((tmdb_shelves, addon_shelves, failures))
                 })
             }).await;
+
             let _ = this.update(cx, |app, cx| {
                 match result {
-                    Ok((shelves, failures)) => {
-                        let count = shelves.len();
-                        app.home_catalogs = shelves;
-                        app.home_catalog_status = if failures.is_empty() {
-                            format!("{count} recommendations ready")
+                    Ok((tmdb_shelves, addon_shelves, failures)) => {
+                        let tmdb_count = tmdb_shelves.len();
+                        let addon_count = addon_shelves.len();
+                        app.home_catalogs = tmdb_shelves;
+                        app.home_addon_catalogs = addon_shelves;
+                        let mut notes = Vec::new();
+                        if tmdb_count > 0 {
+                            notes.push(format!("{tmdb_count} recommendations"));
+                        }
+                        if addon_count > 0 {
+                            notes.push(format!("{addon_count} add-on shelves"));
+                        }
+                        if !failures.is_empty() {
+                            notes.push("some recommendations could not load".into());
+                        }
+                        app.home_catalog_status = if notes.is_empty() {
+                            "No discovery catalogs are available yet".into()
                         } else {
-                            format!("{count} recommendations ready; some shelves could not load")
+                            notes.join(" · ")
                         };
                     }
                     Err(error) => {
