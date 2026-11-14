@@ -143,7 +143,8 @@ impl TorrentSessionDirectory {
             }
             Err(error) => {
                 self.path = Some(path.clone());
-                Err(error).with_context(|| format!("failed to remove torrent session {}", path.display()))
+                Err(error)
+                    .with_context(|| format!("failed to remove torrent session {}", path.display()))
             }
         }
     }
