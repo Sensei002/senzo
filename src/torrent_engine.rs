@@ -17,8 +17,8 @@ use librqbit::{
 use tokio::{
     io::{AsyncReadExt, AsyncSeekExt, SeekFrom},
     net::TcpListener,
-    task::JoinHandle,
     runtime::Runtime,
+    task::JoinHandle,
 };
 use tokio_util::{io::ReaderStream, sync::CancellationToken};
 use uuid::Uuid;
@@ -374,8 +374,8 @@ fn build_magnet_uri(hash: &str, trackers: &[String]) -> Result<String> {
             if tracker.is_empty() {
                 continue;
             }
-            let parsed = url::Url::parse(tracker)
-                .context("add-on supplied an invalid torrent tracker")?;
+            let parsed =
+                url::Url::parse(tracker).context("add-on supplied an invalid torrent tracker")?;
             if !matches!(parsed.scheme(), "udp" | "http" | "https")
                 || parsed.host().is_none()
                 || !parsed.username().is_empty()

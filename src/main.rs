@@ -626,18 +626,23 @@ impl SenzoApp {
         self.torrent_status = "Resolving torrent metadata and available video files…".into();
         self.stream_status = "Starting a temporary, non-seeding torrent session…".into();
         self.torrent_task = Some(cx.spawn(async move |this, cx| {
-            let result = cx.background_spawn(async move {
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .context("could not initialize torrent setup runtime")?;
-                runtime.block_on(async move {
-                    if let Some(previous) = previous {
-                        previous.shutdown().await.context("could not close the previous torrent session")?;
-                    }
-                    TorrentPlaybackSession::inspect_with_trackers(&info_hash, &trackers).await
+            let result = cx
+                .background_spawn(async move {
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .context("could not initialize torrent setup runtime")?;
+                    runtime.block_on(async move {
+                        if let Some(previous) = previous {
+                            previous
+                                .shutdown()
+                                .await
+                                .context("could not close the previous torrent session")?;
+                        }
+                        TorrentPlaybackSession::inspect_with_trackers(&info_hash, &trackers).await
+                    })
                 })
-            }).await;
+                .await;
             let _ = this.update(cx, |app, cx| {
                 match result {
                     Ok((session, files)) => {
@@ -676,36 +681,54 @@ impl SenzoApp {
         let worker = self.playback_worker.clone();
         self.torrent_status = "Preparing the selected file and loopback stream…".into();
         self.torrent_task = Some(cx.spawn(async move |this, cx| {
-            let (session, result) = cx.background_spawn(async move {
-                match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-                    Ok(runtime) => {
-                        let result = runtime.block_on(session.start_file(file_index));
-                        (session, result)
+            let (session, result) = cx
+                .background_spawn(async move {
+                    match tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                    {
+                        Ok(runtime) => {
+                            let result = runtime.block_on(session.start_file(file_index));
+                            (session, result)
+                        }
+                        Err(error) => (session, Err(error.into())),
                     }
-                    Err(error) => (session, Err(error.into())),
-                }
-            }).await;
+                })
+                .await;
             let _ = this.update(cx, |app, cx| {
                 app.torrent_session = Some(session);
                 match result {
                     Ok(url) => {
-                        let queued = worker.as_ref().ok_or_else(|| anyhow::anyhow!("MPV playback worker is unavailable"))
-                            .and_then(|worker| worker.lock().map_err(|_| anyhow::anyhow!("MPV playback worker lock is unavailable"))?.load_local_url(&url));
+                        let queued = worker
+                            .as_ref()
+                            .ok_or_else(|| anyhow::anyhow!("MPV playback worker is unavailable"))
+                            .and_then(|worker| {
+                                worker
+                                    .lock()
+                                    .map_err(|_| {
+                                        anyhow::anyhow!("MPV playback worker lock is unavailable")
+                                    })?
+                                    .load_local_url(&url)
+                            });
                         match queued {
                             Ok(()) => {
-                                app.torrent_status = "Torrent stream is ready; playback downloads on demand".into();
+                                app.torrent_status =
+                                    "Torrent stream is ready; playback downloads on demand".into();
                                 app.stream_status = "Torrent source queued in MPV".into();
-                                app.playback_status = "Playing torrent stream from the local loopback server".into();
+                                app.playback_status =
+                                    "Playing torrent stream from the local loopback server".into();
                                 app.active_media_id = None;
                             }
                             Err(error) => {
-                                app.torrent_status = format!("Could not hand torrent stream to MPV: {error:#}");
+                                app.torrent_status =
+                                    format!("Could not hand torrent stream to MPV: {error:#}");
                                 app.stream_status = app.torrent_status.clone();
                             }
                         }
                     }
                     Err(error) => {
-                        app.torrent_status = format!("Could not start selected torrent file: {error:#}");
+                        app.torrent_status =
+                            format!("Could not start selected torrent file: {error:#}");
                         app.stream_status = app.torrent_status.clone();
                     }
                 }
@@ -722,13 +745,15 @@ impl SenzoApp {
         self.torrent_files.clear();
         self.torrent_status = "Stopping torrent engine and removing temporary session data…".into();
         self.torrent_task = Some(cx.spawn(async move |this, cx| {
-            let result = cx.background_spawn(async move {
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .context("could not initialize torrent shutdown runtime")?;
-                runtime.block_on(session.shutdown())
-            }).await;
+            let result = cx
+                .background_spawn(async move {
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .context("could not initialize torrent shutdown runtime")?;
+                    runtime.block_on(session.shutdown())
+                })
+                .await;
             let _ = this.update(cx, |app, cx| {
                 app.torrent_status = match result {
                     Ok(()) => "Torrent stopped; temporary session data removed".into(),
@@ -746,7 +771,8 @@ impl SenzoApp {
             return;
         }
         let Ok(Some(url)) = stream.direct_url() else {
-            self.stream_status = "This add-on entry is not a supported direct or torrent stream".into();
+            self.stream_status =
+                "This add-on entry is not a supported direct or torrent stream".into();
             cx.notify();
             return;
         };
@@ -2571,7 +2597,8 @@ impl Drop for SenzoApp {
                         session.shutdown(),
                     ));
                 }
-            }).join();
+            })
+            .join();
         }
     }
 }
@@ -2749,7 +2776,11 @@ fn render_discovery_page(
 
     for file in &torrent_files {
         let index = file.index;
-        let label = format!("{} · {:.1} MiB", file.name, file.size_bytes as f64 / 1_048_576.0);
+        let label = format!(
+            "{} · {:.1} MiB",
+            file.name,
+            file.size_bytes as f64 / 1_048_576.0
+        );
         torrent_file_chips.push(dynamic_choice_chip(
             label,
             false,
@@ -3343,7 +3374,9 @@ where
 
 fn main() {
     match TorrentSessionDirectory::recover_default_root() {
-        Ok(removed) if removed > 0 => eprintln!("SENZO recovered {removed} abandoned torrent session(s)"),
+        Ok(removed) if removed > 0 => {
+            eprintln!("SENZO recovered {removed} abandoned torrent session(s)")
+        },
         Ok(_) => {}
         Err(error) => eprintln!("SENZO torrent recovery warning: {error:#}"),
     }
