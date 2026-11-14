@@ -156,7 +156,8 @@ impl TorrentPlaybackSession {
                 Ok(listing) => listing,
                 Err(error) => {
                     session.stop().await;
-                    return Err(error).context("could not resolve torrent metadata or list its files");
+                    return Err(error)
+                        .context("could not resolve torrent metadata or list its files");
                 }
             };
             let files = video_files_from_response(&listing);
