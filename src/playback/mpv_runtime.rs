@@ -99,12 +99,7 @@ impl MpvRuntime {
 
     /// Open an HTTP(S) media stream, replacing the current playlist entry.
     pub fn load_url(&self, url: &str) -> anyhow::Result<()> {
-        let url = CString::new(url).context("stream URL contains a NUL byte")?;
-        let command = [CString::new("loadfile")?, url, CString::new("replace")?];
-        let pointers = command.iter().map(|part| part.as_ptr()).collect::<Vec<_>>();
-        let result = unsafe { (self.command_fn)(self.handle.as_ptr(), pointers.as_ptr()) };
-        if result < 0 { bail!("MPV rejected the stream URL (error {result})"); }
-        Ok(())
+        self.command(&["loadfile", url, "replace"])
     }
 
     /// Set the paused state.

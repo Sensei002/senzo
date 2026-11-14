@@ -192,13 +192,45 @@ fn resume_target(position: f64, duration: f64) -> f64 {
 
 fn validate_playback_url(input: &str) -> anyhow::Result<String> {
     let url = url::Url::parse(input).context("stream URL is invalid")?;
-    if !matches!(url.scheme(), "http" | "https") || url.host().is_none() || !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
         bail!("playback URLs must be absolute HTTP(S) URLs without credentials or fragments");
     }
     match url.host().expect("host was validated") {
-        url::Host::Domain(host) => { let host = host.trim_end_matches('.').to_ascii_lowercase(); if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local") || host.ends_with(".internal") { bail!("playback URLs cannot target local network hostnames"); } }
-        url::Host::Ipv4(ip) if ip.is_private() || ip.is_loopback() || ip.is_link_local() || ip.is_unspecified() || ip.is_multicast() || ip.is_broadcast() => bail!("playback URLs cannot target local or reserved IP addresses"),
-        url::Host::Ipv6(ip) if (ip.segments()[0] & 0xe000) != 0x2000 || ip.is_loopback() || ip.is_unspecified() || ip.is_multicast() || (ip.segments()[0] & 0xfe00) == 0xfc00 || (ip.segments()[0] & 0xffc0) == 0xfe80 => bail!("playback URLs cannot target local or reserved IP addresses"),
+        url::Host::Domain(host) => {
+            let host = host.trim_end_matches('.').to_ascii_lowercase();
+            if host == "localhost"
+                || host.ends_with(".localhost")
+                || host.ends_with(".local")
+                || host.ends_with(".internal")
+            {
+                bail!("playback URLs cannot target local network hostnames");
+            }
+        }
+        url::Host::Ipv4(ip)
+            if ip.is_private()
+                || ip.is_loopback()
+                || ip.is_link_local()
+                || ip.is_unspecified()
+                || ip.is_multicast()
+                || ip.is_broadcast() =>
+        {
+            bail!("playback URLs cannot target local or reserved IP addresses")
+        }
+        url::Host::Ipv6(ip)
+            if (ip.segments()[0] & 0xe000) != 0x2000
+                || ip.is_loopback()
+                || ip.is_unspecified()
+                || ip.is_multicast()
+                || (ip.segments()[0] & 0xfe00) == 0xfc00
+                || (ip.segments()[0] & 0xffc0) == 0xfe80 =>
+        {
+            bail!("playback URLs cannot target local or reserved IP addresses")
+        }
         url::Host::Ipv4(_) | url::Host::Ipv6(_) => {}
     }
     Ok(url.to_string())
@@ -244,7 +276,10 @@ impl PlaybackWorker {
                     match command_rx.recv_timeout(STATE_POLL_INTERVAL) {
                         Ok(command) => {
                             let (operation, result, shutdown) = match command {
-                                PlaybackCommand::LoadUrl(url) => { pending_resume = None; ("load_url", runtime.load_url(&url), false) }
+                                PlaybackCommand::LoadUrl(url) => {
+                                    pending_resume = None;
+                                    ("load_url", runtime.load_url(&url), false)
+                                }
                                 PlaybackCommand::LoadFile(path, resume_position) => {
                                     let expected_path = path.to_string_lossy().into_owned();
                                     pending_resume = None;
@@ -396,7 +431,10 @@ impl PlaybackWorker {
     }
 
     /// Queue a validated HTTP(S) stream URL for MPV playback.
-    pub fn load_url(&self, input: &str) -> anyhow::Result<()> { let url = validate_playback_url(input)?; self.enqueue(PlaybackCommand::LoadUrl(url)) }
+    pub fn load_url(&self, input: &str) -> anyhow::Result<()> {
+        let url = validate_playback_url(input)?;
+        self.enqueue(PlaybackCommand::LoadUrl(url))
+    }
 
     /// Queue a pause or resume transition.
     pub fn set_paused(&self, paused: bool) -> anyhow::Result<()> {
