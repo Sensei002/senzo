@@ -9,9 +9,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::{Host, Url};
 
-const MAX_ADDON_MANIFEST_BYTES: usize = 1024 * 1024;
-
 use crate::storage::{LocalDatabase, StoredAddon};
+
+const MAX_ADDON_MANIFEST_BYTES: usize = 1024 * 1024;
+const MAX_ADDON_RESOURCE_BYTES: usize = 5 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AddonManifest {
@@ -43,28 +44,78 @@ impl AddonManifest {
     }
 }
 
-#[derive(Clone)]
-pub struct AddonClient {
-    client: Client,
+#[derive(Debug, Clone, Deserialize)]
+pub struct StremioCatalogResponse {
+    #[serde(default)]
+    pub metas: Vec<Value>,
 }
 
-impl Default for AddonClient {
-    fn default() -> Self {
-        Self::new()
+#[derive(Debug, Clone, Deserialize)]
+pub struct StremioMetaResponse {
+    pub meta: Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct StremioStreamResponse {
+    #[serde(default)]
+    pub streams: Vec<StremioStream>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct StremioStream {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default, rename = "infoHash")]
+    pub info_hash: Option<String>,
+    #[serde(default, rename = "fileIdx")]
+    pub file_index: Option<u32>,
+    #[serde(default, rename = "externalUrl")]
+    pub external_url: Option<String>,
+    #[serde(default)]
+    pub behavior_hints: Option<Value>,
+}
+
+impl StremioStream {
+    /// Returns a playable HTTP(S) URL. Torrent and external-link entries are not direct URLs.
+    pub fn direct_url(&self) -> Result<Option<Url>> {
+        let Some(raw_url) = self.url.as_deref() else {
+            return Ok(None);
+        };
+        let url = Url::parse(raw_url).context("add-on returned an invalid stream URL")?;
+        if !matches!(url.scheme(), "http" | "https")
+            || url.host().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+        {
+            bail!("add-on stream URLs must be absolute HTTP or HTTPS URLs without credentials");
+        }
+        Ok(Some(url))
+    }
+
+    pub fn is_torrent(&self) -> bool {
+        self.info_hash
+            .as_deref()
+            .is_some_and(|hash| is_valid_info_hash(hash))
     }
 }
 
+fn is_valid_info_hash(value: &str) -> bool {
+    (value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        || (value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+}
+
+#[derive(Clone, Default)]
+pub struct AddonClient;
+
 impl AddonClient {
     pub fn new() -> Self {
-        Self {
-            client: Client::builder()
-                .user_agent(concat!("SENZO/", env!("CARGO_PKG_VERSION")))
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(15))
-                .redirect(Policy::none())
-                .build()
-                .expect("the default HTTP client configuration is valid"),
-        }
+        Self
     }
 
     /// Fetches and validates a Stremio-compatible manifest, then saves it locally.
@@ -75,41 +126,8 @@ impl AddonClient {
         input: &str,
     ) -> Result<StoredAddon> {
         let manifest_url = normalize_manifest_url(input)?;
-        let client = client_for_public_url(&manifest_url).await?;
-        let mut response = client
-            .get(manifest_url.clone())
-            .send()
-            .await
-            .context("failed to contact the add-on manifest URL")?;
-
-        if response.status() != StatusCode::OK {
-            bail!(
-                "the add-on manifest endpoint returned HTTP status {}",
-                response.status()
-            );
-        }
-        if response
-            .content_length()
-            .is_some_and(|length| length > MAX_ADDON_MANIFEST_BYTES as u64)
-        {
-            bail!("the add-on manifest exceeds the 1 MiB size limit");
-        }
-
-        let mut body = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .context("failed while reading the add-on manifest response")?
-        {
-            if body.len().saturating_add(chunk.len()) > MAX_ADDON_MANIFEST_BYTES {
-                bail!("the add-on manifest exceeds the 1 MiB size limit");
-            }
-            body.extend_from_slice(&chunk);
-        }
-
-        let manifest_value: Value = serde_json::from_slice(&body)
-            .context("the add-on did not return valid manifest JSON")?;
-        let manifest: AddonManifest = serde_json::from_value(manifest_value.clone())
+        let value = request_json(&manifest_url, MAX_ADDON_MANIFEST_BYTES).await?;
+        let manifest: AddonManifest = serde_json::from_value(value.clone())
             .context("the manifest is missing required Stremio add-on fields")?;
 
         if manifest.id.trim().is_empty()
@@ -125,51 +143,139 @@ impl AddonClient {
             version: manifest.version,
             manifest_url: manifest_url.to_string(),
             enabled: true,
-            manifest_json: serde_json::to_string(&manifest_value)?,
+            manifest_json: serde_json::to_string(&value)?,
             installed_at: unix_timestamp(),
         };
         database.save_addon(&stored)?;
         Ok(stored)
     }
 
-    /// Requests streams only from an add-on the user has already installed and enabled.
+    /// Retrieves a catalog page exposed by the selected enabled add-on.
+    pub async fn catalog(
+        &self,
+        addon: &StoredAddon,
+        media_type: &str,
+        catalog_id: &str,
+        extra: &[(&str, &str)],
+    ) -> Result<StremioCatalogResponse> {
+        let endpoint = resource_endpoint(addon, "catalog", media_type, catalog_id, extra)?;
+        let value = request_json(&endpoint, MAX_ADDON_RESOURCE_BYTES).await?;
+        serde_json::from_value(value).context("add-on returned an invalid catalog response")
+    }
+
+    /// Retrieves metadata for a Stremio media ID from an enabled add-on.
+    pub async fn metadata(
+        &self,
+        addon: &StoredAddon,
+        media_type: &str,
+        media_id: &str,
+    ) -> Result<StremioMetaResponse> {
+        let endpoint = resource_endpoint(addon, "meta", media_type, media_id, &[])?;
+        let value = request_json(&endpoint, MAX_ADDON_RESOURCE_BYTES).await?;
+        serde_json::from_value(value).context("add-on returned an invalid metadata response")
+    }
+
+    /// Retrieves streams for a movie or series episode from an enabled add-on.
     pub async fn streams(
         &self,
         addon: &StoredAddon,
         media_type: &str,
         media_id: &str,
-    ) -> Result<Value> {
-        if !addon.enabled {
-            bail!("the selected add-on is disabled");
-        }
-        if !matches!(media_type, "movie" | "series") {
-            bail!("unsupported Stremio media type");
-        }
-
-        let mut endpoint = addon_base_url(&addon.manifest_url)?;
-        {
-            let mut segments = endpoint
-                .path_segments_mut()
-                .map_err(|_| anyhow::anyhow!("invalid add-on base URL"))?;
-            segments.pop_if_empty();
-            segments
-                .push("stream")
-                .push(media_type)
-                .push(&format!("{media_id}.json"));
-        }
-
-        let client = client_for_public_url(&endpoint).await?;
-        client
-            .get(endpoint)
-            .send()
-            .await
-            .context("add-on stream request failed")?
-            .error_for_status()
-            .context("add-on stream endpoint returned an unsuccessful status")?
-            .json::<Value>()
-            .await
-            .context("add-on returned an invalid stream response")
+    ) -> Result<StremioStreamResponse> {
+        let endpoint = resource_endpoint(addon, "stream", media_type, media_id, &[])?;
+        let value = request_json(&endpoint, MAX_ADDON_RESOURCE_BYTES).await?;
+        serde_json::from_value(value).context("add-on returned an invalid stream response")
     }
+
+    /// Retrieves subtitle tracks from an enabled add-on.
+    pub async fn subtitles(
+        &self,
+        addon: &StoredAddon,
+        media_type: &str,
+        media_id: &str,
+    ) -> Result<Value> {
+        let endpoint = resource_endpoint(addon, "subtitles", media_type, media_id, &[])?;
+        request_json(&endpoint, MAX_ADDON_RESOURCE_BYTES).await
+    }
+}
+
+fn resource_endpoint(
+    addon: &StoredAddon,
+    resource: &str,
+    media_type: &str,
+    resource_id: &str,
+    extra: &[(&str, &str)],
+) -> Result<Url> {
+    if !addon.enabled {
+        bail!("the selected add-on is disabled");
+    }
+    if !matches!(media_type, "movie" | "series" | "tv" | "channel") {
+        bail!("unsupported Stremio media type");
+    }
+    if resource_id.trim().is_empty() || resource_id.len() > 512 {
+        bail!("the Stremio resource ID is empty or too long");
+    }
+
+    let manifest: AddonManifest = serde_json::from_str(&addon.manifest_json)
+        .context("the stored add-on manifest is invalid")?;
+    if !manifest.supports_resource(resource) {
+        bail!("the selected add-on does not declare the {resource} resource");
+    }
+
+    let mut endpoint = addon_base_url(&addon.manifest_url)?;
+    {
+        let mut segments = endpoint
+            .path_segments_mut()
+            .map_err(|_| anyhow::anyhow!("invalid add-on base URL"))?;
+        segments.pop_if_empty();
+        segments.push(resource).push(media_type).push(resource_id);
+        if !extra.is_empty() {
+            let extra_segment = extra
+                .iter()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect::<Vec<_>>()
+                .join("&");
+            segments.push(&extra_segment);
+        }
+        if !endpoint.path().ends_with(".json") {
+            // The protocol suffix belongs to the final path segment, not the query string.
+            let _ = segments;
+            let path = endpoint.path().to_owned();
+            endpoint.set_path(&format!("{path}.json"));
+        }
+    }
+    Ok(endpoint)
+}
+
+async fn request_json(url: &Url, max_bytes: usize) -> Result<Value> {
+    let client = client_for_public_url(url).await?;
+    let mut response = client
+        .get(url.clone())
+        .send()
+        .await
+        .context("add-on resource request failed")?;
+    if response.status() != StatusCode::OK {
+        bail!("add-on endpoint returned HTTP status {}", response.status());
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > max_bytes as u64)
+    {
+        bail!("add-on response exceeds the configured size limit");
+    }
+
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .context("failed while reading add-on response")?
+    {
+        if body.len().saturating_add(chunk.len()) > max_bytes {
+            bail!("add-on response exceeds the configured size limit");
+        }
+        body.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice(&body).context("add-on returned invalid JSON")
 }
 
 async fn client_for_public_url(url: &Url) -> Result<Client> {
@@ -261,16 +367,27 @@ fn normalize_manifest_url(input: &str) -> Result<Url> {
 fn is_disallowed_ip(address: IpAddr) -> bool {
     match address {
         IpAddr::V4(ip) => {
+            let [a, b, c, _] = ip.octets();
             ip.is_private()
                 || ip.is_loopback()
                 || ip.is_link_local()
                 || ip.is_unspecified()
                 || ip.is_multicast()
                 || ip.is_broadcast()
-                || ip.octets()[0] == 0
+                || a == 0
+                || (a == 100 && (64..=127).contains(&b))
+                || (a == 192 && b == 0 && c == 0)
+                || (a == 192 && b == 0 && c == 2)
+                || (a == 198 && (b == 18 || b == 19))
+                || (a == 198 && b == 51 && c == 100)
+                || (a == 203 && b == 0 && c == 113)
+                || a >= 240
         }
         IpAddr::V6(ip) => {
             let octets = ip.octets();
+            let global_unicast = octets[0] & 0xe0 == 0x20;
+            let documentation = octets[0] == 0x20 && octets[1] == 0x01
+                && octets[2] == 0x0d && octets[3] == 0xb8;
             let unique_local = octets[0] & 0xfe == 0xfc;
             let link_local = octets[0] == 0xfe && octets[1] & 0xc0 == 0x80;
             let ipv4_mapped = octets[..10].iter().all(|byte| *byte == 0)
@@ -278,7 +395,9 @@ fn is_disallowed_ip(address: IpAddr) -> bool {
                 && octets[11] == 0xff;
             let mapped_ipv4 = ipv4_mapped
                 .then(|| std::net::Ipv4Addr::new(octets[12], octets[13], octets[14], octets[15]));
-            ip.is_unspecified()
+            !global_unicast
+                || documentation
+                || ip.is_unspecified()
                 || ip.is_loopback()
                 || ip.is_multicast()
                 || unique_local
@@ -310,6 +429,25 @@ fn unix_timestamp() -> i64 {
 mod tests {
     use super::*;
 
+    fn stored_addon(resources: &[&str]) -> StoredAddon {
+        StoredAddon {
+            id: "org.example.addon".into(),
+            name: "Example".into(),
+            version: "1.0.0".into(),
+            manifest_url: "https://example.org/addon/manifest.json".into(),
+            enabled: true,
+            manifest_json: serde_json::json!({
+                "id": "org.example.addon",
+                "name": "Example",
+                "version": "1.0.0",
+                "resources": resources,
+                "types": ["movie", "series"]
+            })
+            .to_string(),
+            installed_at: 1,
+        }
+    }
+
     #[test]
     fn normalizes_an_addon_root_to_manifest() {
         let url = normalize_manifest_url("https://example.org/addon/").expect("valid URL");
@@ -320,10 +458,7 @@ mod tests {
     fn keeps_configured_manifest_paths() {
         let url = normalize_manifest_url("https://example.org/torrentio/key/manifest.json")
             .expect("valid URL");
-        assert_eq!(
-            url.as_str(),
-            "https://example.org/torrentio/key/manifest.json"
-        );
+        assert_eq!(url.as_str(), "https://example.org/torrentio/key/manifest.json");
         assert_eq!(
             addon_base_url(url.as_str()).expect("base URL").as_str(),
             "https://example.org/torrentio/key/"
@@ -347,8 +482,78 @@ mod tests {
     }
 
     #[test]
-    fn accepts_public_https_manifest_hosts() {
-        assert!(normalize_manifest_url("https://addons.example.org/manifest.json").is_ok());
+    fn rejects_special_use_ipv4_and_non_global_ipv6() {
+        for address in [
+            "100.64.0.1", "192.0.2.1", "198.18.0.1", "198.51.100.1",
+            "203.0.113.1", "240.0.0.1",
+        ] {
+            assert!(is_disallowed_ip(address.parse().expect("IPv4")), "{address}");
+        }
+        for address in ["2001:db8::1", "fc00::1", "fe80::1", "2001:4860:4860::8888"] {
+            let ip = address.parse().expect("IPv6");
+            assert_eq!(is_disallowed_ip(ip), address != "2001:4860:4860::8888");
+        }
+    }
+
+    #[test]
+    fn builds_stremio_resource_routes_and_extra_segments() {
+        let addon = stored_addon(&["catalog", "meta", "stream", "subtitles"]);
+        let url = resource_endpoint(
+            &addon,
+            "catalog",
+            "movie",
+            "top",
+            &[("genre", "Action"), ("skip", "20")],
+        )
+        .expect("catalog route");
+        assert_eq!(
+            url.as_str(),
+            "https://example.org/addon/catalog/movie/top/genre%3DAction%26skip%3D20.json"
+        );
+        let stream = resource_endpoint(&addon, "stream", "series", "tt123:1:2", &[])
+            .expect("stream route");
+        assert_eq!(
+            stream.as_str(),
+            "https://example.org/addon/stream/series/tt123:1:2.json"
+        );
+    }
+
+    #[test]
+    fn refuses_undeclared_resources_and_disabled_addons() {
+        let addon = stored_addon(&["stream"]);
+        assert!(resource_endpoint(&addon, "catalog", "movie", "top", &[]).is_err());
+        let mut disabled = addon;
+        disabled.enabled = false;
+        assert!(resource_endpoint(&disabled, "stream", "movie", "tt123", &[]).is_err());
+    }
+
+    #[test]
+    fn validates_direct_streams_and_torrent_hashes() {
+        let direct = StremioStream {
+            name: Some("1080p".into()),
+            title: None,
+            description: None,
+            url: Some("https://cdn.example/video.m3u8".into()),
+            info_hash: None,
+            file_index: None,
+            external_url: None,
+            behavior_hints: None,
+        };
+        assert_eq!(
+            direct.direct_url().expect("valid URL").expect("URL").scheme(),
+            "https"
+        );
+        let unsafe_stream = StremioStream {
+            url: Some("file:///etc/passwd".into()),
+            ..direct.clone()
+        };
+        assert!(unsafe_stream.direct_url().is_err());
+        let torrent = StremioStream {
+            url: None,
+            info_hash: Some("0123456789abcdef0123456789abcdef01234567".into()),
+            ..direct
+        };
+        assert!(torrent.is_torrent());
     }
 
     #[test]
