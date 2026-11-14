@@ -166,8 +166,7 @@ impl TorrentPlaybackSession {
             }
             Ok::<_, anyhow::Error>((session, api, files))
         });
-        let task_result =
-            tokio::time::timeout(Duration::from_secs(45), &mut session_task).await;
+        let task_result = tokio::time::timeout(Duration::from_secs(45), &mut session_task).await;
         let (session, api, files) = match task_result {
             Ok(Ok(Ok(result))) => result,
             Ok(Ok(Err(error))) => {
