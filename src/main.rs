@@ -1415,7 +1415,8 @@ impl SenzoApp {
 
     fn resume_saved_media(&mut self, media_id: String, cx: &mut Context<Self>) {
         let Some(raw_path) = media_id.strip_prefix("local-file:") else {
-            self.playback_status = "This saved item cannot be resumed from a local file path yet".into();
+            self.playback_status =
+                "This saved item cannot be resumed from a local file path yet".into();
             cx.notify();
             return;
         };
@@ -1437,10 +1438,13 @@ impl SenzoApp {
         if self.playback_worker.is_none() {
             self.start_playback(cx);
         }
-        let result = self.playback_worker.as_ref()
+        let result = self
+            .playback_worker
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("MPV runtime is unavailable"))
             .and_then(|worker| {
-                let worker = worker.lock()
+                let worker = worker
+                    .lock()
                     .map_err(|_| anyhow::anyhow!("playback worker lock is unavailable"))?;
                 worker.load_file_with_resume(path.clone(), resume_position)?;
                 Ok(())
@@ -1452,7 +1456,9 @@ impl SenzoApp {
                 self.last_progress_save = None;
                 self.playback_status = format!(
                     "Resuming {}",
-                    path.file_name().and_then(|name| name.to_str()).unwrap_or("media")
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("media")
                 );
             }
             Err(error) => self.playback_status = format!("Could not resume media: {error:#}"),
@@ -3048,23 +3054,66 @@ fn render_discovery_page(
         ));
     }
 
-    let continue_watching_cards = continue_watching.into_iter().map(|progress| {
-        let media_id = progress.media_id.clone();
-        let title = progress.media_id.strip_prefix("local-file:")
-            .and_then(|path| PathBuf::from(path).file_name().and_then(|name| name.to_str()).map(str::to_owned))
-            .unwrap_or_else(|| "Recently watched".into());
-        let progress_label = progress.duration_seconds
-            .filter(|duration| duration.is_finite() && *duration > 0.0)
-            .map(|duration| format!("{:.0}% watched", (progress.position_seconds / duration * 100.0).clamp(0.0, 99.0)))
-            .unwrap_or_else(|| format!("Continue at {}", format_playback_time(Some(progress.position_seconds))));
-        div().w(px(220.)).flex_shrink_0().rounded_lg().bg(rgb(0x171D20))
-            .border_1().border_color(rgb(0x263238)).p_3().flex().flex_col().gap_2()
-            .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
-            .child(div().text_xs().text_color(rgb(0x9299A1)).child(progress_label))
-            .child(dynamic_choice_chip("Continue watching".into(), true, move |this, cx| {
-                this.resume_saved_media(media_id.clone(), cx)
-            }, cx))
-    }).collect::<Vec<_>>();
+    let continue_watching_cards = continue_watching
+        .into_iter()
+        .map(|progress| {
+            let media_id = progress.media_id.clone();
+            let title = progress
+                .media_id
+                .strip_prefix("local-file:")
+                .and_then(|path| {
+                    PathBuf::from(path)
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .map(str::to_owned)
+                })
+                .unwrap_or_else(|| "Recently watched".into());
+            let progress_label = progress
+                .duration_seconds
+                .filter(|duration| duration.is_finite() && *duration > 0.0)
+                .map(|duration| {
+                    format!(
+                        "{:.0}% watched",
+                        (progress.position_seconds / duration * 100.0).clamp(0.0, 99.0)
+                    )
+                })
+                .unwrap_or_else(|| {
+                    format!(
+                        "Continue at {}",
+                        format_playback_time(Some(progress.position_seconds))
+                    )
+                });
+            div()
+                .w(px(220.))
+                .flex_shrink_0()
+                .rounded_lg()
+                .bg(rgb(0x171D20))
+                .border_1()
+                .border_color(rgb(0x263238))
+                .p_3()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x9299A1))
+                        .child(progress_label),
+                )
+                .child(dynamic_choice_chip(
+                    "Continue watching".into(),
+                    true,
+                    move |this, cx| this.resume_saved_media(media_id.clone(), cx),
+                    cx,
+                ))
+        })
+        .collect::<Vec<_>>();
 
     div()
         .id("discovery-page")
