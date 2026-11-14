@@ -39,6 +39,23 @@ The Windows distribution is a **per-machine system installation** under `%Progra
 - **Attribution:** Include the TMDB logo and the required notice in About/Credits: "This product uses the TMDB API but is not endorsed or certified by TMDB."
 - **Credential model:** A TMDB API Read Access Token is an application integration credential, not a SENZO user identity. Official builds may receive it through protected CI configuration. It must not be committed to source control, printed in logs, or exposed through diagnostic output. The approach for self-built binaries must be documented before public distribution; possible options include a user-supplied token or building without metadata access.
 
+## 2.1 Console-first Home and discovery UI
+
+The primary application experience is a cinematic, console-like media home, not a technical dashboard. Home is the default landing page and is composed from data-backed sections:
+
+- A featured hero area with backdrop artwork, title, useful metadata, and Play / Details actions.
+- Continue Watching when local playback progress exists.
+- TMDB discovery shelves such as Trending, Popular Movies, and Popular TV.
+- Additional catalog shelves generated dynamically from catalogs exposed by enabled, user-installed Stremio add-ons.
+- Optional user-curated collections and genre shelves when their data is available.
+
+The Home data layer owns catalog definitions, refresh/caching, stable section identity, ordering, and loading/error states. UI components remain reusable and separate: hero, shelf heading, horizontal poster rail, poster card, loading skeleton, and empty/error state. Fetch only the data needed for visible/near-visible sections; lazy-load artwork and use bounded caches.
+
+The navigation model is designed for a 10-foot/console-style experience on a desktop display: large artwork and readable controls, directional focus movement, clear focused/selected states, predictable Back/Escape behavior, and keyboard operation without requiring a mouse. Add game-controller navigation when supported by the GPUI/native input layer. Pointer hover previews are an enhancement, not the primary interaction.
+
+Preserve focus and scroll position when moving between Home, details, catalogs, and playback. Hero and poster activation must route into real TMDB details, TV season/episode browsing, source selection, and MPV playback. Keep Settings, diagnostics, and provider management available through navigation, but do not let them dominate the Home screen.
+
+**Architecture reference:** Study the upstream `NuvioMedia/NuvioDesktop` Home implementation (`HomeScreen.kt`, `HomeRepository.kt`, `HomeCatalogDefinitions.kt`, `HomeHeroSection.kt`, `HomeCatalogSection.kt`, `HomePosterCard.kt`, and `HomeSectionLayout.kt`) before implementing or revising this experience. Adapt concepts to Rust + GPUI; do not copy Kotlin/Compose source code, assets, or branding. SENZO keeps its own identity.
 ## 3. Add-ons and streaming sources
 
 SENZO uses a user-managed registry for add-ons that implement the supported Stremio HTTP protocol.

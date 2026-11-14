@@ -40,6 +40,7 @@ SENZO will use **The Movie Database (TMDB)** as its primary metadata provider. T
 
 - Search for movies or TV series.
 - Browse artwork-led home and discovery shelves.
+- Use a console-style Home screen with a cinematic featured title and horizontally scrolling, data-driven movie/TV category shelves. The detailed implementation brief is in [docs/UI_DESIGN_SPEC.md](docs/UI_DESIGN_SPEC.md) and is the next planned UI milestone.
 - View posters, backdrops, overviews, release dates, genres, ratings, and runtime.
 - Explore cast, crew, trailers, and videos when available.
 - Browse TV seasons and episodes, including episode descriptions and stills.

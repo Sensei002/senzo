@@ -116,13 +116,33 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [x] Build the Windows x64 release executable in CI with the torrent engine statically linked, and upload a package containing the executable, MPV runtime, branding asset, and license notices.
 - [ ] Manually validate real peer discovery, buffering, seeking, and orderly shutdown on Windows hardware before release.
 
-## Phase 7 — Additional sources and presence (Batch 6)
+## Phase 7 — Console-first media home and discovery experience (Batch 6)
+
+**Priority: this is the next user-facing milestone.** The current package is a functional engineering shell, not the intended everyday media-center interface. Replace the placeholder/dev-panel feel with a polished, full-window, console-like home experience closely following the interaction model and information architecture of the Nuvio Desktop home screen. Study the upstream Nuvio Desktop implementation before each relevant design/feature decision; adapt its patterns to native Rust + GPUI. Do not port Kotlin/Compose code or copy its source/assets. Keep SENZO's own branding, logo, typography, and visual identity.
+
+- [ ] Make Home the natural landing screen and primary application experience; move technical controls and diagnostics out of the main browsing surface.
+- [ ] Build a cinematic featured/hero area using backdrop artwork, title, year, genres, rating/overview where available, and clear Play / Details actions.
+- [ ] Build vertically stacked, horizontally scrolling poster shelves with clear category headings and View All navigation.
+- [ ] Include useful default metadata shelves such as Trending, Popular Movies, Popular TV, and Continue Watching; show only categories with real data.
+- [ ] Dynamically create additional shelves from catalogs declared by enabled, user-installed Stremio add-ons; never install or enable any add-on by default.
+- [ ] Support configurable shelf visibility and ordering, with sensible defaults and graceful empty/loading/error states.
+- [ ] Build reusable poster cards with artwork fallbacks, title/year metadata, watched/progress indicators, hover preview on pointer devices, and visible keyboard/controller focus states.
+- [ ] Implement smooth vertical page navigation and horizontal shelf navigation, preserving focus and scroll position when opening/closing details.
+- [ ] Make the interface console-like: large readable artwork and controls, predictable directional focus movement, keyboard navigation, Back/Escape behavior, and game-controller navigation where supported by GPUI/native input APIs. Mouse support remains available but must not be required.
+- [ ] Add responsive layout for common desktop resolutions and display scaling; lazy-load artwork and catalog rows and use bounded local image/catalog caches.
+- [ ] Connect poster/hero activation to existing TMDB details, season/episode browsing, source discovery, and MPV playback instead of placeholder buttons.
+- [ ] Add automated UI/state tests for shelf ordering, focus navigation, empty states, and catalog loading; validate the packaged Windows build in addition to CI checks.
+- [ ] Document the final Home navigation model and user-configurable categories.
+
+**Reference implementation to study:** `NuvioMedia/NuvioDesktop` on branch `Dev`, especially `HomeScreen.kt`, `HomeRepository.kt`, `HomeCatalogDefinitions.kt`, `HomeHeroSection.kt`, `HomeCatalogSection.kt`, `HomePosterCard.kt`, and `HomeSectionLayout.kt`. These files demonstrate the hero + dynamic catalog shelves + Continue Watching composition and should inform SENZO's equivalent GPUI components and data flow.
+
+## Phase 8 — Additional sources and presence (Batch 7)
 
 - [ ] Define a stable source-adapter interface for additional providers.
 - [ ] Add more authorized source adapters without changing metadata or playback layers.
 - [ ] Add Discord Rich Presence, playback-state updates, and privacy controls.
 
-## Phase 7 — Windows distribution
+## Phase 9 — Windows distribution
 
 - [ ] Build optimized Windows release binaries in GitHub Actions.
 - [ ] Build a per-machine Windows installer targeting `%ProgramFiles%\\SENZO` (normally `C:\\Program Files\\SENZO`), with UAC elevation, Start Menu shortcuts, and a Windows uninstall entry.
