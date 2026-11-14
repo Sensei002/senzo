@@ -614,7 +614,8 @@ impl SenzoApp {
                                     .into_iter()
                                     .map(|item| {
                                         let kind = item.media_type.clone().unwrap_or_else(|| {
-                                            if item.title.is_some() || item.original_title.is_some() {
+                                            if item.title.is_some() || item.original_title.is_some()
+                                            {
                                                 "movie".into()
                                             } else {
                                                 "tv".into()
