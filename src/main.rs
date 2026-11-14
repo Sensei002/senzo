@@ -70,6 +70,7 @@ struct SenzoApp {
     tmdb_results: Vec<(String, TmdbSearchResult)>,
     tmdb_status: String,
     home_catalogs: Vec<(String, String, TmdbSearchResult)>,
+    home_addon_catalogs: Vec<(String, StoredAddon, String, Vec<Value>)>,
     home_catalog_status: String,
     home_catalog_requested: bool,
     tmdb_details: Option<Value>,
