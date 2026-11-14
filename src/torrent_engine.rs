@@ -122,11 +122,7 @@ impl TorrentPlaybackSession {
         let magnet_uri = build_magnet_uri(&hash, trackers)?;
         let temp = TorrentSessionDirectory::create_default()?;
         let output_folder = temp.path().to_string_lossy().into_owned();
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .build()
-            .context("could not create the torrent session runtime")?;
+        let runtime = TorrentRuntime::new()?;
 
         let mut options = SessionOptions::default();
         options.disable_upload = true;
