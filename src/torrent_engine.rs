@@ -244,7 +244,10 @@ impl TorrentPlaybackSession {
     }
 
     pub fn progress_snapshot(&self) -> Option<TorrentProgress> {
-        self.progress_cache.lock().ok().and_then(|cache| cache.clone())
+        self.progress_cache
+            .lock()
+            .ok()
+            .and_then(|cache| cache.clone())
     }
 
     pub fn progress(&self) -> Result<Option<TorrentProgress>> {
