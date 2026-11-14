@@ -3572,7 +3572,7 @@ fn render_discovery_page(
                                 .child(div().px_3().py_2().rounded_full().bg(rgb(0x111719)).opacity(0.92)
                                     .text_xs().text_color(rgb(0xE4E4E7)).child("DISCOVER")))
                             .child(div().flex().flex_col().gap_3().max_w(px(720.))
-                                .child(div().text_4xl().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xFBBF24)).child(title))
+                                .child(div().text_2xl().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xFBBF24)).child(title))
                                 .child(div().flex().items_center().gap_2()
                                     .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(0xF4F4F5))
                                         .child(format!("{}  •  {}  •  {}", if kind == "movie" { "Movie" } else { "Series" }, year, rating))))
@@ -3592,7 +3592,7 @@ fn render_discovery_page(
                     .child(div().relative().h_full().p_8().flex().flex_col().justify_between()
                         .child(div().text_xs().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xFBBF24)).child("WELCOME TO SENZO"))
                         .child(div().flex().flex_col().gap_3()
-                            .child(div().text_4xl().font_weight(gpui::FontWeight::BOLD).child("Your next favourite starts here"))
+                            .child(div().text_2xl().font_weight(gpui::FontWeight::BOLD).child("Your next favourite starts here"))
                             .child(div().text_base().text_color(rgb(0xA1A1AA)).child(home_catalog_status.clone()))))
             };
             this.child(hero).child(div().text_xs().text_color(rgb(0x858C94)).child(home_catalog_status.clone()))
