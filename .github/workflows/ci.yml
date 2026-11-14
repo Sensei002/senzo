@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: windows-ci-${{ github.workflow }}-${{ github.ref }}
@@ -30,6 +30,10 @@ jobs:
 
       - name: Check formatting
         run: cargo fmt --all -- --check
+
+      - name: Generate Cargo.lock when absent
+        if: ${{ hashFiles('Cargo.lock') == '' }}
+        run: cargo generate-lockfile
 
       - name: Check compilation
         run: cargo check --all-targets --locked
@@ -88,3 +92,16 @@ jobs:
           path: dist/SENZO/
           if-no-files-found: error
           retention-days: 14
+
+      - name: Commit generated Cargo.lock on development
+        if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+        shell: pwsh
+        run: |
+          git add Cargo.lock
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Add Cargo.lock for reproducible builds"
+            git push origin "HEAD:development"
+          }
