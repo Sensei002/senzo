@@ -2091,12 +2091,12 @@ impl Render for SenzoApp {
             .text_color(rgb(0xF4F4F5))
             .child(
                 div()
-                    .w(px(218.))
+                    .w(px(76.))
                     .h_full()
                     .flex()
                     .flex_col()
                     .gap_6()
-                    .p_5()
+                    .p_3()
                     .bg(rgb(0x101315))
                     .child(
                         div()
@@ -2111,10 +2111,10 @@ impl Render for SenzoApp {
                             )
                             .child(
                                 div()
-                                    .text_xl()
+                                    .text_lg()
                                     .font_weight(gpui::FontWeight::BOLD)
                                     .text_color(rgb(0xF8FAFC))
-                                    .child("SENZO"),
+                                    .child("S"),
                             ),
                     )
                     .child(
@@ -2122,13 +2122,13 @@ impl Render for SenzoApp {
                             .flex()
                             .flex_col()
                             .gap_2()
-                            .child(dynamic_choice_chip("Home".into(), self.active_page == AppPage::Home, |this, _cx| this.active_page = AppPage::Home, cx))
-                            .child(dynamic_choice_chip("Movies".into(), self.active_page == AppPage::Movies, |this, _cx| this.active_page = AppPage::Movies, cx))
-                            .child(dynamic_choice_chip("TV Shows".into(), self.active_page == AppPage::TvShows, |this, _cx| this.active_page = AppPage::TvShows, cx))
-                            .child(dynamic_choice_chip("Search".into(), self.active_page == AppPage::Search, |this, _cx| this.active_page = AppPage::Search, cx))
-                            .child(dynamic_choice_chip("Library".into(), self.active_page == AppPage::Library, |this, _cx| this.active_page = AppPage::Library, cx))
-                            .child(dynamic_choice_chip("Add-ons".into(), self.active_page == AppPage::Addons, |this, _cx| this.active_page = AppPage::Addons, cx))
-                            .child(dynamic_choice_chip("Settings".into(), self.active_page == AppPage::Settings, |this, _cx| this.active_page = AppPage::Settings, cx)),
+                            .child(dynamic_choice_chip("⌂".into(), self.active_page == AppPage::Home, |this, _cx| this.active_page = AppPage::Home, cx))
+                            .child(dynamic_choice_chip("▣".into(), self.active_page == AppPage::Movies, |this, _cx| this.active_page = AppPage::Movies, cx))
+                            .child(dynamic_choice_chip("▤".into(), self.active_page == AppPage::TvShows, |this, _cx| this.active_page = AppPage::TvShows, cx))
+                            .child(dynamic_choice_chip("⌕".into(), self.active_page == AppPage::Search, |this, _cx| this.active_page = AppPage::Search, cx))
+                            .child(dynamic_choice_chip("▧".into(), self.active_page == AppPage::Library, |this, _cx| this.active_page = AppPage::Library, cx))
+                            .child(dynamic_choice_chip("＋".into(), self.active_page == AppPage::Addons, |this, _cx| this.active_page = AppPage::Addons, cx))
+                            .child(dynamic_choice_chip("⚙".into(), self.active_page == AppPage::Settings, |this, _cx| this.active_page = AppPage::Settings, cx)),
                     )
                     .child(div().flex_1())
                     .child(
@@ -3553,31 +3553,47 @@ fn render_discovery_page(
                 let title = item.display_title().unwrap_or("Featured title").to_owned();
                 let year = item.release_date.as_deref().or(item.first_air_date.as_deref())
                     .and_then(|date| date.get(0..4)).unwrap_or("—").to_owned();
-                let rating = item.vote_average.map(|value| format!(" · ★ {value:.1}/10")).unwrap_or_default();
+                let rating = item.vote_average.map(|value| format!("★ {:.1}/10", value)).unwrap_or_else(|| "Not rated".into());
                 let overview = item.overview.clone().unwrap_or_else(|| "Discover more details and available sources.".into());
                 let selected = item.clone();
                 let selected_kind = kind.clone();
-                div().w_full().min_h(px(290.)).rounded_xl().bg(rgb(0x151D20))
-                    .border_1().border_color(rgb(0x263238)).relative().overflow_hidden()
-                    .when_some(tmdb_artwork_url(item.backdrop_path.as_deref(), "w1280"), |panel, url| {
-                        panel.child(img(url).w_full().h(px(290.)).object_fit(ObjectFit::Cover))
+                let backdrop = tmdb_artwork_url(item.backdrop_path.as_deref(), "w1280");
+                div().w_full().h(px(520.)).relative().overflow_hidden().bg(rgb(0x101619))
+                    .when_some(backdrop, |panel, url| {
+                        panel.child(img(url).absolute().size_full().object_fit(ObjectFit::Cover))
                     })
-                    .child(div().absolute().inset_0().bg(rgb(0x090D10)).opacity(0.78))
-                    .child(div().relative().p_6().flex().flex_col().justify_between().min_h(px(290.))
-                    .child(div().text_xs().text_color(rgb(0x67E8F9)).font_weight(gpui::FontWeight::SEMIBOLD).child("FEATURED · TRENDING"))
-                    .child(div().flex().flex_col().gap_3()
-                        .child(div().text_2xl().font_weight(gpui::FontWeight::BOLD).child(title.clone()))
-                        .child(div().text_sm().text_color(rgb(0xA1A1AA)).child(format!("{year} · {}{rating}", if kind == "movie" { "Movie" } else { "Series" })))
-                        .child(div().max_w(px(760.)).text_sm().text_color(rgb(0xD4D4D8)).child(overview))
-                        .child(div().flex().gap_2()
-                            .child(dynamic_choice_chip("View details".into(), true, move |this, cx| this.select_tmdb_title(selected_kind.clone(), selected.clone(), cx), cx))
-                            .child(dynamic_choice_chip("Explore movies".into(), false, |this, cx| this.load_tmdb_catalog("movie", None, cx), cx)))))
+                    .child(div().absolute().inset_0().bg(rgb(0x05090C)).opacity(0.28))
+                    .child(div().absolute().left_0().top_0().bottom_0().w(px(900.)).bg(rgb(0x070A0D)).opacity(0.76))
+                    .child(div().absolute().left_0().right_0().bottom_0().h(px(250.)).bg(rgb(0x070A0D)).opacity(0.58))
+                    .child(
+                        div().relative().h_full().p_8().flex().flex_col().justify_between()
+                            .child(div().flex().items_center().justify_between()
+                                .child(div().text_xs().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xFBBF24)).child("SENZO  /  FEATURED"))
+                                .child(div().px_3().py_2().rounded_full().bg(rgb(0x111719)).opacity(0.92)
+                                    .text_xs().text_color(rgb(0xE4E4E7)).child("DISCOVER")))
+                            .child(div().flex().flex_col().gap_3().max_w(px(720.))
+                                .child(div().text_4xl().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xFBBF24)).child(title))
+                                .child(div().flex().items_center().gap_2()
+                                    .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(0xF4F4F5))
+                                        .child(format!("{}  •  {}  •  {}", if kind == "movie" { "Movie" } else { "Series" }, year, rating))))
+                                .child(div().max_w(px(690.)).text_base().text_color(rgb(0xE4E4E7)).child(overview))
+                                .child(div().flex().items_center().gap_3().pt_2()
+                                    .child(dynamic_choice_chip("View details".into(), true, move |this, cx| this.select_tmdb_title(selected_kind.clone(), selected.clone(), cx), cx))
+                                    .child(dynamic_choice_chip("Explore movies".into(), false, |this, cx| this.load_tmdb_catalog("movie", None, cx), cx))))
+                            .child(div().flex().items_center().justify_end().gap_2()
+                                .children((0..7).map(|index| {
+                                    div().size(px(if index == 0 { 9. } else { 7. }))
+                                        .rounded_full().bg(if index == 0 { rgb(0xF4F4F5) } else { rgb(0x858C94) })
+                                })))
+                    )
             } else {
-                div().w_full().min_h(px(220.)).rounded_xl().bg(rgb(0x151D20)).p_6().flex().flex_col().justify_between()
-                    .child(div().text_xs().text_color(rgb(0x67E8F9)).child("WELCOME TO SENZO"))
-                    .child(div().flex().flex_col().gap_2()
-                        .child(div().text_2xl().font_weight(gpui::FontWeight::BOLD).child("Your next favourite starts here"))
-                        .child(div().text_sm().text_color(rgb(0xA1A1AA)).child(home_catalog_status.clone())))
+                div().w_full().h(px(520.)).relative().overflow_hidden().bg(rgb(0x101619))
+                    .child(div().absolute().inset_0().bg(rgb(0x090D10)).opacity(0.35))
+                    .child(div().relative().h_full().p_8().flex().flex_col().justify_between()
+                        .child(div().text_xs().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xFBBF24)).child("WELCOME TO SENZO"))
+                        .child(div().flex().flex_col().gap_3()
+                            .child(div().text_4xl().font_weight(gpui::FontWeight::BOLD).child("Your next favourite starts here"))
+                            .child(div().text_base().text_color(rgb(0xA1A1AA)).child(home_catalog_status.clone()))))
             };
             this.child(hero).child(div().text_xs().text_color(rgb(0x858C94)).child(home_catalog_status.clone()))
                 .when(!continue_watching_cards.is_empty(), |panel| {
