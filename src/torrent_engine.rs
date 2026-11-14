@@ -98,7 +98,7 @@ pub struct TorrentPlaybackSession {
     stream_cancel: Option<CancellationToken>,
     stream_task: Option<JoinHandle<Result<()>>>,
     stream_url: Option<String>,
-    runtime: Option<Runtime>,
+    runtime: Option<TorrentRuntime>,
     progress_cache: Arc<Mutex<Option<TorrentProgress>>>,
     progress_cancel: Option<CancellationToken>,
     progress_task: Option<JoinHandle<()>>,
