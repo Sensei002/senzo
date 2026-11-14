@@ -437,7 +437,8 @@ impl SenzoApp {
         let mut addon_catalog_specs = Vec::new();
         if let Ok(addons) = self.database.installed_addons() {
             'addons: for addon in addons.into_iter().filter(|addon| addon.enabled) {
-                let Ok(manifest) = serde_json::from_str::<AddonManifest>(&addon.manifest_json) else {
+                let Ok(manifest) = serde_json::from_str::<AddonManifest>(&addon.manifest_json)
+                else {
                     continue;
                 };
                 if !manifest.supports_resource("catalog") {
@@ -447,16 +448,26 @@ impl SenzoApp {
                     let Some(catalog_id) = catalog.get("id").and_then(Value::as_str) else {
                         continue;
                     };
-                    let media_type = catalog.get("type").and_then(Value::as_str).unwrap_or("movie");
+                    let media_type = catalog
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .unwrap_or("movie");
                     if !matches!(media_type, "movie" | "series" | "tv") {
                         continue;
                     }
                     // Catalogs that require user-supplied filters are exposed in the Add-ons
                     // page, but are not guessed or silently queried from the Home screen.
-                    if catalog.get("extraRequired").and_then(Value::as_array).is_some_and(|items| !items.is_empty()) {
+                    if catalog
+                        .get("extraRequired")
+                        .and_then(Value::as_array)
+                        .is_some_and(|items| !items.is_empty())
+                    {
                         continue;
                     }
-                    let catalog_name = catalog.get("name").and_then(Value::as_str).unwrap_or(catalog_id);
+                    let catalog_name = catalog
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or(catalog_id);
                     addon_catalog_specs.push((
                         addon.clone(),
                         media_type.to_owned(),
