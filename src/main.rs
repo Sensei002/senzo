@@ -3362,6 +3362,36 @@ fn render_discovery_page(
                             .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child(shelf_name))
                             .child(div().text_xs().text_color(rgb(0x67E8F9)).child("VIEW ALL")))
                         .child(div().w_full().id(shelf_name).overflow_x_scroll().flex().gap_3().children(cards)))
+                }))                .children(home_addon_catalogs.iter().map(|(shelf_name, addon, media_type, items)| {
+                    let cards = items.iter().filter_map(|item| {
+                        let title = item.get("name").or_else(|| item.get("title"))
+                            .and_then(Value::as_str)?.to_owned();
+                        let selected = item.clone();
+                        let selected_addon = addon.clone();
+                        let poster = safe_addon_artwork_url(item.get("poster").and_then(Value::as_str));
+                        let year = item.get("releaseInfo").and_then(Value::as_str)
+                            .or_else(|| item.get("year").and_then(Value::as_str))
+                            .unwrap_or(" ");
+                        Some(div().w(px(164.)).flex_shrink_0().rounded_lg().bg(rgb(0x171D20))
+                            .border_1().border_color(rgb(0x263238)).overflow_hidden().flex().flex_col().gap_2()
+                            .child(div().w_full().h(px(236.)).bg(rgb(0x20272B))
+                                .when_some(poster, |panel, url| {
+                                    panel.child(img(url).w_full().h(px(236.)).object_fit(ObjectFit::Cover))
+                                }))
+                            .child(div().px_2().pb_2().flex().flex_col().gap_1()
+                                .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
+                                .child(div().text_xs().text_color(rgb(0x9299A1)).child(year.to_owned()))
+                                .child(dynamic_choice_chip("Details".into(), false, move |this, cx| {
+                                    this.select_addon_catalog_meta(selected_addon.clone(), selected.clone(), cx)
+                                }, cx)))
+                        )
+                    }).collect::<Vec<_>>();
+                    div().flex().flex_col().gap_3()
+                        .child(div().flex().items_center().justify_between()
+                            .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child(shelf_name.clone()))
+                            .child(div().text_xs().text_color(rgb(0x67E8F9)).child("ADD-ON")))
+                        .child(div().w_full().id(format!("addon-shelf-{}-{}", addon.id, media_type))
+                            .overflow_x_scroll().flex().gap_3().children(cards))
                 }))
         })
         .when(is_details, |this| {
@@ -3579,6 +3609,31 @@ fn tmdb_artwork_url(path: Option<&str>, size: &str) -> Option<String> {
         return None;
     }
     Some(format!("https://image.tmdb.org/t/p/{size}/{path}"))
+}
+
+fn safe_addon_artwork_url(value: Option<&str>) -> Option<String> {
+    let url = url::Url::parse(value?).ok()?;
+    if url.scheme() != "https"
+        || url.host().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        return None;
+    }
+    if let Some(url::Host::Domain(host)) = url.host() {
+        let host = host.trim_end_matches('.').to_ascii_lowercase();
+        if host == "localhost"
+            || host.ends_with(".localhost")
+            || host.ends_with(".local")
+            || host.ends_with(".internal")
+        {
+            return None;
+        }
+    } else {
+        return None;
+    }
+    Some(url.to_string())
 }
 
 fn format_playback_time(seconds: Option<f64>) -> String {
