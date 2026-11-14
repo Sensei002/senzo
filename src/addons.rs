@@ -1,4 +1,7 @@
-use std::{net::{IpAddr, ToSocketAddrs}, time::Duration};
+use std::{
+    net::{IpAddr, ToSocketAddrs},
+    time::Duration,
+};
 
 use anyhow::{Context, Result, bail};
 use reqwest::{Client, StatusCode, redirect::Policy};
@@ -171,9 +174,14 @@ impl AddonClient {
 
 async fn client_for_public_url(url: &Url) -> Result<Client> {
     let host = url.host_str().context("add-on URL has no host")?.to_owned();
-    let port = url.port_or_known_default().context("add-on URL has no known port")?;
+    let port = url
+        .port_or_known_default()
+        .context("add-on URL has no known port")?;
 
-    if url.host().is_some_and(|host| !matches!(host, Host::Domain(_))) {
+    if url
+        .host()
+        .is_some_and(|host| !matches!(host, Host::Domain(_)))
+    {
         return Ok(Client::builder()
             .user_agent(concat!("SENZO/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(5))
@@ -195,7 +203,10 @@ async fn client_for_public_url(url: &Url) -> Result<Client> {
     if addresses.is_empty() {
         bail!("the add-on hostname did not resolve to any addresses");
     }
-    if addresses.iter().any(|address| is_disallowed_ip(address.ip())) {
+    if addresses
+        .iter()
+        .any(|address| is_disallowed_ip(address.ip()))
+    {
         bail!("the add-on hostname resolves to a local or reserved IP address");
     }
 
