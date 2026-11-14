@@ -1,5 +1,5 @@
 //! Embedded torrent engine and loopback-only HTTP range streaming.
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use axum::{
@@ -18,6 +18,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncSeekExt, SeekFrom},
     net::TcpListener,
     task::JoinHandle,
+    runtime::Runtime,
 };
 use tokio_util::{io::ReaderStream, sync::CancellationToken};
 use uuid::Uuid;
@@ -57,15 +58,29 @@ pub struct TorrentPlaybackSession {
     stream_cancel: Option<CancellationToken>,
     stream_task: Option<JoinHandle<Result<()>>>,
     stream_url: Option<String>,
+    runtime: Option<Runtime>,
 }
 
 impl TorrentPlaybackSession {
     /// Resolve metadata and enumerate video files without downloading payload data.
     pub async fn inspect(info_hash: &str) -> Result<(Self, Vec<TorrentVideoFile>)> {
+        Self::inspect_with_trackers(info_hash, &[]).await
+    }
+
+    /// Resolve metadata using tracker sources supplied by the selected add-on.
+    pub async fn inspect_with_trackers(
+        info_hash: &str,
+        trackers: &[String],
+    ) -> Result<(Self, Vec<TorrentVideoFile>)> {
         let hash = normalize_v1_info_hash(info_hash)?;
+        let magnet_uri = build_magnet_uri(&hash, trackers)?;
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .context("could not create the torrent session runtime")?;
         let temp = TorrentSessionDirectory::create_default()?;
         let output_folder = temp.path().to_string_lossy().into_owned();
-        let magnet_uri = format!("magnet:?xt=urn:btih:{hash}");
 
         let mut options = SessionOptions::default();
         options.disable_upload = true;
@@ -109,6 +124,7 @@ impl TorrentPlaybackSession {
             stream_cancel: None,
             stream_task: None,
             stream_url: None,
+            runtime: Some(runtime),
         };
         Ok((playback, files))
     }
@@ -157,10 +173,14 @@ impl TorrentPlaybackSession {
             .context("could not bind the loopback torrent stream endpoint")?;
         let address: SocketAddr = listener.local_addr()?;
         let router = Router::new()
-            .route("/{token}/{torrent_id}/{file_id}", get(stream_torrent_file))
+            .route(
+                "/{token}/{torrent_id}/{file_id}",
+                get(stream_torrent_file).head(stream_torrent_file),
+            )
             .with_state(state);
         let shutdown = cancel.clone();
-        let task = tokio::spawn(async move {
+        let runtime = self.runtime.as_ref().context("torrent runtime is closed")?;
+        let task = runtime.handle().spawn(async move {
             axum::serve(listener, router)
                 .with_graceful_shutdown(shutdown.cancelled_owned())
                 .await
@@ -201,24 +221,37 @@ impl TorrentPlaybackSession {
         if let Some(cancel) = self.stream_cancel.take() {
             cancel.cancel();
         }
-        if let Some(task) = self.stream_task.take() {
-            task.await
-                .context("torrent stream server task panicked")??;
-        }
-        if let (Some(api), Some(id)) = (self.api.as_ref(), self.torrent_id.take()) {
-            api.api_torrent_action_delete(TorrentIdOrHash::Id(id))
+        if let Some(mut task) = self.stream_task.take() {
+            if tokio::time::timeout(Duration::from_secs(5), &mut task)
                 .await
-                .context("could not stop the torrent and close its files")?;
+                .is_err()
+            {
+                task.abort();
+                let _ = task.await;
+            }
+        }
+        let mut cleanup_errors = Vec::new();
+        if let (Some(api), Some(id)) = (self.api.as_ref(), self.torrent_id.take()) {
+            if let Err(error) = api.api_torrent_action_delete(TorrentIdOrHash::Id(id)).await {
+                cleanup_errors.push(format!("torrent stop failed: {error:#}"));
+            }
         }
         if let Some(session) = self.session.take() {
             session.cancellation_token().cancel();
             drop(session);
         }
         self.api.take();
+        self.runtime.take();
         if let Some(temp) = self.temp.take() {
-            temp.close()?;
+            if let Err(error) = temp.close() {
+                cleanup_errors.push(format!("temporary session cleanup failed: {error:#}"));
+            }
         }
-        Ok(())
+        if cleanup_errors.is_empty() {
+            Ok(())
+        } else {
+            bail!("{}", cleanup_errors.join("; "))
+        }
     }
 }
 
@@ -308,19 +341,53 @@ fn parse_single_byte_range(value: &str, total: u64) -> Result<(u64, u64)> {
         bail!("multiple byte ranges are not supported");
     }
     let (start, end) = range.split_once('-').context("invalid byte range")?;
-    let start = start.parse::<u64>().context("invalid range start")?;
-    let end = if end.is_empty() {
-        total
+    let (start, end) = if start.is_empty() {
+        let suffix = end.parse::<u64>().context("invalid suffix range")?;
+        if suffix == 0 {
+            bail!("suffix byte range must be greater than zero");
+        }
+        (total.saturating_sub(suffix), total)
     } else {
-        end.parse::<u64>()
-            .context("invalid range end")?
-            .checked_add(1)
-            .context("range end overflow")?
+        let start = start.parse::<u64>().context("invalid range start")?;
+        let end = if end.is_empty() {
+            total
+        } else {
+            end.parse::<u64>()
+                .context("invalid range end")?
+                .checked_add(1)
+                .context("range end overflow")?
+        };
+        (start, end)
     };
     if start >= total || end <= start || end > total {
         bail!("requested byte range is not satisfiable");
     }
     Ok((start, end))
+}
+
+fn build_magnet_uri(hash: &str, trackers: &[String]) -> Result<String> {
+    let mut magnet = url::Url::parse(&format!("magnet:?xt=urn:btih:{hash}"))?;
+    {
+        let mut query = magnet.query_pairs_mut();
+        for source in trackers.iter().take(32) {
+            let tracker = source.strip_prefix("tracker:").unwrap_or(source).trim();
+            if tracker.is_empty() {
+                continue;
+            }
+            let parsed = url::Url::parse(tracker)
+                .context("add-on supplied an invalid torrent tracker")?;
+            if !matches!(parsed.scheme(), "udp" | "http" | "https")
+                || parsed.host().is_none()
+                || !parsed.username().is_empty()
+                || parsed.password().is_some()
+                || parsed.fragment().is_some()
+            {
+                bail!("torrent trackers must be absolute UDP, HTTP, or HTTPS URLs");
+            }
+            query.append_pair("tr", parsed.as_str());
+        }
+    }
+    Ok(magnet.into())
 }
 
 fn normalize_v1_info_hash(input: &str) -> Result<String> {
@@ -385,6 +452,24 @@ mod tests {
     }
 
     #[test]
+    fn builds_magnet_with_only_valid_explicit_trackers() {
+        let magnet = build_magnet_uri(
+            &"a".repeat(40),
+            &[
+                "tracker:udp://tracker.example:1337/announce".into(),
+                "https://tracker.example/announce".into(),
+            ],
+        )
+        .unwrap();
+        let parsed = url::Url::parse(&magnet).unwrap();
+        let pairs = parsed.query_pairs().collect::<Vec<_>>();
+        assert_eq!(pairs.len(), 3);
+        assert_eq!(pairs[0].0, "xt");
+        assert_eq!(pairs[1].0, "tr");
+        assert!(build_magnet_uri(&"a".repeat(40), &["file:///etc/passwd".into()]).is_err());
+    }
+
+    #[test]
     fn validates_single_byte_ranges() {
         assert_eq!(
             parse_single_byte_range("bytes=10-19", 100).unwrap(),
@@ -394,9 +479,18 @@ mod tests {
             parse_single_byte_range("bytes=90-", 100).unwrap(),
             (90, 100)
         );
+        assert_eq!(
+            parse_single_byte_range("bytes=-10", 100).unwrap(),
+            (90, 100)
+        );
+        assert_eq!(
+            parse_single_byte_range("bytes=-200", 100).unwrap(),
+            (0, 100)
+        );
         assert!(parse_single_byte_range("bytes=0-10,20-30", 100).is_err());
         assert!(parse_single_byte_range("bytes=100-", 100).is_err());
         assert!(parse_single_byte_range("bytes=20-10", 100).is_err());
+        assert!(parse_single_byte_range("bytes=-0", 100).is_err());
     }
 
     #[test]
