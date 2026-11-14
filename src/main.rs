@@ -11,6 +11,7 @@ use gpui::{
 };
 
 use senzo::{
+    addons::{AddonClient, AddonManifestPreview},
     diagnostics,
     metadata::TmdbCredentialStore,
     playback::{
@@ -59,6 +60,9 @@ struct SenzoApp {
     subtitle_credentials_status: String,
     tmdb_credentials_status: String,
     subtitle_task: Option<Task<()>>,
+    addon_manifest_preview: Option<AddonManifestPreview>,
+    addon_status: String,
+    addon_task: Option<Task<()>>,
     native_parent_hwnd: Option<usize>,
     native_viewport_bounds: Arc<Mutex<Option<SurfaceBounds>>>,
     native_video_surface: Arc<Mutex<Option<WindowsVideoSurface>>>,
@@ -111,6 +115,9 @@ impl SenzoApp {
                 }
             },
             subtitle_task: None,
+            addon_manifest_preview: None,
+            addon_status: "Copy a Stremio manifest URL, then choose Paste URL to preview it".into(),
+            addon_task: None,
             native_parent_hwnd,
             native_viewport_bounds: Arc::new(Mutex::new(None)),
             native_video_surface: Arc::new(Mutex::new(None)),
@@ -348,6 +355,89 @@ impl SenzoApp {
             Err(error) => {
                 self.playback_status = format!("Could not open media: {error:#}");
                 diagnostics::record(diagnostics::Level::Error, "playback", &self.playback_status);
+            }
+        }
+        cx.notify();
+    }
+
+    fn preview_addon_from_clipboard(&mut self, cx: &mut Context<Self>) {
+        let Some(input) = cx
+            .read_from_clipboard()
+            .and_then(|item| item.text())
+            .filter(|value| !value.trim().is_empty())
+        else {
+            self.addon_status = "Clipboard does not contain a manifest URL".into();
+            cx.notify();
+            return;
+        };
+
+        self.addon_status = "Fetching and validating add-on manifest…".into();
+        self.addon_manifest_preview = None;
+        self.addon_task = Some(cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move {
+                    let client = AddonClient::new();
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .context("could not initialize add-on preview runtime")?;
+                    runtime.block_on(client.preview_from_url(&input))
+                })
+                .await;
+
+            let _ = this.update(cx, |app, cx| {
+                match result {
+                    Ok(preview) => {
+                        app.addon_status = format!(
+                            "Manifest verified: {} · version {}",
+                            preview.manifest.name, preview.manifest.version
+                        );
+                        app.addon_manifest_preview = Some(preview);
+                    }
+                    Err(error) => {
+                        app.addon_status = format!("Manifest preview failed: {error:#}");
+                        diagnostics::record(
+                            diagnostics::Level::Warn,
+                            "addons",
+                            "user-supplied add-on manifest preview failed",
+                        );
+                    }
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    fn confirm_addon_install(&mut self, cx: &mut Context<Self>) {
+        let Some(preview) = self.addon_manifest_preview.take() else {
+            return;
+        };
+        let installed_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|value| value.as_secs() as i64)
+            .unwrap_or_default();
+        let addon = StoredAddon {
+            id: preview.manifest.id,
+            name: preview.manifest.name,
+            version: preview.manifest.version,
+            manifest_url: preview.manifest_url,
+            enabled: true,
+            manifest_json: preview.manifest_json,
+            installed_at,
+        };
+        match self.database.save_addon(&addon) {
+            Ok(()) => {
+                self.addon_status = format!("Installed {} successfully", addon.name);
+                diagnostics::record(
+                    diagnostics::Level::Audit,
+                    "addons",
+                    "user explicitly installed a previewed Stremio add-on",
+                );
+            }
+            Err(error) => {
+                self.addon_status = format!("Could not install add-on: {error:#}");
+                self.addon_manifest_preview = None;
             }
         }
         cx.notify();
@@ -2007,6 +2097,8 @@ impl Render for SenzoApp {
                     self.selected_title.clone(),
                     self.search_query.clone(),
                     self.database.installed_addons().unwrap_or_default(),
+                    self.addon_manifest_preview.clone(),
+                    self.addon_status.clone(),
                     cx,
                 ))
             })
@@ -2018,6 +2110,8 @@ fn render_discovery_page(
     selected_title: Option<String>,
     search_query: String,
     installed_addons: Vec<StoredAddon>,
+    addon_manifest_preview: Option<AddonManifestPreview>,
+    addon_status: String,
     cx: &mut Context<SenzoApp>,
 ) -> impl IntoElement {
     let (heading, description) = match page {
@@ -2270,10 +2364,48 @@ fn render_discovery_page(
                             .bg(rgb(0x151719))
                             .flex()
                             .flex_col()
-                            .gap_2()
-                            .child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child("User-installed Stremio add-ons"))
-                            .child(div().text_sm().text_color(rgb(0x9299A1)).child("SENZO ships with no streaming providers. Only add-ons you explicitly install appear here. Add-on manifests and streams are untrusted and are validated before use.")),
+                            .gap_3()
+                            .child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child("Install a Stremio add-on"))
+                            .child(div().text_sm().text_color(rgb(0x9299A1)).child("Copy the add-on's HTTPS manifest URL, then paste it here for a preview. Nothing is installed until you confirm."))
+                            .child(div().text_sm().text_color(rgb(0xB7BEC6)).child(addon_status.clone()))
+                            .child(dynamic_choice_chip(
+                                "Paste manifest URL".into(),
+                                false,
+                                |this, cx| this.preview_addon_from_clipboard(cx),
+                                cx,
+                            ))
+                            .when(addon_manifest_preview.is_some(), |panel| {
+                                let preview = addon_manifest_preview.clone().expect("preview exists");
+                                panel.child(
+                                    div()
+                                        .p_4()
+                                        .rounded_md()
+                                        .bg(rgb(0x101315))
+                                        .flex()
+                                        .flex_col()
+                                        .gap_2()
+                                        .child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child(preview.manifest.name.clone()))
+                                        .child(div().text_xs().text_color(rgb(0xA1A1AA)).child(format!("{} · version {}", preview.manifest.id, preview.manifest.version)))
+                                        .child(div().text_sm().text_color(rgb(0x9299A1)).child(preview.manifest.description.clone().unwrap_or_else(|| "No description supplied".into())))
+                                        .child(div().text_xs().text_color(rgb(0x67E8F9)).child(format!("Resources: {}", preview.manifest.resources.iter().map(|value| value.as_str().or_else(|| value.get("name").and_then(serde_json::Value::as_str)).unwrap_or("unknown")).collect::<Vec<_>>().join(", "))))
+                                        .child(div().flex().flex_wrap().gap_2()
+                                            .child(dynamic_choice_chip("Confirm install".into(), false, |this, cx| this.confirm_addon_install(cx), cx))
+                                            .child(dynamic_choice_chip("Cancel".into(), false, |this, cx| { this.addon_manifest_preview = None; this.addon_status = "Manifest preview cancelled".into(); cx.notify(); }, cx))),
+                                )
+                            }),
                     )
+                    .child(
+                        div()
+                            .text_base()
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .child(format!("Installed add-ons · {}", installed_addons.len())),
+                    )
+                    .when(installed_addons.is_empty(), |panel| {
+                        panel.child(
+                            div().p_5().rounded_lg().bg(rgb(0x151719))
+                                .child(div().text_sm().text_color(rgb(0x9299A1)).child("No add-ons installed. SENZO never bundles or enables streaming add-ons by default.")),
+                        )
+                    })
                     .children(installed_addons.into_iter().map(|addon| {
                         let addon_id = addon.id.clone();
                         let toggle_id = addon.id.clone();
