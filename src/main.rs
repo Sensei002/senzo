@@ -592,9 +592,10 @@ impl SenzoApp {
         query: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        self.tmdb_status = match query.as_deref() {
-            Some(value) => format!("Searching TMDB for {value}…"),
-            None => format!("Loading popular {media_type}…"),
+        self.tmdb_status = match (media_type, query.as_deref()) {
+            ("trending", _) => "Loading this week's trending titles…".into(),
+            (_, Some(value)) => format!("Searching TMDB for {value}…"),
+            (_, None) => format!("Loading popular {media_type}…"),
         };
         self.tmdb_results.clear();
         self.tmdb_task = Some(cx.spawn(async move |this, cx| {
@@ -606,6 +607,24 @@ impl SenzoApp {
                         .build()
                         .context("could not initialize TMDB runtime")?;
                     runtime.block_on(async {
+                        if media_type == "trending" && query.is_none() {
+                            let page = client.trending_all_week(1).await?;
+                            return Ok::<_, anyhow::Error>(
+                                page.results
+                                    .into_iter()
+                                    .map(|item| {
+                                        let kind = item.media_type.clone().unwrap_or_else(|| {
+                                            if item.title.is_some() || item.original_title.is_some() {
+                                                "movie".into()
+                                            } else {
+                                                "tv".into()
+                                            }
+                                        });
+                                        (kind, item)
+                                    })
+                                    .collect::<Vec<_>>(),
+                            );
+                        }
                         let page = match (media_type, query.as_deref()) {
                             ("movie", Some(query)) => client.search_movies(query, 1).await?,
                             ("tv", Some(query)) => client.search_tv(query, 1).await?,
@@ -3460,7 +3479,15 @@ fn render_discovery_page(
                         .child(div().flex().items_center().justify_between()
                             .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child(shelf_name))
                             .child(dynamic_choice_chip("View all".into(), false, move |this, cx| {
-                                this.load_tmdb_catalog(if shelf_name == "Popular TV" { "tv" } else { "movie" }, None, cx);
+                                this.load_tmdb_catalog(
+                                    match shelf_name.as_str() {
+                                        "Trending this week" => "trending",
+                                        "Popular TV" => "tv",
+                                        _ => "movie",
+                                    },
+                                    None,
+                                    cx,
+                                );
                             }, cx)))
                         .child(div().w_full().id(shelf_name).overflow_x_scroll().flex().gap_3().children(cards)))
                 }))
@@ -3497,48 +3524,183 @@ fn render_discovery_page(
                 }))
         })
         .when(is_details, |this| {
+            let details = tmdb_details.clone().unwrap_or(Value::Null);
+            let title = details
+                .get("name")
+                .or_else(|| details.get("title"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or(selected_title.clone())
+                .unwrap_or_else(|| "Title details".into());
+            let overview = details
+                .get("overview")
+                .or_else(|| details.get("description"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or("No synopsis is available from this provider.")
+                .to_owned();
+            let release = details
+                .get("release_date")
+                .or_else(|| details.get("first_air_date"))
+                .or_else(|| details.get("releaseInfo"))
+                .and_then(Value::as_str)
+                .map(|value| value.chars().take(4).collect::<String>())
+                .unwrap_or_else(|| details.get("year").and_then(Value::as_str).unwrap_or("—").to_owned());
+            let rating = details
+                .get("vote_average")
+                .or_else(|| details.get("imdbRating"))
+                .and_then(Value::as_f64)
+                .map(|value| format!("★ {value:.1}"))
+                .unwrap_or_else(|| "Not rated".into());
+            let genres = details
+                .get("genres")
+                .and_then(Value::as_array)
+                .map(|items| items.iter().filter_map(|item| {
+                    item.as_str().or_else(|| item.get("name").and_then(Value::as_str))
+                }).take(5).collect::<Vec<_>>().join(" · "))
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| "Genres unavailable".into());
+            let poster = tmdb_artwork_url(
+                details.get("poster_path").and_then(Value::as_str),
+                "w500",
+            ).or_else(|| safe_addon_artwork_url(
+                details.get("poster").and_then(Value::as_str),
+            ));
+            let backdrop = tmdb_artwork_url(
+                details.get("backdrop_path").and_then(Value::as_str),
+                "w1280",
+            ).or_else(|| safe_addon_artwork_url(
+                details.get("background").and_then(Value::as_str),
+            ));
             this.child(
                 div()
+                    .w_full()
                     .flex()
-                    .gap_6()
-                    .p_5()
-                    .rounded_xl()
-                    .bg(rgb(0x151719))
+                    .flex_col()
+                    .gap_5()
                     .child(
                         div()
-                            .w(px(190.))
-                            .h(px(285.))
-                            .rounded_lg()
-                            .bg(rgb(0x20272B))
+                            .w_full()
+                            .min_h(px(280.))
+                            .rounded_xl()
+                            .bg(rgb(0x151D20))
+                            .border_1()
+                            .border_color(rgb(0x263238))
+                            .relative()
                             .overflow_hidden()
-                            .when_some(tmdb_artwork_url(
-                                tmdb_details.as_ref().and_then(|details| details.get("poster_path")).and_then(Value::as_str),
-                                "w500",
-                            ), |panel, url| panel.child(img(url).w(px(190.)).h(px(285.)).object_fit(ObjectFit::Cover)))
-                            .when(tmdb_details.as_ref().and_then(|details| details.get("poster_path")).and_then(Value::as_str).is_none(), |panel| {
-                                panel.flex().items_center().justify_center()
-                                    .child(div().text_xs().text_color(rgb(0x858C94)).child("POSTER"))
-                            }),
+                            .when_some(backdrop, |panel, url| {
+                                panel.child(
+                                    img(url)
+                                        .absolute()
+                                        .size_full()
+                                        .object_fit(ObjectFit::Cover),
+                                )
+                            })
+                            .child(
+                                div()
+                                    .w_full()
+                                    .min_h(px(280.))
+                                    .p_6()
+                                    .flex()
+                                    .flex_col()
+                                    .justify_end()
+                                    .gap_3()
+                                    .bg(rgb(0x101719))
+                                    .child(
+                                        div()
+                                            .text_2xl()
+                                            .font_weight(gpui::FontWeight::BOLD)
+                                            .child(title.clone()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(rgb(0xD4D4D8))
+                                            .child(format!("{release} · {rating}")),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgb(0xA1A1AA))
+                                            .child(genres.clone()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(rgb(0xE4E4E7))
+                                            .child(overview.clone()),
+                                    ),
+                            ),
                     )
                     .child(
                         div()
-                            .flex_1()
                             .flex()
-                            .flex_col()
-                            .gap_3()
+                            .gap_5()
+                            .p_5()
+                            .rounded_xl()
+                            .bg(rgb(0x151719))
+                            .border_1()
+                            .border_color(rgb(0x263238))
                             .child(
                                 div()
-                                    .text_xl()
-                                    .font_weight(gpui::FontWeight::BOLD)
-                                    .child(selected_title.unwrap_or_else(|| "Choose a title to see its details".into())),
+                                    .w(px(170.))
+                                    .h(px(255.))
+                                    .flex_shrink_0()
+                                    .rounded_lg()
+                                    .bg(rgb(0x20272B))
+                                    .overflow_hidden()
+                                    .when_some(poster, |panel, url| {
+                                        panel.child(
+                                            img(url)
+                                                .w(px(170.))
+                                                .h(px(255.))
+                                                .object_fit(ObjectFit::Cover),
+                                        )
+                                    })
+                                    .when(details.get("poster_path").is_none() && details.get("poster").is_none(), |panel| {
+                                        panel.flex().items_center().justify_center()
+                                            .child(div().text_xs().text_color(rgb(0x858C94)).child("POSTER"))
+                                    }),
                             )
-                            .child(div().text_sm().text_color(rgb(0xA1A1AA)).child("Release information, synopsis, ratings, cast, trailers and artwork will be populated from TMDB in the metadata integration batch."))
-                            .child(dynamic_choice_chip(
-                                "Back to Home".into(),
-                                false,
-                                |this, _cx| this.active_page = AppPage::Home,
-                                cx,
-                            )),
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .text_lg()
+                                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                                            .child("Available sources"),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgb(0x9299A1))
+                                            .child(stream_status.clone()),
+                                    )
+                                    .child(div().flex().flex_wrap().gap_2().children(stream_chips))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgb(0x9299A1))
+                                            .child(torrent_status.clone()),
+                                    )
+                                    .child(div().flex().flex_wrap().gap_2().children(torrent_file_chips))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_wrap()
+                                            .gap_2()
+                                            .child(dynamic_choice_chip(
+                                                "Back to Home".into(),
+                                                false,
+                                                |this, _cx| this.active_page = AppPage::Home,
+                                                cx,
+                                            )),
+                                    ),
+                            ),
                     ),
             )
         })
