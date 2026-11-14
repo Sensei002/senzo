@@ -44,6 +44,7 @@ pub struct TorrentProgress {
     pub uploaded_bytes: u64,
     pub finished: bool,
     pub state: String,
+    pub error: Option<String>,
 }
 
 #[derive(Clone)]
@@ -100,27 +101,43 @@ impl TorrentPlaybackSession {
             dht.persistence = None;
         }
 
-        let session = Session::new_with_opts(PathBuf::from(&output_folder), options)
+        options.peer_limit = Some(50);
+        options.runtime_worker_threads = Some(2);
+
+        let session_runtime = runtime.handle().clone();
+        let session_task = session_runtime.spawn(async move {
+            let session = Session::new_with_opts(PathBuf::from(&output_folder), options)
+                .await
+                .context("could not start the temporary torrent engine")?;
+            let api = Api::new(session.clone(), None);
+            let list_options = AddTorrentOptions {
+                list_only: true,
+                output_folder: Some(output_folder),
+                ..Default::default()
+            };
+            let listing = match api
+                .api_add_torrent(
+                    AddTorrent::from_url(magnet_uri.as_str()),
+                    Some(list_options),
+                )
+                .await
+            {
+                Ok(listing) => listing,
+                Err(error) => {
+                    session.stop().await;
+                    return Err(error).context("could not resolve torrent metadata or list its files");
+                }
+            };
+            let files = video_files_from_response(&listing);
+            if files.is_empty() {
+                session.stop().await;
+                bail!("this torrent does not contain a supported video file");
+            }
+            Ok::<_, anyhow::Error>((session, api, files))
+        });
+        let (session, api, files) = session_task
             .await
-            .context("could not start the temporary torrent engine")?;
-        let api = Api::new(session.clone(), None);
-        let list_options = AddTorrentOptions {
-            list_only: true,
-            output_folder: Some(output_folder),
-            ..Default::default()
-        };
-        let listing = api
-            .api_add_torrent(
-                AddTorrent::from_url(magnet_uri.as_str()),
-                Some(list_options),
-            )
-            .await
-            .context("could not resolve torrent metadata or list its files")?;
-        let files = video_files_from_response(&listing);
-        if files.is_empty() {
-            session.stop().await;
-            bail!("this torrent does not contain a supported video file");
-        }
+            .context("torrent metadata task panicked")??;
 
         let playback = Self {
             session: Some(session),
@@ -155,19 +172,34 @@ impl TorrentPlaybackSession {
             .path()
             .to_string_lossy()
             .into_owned();
-        let api = self.api.as_ref().context("torrent engine is closed")?;
+        let api = self
+            .api
+            .as_ref()
+            .context("torrent engine is closed")?
+            .clone();
+        let magnet_uri = self.magnet_uri.clone();
+        let runtime_handle = self
+            .runtime
+            .as_ref()
+            .context("torrent runtime is closed")?
+            .handle()
+            .clone();
         let add_options = AddTorrentOptions {
             only_files: Some(vec![file_index]),
             output_folder: Some(output_folder),
             ..Default::default()
         };
-        let added: ApiAddTorrentResponse = api
-            .api_add_torrent(
-                AddTorrent::from_url(self.magnet_uri.as_str()),
+        let add_task = runtime_handle.spawn(async move {
+            api.api_add_torrent(
+                AddTorrent::from_url(magnet_uri.as_str()),
                 Some(add_options),
             )
             .await
-            .context("could not start downloading the selected video")?;
+            .context("could not start downloading the selected video")
+        });
+        let added: ApiAddTorrentResponse = add_task
+            .await
+            .context("torrent download initialization task panicked")??;
         let torrent_id = added
             .id
             .context("torrent engine returned no active torrent ID")?;
@@ -179,10 +211,6 @@ impl TorrentPlaybackSession {
             torrent_id,
             token: token.clone(),
         };
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .context("could not bind the loopback torrent stream endpoint")?;
-        let address: SocketAddr = listener.local_addr()?;
         let router = Router::new()
             .route(
                 "/{token}/{torrent_id}/{file_id}",
@@ -190,13 +218,21 @@ impl TorrentPlaybackSession {
             )
             .with_state(state);
         let shutdown = cancel.clone();
-        let runtime = self.runtime.as_ref().context("torrent runtime is closed")?;
-        let task = runtime.handle().spawn(async move {
+        let (address_tx, address_rx) = tokio::sync::oneshot::channel();
+        let task = runtime_handle.spawn(async move {
+            let listener = TcpListener::bind("127.0.0.1:0")
+                .await
+                .context("could not bind the loopback torrent stream endpoint")?;
+            let address = listener.local_addr()?;
+            let _ = address_tx.send(address);
             axum::serve(listener, router)
                 .with_graceful_shutdown(shutdown.cancelled_owned())
                 .await
                 .context("local torrent stream server failed")
         });
+        let address: SocketAddr = address_rx
+            .await
+            .context("local torrent stream server failed before binding")?;
         let url = format!("http://{address}/{token}/{torrent_id}/{file_index}");
         let progress_cache = self.progress_cache.clone();
         let progress_cancel = CancellationToken::new();
@@ -218,6 +254,7 @@ impl TorrentPlaybackSession {
                                 uploaded_bytes: stats.uploaded_bytes,
                                 finished: stats.finished,
                                 state: format!("{:?}", stats.state),
+                                error: stats.error.clone(),
                             });
                         if let Ok(mut cache) = progress_cache.lock() {
                             *cache = snapshot;
@@ -261,6 +298,7 @@ impl TorrentPlaybackSession {
             uploaded_bytes: stats.uploaded_bytes,
             finished: stats.finished,
             state: format!("{:?}", stats.state),
+            error: stats.error.clone(),
         }))
     }
 
@@ -291,16 +329,30 @@ impl TorrentPlaybackSession {
             }
         }
         let mut cleanup_errors = Vec::new();
-        if let (Some(api), Some(id)) = (self.api.as_ref(), self.torrent_id.take()) {
-            if let Err(error) = api.api_torrent_action_delete(TorrentIdOrHash::Id(id)).await {
-                cleanup_errors.push(format!("torrent stop failed: {error:#}"));
+        let api = self.api.take();
+        let session = self.session.take();
+        let torrent_id = self.torrent_id.take();
+        if let Some(runtime) = self.runtime.as_ref() {
+            let shutdown_task = runtime.handle().spawn(async move {
+                let mut errors = Vec::new();
+                if let (Some(api), Some(id)) = (api, torrent_id) {
+                    if let Err(error) = api.api_torrent_action_delete(TorrentIdOrHash::Id(id)).await
+                    {
+                        errors.push(format!("torrent stop failed: {error:#}"));
+                    }
+                }
+                if let Some(session) = session {
+                    session.stop().await;
+                }
+                errors
+            });
+            match shutdown_task.await {
+                Ok(errors) => cleanup_errors.extend(errors),
+                Err(error) => cleanup_errors.push(format!("torrent engine shutdown task failed: {error}")),
             }
+        } else if let Some(session) = session {
+            session.cancellation_token().cancel();
         }
-        if let Some(session) = self.session.take() {
-            session.stop().await;
-            drop(session);
-        }
-        self.api.take();
         if let Some(runtime) = self.runtime.take() {
             runtime.shutdown_background();
         }
