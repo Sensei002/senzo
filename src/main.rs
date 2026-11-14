@@ -737,6 +737,7 @@ impl SenzoApp {
                             });
                         match queued {
                             Ok(()) => {
+                                app.torrent_files.clear();
                                 app.torrent_status =
                                     "Torrent stream is ready; playback downloads on demand".into();
                                 app.stream_status = "Torrent source queued in MPV".into();

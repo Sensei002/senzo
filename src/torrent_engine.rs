@@ -366,7 +366,9 @@ async fn stream_torrent_file_inner(
         .await
         .context("could not open torrent file stream")?;
     let total = stream.len();
-    let requested_range = headers.get(header::RANGE).and_then(|value| value.to_str().ok());
+    let requested_range = headers
+        .get(header::RANGE)
+        .and_then(|value| value.to_str().ok());
     let range = match requested_range {
         Some(value) => match parse_single_byte_range(value, total) {
             Ok(range) => Some(range),
