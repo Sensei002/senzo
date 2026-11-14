@@ -122,7 +122,7 @@ impl TorrentPlaybackSession {
         let magnet_uri = build_magnet_uri(&hash, trackers)?;
         let temp = TorrentSessionDirectory::create_default()?;
         let output_folder = temp.path().to_string_lossy().into_owned();
-        let runtime = TorrentRuntime::new()?;
+        let mut runtime = TorrentRuntime::new()?;
 
         let mut options = SessionOptions::default();
         options.disable_upload = true;
