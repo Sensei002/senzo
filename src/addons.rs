@@ -219,9 +219,8 @@ fn is_disallowed_ip(address: IpAddr) -> bool {
             let ipv4_mapped = octets[..10].iter().all(|byte| *byte == 0)
                 && octets[10] == 0xff
                 && octets[11] == 0xff;
-            let mapped_ipv4 = ipv4_mapped.then(|| {
-                std::net::Ipv4Addr::new(octets[12], octets[13], octets[14], octets[15])
-            });
+            let mapped_ipv4 = ipv4_mapped
+                .then(|| std::net::Ipv4Addr::new(octets[12], octets[13], octets[14], octets[15]));
             ip.is_unspecified()
                 || ip.is_loopback()
                 || ip.is_multicast()
