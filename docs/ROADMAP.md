@@ -102,12 +102,22 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [x] Add Torrentio-style manifest and stream-response fixture compatibility tests without bundling or enabling Torrentio.
 - [x] Connect Stremio catalog browsing, TMDB-backed title details, stream discovery, and user-selected direct-source MPV playback into the discovery UI (TV source lookup currently uses S01E01; richer season/episode selection is a follow-up).
 
-## Phase 6 — Additional sources and presence
+## Phase 6 — Torrent playback transport (Batch 5)
+
+- [ ] Add a pinned, license-reviewed torrent engine behind a SENZO-owned transport boundary.
+- [ ] Accept only validated info-hash/magnet data from user-installed Stremio add-ons; never bundle or enable a streaming add-on by default.
+- [ ] Enumerate torrent files and let the user select a video file before downloading it.
+- [ ] Stream selected content to MPV over a loopback-only HTTP endpoint with range/seek support and piece prioritization.
+- [x] Create isolated per-session temporary storage, remove it on normal shutdown, and recover abandoned session directories at next startup.
+- [ ] Stop MPV and the torrent engine before deleting session payloads; ensure the engine process is terminated on app exit/crash.
+- [ ] Keep playback progress and watch history in SQLite, separate from temporary torrent data.
+- [ ] Surface download/buffer progress, peer/connection status, and provider/engine failures without blocking the UI.
+- [ ] Verify Windows runtime packaging, license notices, and end-to-end playback through CI fixtures and manual runtime testing.
+
+## Phase 7 — Additional sources and presence (Batch 6)
 
 - [ ] Define a stable source-adapter interface for additional providers.
-- [ ] Evaluate optional torrent engine choices behind a transport abstraction.
-- [ ] Validate engine licensing, Windows compatibility, buffering, piece prioritization, and seek behavior before adoption.
-- [ ] Add more source adapters without changing metadata or UI layers.
+- [ ] Add more authorized source adapters without changing metadata or playback layers.
 - [ ] Add Discord Rich Presence, playback-state updates, and privacy controls.
 
 ## Phase 7 — Windows distribution

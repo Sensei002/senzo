@@ -25,7 +25,7 @@ SENZO is an independent project with its own architecture and product decisions.
 - **Later platform:** Linux, after the Windows application is established.
 - **Metadata:** TMDB is the primary metadata provider.
 - **Sources:** Optional, user-installed add-ons using the Stremio HTTP add-on protocol; catalog browsing, metadata lookup, stream discovery, and direct HTTP(S) MPV handoff are now connected.
-- **Playback:** MPV through a dynamically loaded libmpv C API adapter; the Windows runtime is not yet packaged.
+- **Torrent transport:** Batch 5 implementation in progress; torrent payloads use dedicated temporary playback sessions, with SQLite progress kept separately.\n- **Playback:** MPV through a dynamically loaded libmpv C API adapter; the Windows runtime is not yet packaged.
 - **Personal data:** Local SQLite database under the SENZO app-data directory.
 - **Accounts:** No SENZO sign-up, login, or cloud account.
 - **Builds and tests:** GitHub Actions; no local build is required for the project's CI workflow.

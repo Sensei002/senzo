@@ -5,3 +5,4 @@ pub mod playback;
 pub mod settings;
 pub mod storage;
 pub mod subtitles;
+pub mod torrent;

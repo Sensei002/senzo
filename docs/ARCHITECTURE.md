@@ -179,3 +179,7 @@ The Windows presentation path uses a caller-owned native child HWND as MPV's `wi
 ## GPUI native window handle
 
 SENZO obtains its Windows parent HWND through GPUI's public `HasWindowHandle` implementation and the `raw-window-handle` 0.6 `RawWindowHandle::Win32` variant. The value is retained in application state and used as the parent for the native video child surface.
+
+## Torrent temporary-storage boundary
+
+Torrent payloads use a dedicated per-user directory at `%LOCALAPPDATA%\\SENZO\\torrent-temp`, separate from SQLite, metadata, artwork, and subtitle caches. Each playback session receives a unique `session-*` child directory. The application removes that directory after the torrent engine and MPV have stopped; startup recovery removes leftover session directories after crashes or forced termination. Cleanup only enumerates direct child directories with the SENZO session prefix and does not follow symlinks. Playback progress and watch history remain in SQLite and are never stored in, or removed with, the torrent session.

@@ -71,3 +71,13 @@ Until a dedicated private security contact is published, do not include exploit 
 ## Status
 
 This document is a design and implementation checklist. Many controls above are planned and must be implemented and tested before SENZO is considered production-ready.
+
+## Torrent transport and temporary data
+
+- Accept torrent identifiers only from an explicitly selected stream returned by a user-installed add-on. Validate 40-character v1 or 64-character v2 info hashes before constructing a magnet URI.
+- Keep torrent engine state and payloads in a dedicated session directory under `%LOCALAPPDATA%\\SENZO\\torrent-temp`; never reuse metadata, subtitle, or application cache directories.
+- Bind any local streaming HTTP endpoint to loopback only. Do not expose the torrent HTTP API to the LAN.
+- Do not persist torrent session state across application launches. A new playback session must not silently resume downloading or seeding from a prior run.
+- On normal exit, stop MPV, stop and terminate the torrent engine, then remove the session directory. On startup, remove abandoned session directories from prior crashes; do not follow symlinks or delete unrelated directories.
+- Keep playback progress and watch history in SQLite independently of temporary payload files.
+- Never create a permanent-download or background-seeding task as part of playback. Any future permanent download capability must be a separate explicit opt-in feature.
