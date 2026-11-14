@@ -49,6 +49,8 @@ struct SenzoApp {
     database: LocalDatabase,
     active_page: AppPage,
     settings_advanced_open: bool,
+    metadata_language: String,
+    poster_size: String,
     selected_title: Option<String>,
     search_query: String,
     settings: PlaybackSettings,
@@ -107,10 +109,25 @@ impl SenzoApp {
             }
         };
 
+        let metadata_language = database
+            .get_setting("appearance.metadata_language")
+            .ok()
+            .flatten()
+            .filter(|value| matches!(value.as_str(), "en-US" | "bn-BD"))
+            .unwrap_or_else(|| "en-US".into());
+        let poster_size = database
+            .get_setting("appearance.poster_size")
+            .ok()
+            .flatten()
+            .filter(|value| matches!(value.as_str(), "compact" | "comfortable"))
+            .unwrap_or_else(|| "comfortable".into());
+
         Self {
             database,
             active_page: AppPage::Home,
             settings_advanced_open: false,
+            metadata_language,
+            poster_size,
             selected_title: None,
             search_query: String::new(),
             settings,
@@ -431,6 +448,7 @@ impl SenzoApp {
         self.home_catalogs.clear();
         self.home_addon_catalogs.clear();
         self.home_catalog_requested = true;
+        let metadata_language = self.metadata_language.clone();
 
         // Snapshot enabled user-installed add-ons on the UI thread. The SQLite connection
         // is deliberately not moved into the background task.
@@ -490,7 +508,7 @@ impl SenzoApp {
 
                 runtime.block_on(async move {
                     let tmdb_result = async {
-                        let client = TmdbClient::from_credential_store("en-US")?;
+                        let client = TmdbClient::from_credential_store(&metadata_language)?;
                         let (trending, movies, shows) = futures::join!(
                             client.trending_all_week(1),
                             client.popular_movies(1),
@@ -598,10 +616,11 @@ impl SenzoApp {
             (_, None) => format!("Loading popular {media_type}…"),
         };
         self.tmdb_results.clear();
+        let metadata_language = self.metadata_language.clone();
         self.tmdb_task = Some(cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    let client = TmdbClient::from_credential_store("en-US")?;
+                    let client = TmdbClient::from_credential_store(&metadata_language)?;
                     let runtime = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
                         .build()
@@ -692,9 +711,10 @@ impl SenzoApp {
         self.stream_status = "Resolving provider IDs and checking enabled add-ons…".into();
         self.tmdb_status = format!("Loading details for {display_title}…");
         self.active_media_id = Some(title.media_id(&media_type));
+        let metadata_language = self.metadata_language.clone();
         self.tmdb_task = Some(cx.spawn(async move |this, cx| {
             let result = cx.background_spawn(async move {
-                let client = TmdbClient::from_credential_store("en-US")?;
+                let client = TmdbClient::from_credential_store(&metadata_language)?;
                 let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
                     .context("could not initialize metadata and source runtime")?;
                 runtime.block_on(async {
@@ -1451,6 +1471,38 @@ impl SenzoApp {
         cx.notify();
     }
 
+    fn set_metadata_language(&mut self, language: &'static str, cx: &mut Context<Self>) {
+        if !matches!(language, "en-US" | "bn-BD") {
+            return;
+        }
+        self.metadata_language = language.to_owned();
+        if let Err(error) = self.database.set_setting("appearance.metadata_language", language) {
+            diagnostics::record(diagnostics::Level::Warn, "settings", &format!("could not save metadata language: {error:#}"));
+            self.status = "Could not save language preference".into();
+        } else {
+            self.status = "Language preference saved on this device".into();
+            self.home_catalog_requested = false;
+            if self.active_page == AppPage::Home {
+                self.load_home_catalogs(cx);
+            }
+        }
+        cx.notify();
+    }
+
+    fn set_poster_size(&mut self, size: &'static str, cx: &mut Context<Self>) {
+        if !matches!(size, "compact" | "comfortable") {
+            return;
+        }
+        self.poster_size = size.to_owned();
+        if let Err(error) = self.database.set_setting("appearance.poster_size", size) {
+            diagnostics::record(diagnostics::Level::Warn, "settings", &format!("could not save poster size: {error:#}"));
+            self.status = "Could not save appearance preference".into();
+        } else {
+            self.status = "Appearance preference saved on this device".into();
+        }
+        cx.notify();
+    }
+
     fn set_subtitle_font_size(&mut self, size: u8, cx: &mut Context<Self>) {
         self.settings.subtitles.font_size = size.clamp(12, 96);
         self.send_playback_command(
@@ -2023,6 +2075,24 @@ impl Render for SenzoApp {
                     .when(!self.settings_advanced_open, |panel| {
                         panel
                             .child(section(
+                                "Appearance",
+                                "Choose how artwork is displayed while browsing.",
+                                div().flex().flex_col().gap_2()
+                                    .child(div().text_sm().text_color(rgb(0xD4D4D8)).child("Poster size"))
+                                    .child(div().flex().gap_2()
+                                        .child(choice_chip("Compact", self.poster_size == "compact", |this, cx| this.set_poster_size("compact", cx), cx))
+                                        .child(choice_chip("Comfortable", self.poster_size == "comfortable", |this, cx| this.set_poster_size("comfortable", cx), cx))),
+                            ))
+                            .child(section(
+                                "Language",
+                                "Choose the language used for movie and series information.",
+                                div().flex().flex_col().gap_2()
+                                    .child(div().text_sm().text_color(rgb(0xD4D4D8)).child("Content language"))
+                                    .child(div().flex().gap_2()
+                                        .child(choice_chip("English", self.metadata_language == "en-US", |this, cx| this.set_metadata_language("en-US", cx), cx))
+                                        .child(choice_chip("বাংলা", self.metadata_language == "bn-BD", |this, cx| this.set_metadata_language("bn-BD", cx), cx))),
+                            ))
+                            .child(section(
                                 "Playback",
                                 "SENZO automatically chooses compatible playback settings for your device.",
                                 div().flex().flex_col().gap_2()
@@ -2049,7 +2119,7 @@ impl Render for SenzoApp {
                                 "A local-first media center. Your settings and watch progress stay on this device.",
                                 div().flex().flex_col().gap_1()
                                     .child(div().text_sm().text_color(rgb(0xD4D4D8)).child("SENZO · Windows desktop"))
-                                    .child(div().text_xs().text_color(rgb(0x9299A1)).child("Metadata powered by TMDB. Subtitles provided by OpenSubtitles when configured.")),
+                                    .child(div().text_xs().text_color(rgb(0x9299A1)).child("Metadata by TMDB · Online subtitles by OpenSubtitles. Provider availability depends on this build's configuration.")),
                             ))
                             .child(div().flex().items_center().justify_between().py_2()
                                 .child(div().text_xs().text_color(rgb(0x858C94)).child(self.status.clone()))
@@ -2960,6 +3030,8 @@ impl Render for SenzoApp {
                     self.torrent_files.clone(),
                     self.torrent_status.clone(),
                     self.database.recent_playback_progress(8).unwrap_or_default(),
+                    self.metadata_language.clone(),
+                    self.poster_size.clone(),
                     cx,
                 ))
             })
@@ -3014,6 +3086,8 @@ fn render_discovery_page(
     torrent_files: Vec<TorrentVideoFile>,
     torrent_status: String,
     continue_watching: Vec<PlaybackProgress>,
+    metadata_language: String,
+    poster_size: String,
     cx: &mut Context<SenzoApp>,
 ) -> impl IntoElement {
     let (heading, description) = match page {
@@ -3037,6 +3111,8 @@ fn render_discovery_page(
     let is_search = page == AppPage::Search;
     let is_library = page == AppPage::Library;
     let is_home = page == AppPage::Home;
+    let (poster_width, poster_height) = if poster_size == "compact" { (px(140.), px(202.)) } else { (px(164.), poster_height) };
+    let _content_language = metadata_language;
     let mut title_chips = Vec::new();
     for (media_type, item) in &tmdb_results {
         let title = item.display_title().unwrap_or("Untitled").to_owned();
@@ -3392,10 +3468,10 @@ fn render_discovery_page(
                         let selected = item.clone();
                         let selected_kind = kind.clone();
                         let poster = tmdb_artwork_url(item.poster_path.as_deref(), "w342");
-                        div().w(px(164.)).flex_shrink_0().rounded_lg().bg(rgb(0x171D20))
+                        div().w(poster_width).flex_shrink_0().rounded_lg().bg(rgb(0x171D20))
                             .border_1().border_color(rgb(0x263238)).overflow_hidden().flex().flex_col().gap_2()
-                            .child(div().w_full().h(px(236.)).bg(rgb(0x20272B)).when_some(poster, |panel, url| {
-                                panel.child(img(url).w_full().h(px(236.)).object_fit(ObjectFit::Cover))
+                            .child(div().w_full().h(poster_height).bg(rgb(0x20272B)).when_some(poster, |panel, url| {
+                                panel.child(img(url).w_full().h(poster_height).object_fit(ObjectFit::Cover))
                             }))
                             .child(div().px_2().pb_2().flex().flex_col().gap_1()
                                 .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
@@ -3428,11 +3504,11 @@ fn render_discovery_page(
                         let year = item.get("releaseInfo").and_then(Value::as_str)
                             .or_else(|| item.get("year").and_then(Value::as_str))
                             .unwrap_or(" ");
-                        Some(div().w(px(164.)).flex_shrink_0().rounded_lg().bg(rgb(0x171D20))
+                        Some(div().w(poster_width).flex_shrink_0().rounded_lg().bg(rgb(0x171D20))
                             .border_1().border_color(rgb(0x263238)).overflow_hidden().flex().flex_col().gap_2()
-                            .child(div().w_full().h(px(236.)).bg(rgb(0x20272B))
+                            .child(div().w_full().h(poster_height).bg(rgb(0x20272B))
                                 .when_some(poster, |panel, url| {
-                                    panel.child(img(url).w_full().h(px(236.)).object_fit(ObjectFit::Cover))
+                                    panel.child(img(url).w_full().h(poster_height).object_fit(ObjectFit::Cover))
                                 }))
                             .child(div().px_2().pb_2().flex().flex_col().gap_1()
                                 .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
@@ -3571,7 +3647,7 @@ fn render_discovery_page(
                             .child(
                                 div()
                                     .w(px(170.))
-                                    .h(px(255.))
+                                    .h(poster_height)
                                     .flex_shrink_0()
                                     .rounded_lg()
                                     .bg(rgb(0x20272B))
@@ -3580,7 +3656,7 @@ fn render_discovery_page(
                                         panel.child(
                                             img(url)
                                                 .w(px(170.))
-                                                .h(px(255.))
+                                                .h(poster_height)
                                                 .object_fit(ObjectFit::Cover),
                                         )
                                     })
