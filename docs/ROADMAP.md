@@ -98,6 +98,7 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [x] Add stream result classification for direct HTTP(S), torrent info-hash, and external-link entries; actual torrent transport is Batch 5.
 - [x] Keep all streaming add-ons absent by default; users must explicitly install their own manifest URLs.
 - [x] Harden remote manifest fetching, DNS pinning, redirects, response limits, and direct stream URL validation.
+- [ ] Complete manifest URL entry/confirmation, catalog browsing, and selected-source playback UI before declaring Batch 4 complete.
 
 ## Phase 6 — Additional sources and presence
 

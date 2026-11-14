@@ -11,7 +11,6 @@ use gpui::{
 };
 
 use senzo::{
-    addons::StoredAddon,
     diagnostics,
     metadata::TmdbCredentialStore,
     playback::{
@@ -23,7 +22,7 @@ use senzo::{
         DecoderPreference, HardwareDecoding, HdrMode, PlaybackSettings, RendererPreference,
         ScalingAlgorithm,
     },
-    storage::LocalDatabase,
+    storage::{LocalDatabase, StoredAddon},
     subtitles::{
         OpenSubtitlesClient, OpenSubtitlesCredentialStore, OpenSubtitlesResult, SubtitleSearch,
     },
