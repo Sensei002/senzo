@@ -20,11 +20,11 @@ SENZO is an independent project with its own architecture and product decisions.
 - **Language and UI:** Rust + GPUI.
 - **Current platform:** Windows (MSVC).
 - **Planned Windows installation:** Per-machine installation in `C:\\Program Files\\SENZO`; user data remains in `%LOCALAPPDATA%\\SENZO`.
-- **Playback runtime:** Windows x64 `libmpv-2.dll` from the upstream LGPL release, packaged with its runtime dependencies and licence notices through GitHub Actions.
+- **Playback runtime:** Windows x64 `libmpv-2.dll` from the upstream LGPL release, packaged with its runtime dependencies and licence notices as a GitHub Actions artifact; application deployment and runtime validation remain pending.
 - **Planned installer branding:** Official transparent SENZO logo; intended verified Windows publisher name: `Sensei.STGR` (requires a trusted Authenticode certificate).
 - **Later platform:** Linux, after the Windows application is established.
 - **Metadata:** TMDB is the primary metadata provider.
-- **Sources:** Optional, user-installed add-ons using the Stremio HTTP add-on protocol as the initial compatibility target.
+- **Sources:** Optional, user-installed add-ons using the Stremio HTTP add-on protocol; catalog browsing, metadata lookup, stream discovery, and direct HTTP(S) MPV handoff are now connected.
 - **Playback:** MPV through a dynamically loaded libmpv C API adapter; the Windows runtime is not yet packaged.
 - **Personal data:** Local SQLite database under the SENZO app-data directory.
 - **Accounts:** No SENZO sign-up, login, or cloud account.
@@ -34,7 +34,7 @@ SENZO is an independent project with its own architecture and product decisions.
 
 ### Discover movies and television
 
-SENZO will use **The Movie Database (TMDB)** as its primary metadata provider. The planned discovery experience includes:
+SENZO will use **The Movie Database (TMDB)** as its primary metadata provider. The discovery foundation now includes TMDB popular movie/TV catalogues, clipboard-assisted title search, title details, and IMDb external-ID mapping for add-on requests. The broader artwork-led discovery experience includes:
 
 - Search for movies or TV series.
 - Browse artwork-led home and discovery shelves.
@@ -47,7 +47,7 @@ TMDB supplies metadata and artwork; it is not a streaming source. SENZO will dis
 
 ### Choose your own streaming sources
 
-SENZO is designed around a user-managed add-on list. The planned **Add-ons** screen will let users paste a compatible add-on manifest URL, inspect the add-on's declared capabilities, and install or manage it.
+SENZO uses a user-managed add-on list. The **Add-ons** screen lets users paste a compatible HTTPS manifest URL from the clipboard, inspect its identity and declared resources, explicitly confirm installation, browse declared catalogs, and enable, disable, or remove installed providers.
 
 - No streaming add-on is bundled or preinstalled.
 - **Torrentio is not integrated into SENZO's default source list.**
@@ -55,7 +55,7 @@ SENZO is designed around a user-managed add-on list. The planned **Add-ons** scr
 - A user who deliberately chooses to use Torrentio may manually add their own configured manifest URL, just like any other compatible add-on.
 - Only add-ons that the user has installed and enabled should be queried.
 
-Initial compatibility targets the Stremio add-on HTTP protocol. Compatibility with every Stremio add-on and provider-specific extension is not guaranteed and will be tested incrementally.
+Initial compatibility targets the Stremio add-on HTTP protocol. Enabled providers can supply catalog entries and title metadata; movie/episode source discovery isolates provider failures and presents direct HTTP(S), torrent-info-hash, and external-link results. Direct HTTP(S) sources can be handed to MPV after URL and DNS destination validation. Torrent results are identified but not downloaded or played yet; the torrent transport, buffering, temporary-session cleanup, and crash recovery belong to the next implementation phase. Compatibility with every Stremio add-on and provider-specific extension is not guaranteed.
 
 ### Keep personal data on your device
 

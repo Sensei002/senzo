@@ -45,9 +45,9 @@ SENZO uses a user-managed registry for add-ons that implement the supported Stre
 
 ### Installation and management
 
-- The Add-ons screen will accept a user-entered manifest URL.
+- The Add-ons screen accepts a manifest URL copied to the clipboard, previews and validates it, and requires explicit confirmation before saving.
 - SENZO fetches and validates the add-on manifest and records its identity, version, capabilities, URL, and manifest data locally.
-- The UI will support enable, disable, remove, and reorder.
+- The UI supports enable, disable, and remove. Reordering is deferred until a persistent ordering field is introduced.
 - Requests are sent only to add-ons explicitly installed and enabled by the user.
 - No streaming add-on is bundled or preinstalled. **Torrentio is not integrated into the default source list.** Users may manually add their own configured Torrentio manifest URL or another compatible provider.
 - External add-ons may have their own configuration, accounts, privacy policies, availability, and terms. They do not create a SENZO account.
@@ -62,7 +62,7 @@ Initial compatibility targets the Stremio HTTP add-on protocol:
 - Stream resources.
 - Subtitle resources, where supported.
 
-Each resource must be implemented and tested before being advertised as supported. This does not imply support for unrelated local plugin runtimes or every provider-specific extension.
+Catalog, metadata, stream, and subtitle request services are implemented. The native UI can browse declared catalogs, inspect returned title metadata, discover streams for TMDB-selected titles or catalog entries, and hand validated direct HTTP(S) streams to MPV. Torrent info-hash results are classified and displayed but are not transported or played until the separate torrent-engine phase. Fixture tests cover Torrentio-style manifest and stream response shapes. This does not imply support for unrelated local plugin runtimes or every provider-specific extension.
 
 ### Trust and network safety
 

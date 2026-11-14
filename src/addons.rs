@@ -719,6 +719,44 @@ mod tests {
     }
 
     #[test]
+    fn parses_torrentio_style_manifest_and_stream_payloads() {
+        let manifest: AddonManifest = serde_json::from_value(serde_json::json!({
+            "id": "org.stremio.torrentio",
+            "name": "Torrentio",
+            "version": "1.0.0",
+            "resources": [
+                {"name": "stream", "types": ["movie", "series"], "idPrefixes": ["tt"]}
+            ],
+            "types": ["movie", "series"],
+            "idPrefixes": ["tt"]
+        })).expect("Torrentio-compatible manifest");
+        assert!(manifest.supports_resource("stream"));
+
+        let response: StremioStreamResponse = serde_json::from_value(serde_json::json!({
+            "streams": [
+                {
+                    "name": "Torrentio",
+                    "title": "1080p · HEVC · 8.2 GB",
+                    "infoHash": "0123456789abcdef0123456789abcdef01234567",
+                    "fileIdx": 3
+                },
+                {
+                    "name": "Direct",
+                    "title": "1080p",
+                    "url": "https://cdn.example.test/video.mkv"
+                }
+            ]
+        })).expect("Stremio stream response");
+        assert_eq!(response.streams.len(), 2);
+        assert!(response.streams[0].is_torrent());
+        assert_eq!(response.streams[0].file_index, Some(3));
+        assert_eq!(
+            response.streams[1].direct_url().expect("direct URL").expect("URL").scheme(),
+            "https"
+        );
+    }
+
+    #[test]
     fn recognizes_string_and_object_resource_declarations() {
         let manifest: AddonManifest = serde_json::from_value(serde_json::json!({
             "id": "example",

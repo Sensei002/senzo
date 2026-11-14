@@ -38,7 +38,7 @@ The Settings experience will use progressive disclosure: essential controls firs
 ## Phase 4 — Metadata, discovery, and local library
 
 - [x] Add masked Windows Credential Manager storage and Settings controls for the TMDB Read Access Token; secrets are excluded from SQLite and logs. Official-build credential injection remains a distribution task.
-- [ ] Connect TMDB search and detail services to GPUI screens.
+- [x] Connect TMDB popular catalogues, clipboard-assisted movie/TV search, and title detail requests to GPUI screens.
 - [x] Add TMDB TV season/episode detail endpoints and typed response models (UI browsing remains pending).
 - [x] Add TMDB movie/TV external-ID lookup models and endpoints (source-provider integration remains pending).
 - [ ] Add bounded local metadata and artwork caches.
@@ -47,10 +47,10 @@ The Settings experience will use progressive disclosure: essential controls firs
 
 ## Phase 3 — Playback engine
 
-- [ ] Build Add-ons UI with manual manifest URL entry.
-- [ ] Add manifest preview/validation and add-on enable/disable/remove/reorder.
-- [ ] Implement Stremio catalog, metadata, stream, and subtitle resource routing.
-- [ ] Add source capability matching and user-controlled source selection.
+- [x] Build Add-ons UI with clipboard-assisted manual manifest URL entry and explicit install confirmation.
+- [x] Add manifest preview/validation and add-on enable/disable/remove controls (provider reordering deferred).
+- [x] Implement Stremio catalog, metadata, stream, and subtitle resource routing.
+- [x] Add direct HTTP(S), torrent-info-hash, and external-link source classification with user-controlled direct-stream selection.
 - [ ] Keep all streaming add-ons absent by default; Torrentio may only be added manually by the user.
 - [ ] Harden remote manifest fetching, redirects, and stream URL validation.
 - [x] Add a pure MPV option-mapping layer with capability-aware fallback reporting and unit tests.
@@ -99,7 +99,8 @@ The Settings experience will use progressive disclosure: essential controls firs
 - [x] Keep all streaming add-ons absent by default; users must explicitly install their own manifest URLs.
 - [x] Harden remote manifest fetching, DNS pinning, redirects, response limits, and direct stream URL validation.
 - [x] Add a clipboard-assisted manifest URL preview and explicit install confirmation flow to the Add-ons screen.
-- [ ] Connect Stremio catalog browsing, TMDB-backed title details, stream discovery and user-selected source playback into the discovery UI.
+- [x] Add Torrentio-style manifest and stream-response fixture compatibility tests without bundling or enabling Torrentio.
+- [x] Connect Stremio catalog browsing, TMDB-backed title details, stream discovery, and user-selected direct-source MPV playback into the discovery UI (TV source lookup currently uses S01E01; richer season/episode selection is a follow-up).
 
 ## Phase 6 — Additional sources and presence
 
