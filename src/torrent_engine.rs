@@ -36,7 +36,11 @@ struct TorrentRuntime {
 
 impl TorrentRuntime {
     fn new() -> Result<Self> {
-        let runtime = TorrentRuntime::new()?;
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .context("could not create the torrent session runtime")?;
         Ok(Self {
             runtime: Some(runtime),
         })
