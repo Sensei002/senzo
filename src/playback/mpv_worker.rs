@@ -201,7 +201,9 @@ fn validate_local_stream_url(input: &str) -> anyhow::Result<String> {
         || url.password().is_some()
         || url.fragment().is_some()
         || url.query().is_some()
-        || url.path_segments().is_none_or(|segments| segments.count() != 3)
+        || url
+            .path_segments()
+            .is_none_or(|segments| segments.count() != 3)
     {
         bail!("local playback URLs must use the authenticated SENZO loopback stream endpoint");
     }
