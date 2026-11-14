@@ -497,7 +497,8 @@ impl SenzoApp {
             Some(value) => format!("Searching TMDB for {value}…"),
             None => format!("Loading popular {media_type}…"),
         };
-        self.tmdb_results.clear();        self.tmdb_task = Some(cx.spawn(async move |this, cx| {
+        self.tmdb_results.clear();
+        self.tmdb_task = Some(cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
                     let client = TmdbClient::from_credential_store("en-US")?;
@@ -996,7 +997,8 @@ impl SenzoApp {
 
         self.addon_status = "Fetching and validating add-on manifest…".into();
         self.addon_manifest_preview = None;
-        self.addon_task = Some(cx.spawn(async move |this, cx| {            let result = cx
+        self.addon_task = Some(cx.spawn(async move |this, cx| {
+            let result = cx
                 .background_spawn(async move {
                     let client = AddonClient::new();
                     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -1495,7 +1497,8 @@ impl SenzoApp {
         {
             Ok(()) => self.last_progress_save = Some(now),
             Err(error) => diagnostics::record(
-                diagnostics::Level::Warn,                "playback",
+                diagnostics::Level::Warn,
+                "playback",
                 &format!("could not persist playback progress: {error:#}"),
             ),
         }
@@ -2993,7 +2996,8 @@ fn render_discovery_page(
             ));
         }
     }
-    let mut stream_chips = Vec::new();    let mut torrent_file_chips = Vec::new();
+    let mut stream_chips = Vec::new();
+    let mut torrent_file_chips = Vec::new();
     let mut source_notes = Vec::new();
     for provider in &addon_stream_results {
         if let Some(error) = &provider.error {
