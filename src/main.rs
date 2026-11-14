@@ -25,6 +25,8 @@ use senzo::{
         ScalingAlgorithm,
     },
     storage::{LocalDatabase, StoredAddon},
+    torrent::TorrentSessionDirectory,
+    torrent_engine::{TorrentPlaybackSession, TorrentVideoFile},
     subtitles::{
         OpenSubtitlesClient, OpenSubtitlesCredentialStore, OpenSubtitlesResult, SubtitleSearch,
     },
@@ -73,6 +75,10 @@ struct SenzoApp {
     addon_catalog_addon: Option<StoredAddon>,
     addon_stream_results: Vec<AddonStreamResult>,
     stream_status: String,
+    torrent_session: Option<TorrentPlaybackSession>,
+    torrent_files: Vec<TorrentVideoFile>,
+    torrent_status: String,
+    torrent_task: Option<Task<()>>,
     native_parent_hwnd: Option<usize>,
     native_viewport_bounds: Arc<Mutex<Option<SurfaceBounds>>>,
     native_video_surface: Arc<Mutex<Option<WindowsVideoSurface>>>,
@@ -138,6 +144,10 @@ impl SenzoApp {
             addon_catalog_addon: None,
             addon_stream_results: Vec::new(),
             stream_status: "Choose a title or catalog item to discover sources".into(),
+            torrent_session: None,
+            torrent_files: Vec::new(),
+            torrent_status: "No torrent session active".into(),
+            torrent_task: None,
             native_parent_hwnd,
             native_viewport_bounds: Arc::new(Mutex::new(None)),
             native_video_surface: Arc::new(Mutex::new(None)),
@@ -596,14 +606,151 @@ impl SenzoApp {
         cx.notify();
     }
 
-    fn play_addon_stream(&mut self, stream: StremioStream, cx: &mut Context<Self>) {
-        let Ok(Some(url)) = stream.direct_url() else {
-            self.stream_status =
-                "This entry is not a direct HTTP(S) stream. Torrent playback is part of Batch 5."
-                    .into();
+    fn inspect_torrent_stream(&mut self, stream: StremioStream, cx: &mut Context<Self>) {
+        let Some(info_hash) = stream.info_hash.clone() else {
+            self.stream_status = "Torrent source is missing its info hash".into();
             cx.notify();
             return;
         };
+        let requested_file = stream.file_index.map(|index| index as usize);
+        let trackers = stream.sources.clone();
+        let previous = self.torrent_session.take();
+        if previous.is_some() {
+            if let Some(worker) = self.playback_worker.as_ref() {
+                if let Ok(worker) = worker.lock() {
+                    let _ = worker.stop();
+                }
+            }
+        }
+        self.torrent_files.clear();
+        self.torrent_status = "Resolving torrent metadata and available video files…".into();
+        self.stream_status = "Starting a temporary, non-seeding torrent session…".into();
+        self.torrent_task = Some(cx.spawn(async move |this, cx| {
+            let result = cx.background_spawn(async move {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .context("could not initialize torrent setup runtime")?;
+                runtime.block_on(async move {
+                    if let Some(previous) = previous {
+                        previous.shutdown().await.context("could not close the previous torrent session")?;
+                    }
+                    TorrentPlaybackSession::inspect_with_trackers(&info_hash, &trackers).await
+                })
+            }).await;
+            let _ = this.update(cx, |app, cx| {
+                match result {
+                    Ok((session, files)) => {
+                        let preferred = requested_file.filter(|index| files.iter().any(|file| file.index == *index));
+                        let automatic = preferred.or_else(|| (files.len() == 1).then_some(files[0].index));
+                        app.torrent_session = Some(session);
+                        app.torrent_files = files;
+                        app.torrent_status = format!("{} video file(s) available", app.torrent_files.len());
+                        app.stream_status = "Select a video file to begin torrent playback".into();
+                        if let Some(index) = automatic {
+                            app.start_torrent_file(index, cx);
+                        }
+                    }
+                    Err(error) => {
+                        app.torrent_session = None;
+                        app.torrent_files.clear();
+                        app.torrent_status = format!("Torrent setup failed: {error:#}");
+                        app.stream_status = app.torrent_status.clone();
+                    }
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    fn start_torrent_file(&mut self, file_index: usize, cx: &mut Context<Self>) {
+        let Some(session) = self.torrent_session.take() else {
+            self.torrent_status = "No inspected torrent session is available".into();
+            cx.notify();
+            return;
+        };
+        if self.playback_worker.is_none() {
+            self.start_playback(cx);
+        }
+        let worker = self.playback_worker.clone();
+        self.torrent_status = "Preparing the selected file and loopback stream…".into();
+        self.torrent_task = Some(cx.spawn(async move |this, cx| {
+            let (session, result) = cx.background_spawn(async move {
+                match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                    Ok(runtime) => {
+                        let result = runtime.block_on(session.start_file(file_index));
+                        (session, result)
+                    }
+                    Err(error) => (session, Err(error.into())),
+                }
+            }).await;
+            let _ = this.update(cx, |app, cx| {
+                app.torrent_session = Some(session);
+                match result {
+                    Ok(url) => {
+                        let queued = worker.as_ref().ok_or_else(|| anyhow::anyhow!("MPV playback worker is unavailable"))
+                            .and_then(|worker| worker.lock().map_err(|_| anyhow::anyhow!("MPV playback worker lock is unavailable"))?.load_local_url(&url));
+                        match queued {
+                            Ok(()) => {
+                                app.torrent_status = "Torrent stream is ready; playback downloads on demand".into();
+                                app.stream_status = "Torrent source queued in MPV".into();
+                                app.playback_status = "Playing torrent stream from the local loopback server".into();
+                                app.active_media_id = None;
+                            }
+                            Err(error) => {
+                                app.torrent_status = format!("Could not hand torrent stream to MPV: {error:#}");
+                                app.stream_status = app.torrent_status.clone();
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        app.torrent_status = format!("Could not start selected torrent file: {error:#}");
+                        app.stream_status = app.torrent_status.clone();
+                    }
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    fn stop_torrent_session(&mut self, cx: &mut Context<Self>) {
+        let Some(session) = self.torrent_session.take() else {
+            return;
+        };
+        self.torrent_files.clear();
+        self.torrent_status = "Stopping torrent engine and removing temporary session data…".into();
+        self.torrent_task = Some(cx.spawn(async move |this, cx| {
+            let result = cx.background_spawn(async move {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .context("could not initialize torrent shutdown runtime")?;
+                runtime.block_on(session.shutdown())
+            }).await;
+            let _ = this.update(cx, |app, cx| {
+                app.torrent_status = match result {
+                    Ok(()) => "Torrent stopped; temporary session data removed".into(),
+                    Err(error) => format!("Torrent cleanup reported an error: {error:#}"),
+                };
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    fn play_addon_stream(&mut self, stream: StremioStream, cx: &mut Context<Self>) {
+        if stream.is_torrent() {
+            self.inspect_torrent_stream(stream, cx);
+            return;
+        }
+        let Ok(Some(url)) = stream.direct_url() else {
+            self.stream_status = "This add-on entry is not a supported direct or torrent stream".into();
+            cx.notify();
+            return;
+        };
+        self.stop_torrent_session(cx);
         if self.playback_worker.is_none() {
             self.start_playback(cx);
         }
@@ -1754,6 +1901,7 @@ impl Render for SenzoApp {
                                                 |worker| worker.stop(),
                                                 cx,
                                             );
+                                            this.stop_torrent_session(cx);
                                         },
                                         cx,
                                     ))
@@ -2397,9 +2545,34 @@ impl Render for SenzoApp {
                     self.addon_catalog_addon.clone(),
                     self.addon_stream_results.clone(),
                     self.stream_status.clone(),
+                    self.torrent_files.clone(),
+                    self.torrent_status.clone(),
                     cx,
                 ))
             })
+    }
+}
+
+impl Drop for SenzoApp {
+    fn drop(&mut self) {
+        if let Some(worker) = self.playback_worker.take() {
+            if let Ok(worker) = worker.lock() {
+                let _ = worker.stop();
+            }
+        }
+        if let Some(session) = self.torrent_session.take() {
+            let _ = std::thread::spawn(move || {
+                if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    let _ = runtime.block_on(tokio::time::timeout(
+                        Duration::from_secs(8),
+                        session.shutdown(),
+                    ));
+                }
+            }).join();
+        }
     }
 }
 
@@ -2418,6 +2591,8 @@ fn render_discovery_page(
     addon_catalog_addon: Option<StoredAddon>,
     addon_stream_results: Vec<AddonStreamResult>,
     stream_status: String,
+    torrent_files: Vec<TorrentVideoFile>,
+    torrent_status: String,
     cx: &mut Context<SenzoApp>,
 ) -> impl IntoElement {
     let (heading, description) = match page {
@@ -2522,6 +2697,7 @@ fn render_discovery_page(
         }
     }
     let mut stream_chips = Vec::new();
+    let mut torrent_file_chips = Vec::new();
     let mut source_notes = Vec::new();
     for provider in &addon_stream_results {
         if let Some(error) = &provider.error {
@@ -2546,14 +2722,21 @@ fn render_discovery_page(
                     cx,
                 ));
             } else if stream.is_torrent() {
-                source_notes.push(format!(
-                    "{} · {} · torrent detected (transport arrives in Batch 5)",
+                let label = format!(
+                    "{} · {} · torrent",
                     provider.addon_name,
                     stream
                         .title
                         .as_deref()
                         .or(stream.name.as_deref())
                         .unwrap_or("Torrent source")
+                );
+                let selected = stream.clone();
+                stream_chips.push(dynamic_choice_chip(
+                    label,
+                    false,
+                    move |this, cx| this.play_addon_stream(selected.clone(), cx),
+                    cx,
                 ));
             } else if stream.external_url.is_some() {
                 source_notes.push(format!(
@@ -2562,6 +2745,17 @@ fn render_discovery_page(
                 ));
             }
         }
+    }
+
+    for file in &torrent_files {
+        let index = file.index;
+        let label = format!("{} · {:.1} MiB", file.name, file.size_bytes as f64 / 1_048_576.0);
+        torrent_file_chips.push(dynamic_choice_chip(
+            label,
+            false,
+            move |this, cx| this.start_torrent_file(index, cx),
+            cx,
+        ));
     }
 
     div()
@@ -2692,6 +2886,13 @@ fn render_discovery_page(
                                 .child(stream_status.clone()),
                         )
                         .child(div().flex().flex_wrap().gap_2().children(stream_chips))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(0x9299A1))
+                                .child(torrent_status.clone()),
+                        )
+                        .child(div().flex().flex_wrap().gap_2().children(torrent_file_chips))
                         .children(source_notes.into_iter().map(|label| {
                             div().text_xs().text_color(rgb(0xA1A1AA)).child(label)
                         })),
@@ -3141,6 +3342,12 @@ where
 }
 
 fn main() {
+    match TorrentSessionDirectory::recover_default_root() {
+        Ok(removed) if removed > 0 => eprintln!("SENZO recovered {removed} abandoned torrent session(s)"),
+        Ok(_) => {}
+        Err(error) => eprintln!("SENZO torrent recovery warning: {error:#}"),
+    }
+
     if let Err(error) = diagnostics::initialize() {
         eprintln!("SENZO diagnostics initialization failed: {error:#}");
     } else {

@@ -189,6 +189,25 @@ fn resume_target(position: f64, duration: f64) -> f64 {
     position.min((duration - 0.5).max(0.0))
 }
 
+fn validate_local_stream_url(input: &str) -> anyhow::Result<String> {
+    let url = url::Url::parse(input).context("local stream URL is invalid")?;
+    let loopback = url
+        .host()
+        .is_some_and(|host| matches!(host, url::Host::Ipv4(ip) if ip.is_loopback()));
+    if url.scheme() != "http"
+        || !loopback
+        || url.port().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+        || url.query().is_some()
+        || url.path_segments().is_none_or(|segments| segments.count() != 3)
+    {
+        bail!("local playback URLs must use the authenticated SENZO loopback stream endpoint");
+    }
+    Ok(url.to_string())
+}
+
 fn validate_playback_url(input: &str) -> anyhow::Result<String> {
     let url = url::Url::parse(input).context("stream URL is invalid")?;
     if !matches!(url.scheme(), "http" | "https")
@@ -435,6 +454,13 @@ impl PlaybackWorker {
         self.enqueue(PlaybackCommand::LoadUrl(url))
     }
 
+    /// Queue a URL served by SENZO's token-protected loopback torrent server.
+    /// This narrow path permits 127.0.0.1; general provider URLs do not.
+    pub fn load_local_url(&self, input: &str) -> anyhow::Result<()> {
+        let url = validate_local_stream_url(input)?;
+        self.enqueue(PlaybackCommand::LoadUrl(url))
+    }
+
     /// Queue a pause or resume transition.
     pub fn set_paused(&self, paused: bool) -> anyhow::Result<()> {
         self.enqueue(PlaybackCommand::SetPaused(paused))
@@ -565,6 +591,14 @@ impl Drop for PlaybackWorker {
 mod tests {
     use super::validate_playback_url;
     #[test]
+    fn accepts_only_the_authenticated_loopback_stream_shape() {
+        assert!(validate_local_stream_url("http://127.0.0.1:3456/token/1/0").is_ok());
+        assert!(validate_local_stream_url("http://localhost:3456/token/1/0").is_err());
+        assert!(validate_local_stream_url("http://127.0.0.1:3456/token/1/0?x=1").is_err());
+        assert!(validate_local_stream_url("https://127.0.0.1:3456/token/1/0").is_err());
+        assert!(validate_local_stream_url("http://192.168.1.2:3456/token/1/0").is_err());
+    }
+
     fn validates_direct_playback_urls() {
         assert!(validate_playback_url("https://cdn.example.org/video.mp4").is_ok());
         assert!(validate_playback_url("file:///C:/video.mp4").is_err());

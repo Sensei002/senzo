@@ -82,6 +82,8 @@ pub struct StremioStream {
     pub info_hash: Option<String>,
     #[serde(default, rename = "fileIdx")]
     pub file_index: Option<u32>,
+    #[serde(default)]
+    pub sources: Vec<String>,
     #[serde(default, rename = "externalUrl")]
     pub external_url: Option<String>,
     #[serde(default)]
@@ -135,8 +137,7 @@ impl StremioStream {
 }
 
 fn is_valid_info_hash(value: &str) -> bool {
-    (value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        || (value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 #[derive(Debug, Clone)]
