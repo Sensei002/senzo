@@ -525,7 +525,7 @@ mod tests {
         .expect("catalog route");
         assert_eq!(
             url.as_str(),
-            "https://example.org/addon/catalog/movie/top/genre%3DAction%26skip%3D20.json"
+            "https://example.org/addon/catalog/movie/top/genre=Action&skip=20.json"
         );
         let stream =
             resource_endpoint(&addon, "stream", "series", "tt123:1:2", &[]).expect("stream route");
