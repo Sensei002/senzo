@@ -201,10 +201,7 @@ impl TorrentPlaybackSession {
         let add_api = api.clone();
         let add_task = runtime_handle.spawn(async move {
             add_api
-                .api_add_torrent(
-                    AddTorrent::from_url(magnet_uri.as_str()),
-                    Some(add_options),
-                )
+                .api_add_torrent(AddTorrent::from_url(magnet_uri.as_str()), Some(add_options))
                 .await
                 .context("could not start downloading the selected video")
         });
