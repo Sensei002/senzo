@@ -2825,34 +2825,18 @@ fn render_discovery_page(
             source_notes.push(format!("{} · provider error: {error}", provider.addon_name));
         }
         for stream in &provider.streams {
-            if stream.direct_url().ok().flatten().is_some() {
+            let is_torrent = stream.is_torrent();
+            let is_direct = stream.direct_url().ok().flatten().is_some();
+            if is_direct || is_torrent {
                 let label = format!(
-                    "{} · {}",
+                    "{} · {} · {}",
                     provider.addon_name,
                     stream
                         .name
                         .as_deref()
                         .or(stream.title.as_deref())
-                        .unwrap_or("Direct stream")
-                );
-                let selected = stream.clone();
-                stream_chips.push(dynamic_choice_chip(
-                    label,
-                    false,
-                    move |this: &mut SenzoApp, cx: &mut Context<SenzoApp>| {
-                        this.play_addon_stream(selected.clone(), cx)
-                    },
-                    cx,
-                ));
-            } else if stream.is_torrent() {
-                let label = format!(
-                    "{} · {} · torrent",
-                    provider.addon_name,
-                    stream
-                        .title
-                        .as_deref()
-                        .or(stream.name.as_deref())
-                        .unwrap_or("Torrent source")
+                        .unwrap_or(if is_torrent { "Torrent source" } else { "Direct stream" }),
+                    if is_torrent { "torrent" } else { "stream" }
                 );
                 let selected = stream.clone();
                 stream_chips.push(dynamic_choice_chip(
