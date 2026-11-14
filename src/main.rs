@@ -3630,7 +3630,7 @@ fn render_discovery_page(
                 .children(ordered_shelf_names.into_iter().filter(|shelf| {
                     !hidden_home_shelves
                         .iter()
-                        .any(|hidden| hidden.as_str() == shelf)
+                        .any(|hidden| hidden.as_str() == *shelf)
                 }).filter_map(|shelf_name| {
                     let entries = home_catalogs.iter().filter(|(name, _, _)| name == shelf_name).cloned().collect::<Vec<_>>();
                     if entries.is_empty() { return None; }
