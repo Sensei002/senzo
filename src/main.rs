@@ -68,6 +68,9 @@ struct SenzoApp {
     addon_task: Option<Task<()>>,
     tmdb_results: Vec<(String, TmdbSearchResult)>,
     tmdb_status: String,
+    home_catalogs: Vec<(String, String, TmdbSearchResult)>,
+    home_catalog_status: String,
+    home_catalog_requested: bool,
     tmdb_details: Option<Value>,
     tmdb_task: Option<Task<()>>,
     addon_catalog_items: Vec<Value>,
@@ -104,7 +107,7 @@ impl SenzoApp {
 
         Self {
             database,
-            active_page: AppPage::Settings,
+            active_page: AppPage::Home,
             selected_title: None,
             search_query: String::new(),
             settings,
@@ -136,8 +139,10 @@ impl SenzoApp {
             addon_status: "Copy a Stremio manifest URL, then choose Paste URL to preview it".into(),
             addon_task: None,
             tmdb_results: Vec::new(),
-            tmdb_status: "Configure a TMDB Read Access Token in Settings, then load a catalogue"
-                .into(),
+            tmdb_status: "TMDB discovery is ready".into(),
+            home_catalogs: Vec::new(),
+            home_catalog_status: "Loading recommendations…".into(),
+            home_catalog_requested: false,
             tmdb_details: None,
             tmdb_task: None,
             addon_catalog_items: Vec::new(),
@@ -414,6 +419,69 @@ impl SenzoApp {
                 diagnostics::record(diagnostics::Level::Error, "playback", &self.playback_status);
             }
         }
+        cx.notify();
+    }
+
+    fn load_home_catalogs(&mut self, cx: &mut Context<Self>) {
+        self.home_catalog_status = "Finding something to watch…".into();
+        self.home_catalogs.clear();
+        self.home_catalog_requested = true;
+        self.tmdb_task = Some(cx.spawn(async move |this, cx| {
+            let result = cx.background_spawn(async move {
+                let client = TmdbClient::from_credential_store("en-US")?;
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .context("could not initialize the discovery runtime")?;
+                runtime.block_on(async {
+                    let (trending, movies, shows) = futures::join!(
+                        client.trending_all_week(1),
+                        client.popular_movies(1),
+                        client.popular_tv(1)
+                    );
+                    let mut shelves = Vec::new();
+                    let mut failures = Vec::new();
+                    match trending {
+                        Ok(page) => shelves.extend(page.results.into_iter().map(|item| {
+                            let kind = item.media_type.clone().unwrap_or_else(|| {
+                                if item.title.is_some() || item.original_title.is_some() { "movie".into() } else { "tv".into() }
+                            });
+                            ("Trending this week".to_owned(), kind, item)
+                        })),
+                        Err(_) => failures.push("trending"),
+                    }
+                    match movies {
+                        Ok(page) => shelves.extend(page.results.into_iter().map(|item| ("Popular movies".to_owned(), "movie".to_owned(), item))),
+                        Err(_) => failures.push("popular movies"),
+                    }
+                    match shows {
+                        Ok(page) => shelves.extend(page.results.into_iter().map(|item| ("Popular TV".to_owned(), "tv".to_owned(), item))),
+                        Err(_) => failures.push("popular TV"),
+                    }
+                    if shelves.is_empty() {
+                        anyhow::bail!("Discovery is temporarily unavailable. Check your connection and try again.");
+                    }
+                    Ok::<_, anyhow::Error>((shelves, failures))
+                })
+            }).await;
+            let _ = this.update(cx, |app, cx| {
+                match result {
+                    Ok((shelves, failures)) => {
+                        let count = shelves.len();
+                        app.home_catalogs = shelves;
+                        app.home_catalog_status = if failures.is_empty() {
+                            format!("{count} recommendations ready")
+                        } else {
+                            format!("{count} recommendations ready; some shelves could not load")
+                        };
+                    }
+                    Err(error) => {
+                        app.home_catalog_status = format!("Recommendations are unavailable right now: {error:#}");
+                    }
+                }
+                cx.notify();
+            });
+        }));
         cx.notify();
     }
 
@@ -1569,6 +1637,9 @@ fn option_row(
 
 impl Render for SenzoApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.active_page == AppPage::Home && !self.home_catalog_requested {
+            self.load_home_catalogs(cx);
+        }
         let settings = self.settings.clone();
         let seek_bar_bounds = self.seek_bar_bounds.clone();
         let volume_bar_bounds = self.volume_bar_bounds.clone();
@@ -2656,6 +2727,8 @@ impl Render for SenzoApp {
                     self.addon_status.clone(),
                     self.tmdb_results.clone(),
                     self.tmdb_status.clone(),
+                    self.home_catalogs.clone(),
+                    self.home_catalog_status.clone(),
                     self.tmdb_details.clone(),
                     self.addon_catalog_items.clone(),
                     self.addon_catalog_status.clone(),
@@ -2706,6 +2779,8 @@ fn render_discovery_page(
     addon_status: String,
     tmdb_results: Vec<(String, TmdbSearchResult)>,
     tmdb_status: String,
+    home_catalogs: Vec<(String, String, TmdbSearchResult)>,
+    home_catalog_status: String,
     tmdb_details: Option<Value>,
     addon_catalog_items: Vec<Value>,
     addon_catalog_status: String,
@@ -3058,44 +3133,54 @@ fn render_discovery_page(
             )
         })
         .when(is_home, |this| {
-            this.child(
-                div()
-                    .h(px(260.))
-                    .w_full()
-                    .rounded_xl()
-                    .bg(rgb(0x151D20))
-                    .border_1()
-                    .border_color(rgb(0x263238))
-                    .p_6()
-                    .flex()
-                    .flex_col()
-                    .justify_between()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0x67E8F9))
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .child("FEATURED"),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .text_xl()
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .child("Your next favourite starts here"),
-                            )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(rgb(0xA1A1AA))
-                                    .child("Cinematic artwork and recommendations will appear when TMDB discovery is connected."),
-                            ),
-                    ),
-            )
+            let featured = home_catalogs.iter().find(|(shelf, _, _)| shelf == "Trending this week")
+                .or_else(|| home_catalogs.first()).cloned();
+            let hero = if let Some((_, kind, item)) = featured {
+                let title = item.display_title().unwrap_or("Featured title").to_owned();
+                let year = item.release_date.as_deref().or(item.first_air_date.as_deref())
+                    .and_then(|date| date.get(0..4)).unwrap_or("—").to_owned();
+                let rating = item.vote_average.map(|value| format!(" · ★ {value:.1}/10")).unwrap_or_default();
+                let overview = item.overview.clone().unwrap_or_else(|| "Discover more details and available sources.".into());
+                let selected = item.clone();
+                let selected_kind = kind.clone();
+                div().w_full().min_h(px(250.)).rounded_xl().bg(rgb(0x151D20))
+                    .border_1().border_color(rgb(0x263238)).p_6().flex().flex_col().justify_between()
+                    .child(div().text_xs().text_color(rgb(0x67E8F9)).font_weight(gpui::FontWeight::SEMIBOLD).child("FEATURED · TRENDING"))
+                    .child(div().flex().flex_col().gap_3()
+                        .child(div().text_2xl().font_weight(gpui::FontWeight::BOLD).child(title.clone()))
+                        .child(div().text_sm().text_color(rgb(0xA1A1AA)).child(format!("{year} · {}{rating}", if kind == "movie" { "Movie" } else { "Series" })))
+                        .child(div().max_w(px(760.)).text_sm().text_color(rgb(0xD4D4D8)).child(overview))
+                        .child(div().flex().gap_2()
+                            .child(dynamic_choice_chip("View details".into(), true, move |this, cx| this.select_tmdb_title(selected_kind.clone(), selected.clone(), cx), cx))
+                            .child(dynamic_choice_chip("Explore movies".into(), false, |this, cx| this.load_tmdb_catalog("movie", None, cx), cx))))
+            } else {
+                div().w_full().min_h(px(220.)).rounded_xl().bg(rgb(0x151D20)).p_6().flex().flex_col().justify_between()
+                    .child(div().text_xs().text_color(rgb(0x67E8F9)).child("WELCOME TO SENZO"))
+                    .child(div().flex().flex_col().gap_2()
+                        .child(div().text_2xl().font_weight(gpui::FontWeight::BOLD).child("Your next favourite starts here"))
+                        .child(div().text_sm().text_color(rgb(0xA1A1AA)).child(home_catalog_status.clone())))
+            };
+            this.child(hero).child(div().text_xs().text_color(rgb(0x858C94)).child(home_catalog_status.clone()))
+                .children(["Trending this week", "Popular movies", "Popular TV"].into_iter().filter_map(|shelf_name| {
+                    let entries = home_catalogs.iter().filter(|(name, _, _)| name == shelf_name).cloned().collect::<Vec<_>>();
+                    if entries.is_empty() { return None; }
+                    let cards = entries.into_iter().map(|(_, kind, item)| {
+                        let title = item.display_title().unwrap_or("Untitled").to_owned();
+                        let year = item.release_date.as_deref().or(item.first_air_date.as_deref())
+                            .and_then(|date| date.get(0..4)).unwrap_or("—").to_owned();
+                        let rating = item.vote_average.map(|value| format!("★ {value:.1}")).unwrap_or_default();
+                        let selected = item.clone();
+                        let selected_kind = kind.clone();
+                        div().w(px(176.)).min_h(px(118.)).p_3().rounded_lg().bg(rgb(0x171D20))
+                            .border_1().border_color(rgb(0x263238)).flex().flex_col().justify_between().gap_2()
+                            .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
+                            .child(div().text_xs().text_color(rgb(0x9299A1)).child(format!("{year} · {rating}")))
+                            .child(dynamic_choice_chip("Details".into(), false, move |this, cx| this.select_tmdb_title(selected_kind.clone(), selected.clone(), cx), cx))
+                    });
+                    Some(div().flex().flex_col().gap_3()
+                        .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child(shelf_name))
+                        .child(div().flex().gap_3().children(cards)))
+                }))
         })
         .when(is_details, |this| {
             this.child(
@@ -3138,57 +3223,10 @@ fn render_discovery_page(
                     ),
             )
         })
-        .when(!is_details && !is_library && page != AppPage::Addons, |this| {
+        .when(!is_details && !is_library && !is_home && page != AppPage::Addons, |this| {
             this.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_4()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child(if is_home { "Continue exploring" } else { "Browse titles" }))
-                            .child(div().text_xs().text_color(rgb(0x858C94)).child("Artwork placeholders · live catalogue in Batch 3")),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap_4()
-                            .children((0..6).map(|index| {
-                                let title = format!("Untitled preview {}", index + 1);
-                                let selected_title = title.clone();
-                                div()
-                                    .w(px(148.))
-                                    .flex()
-                                    .flex_col()
-                                    .gap_2()
-                                    .child(
-                                        div()
-                                            .w(px(148.))
-                                            .h(px(218.))
-                                            .rounded_lg()
-                                            .bg(rgb(0x1B2226))
-                                            .border_1()
-                                            .border_color(rgb(0x263238))
-                                            .flex()
-                                            .items_center()
-                                            .justify_center()
-                                            .child(div().text_xs().text_color(rgb(0x65707A)).child("POSTER")),
-                                    )
-                                    .child(div().text_xs().text_color(rgb(0xA1A1AA)).child("Artwork placeholder"))
-                                    .child(dynamic_choice_chip(
-                                        "View details".into(),
-                                        false,
-                                        move |this, _cx| {
-                                            this.selected_title = Some(selected_title.clone());
-                                            this.active_page = AppPage::Details;
-                                        },
-                                        cx,
-                                    ))
-                            })),
-                    ),
+                div().p_4().rounded_lg().bg(rgb(0x151719)).flex().flex_col().gap_2()
+                    .child(div().text_sm().text_color(rgb(0xA1A1AA)).child("Choose a catalogue above to browse real titles."))
             )
         })
         .when(is_library, |this| {
