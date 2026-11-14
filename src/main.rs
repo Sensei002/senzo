@@ -25,11 +25,11 @@ use senzo::{
         ScalingAlgorithm,
     },
     storage::{LocalDatabase, StoredAddon},
-    torrent::TorrentSessionDirectory,
-    torrent_engine::{TorrentPlaybackSession, TorrentProgress, TorrentVideoFile},
     subtitles::{
         OpenSubtitlesClient, OpenSubtitlesCredentialStore, OpenSubtitlesResult, SubtitleSearch,
     },
+    torrent::TorrentSessionDirectory,
+    torrent_engine::{TorrentPlaybackSession, TorrentProgress, TorrentVideoFile},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3399,7 +3399,9 @@ where
 }
 
 fn main() {
-    match TorrentSessionDirectory::recover_default_root() {
+    match TorrentSessionDirectory::default_root()
+        .and_then(|root| TorrentSessionDirectory::recover_abandoned_sessions_at(&root))
+    {
         Ok(removed) if removed > 0 => {
             eprintln!("SENZO recovered {removed} abandoned torrent session(s)")
         }

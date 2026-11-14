@@ -366,19 +366,34 @@ async fn stream_torrent_file_inner(
         .await
         .context("could not open torrent file stream")?;
     let total = stream.len();
-    let (start, end) = match headers.get(header::RANGE).and_then(|v| v.to_str().ok()) {
-        Some(value) => parse_single_byte_range(value, total)?,
-        None => (0, total),
+    let requested_range = headers.get(header::RANGE).and_then(|value| value.to_str().ok());
+    let range = match requested_range {
+        Some(value) => match parse_single_byte_range(value, total) {
+            Ok(range) => Some(range),
+            Err(_) => {
+                let response = Response::builder()
+                    .status(StatusCode::RANGE_NOT_SATISFIABLE)
+                    .header(header::CONTENT_RANGE, format!("bytes */{total}"))
+                    .body(Body::empty())
+                    .context("could not construct unsatisfied range response")?;
+                return Ok(response);
+            }
+        },
+        None => None,
     };
-    let mut status = StatusCode::OK;
+    let (start, end) = range.unwrap_or((0, total));
+    let status = if range.is_some() {
+        StatusCode::PARTIAL_CONTENT
+    } else {
+        StatusCode::OK
+    };
     let mut response_headers = HeaderMap::new();
     response_headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
     response_headers.insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/octet-stream"),
     );
-    if start > 0 || end < total {
-        status = StatusCode::PARTIAL_CONTENT;
+    if range.is_some() {
         stream.seek(SeekFrom::Start(start)).await?;
         response_headers.insert(
             header::CONTENT_RANGE,
