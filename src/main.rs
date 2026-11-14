@@ -2883,6 +2883,7 @@ fn render_discovery_page(
     tmdb_results: Vec<(String, TmdbSearchResult)>,
     tmdb_status: String,
     home_catalogs: Vec<(String, String, TmdbSearchResult)>,
+    home_addon_catalogs: Vec<(String, StoredAddon, String, Vec<Value>)>,
     home_catalog_status: String,
     tmdb_details: Option<Value>,
     addon_catalog_items: Vec<Value>,
@@ -3362,7 +3363,8 @@ fn render_discovery_page(
                             .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child(shelf_name))
                             .child(div().text_xs().text_color(rgb(0x67E8F9)).child("VIEW ALL")))
                         .child(div().w_full().id(shelf_name).overflow_x_scroll().flex().gap_3().children(cards)))
-                }))                .children(home_addon_catalogs.iter().map(|(shelf_name, addon, media_type, items)| {
+                }))
+                .children(home_addon_catalogs.iter().map(|(shelf_name, addon, media_type, items)| {
                     let cards = items.iter().filter_map(|item| {
                         let title = item.get("name").or_else(|| item.get("title"))
                             .and_then(Value::as_str)?.to_owned();
