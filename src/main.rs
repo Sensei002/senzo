@@ -446,6 +446,7 @@ impl SenzoApp {
                                     );
                                 }
                                 PlaybackEvent::Failed { message } => {
+                                    app.discord_presence.clear_playback();
                                     app.persist_playback_progress(true);
                                     app.playback_status = format!("MPV failed: {message}");
                                     diagnostics::record(
@@ -456,6 +457,7 @@ impl SenzoApp {
                                     app.playback_worker = None;
                                 }
                                 PlaybackEvent::Stopped => {
+                                    app.discord_presence.clear_playback();
                                     app.persist_playback_progress(true);
                                     app.playback_status = "Playback stopped".into();
                                     app.playback_worker = None;
