@@ -4154,7 +4154,7 @@ fn render_discovery_page(
     home_addon_catalogs: Vec<(String, StoredAddon, String, String, Vec<Value>)>,
     home_catalog_status: String,
     home_hero_index: usize,
-    home_hero_paused: bool,
+    _home_hero_paused: bool,
     tmdb_details: Option<Value>,
     addon_catalog_items: Vec<Value>,
     addon_catalog_status: String,
@@ -5327,6 +5327,7 @@ fn render_discovery_page(
                         let selected = item.clone();
                         let selected_addon = addon.clone();
                         let poster = safe_addon_artwork_url(item.get("poster").and_then(Value::as_str));
+                        let has_poster = poster.is_some();
                         let year = item.get("releaseInfo").and_then(Value::as_str)
                             .or_else(|| item.get("year").and_then(Value::as_str))
                             .unwrap_or(" ");
@@ -5336,7 +5337,7 @@ fn render_discovery_page(
                             .when_some(poster, |panel, url| {
                                 panel.child(img(url).w_full().h_full().object_fit(ObjectFit::Cover))
                             })
-                            .when(poster.is_none(), |panel| {
+                            .when(!has_poster, |panel| {
                                 panel.child(
                                     div().size_full().flex().flex_col().justify_center().items_center().p_4()
                                         .bg(rgb(0x181F26))
