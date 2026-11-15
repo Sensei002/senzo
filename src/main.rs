@@ -2572,16 +2572,8 @@ where
                 style
             }
         })
-        .child(
-            div()
-                .text_base()
-                .child(icon),
-        )
-        .child(
-            div()
-                .text_sm()
-                .child(label),
-        )
+        .child(div().text_base().child(icon))
+        .child(div().text_sm().child(label))
         .tab_index(0)
         .on_mouse_down(
             MouseButton::Left,
