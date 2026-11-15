@@ -1913,10 +1913,13 @@ where
         .hover(|style| style.bg(rgb(0x30363B)))
         .child(label)
         .tab_index(0)
-        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _event, _window, cx| {
-            action(this, cx);
-            this.persist(cx);
-        }))
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, _event, _window, cx| {
+                action(this, cx);
+                this.persist(cx);
+            }),
+        )
 }
 
 fn dynamic_choice_chip<F>(
@@ -1947,10 +1950,13 @@ where
         .hover(|style| style.bg(rgb(0x30363B)))
         .child(label)
         .tab_index(0)
-        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _event, _window, cx| {
-            action(this, cx);
-            cx.notify();
-        }))
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, _event, _window, cx| {
+                action(this, cx);
+                cx.notify();
+            }),
+        )
 }
 
 fn section(
