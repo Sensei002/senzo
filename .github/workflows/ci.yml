@@ -35,6 +35,14 @@ jobs:
         if: ${{ hashFiles('Cargo.lock') == '' }}
         run: cargo generate-lockfile
 
+      - name: Generate Cargo.lock when the GPUI input dependency is missing
+        shell: pwsh
+        run: |
+          $lock = Get-Content -LiteralPath "Cargo.lock" -Raw
+          if (-not $lock.Contains('name = "gpui_ce_components_base"')) {
+            cargo generate-lockfile
+          }
+
       - name: Check compilation
         run: cargo check --all-targets --locked
 
