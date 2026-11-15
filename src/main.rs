@@ -1681,6 +1681,7 @@ impl SenzoApp {
                 if self.active_page == AppPage::Home {
                     self.load_home_catalogs(cx);
                 }
+            }
             Ok(false) => {
                 self.tmdb_credentials_status = "TMDB token setup cancelled; no changes made".into()
             }
