@@ -1469,7 +1469,9 @@ impl SenzoApp {
             .and_then(|item| item.text())
             .filter(|value| !value.trim().is_empty())
         else {
-            self.addon_status = "Clipboard does not contain a manifest URL. Copy an HTTPS manifest URL first.".into();
+            self.addon_status =
+                "Clipboard does not contain a manifest URL. Copy an HTTPS manifest URL first."
+                    .into();
             cx.notify();
             return;
         };
@@ -1477,10 +1479,7 @@ impl SenzoApp {
     }
 
     fn preview_torrentio(&mut self, cx: &mut Context<Self>) {
-        self.preview_addon_url(
-            "https://torrentio.strem.fun/manifest.json".to_owned(),
-            cx,
-        );
+        self.preview_addon_url("https://torrentio.strem.fun/manifest.json".to_owned(), cx);
     }
 
     fn preview_addon_url(&mut self, input: String, cx: &mut Context<Self>) {
