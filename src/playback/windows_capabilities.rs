@@ -57,7 +57,7 @@ pub fn hdr_output_enabled() -> bool {
             info.header.id = path.targetInfo.id;
 
             let queried = unsafe { DisplayConfigGetDeviceInfo(&mut info.header) };
-            if queried != ERROR_SUCCESS {
+            if queried != 0 {
                 return false;
             }
 
