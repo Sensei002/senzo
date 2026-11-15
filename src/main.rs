@@ -1913,7 +1913,7 @@ where
         .hover(|style| style.bg(rgb(0x30363B)))
         .child(label)
         .tab_index(0)
-        .on_click(cx.listener(move |this, _event, _window, cx| {
+        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _event, _window, cx| {
             action(this, cx);
             this.persist(cx);
         }))
@@ -1947,7 +1947,7 @@ where
         .hover(|style| style.bg(rgb(0x30363B)))
         .child(label)
         .tab_index(0)
-        .on_click(cx.listener(move |this, _event, _window, cx| {
+        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _event, _window, cx| {
             action(this, cx);
             cx.notify();
         }))
@@ -3155,7 +3155,7 @@ impl Render for SenzoApp {
                                     .text_sm()
                                     .cursor_pointer()
                                     .child("Copy logs")
-                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _event, _window, cx| {
                                         this.copy_diagnostics(cx);
                                     })),
                             ),
@@ -3788,7 +3788,7 @@ fn render_discovery_page(
                                 .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
                                 .child(div().text_xs().text_color(rgb(0x9299A1)).child(format!("{year} · {rating}"))))
                             .tab_index(0)
-                            .on_click(cx.listener(move |this, _event, _window, cx| {
+                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _event, _window, cx| {
                                 this.select_tmdb_title(selected_kind.clone(), selected.clone(), cx);
                             }))
                     }).collect::<Vec<_>>();
@@ -3827,7 +3827,7 @@ fn render_discovery_page(
                                 .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
                                 .child(div().text_xs().text_color(rgb(0x9299A1)).child(year.to_owned())))
                             .tab_index(0)
-                            .on_click(cx.listener(move |this, _event, _window, cx| {
+                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _event, _window, cx| {
                                 this.select_addon_catalog_meta(selected_addon.clone(), selected.clone(), cx);
                             }))
                         )
