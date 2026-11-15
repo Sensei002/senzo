@@ -43,6 +43,7 @@ enum AppPage {
     TvShows,
     Search,
     Library,
+    Player,
     Details,
     Addons,
     Settings,
@@ -160,6 +161,14 @@ impl SenzoApp {
             .filter(|shelf| known_home_shelves.contains(&shelf.as_str()))
             .collect();
 
+        let (native_video_surface, native_surface_error) = match native_parent_hwnd {
+            Some(parent) => match WindowsVideoSurface::create(parent, SurfaceBounds { x: -2, y: -2, width: 1, height: 1 }) {
+                Ok(surface) => (Some(surface), None),
+                Err(error) => (None, Some(format!("{error:#}"))),
+            },
+            None => (None, Some("GPUI did not provide a Win32 parent HWND".into())),
+        };
+
         Self {
             database,
             active_page: AppPage::Home,
@@ -229,8 +238,8 @@ impl SenzoApp {
             torrent_task: None,
             native_parent_hwnd,
             native_viewport_bounds: Arc::new(Mutex::new(None)),
-            native_video_surface: Arc::new(Mutex::new(None)),
-            native_surface_error: Arc::new(Mutex::new(None)),
+            native_video_surface: Arc::new(Mutex::new(native_video_surface)),
+            native_surface_error: Arc::new(Mutex::new(native_surface_error)),
             seek_bar_bounds: Arc::new(Mutex::new(None)),
             volume_bar_bounds: Arc::new(Mutex::new(None)),
         }
@@ -473,6 +482,7 @@ impl SenzoApp {
         match result {
             Ok(()) => {
                 self.active_media_id = Some(media_id);
+                self.active_page = AppPage::Player;
                 self.last_progress_save = None;
                 self.playback_status = match resume_position {
                     Some(position) => {
@@ -1025,6 +1035,7 @@ impl SenzoApp {
             .to_owned();
         let addon_id = addon.id.clone();
         let addon_name = addon.name.clone();
+        self.active_media_id = Some(format!("stremio:{media_type}:{media_id}"));
         let subtitle_addons = self.database.installed_addons().unwrap_or_default();
         self.addon_subtitle_results.clear();
         self.addon_subtitle_status = "Checking the selected add-on for subtitle tracks…".into();
@@ -1141,7 +1152,6 @@ impl SenzoApp {
         let trackers = stream.sources.clone();
         let previous = self.torrent_session.take();
         let worker = self.playback_worker.clone();
-        self.active_media_id = None;
         self.last_progress_save = None;
         self.torrent_files.clear();
         self.torrent_progress = None;
@@ -1222,7 +1232,7 @@ impl SenzoApp {
             return;
         };
         let worker = Some(worker);
-        let media_id = session.media_id_for_file(file_index).ok();
+        let media_id = self.active_media_id.clone().or_else(|| session.media_id_for_file(file_index).ok());
         let resume_position = media_id
             .as_deref()
             .and_then(|id| self.database.playback_progress(id).ok().flatten())
@@ -1270,6 +1280,7 @@ impl SenzoApp {
                                 app.playback_status =
                                     "Playing torrent stream from the local loopback server".into();
                                 app.active_media_id = media_id_for_update;
+                                app.active_page = AppPage::Player;
                                 app.last_progress_save = None;
                             }
                             Err(error) => {
@@ -1399,7 +1410,7 @@ impl SenzoApp {
                     Ok(()) => {
                         app.stream_status = "Direct stream queued in MPV".into();
                         app.playback_status = "Playing selected add-on stream".into();
-                        app.active_media_id = None;
+                        app.active_page = AppPage::Player;
                     }
                     Err(error) => {
                         app.stream_status = format!("Could not play selected stream: {error:#}")
@@ -2193,6 +2204,17 @@ impl SenzoApp {
         cx.notify();
     }
 
+    fn open_diagnostics_folder(&mut self, cx: &mut Context<Self>) {
+        match diagnostics::open_log_folder() {
+            Ok(()) => self.status = "Opened the SENZO diagnostic log folder".into(),
+            Err(error) => {
+                self.status = format!("Could not open log folder: {error:#}");
+                diagnostics::record(diagnostics::Level::Error, "diagnostics", "failed to open the diagnostic log folder");
+            }
+        }
+        cx.notify();
+    }
+
     fn copy_diagnostics(&mut self, cx: &mut Context<Self>) {
         match diagnostics::collect_recent_logs() {
             Ok(report) => {
@@ -2488,6 +2510,19 @@ impl Render for SenzoApp {
             .id("senzo-root")
             .size_full()
             .flex()
+            .on_children_prepainted({
+                let surface = self.native_video_surface.clone();
+                let show_video = self.active_page == AppPage::Player;
+                move |_children, _window, _cx| {
+                    if !show_video {
+                        if let Ok(mut surface) = surface.lock() {
+                            if let Some(surface) = surface.as_mut() {
+                                surface.set_visible(false);
+                            }
+                        }
+                    }
+                }
+            })
             .bg(rgb(0x0A0C0E))
             .text_color(rgb(0xF4F4F5))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _window, cx| {
@@ -2509,6 +2544,44 @@ impl Render for SenzoApp {
                         let count = if count == 0 { this.home_catalogs.len().min(7) } else { count };
                         if count > 1 {
                             this.home_hero_index = (this.home_hero_index + 1) % count;
+                            cx.notify();
+                        }
+                    }
+                    "space" | " " if this.active_page == AppPage::Player && this.playback_worker.is_some() => {
+                        let paused = !this.playback_state.paused.unwrap_or(false);
+                        this.send_playback_command("keyboard play/pause", move |worker| worker.set_paused(paused), cx);
+                    }
+                    "left" if this.active_page == AppPage::Player => {
+                        if let Some(position) = this.playback_state.position_seconds {
+                            this.send_playback_command("keyboard seek backward", move |worker| worker.seek_absolute((position - 10.0).max(0.0)), cx);
+                        }
+                    }
+                    "right" if this.active_page == AppPage::Player => {
+                        if let Some(position) = this.playback_state.position_seconds {
+                            this.send_playback_command("keyboard seek forward", move |worker| worker.seek_absolute(position + 10.0), cx);
+                        }
+                    }
+                    "up" if this.active_page == AppPage::Player => {
+                        let volume = (this.playback_state.volume.unwrap_or(100.0) + 5.0).clamp(0.0, 100.0);
+                        this.send_playback_command("keyboard volume up", move |worker| worker.set_volume(volume), cx);
+                    }
+                    "down" if this.active_page == AppPage::Player => {
+                        let volume = (this.playback_state.volume.unwrap_or(100.0) - 5.0).clamp(0.0, 100.0);
+                        this.send_playback_command("keyboard volume down", move |worker| worker.set_volume(volume), cx);
+                    }
+                    "m" | "M" if this.active_page == AppPage::Player => {
+                        let muted = !this.playback_state.muted.unwrap_or(false);
+                        this.send_playback_command("keyboard mute", move |worker| worker.set_muted(muted), cx);
+                    }
+                    "f" | "F" if this.active_page == AppPage::Player => {
+                        let fullscreen = !this.playback_state.fullscreen.unwrap_or(false);
+                        this.send_playback_command("keyboard fullscreen", move |worker| worker.set_fullscreen(fullscreen), cx);
+                    }
+                    "escape" if this.active_page == AppPage::Player => {
+                        if this.playback_state.fullscreen.unwrap_or(false) {
+                            this.send_playback_command("exit fullscreen", |worker| worker.set_fullscreen(false), cx);
+                        } else {
+                            this.active_page = if this.selected_title.is_some() { AppPage::Details } else { AppPage::Home };
                             cx.notify();
                         }
                     }
@@ -2561,6 +2634,7 @@ impl Render for SenzoApp {
                             .child(dynamic_choice_chip("▤".into(), self.active_page == AppPage::TvShows, |this, _cx| this.active_page = AppPage::TvShows, cx))
                             .child(dynamic_choice_chip("⌕".into(), self.active_page == AppPage::Search, |this, _cx| this.active_page = AppPage::Search, cx))
                             .child(dynamic_choice_chip("▧".into(), self.active_page == AppPage::Library, |this, _cx| this.active_page = AppPage::Library, cx))
+                            .child(dynamic_choice_chip("▶".into(), self.active_page == AppPage::Player, |this, _cx| this.active_page = AppPage::Player, cx))
                             .child(dynamic_choice_chip("＋".into(), self.active_page == AppPage::Addons, |this, _cx| this.active_page = AppPage::Addons, cx))
                             .child(dynamic_choice_chip("⚙".into(), self.active_page == AppPage::Settings, |this, _cx| this.active_page = AppPage::Settings, cx)),
                     )
@@ -3514,7 +3588,9 @@ impl Render for SenzoApp {
                                     .child(div().text_xs().text_color(rgb(0x858C94)).child("Includes up to 72 hours of diagnostic events.")),
                             )
                             .child(
-                                div()
+                                div().flex().gap_2()
+                                    .child(choice_chip("Open log folder", false, |this, cx| this.open_diagnostics_folder(cx), cx))
+                                    .child(div()
                                     .id("copy-diagnostics")
                                     .px_3()
                                     .py_2()
@@ -3526,7 +3602,7 @@ impl Render for SenzoApp {
                                     .child("Copy logs")
                                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _event, _window, cx| {
                                         this.copy_diagnostics(cx);
-                                    })),
+                                    }))),
                             ),
                     ))
                     .child(
@@ -3551,7 +3627,114 @@ impl Render for SenzoApp {
 
             )
             })
-            .when(self.active_page != AppPage::Settings, |root| {
+            .when(self.active_page == AppPage::Player, |root| {
+                let viewport_bounds = self.native_viewport_bounds.clone();
+                let native_parent_hwnd = self.native_parent_hwnd;
+                let native_video_surface = self.native_video_surface.clone();
+                let native_surface_error = self.native_surface_error.clone();
+                let progress = match (playback_position, playback_duration) {
+                    (Some(position), Some(duration)) if duration > 0.0 => (position / duration).clamp(0.0, 1.0) as f32,
+                    _ => 0.0,
+                };
+                let mut player_audio_tracks = Vec::new();
+                let mut player_subtitle_tracks = Vec::new();
+                for track in &self.playback_state.tracks {
+                    let id = track.id;
+                    let label = format!("{}{}", track.title.as_deref().unwrap_or(if track.kind == "audio" { "Audio" } else { "Subtitle" }), track.language.as_deref().map(|language| format!(" · {language}")).unwrap_or_default());
+                    if track.kind == "audio" {
+                        player_audio_tracks.push(dynamic_choice_chip(label, track.selected, move |this, cx| this.send_playback_command("select audio track", move |worker| worker.set_audio_track(id), cx), cx).into_any_element());
+                    } else if track.kind == "sub" {
+                        player_subtitle_tracks.push(dynamic_choice_chip(label, track.selected, move |this, cx| this.send_playback_command("select subtitle track", move |worker| worker.set_subtitle_track(Some(id)), cx), cx).into_any_element());
+                    }
+                }
+                root.child(
+                    div().id("senzo-player-screen").flex_1().h_full().overflow_y_scroll().p_6().flex().flex_col().gap_4()
+                        .child(div().flex().items_center().justify_between()
+                            .child(div().flex().flex_col().gap_1()
+                                .child(div().text_2xl().font_weight(gpui::FontWeight::BOLD).child("Now Playing"))
+                                .child(div().text_sm().text_color(rgb(0x9299A1)).child(self.playback_status.clone())))
+                            .child(choice_chip("Open media", false, |this, cx| this.open_media(cx), cx)))
+                        .child(div().w_full().on_children_prepainted(move |children, window, _cx| {
+                            if let Some(bounds) = children.first() {
+                                if let Ok(measured) = SurfaceBounds::from_logical_pixels(f32::from(bounds.origin.x), f32::from(bounds.origin.y), f32::from(bounds.size.width), f32::from(bounds.size.height), window.scale_factor()) {
+                                    if let Ok(mut current) = viewport_bounds.lock() { *current = Some(measured); }
+                                    if let Ok(mut slot) = native_video_surface.lock() {
+                                        if let Some(surface) = slot.as_mut() {
+                                            if let Err(error) = surface.set_bounds(measured) {
+                                                if let Ok(mut error_slot) = native_surface_error.lock() { *error_slot = Some(format!("{error:#}")); }
+                                            }
+                                            surface.set_visible(true);
+                                        } else if let Some(parent) = native_parent_hwnd {
+                                            match WindowsVideoSurface::create(parent, measured) {
+                                                Ok(mut surface) => {
+                                                    surface.set_visible(true);
+                                                    *slot = Some(surface);
+                                                    if let Ok(mut error_slot) = native_surface_error.lock() { *error_slot = None; }
+                                                }
+                                                Err(error) => if let Ok(mut error_slot) = native_surface_error.lock() { *error_slot = Some(format!("{error:#}")); },
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }).child(div().id("player-video-viewport").w_full().h(px(500.0)).rounded_lg().border_1().border_color(rgb(0x263238)).bg(rgb(0x050708)).flex().items_center().justify_center()
+                            .child(div().text_sm().text_color(rgb(0x67E8F9)).child("SENZO NATIVE VIDEO"))))
+                        .child(div().flex().items_center().justify_between()
+                            .child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child(self.playback_state.media_title.clone().or_else(|| self.selected_title.clone()).unwrap_or_else(|| "No media loaded".into())))
+                            .child(div().text_xs().text_color(rgb(0x9299A1)).child(format!("{} / {}", format_playback_time(playback_position), format_playback_time(playback_duration)))))
+                        .child({
+                            let bounds = seek_bar_bounds.clone();
+                            div().w_full().h(px(14.0)).rounded_full().bg(rgb(0x30363B))
+                                .on_children_prepainted({
+                                    let bounds = bounds.clone();
+                                    move |children, _window, _cx| {
+                                        if let Some(track) = children.first() {
+                                            if let Ok(mut current) = bounds.lock() {
+                                                *current = Some((f32::from(track.origin.x), f32::from(track.size.width)));
+                                            }
+                                        }
+                                    }
+                                })
+                                .on_mouse_down(MouseButton::Left, cx.listener({
+                                    let bounds = bounds.clone();
+                                    move |this, event: &gpui::MouseDownEvent, _window, cx| this.seek_from_pointer(f32::from(event.position.x), &bounds, cx)
+                                }))
+                                .on_mouse_move(cx.listener({
+                                    let bounds = bounds.clone();
+                                    move |this, event: &gpui::MouseMoveEvent, _window, cx| {
+                                        if event.pressed_button == Some(MouseButton::Left) {
+                                            this.seek_from_pointer(f32::from(event.position.x), &bounds, cx);
+                                        }
+                                    }
+                                }))
+                                .child(div().h(px(8.0)).w(px(900.0 * progress)).rounded_full().bg(rgb(0x22D3EE)))
+                        })
+                        .child(div().flex().flex_wrap().items_center().gap_2()
+                            .child(choice_chip("−10 sec", false, |this, cx| { if let Some(position) = this.playback_state.position_seconds { this.send_playback_command("seek backward", move |worker| worker.seek_absolute((position - 10.0).max(0.0)), cx); } }, cx))
+                            .child(choice_chip(if self.playback_state.paused.unwrap_or(false) { "Play" } else { "Pause" }, self.playback_state.paused.unwrap_or(false), |this, cx| { let paused = !this.playback_state.paused.unwrap_or(false); this.send_playback_command("pause", move |worker| worker.set_paused(paused), cx); }, cx))
+                            .child(choice_chip("+10 sec", false, |this, cx| { if let Some(position) = this.playback_state.position_seconds { this.send_playback_command("seek forward", move |worker| worker.seek_absolute(position + 10.0), cx); } }, cx))
+                            .child(choice_chip(if self.playback_state.muted.unwrap_or(false) { "Unmute" } else { "Mute" }, self.playback_state.muted.unwrap_or(false), |this, cx| { let muted = !this.playback_state.muted.unwrap_or(false); this.send_playback_command("mute", move |worker| worker.set_muted(muted), cx); }, cx))
+                            .child(choice_chip("Volume −", false, |this, cx| { let volume = (this.playback_state.volume.unwrap_or(100.0) - 5.0).clamp(0.0, 100.0); this.send_playback_command("volume down", move |worker| worker.set_volume(volume), cx); }, cx))
+                            .child(choice_chip("Volume +", false, |this, cx| { let volume = (this.playback_state.volume.unwrap_or(100.0) + 5.0).clamp(0.0, 100.0); this.send_playback_command("volume up", move |worker| worker.set_volume(volume), cx); }, cx))
+                            .child(choice_chip("Fullscreen", self.playback_state.fullscreen.unwrap_or(false), |this, cx| { let fullscreen = !this.playback_state.fullscreen.unwrap_or(false); this.send_playback_command("fullscreen", move |worker| worker.set_fullscreen(fullscreen), cx); }, cx))
+                            .child(choice_chip("Stop", false, |this, cx| { this.persist_playback_progress(true); this.send_playback_command("stop", |worker| worker.stop(), cx); this.stop_torrent_session(cx); }, cx)))
+                        .child(section("Audio tracks", "Choose an audio stream from the active media.", div().flex().flex_wrap().gap_2().children(player_audio_tracks)))
+                        .child(section("Subtitles", "Select a subtitle track or add a local or online subtitle.", div().flex().flex_wrap().gap_2()
+                            .child(choice_chip("Off", false, |this, cx| this.send_playback_command("disable subtitles", |worker| worker.set_subtitle_track(None), cx), cx))
+                            .children(player_subtitle_tracks)
+                            .child(choice_chip("Open subtitle file", false, |this, cx| this.open_subtitle_file(cx), cx))
+                            .child(choice_chip("Search online subtitles", false, |this, cx| this.search_online_subtitles(cx), cx))))
+                        .child(section("Playback diagnostics", "Live values reported by the native MPV session.", div().flex().flex_wrap().gap_3()
+                            .child(div().text_sm().text_color(rgb(0xD4D4D8)).child(format!("Video · {} × {}", self.playback_state.diagnostics.video_width.map(|v| v.to_string()).unwrap_or_else(|| "—".into()), self.playback_state.diagnostics.video_height.map(|v| v.to_string()).unwrap_or_else(|| "—".into()))))
+                            .child(div().text_sm().text_color(rgb(0xD4D4D8)).child(format!("Codec · {}", self.playback_state.diagnostics.video_codec.as_deref().unwrap_or("—"))))
+                            .child(div().text_sm().text_color(rgb(0xD4D4D8)).child(format!("Decoder · {}", self.playback_state.diagnostics.video_decoder.as_deref().unwrap_or("—"))))
+                            .child(div().text_sm().text_color(rgb(0xD4D4D8)).child(format!("Hardware · {}", self.playback_state.diagnostics.hardware_decoder.as_deref().unwrap_or("—"))))
+                            .child(div().text_sm().text_color(rgb(0xD4D4D8)).child(format!("Output · {}", self.playback_state.diagnostics.video_output.as_deref().unwrap_or("—"))))
+                            .child(div().text_sm().text_color(rgb(0xD4D4D8)).child(format!("Dropped frames · {}", self.playback_state.diagnostics.dropped_frames.map(|v| v.to_string()).unwrap_or_else(|| "—".into()))))))
+                        .child(div().text_xs().text_color(rgb(0x858C94)).child("Keyboard: Space play/pause · ←/→ seek 10 seconds · ↑/↓ volume · M mute · F fullscreen · Esc leave player"))
+                )
+            })
+            .when(self.active_page != AppPage::Settings && self.active_page != AppPage::Player, |root| {
                 root.child(render_discovery_page(
                     self.active_page,
                     self.selected_title.clone(),

@@ -136,6 +136,15 @@ impl WindowsVideoSurface {
         Ok(id)
     }
 
+    /// Show or hide the embedded video child without changing its geometry.
+    pub fn set_visible(&mut self, visible: bool) {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE, SW_SHOWNA};
+        // SAFETY: this object owns the child HWND and calls occur on the UI thread.
+        unsafe {
+            ShowWindow(self.hwnd as HWND, if visible { SW_SHOWNA } else { SW_HIDE });
+        }
+    }
+
     pub fn set_bounds(&mut self, bounds: SurfaceBounds) -> anyhow::Result<()> {
         let bounds = bounds.validate()?;
         if self.bounds == bounds {

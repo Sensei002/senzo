@@ -34,11 +34,37 @@ impl Level {
     }
 }
 
-/// Initializes the per-user diagnostic log. Existing logs are retained across launches.
-pub fn initialize() -> Result<()> {
+/// Returns the per-user diagnostic log directory.
+pub fn log_directory() -> Result<PathBuf> {
     let app_data = dirs::data_local_dir()
         .context("the operating system did not provide a local app-data directory")?;
-    let directory = app_data.join("SENZO").join("logs");
+    Ok(app_data.join("SENZO").join("logs"))
+}
+
+/// Opens the diagnostic log directory in the native Windows file manager.
+pub fn open_log_folder() -> Result<()> {
+    let directory = log_directory()?;
+    fs::create_dir_all(&directory)
+        .with_context(|| format!("failed to create {}", directory.display()))?;
+
+    #[cfg(windows)]
+    {
+        std::process::Command::new("explorer.exe")
+            .arg(&directory)
+            .spawn()
+            .context("could not open the diagnostic folder in File Explorer")?;
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    {
+        anyhow::bail!("opening the diagnostic folder is currently supported on Windows only")
+    }
+}
+
+/// Initializes the per-user diagnostic log. Existing logs are retained across launches.
+pub fn initialize() -> Result<()> {
+    let directory = log_directory()?;
     fs::create_dir_all(&directory)
         .with_context(|| format!("failed to create {}", directory.display()))?;
     let path = directory.join("senzo.log");

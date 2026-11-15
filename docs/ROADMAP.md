@@ -163,13 +163,31 @@ The Settings experience will follow Nuvio's simple, user-friendly approach: clea
 
 **Nuvio reference:** AddonModels.kt, AddonManifestParser.kt, AddonRepository.kt, AddonTransportUrls.kt, and AddonsScreen.kt in NuvioMedia/NuvioDesktop (branch Dev). SENZO adapts the product and protocol concepts to Rust/GPUI and its local-first security model; no Kotlin/Compose source or Nuvio assets are copied.
 
-## Phase 9 — Additional sources and presence (Batch 8)
+## Phase 9 — Native Playback & Media Experience (Batch 8)
+
+Batch 8 turns the existing MPV worker integration into a dedicated, usable native player. The Player destination owns the native video viewport and presents essential transport, track, subtitle, and diagnostics controls without routing ordinary playback through Advanced Settings.
+
+- [ ] Deliver the dedicated Player screen with a native MPV video viewport and safe child-window visibility/lifecycle handling.
+- [ ] Connect seek, play/pause, stop, volume, mute, fullscreen, audio-track, and subtitle-track controls to the worker.
+- [ ] Add keyboard playback controls: Space, Left/Right, Up/Down, M, F, and Escape.
+- [ ] Preserve selected TMDB/Stremio media identity across direct-stream and torrent handoff so network playback progress is not discarded.
+- [ ] Resume metadata-backed network streams from their saved position.
+- [ ] Record completion-aware watch history and make metadata-backed Continue Watching actionable.
+- [ ] Detect runtime decoder, renderer, and HDR capabilities and only expose settings the active runtime supports.
+- [ ] Complete Settings → Diagnostics with Copy Logs and Open Log Folder; exports remain bounded and exclude personal history/database contents.
+- [ ] Validate native MPV video presentation, fullscreen behavior, track switching, seeking, buffering, and shutdown on Windows hardware.
+
+**Batch 8 boundary:** CI validates code, tests, and packaging, but native video presentation and provider playback still require real Windows runtime testing. Do not claim hardware capability support until the active libmpv/GPU/output path is detected and the selected options are confirmed.
+
+**Nuvio reference:** PlayerScreen.kt, PlayerControls.kt, PlayerTimeline.kt, PlayerTrackSelection.kt, PlayerMediaInfo.kt, and PlayerLoadingStatus.kt in NuvioMedia/NuvioDesktop (branch Dev). Adapt interaction patterns and user-facing behavior to Rust + GPUI and native libmpv; do not port Kotlin/Compose UI code.
+
+## Phase 10 — Additional sources and presence (Batch 9)
 
 - [ ] Define a stable source-adapter interface for additional providers.
 - [ ] Add more authorized source adapters without changing metadata or playback layers.
 - [ ] Add Discord Rich Presence, playback-state updates, and privacy controls.
 
-## Phase 10 — Windows distribution
+## Phase 11 — Windows distribution
 
 - [ ] Build optimized Windows release binaries in GitHub Actions.
 - [ ] Build a per-machine Windows installer targeting `%ProgramFiles%\\SENZO` (normally `C:\\Program Files\\SENZO`), with UAC elevation, Start Menu shortcuts, and a Windows uninstall entry.
