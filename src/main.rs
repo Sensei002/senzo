@@ -4257,7 +4257,7 @@ fn render_discovery_page(
                                 cx,
                             );
                         }
-                    }, cx)))
+                    }, cx))))
                 .child(
                 div()
                     .flex()
