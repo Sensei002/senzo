@@ -822,7 +822,11 @@ impl SenzoApp {
         self.tmdb_status = format!("Loading details for {display_title}…");
         self.active_media_id = Some(title.media_id(&media_type));
         self.active_media_title = Some(display_title.clone());
-        self.active_media_type = Some(if media_type == "tv" { "episode".into() } else { "movie".into() });
+        self.active_media_type = Some(if media_type == "tv" {
+            "episode".into()
+        } else {
+            "movie".into()
+        });
         let metadata_language = self.metadata_language.clone();
         self.tmdb_task = Some(cx.spawn(async move |this, cx| {
             let result = cx.background_spawn(async move {
@@ -1390,7 +1394,12 @@ impl SenzoApp {
             return;
         };
         let url_string = url.to_string();
-        let resume_position = self.active_media_id.as_deref().and_then(|id| self.database.playback_progress(id).ok().flatten()).map(|progress| progress.position_seconds).filter(|position| *position > 5.0);
+        let resume_position = self
+            .active_media_id
+            .as_deref()
+            .and_then(|id| self.database.playback_progress(id).ok().flatten())
+            .map(|progress| progress.position_seconds)
+            .filter(|position| *position > 5.0);
         let previous = self.torrent_session.take();
         self.torrent_files.clear();
         self.torrent_progress = None;
@@ -1433,7 +1442,12 @@ impl SenzoApp {
                 match result {
                     Ok(()) => {
                         app.stream_status = "Direct stream queued in MPV".into();
-                        app.playback_status = match resume_position { Some(position) => format!("Resuming selected stream from {:.0} seconds", position), None => "Playing selected add-on stream".into() };
+                        app.playback_status = match resume_position {
+                            Some(position) => {
+                                format!("Resuming selected stream from {:.0} seconds", position)
+                            }
+                            None => "Playing selected add-on stream".into(),
+                        };
                         app.active_page = AppPage::Player;
                     }
                     Err(error) => {
@@ -2144,17 +2158,45 @@ impl SenzoApp {
             .duration_since(UNIX_EPOCH)
             .map(|value| value.as_secs() as i64)
             .unwrap_or_default();
-        let completion_threshold = duration.filter(|value| value.is_finite() && *value > 0.0).map(|value| value - 30.0_f64.min(value * 0.05));
+        let completion_threshold = duration
+            .filter(|value| value.is_finite() && *value > 0.0)
+            .map(|value| value - 30.0_f64.min(value * 0.05));
         if completion_threshold.is_some_and(|threshold| position >= threshold) {
-            let title = self.active_media_title.as_deref().unwrap_or("Unknown title");
+            let title = self
+                .active_media_title
+                .as_deref()
+                .unwrap_or("Unknown title");
             let media_type = self.active_media_type.as_deref().unwrap_or("unknown");
-            match self.database.complete_playback(media_id, title, media_type, updated_at) {
-                Ok(()) => { self.last_progress_save = Some(now); self.active_media_id = None; self.playback_status = format!("Completed {title}"); diagnostics::record(diagnostics::Level::Audit, "playback", "media completion recorded in local watch history"); }
-                Err(error) => diagnostics::record(diagnostics::Level::Warn, "playback", &format!("could not record completed playback: {error:#}")),
+            match self
+                .database
+                .complete_playback(media_id, title, media_type, updated_at)
+            {
+                Ok(()) => {
+                    self.last_progress_save = Some(now);
+                    self.active_media_id = None;
+                    self.playback_status = format!("Completed {title}");
+                    diagnostics::record(
+                        diagnostics::Level::Audit,
+                        "playback",
+                        "media completion recorded in local watch history",
+                    );
+                }
+                Err(error) => diagnostics::record(
+                    diagnostics::Level::Warn,
+                    "playback",
+                    &format!("could not record completed playback: {error:#}"),
+                ),
             }
             return;
         }
-        match self.database.save_playback_progress_with_metadata(media_id, position, duration, updated_at, self.active_media_title.as_deref(), self.active_media_type.as_deref()) {
+        match self.database.save_playback_progress_with_metadata(
+            media_id,
+            position,
+            duration,
+            updated_at,
+            self.active_media_title.as_deref(),
+            self.active_media_type.as_deref(),
+        ) {
             Ok(()) => self.last_progress_save = Some(now),
             Err(error) => diagnostics::record(
                 diagnostics::Level::Warn,
@@ -4106,10 +4148,26 @@ fn render_discovery_page(
 
     let continue_watching_cards = continue_watching
         .into_iter()
-        .filter(|progress| progress.media_id.starts_with("local-file:") || progress.media_id.starts_with("tmdb:"))
+        .filter(|progress| {
+            progress.media_id.starts_with("local-file:") || progress.media_id.starts_with("tmdb:")
+        })
         .map(|progress| {
             let media_id = progress.media_id.clone();
-            let title = progress.title.clone().or_else(|| progress.media_id.strip_prefix("local-file:").and_then(|path| PathBuf::from(path).file_name().and_then(|name| name.to_str()).map(str::to_owned))).unwrap_or_else(|| "Recently watched".into());
+            let title = progress
+                .title
+                .clone()
+                .or_else(|| {
+                    progress
+                        .media_id
+                        .strip_prefix("local-file:")
+                        .and_then(|path| {
+                            PathBuf::from(path)
+                                .file_name()
+                                .and_then(|name| name.to_str())
+                                .map(str::to_owned)
+                        })
+                })
+                .unwrap_or_else(|| "Recently watched".into());
             let progress_label = progress
                 .duration_seconds
                 .filter(|duration| duration.is_finite() && *duration > 0.0)

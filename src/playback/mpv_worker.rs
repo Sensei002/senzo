@@ -473,10 +473,18 @@ impl PlaybackWorker {
     }
 
     /// Queue a validated HTTP(S) stream URL for MPV playback.
-    pub fn load_url(&self, input: &str) -> anyhow::Result<()> { self.load_url_with_resume(input, None) }
+    pub fn load_url(&self, input: &str) -> anyhow::Result<()> {
+        self.load_url_with_resume(input, None)
+    }
 
-    pub fn load_url_with_resume(&self, input: &str, resume_position: Option<f64>) -> anyhow::Result<()> {
-        if resume_position.is_some_and(|position| !position.is_finite() || position < 0.0) { bail!("resume position must be finite and non-negative"); }
+    pub fn load_url_with_resume(
+        &self,
+        input: &str,
+        resume_position: Option<f64>,
+    ) -> anyhow::Result<()> {
+        if resume_position.is_some_and(|position| !position.is_finite() || position < 0.0) {
+            bail!("resume position must be finite and non-negative");
+        }
         let url = validate_playback_url(input)?;
         self.enqueue(PlaybackCommand::LoadUrl(url, resume_position))
     }

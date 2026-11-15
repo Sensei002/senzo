@@ -12,8 +12,10 @@ pub struct PlaybackProgress {
     pub position_seconds: f64,
     pub duration_seconds: Option<f64>,
     pub updated_at: i64,
-    #[serde(default)] pub title: Option<String>,
-    #[serde(default)] pub media_type: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub media_type: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -126,9 +128,13 @@ impl LocalDatabase {
         }
 
         if schema_version < 3 {
-            let transaction = connection.transaction().context("failed to begin the metadata playback migration")?;
+            let transaction = connection
+                .transaction()
+                .context("failed to begin the metadata playback migration")?;
             transaction.execute_batch("\n                ALTER TABLE playback_progress ADD COLUMN title TEXT;\n                ALTER TABLE playback_progress ADD COLUMN media_type TEXT;\n                PRAGMA user_version = 3;\n            ")?;
-            transaction.commit().context("failed to commit the metadata playback migration")?;
+            transaction
+                .commit()
+                .context("failed to commit the metadata playback migration")?;
         }
 
         Ok(Self { connection })
@@ -177,12 +183,35 @@ impl LocalDatabase {
         self.set_setting("playback.preferences", &value)
     }
 
-    pub fn save_playback_progress(&self, media_id: &str, position_seconds: f64, duration_seconds: Option<f64>, updated_at: i64) -> Result<()> {
-        self.save_playback_progress_with_metadata(media_id, position_seconds, duration_seconds, updated_at, None, None)
+    pub fn save_playback_progress(
+        &self,
+        media_id: &str,
+        position_seconds: f64,
+        duration_seconds: Option<f64>,
+        updated_at: i64,
+    ) -> Result<()> {
+        self.save_playback_progress_with_metadata(
+            media_id,
+            position_seconds,
+            duration_seconds,
+            updated_at,
+            None,
+            None,
+        )
     }
 
-    pub fn save_playback_progress_with_metadata(&self, media_id: &str, position_seconds: f64, duration_seconds: Option<f64>, updated_at: i64, title: Option<&str>, media_type: Option<&str>) -> Result<()> {
-        if !position_seconds.is_finite() || position_seconds < 0.0 { bail!("playback position must be finite and non-negative"); }
+    pub fn save_playback_progress_with_metadata(
+        &self,
+        media_id: &str,
+        position_seconds: f64,
+        duration_seconds: Option<f64>,
+        updated_at: i64,
+        title: Option<&str>,
+        media_type: Option<&str>,
+    ) -> Result<()> {
+        if !position_seconds.is_finite() || position_seconds < 0.0 {
+            bail!("playback position must be finite and non-negative");
+        }
         self.connection.execute(
             "INSERT INTO playback_progress (media_id, position_seconds, duration_seconds, updated_at, title, media_type) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(media_id) DO UPDATE SET position_seconds=excluded.position_seconds, duration_seconds=excluded.duration_seconds, updated_at=excluded.updated_at, title=COALESCE(excluded.title, playback_progress.title), media_type=COALESCE(excluded.media_type, playback_progress.media_type)",
@@ -191,9 +220,18 @@ impl LocalDatabase {
         Ok(())
     }
 
-    pub fn complete_playback(&self, media_id: &str, title: &str, media_type: &str, watched_at: i64) -> Result<()> {
+    pub fn complete_playback(
+        &self,
+        media_id: &str,
+        title: &str,
+        media_type: &str,
+        watched_at: i64,
+    ) -> Result<()> {
         let transaction = self.connection.unchecked_transaction()?;
-        transaction.execute("DELETE FROM playback_progress WHERE media_id = ?1", [media_id])?;
+        transaction.execute(
+            "DELETE FROM playback_progress WHERE media_id = ?1",
+            [media_id],
+        )?;
         transaction.execute("DELETE FROM watch_history WHERE media_id = ?1", [media_id])?;
         transaction.execute("INSERT INTO watch_history(media_id, title, media_type, watched_at) VALUES (?1, ?2, ?3, ?4)", params![media_id, title, media_type, watched_at])?;
         transaction.commit()?;
@@ -212,7 +250,9 @@ impl LocalDatabase {
                         media_id: row.get(0)?,
                         position_seconds: row.get(1)?,
                         duration_seconds: row.get(2)?,
-                        updated_at: row.get(3)?, title: row.get(4)?, media_type: row.get(5)?,
+                        updated_at: row.get(3)?,
+                        title: row.get(4)?,
+                        media_type: row.get(5)?,
                     })
                 },
             )
@@ -235,7 +275,9 @@ impl LocalDatabase {
                 media_id: row.get(0)?,
                 position_seconds: row.get(1)?,
                 duration_seconds: row.get(2)?,
-                updated_at: row.get(3)?, title: row.get(4)?, media_type: row.get(5)?,
+                updated_at: row.get(3)?,
+                title: row.get(4)?,
+                media_type: row.get(5)?,
             })
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
