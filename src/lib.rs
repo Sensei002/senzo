@@ -1,3 +1,4 @@
+pub mod discord;
 pub mod addons;
 pub mod artwork;
 pub mod diagnostics;
