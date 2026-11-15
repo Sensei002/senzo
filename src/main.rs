@@ -79,6 +79,7 @@ struct SenzoApp {
     addon_task: Option<Task<()>>,
     tmdb_results: Vec<(String, TmdbSearchResult)>,
     tmdb_status: String,
+    tmdb_not_configured: bool,
     home_catalogs: Vec<(String, String, TmdbSearchResult)>,
     home_addon_catalogs: Vec<(String, StoredAddon, String, String, Vec<Value>)>,
     home_catalog_status: String,
@@ -3917,6 +3918,7 @@ impl Render for SenzoApp {
                     self.addon_status.clone(),
                     self.tmdb_results.clone(),
                     self.tmdb_status.clone(),
+                    self.tmdb_credentials_status.starts_with("TMDB is not configured"),
                     self.home_catalogs.clone(),
                     self.home_addon_catalogs.clone(),
                     self.home_catalog_status.clone(),
@@ -4554,7 +4556,7 @@ fn render_discovery_page(
                                 .child(dynamic_choice_chip("Retry discovery".into(), true, |this, cx| {
                                     this.load_home_catalogs(cx);
                                 }, cx))
-                                .when(self.tmdb_credentials_status.starts_with("TMDB is not configured"), |actions| {
+                                .when(tmdb_not_configured, |actions| {
                                     actions.child(dynamic_choice_chip("Configure TMDB".into(), false, |this, cx| {
                                         this.active_page = AppPage::Settings;
                                         this.configure_tmdb_key(cx);
@@ -4975,7 +4977,7 @@ fn render_discovery_page(
                                     cx,
                                 ))
                                 .child(dynamic_choice_chip(
-                                    "Preview Torrentio",
+                                    "Preview Torrentio".to_string(),
                                     true,
                                     |this, cx| this.preview_torrentio(cx),
                                     cx,
