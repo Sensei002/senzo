@@ -8,10 +8,9 @@
 pub fn hdr_output_enabled() -> bool {
     use std::mem::size_of;
     use windows_sys::Win32::Devices::Display::{
-        DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO,
-        DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO, DISPLAYCONFIG_MODE_INFO,
-        DISPLAYCONFIG_PATH_INFO, DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes,
-        QueryDisplayConfig,
+        DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO, DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO,
+        DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_PATH_INFO, DisplayConfigGetDeviceInfo,
+        GetDisplayConfigBufferSizes, QueryDisplayConfig,
     };
 
     const QDC_ONLY_ACTIVE_PATHS: u32 = 0x0000_0002;
@@ -24,11 +23,7 @@ pub fn hdr_output_enabled() -> bool {
         let mut path_count = 0u32;
         let mut mode_count = 0u32;
         let sized = unsafe {
-            GetDisplayConfigBufferSizes(
-                QDC_ONLY_ACTIVE_PATHS,
-                &mut path_count,
-                &mut mode_count,
-            )
+            GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &mut path_count, &mut mode_count)
         };
         if sized != ERROR_SUCCESS || path_count == 0 || path_count > 64 || mode_count > 256 {
             return false;

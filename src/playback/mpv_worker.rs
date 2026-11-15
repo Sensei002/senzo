@@ -12,9 +12,9 @@ use std::{
 
 use anyhow::{Context as _, anyhow, bail};
 
-use super::{mpv_config::MpvConfig, mpv_runtime::MpvRuntime};
 #[cfg(windows)]
 use super::windows_capabilities::hdr_output_enabled;
+use super::{mpv_config::MpvConfig, mpv_runtime::MpvRuntime};
 
 const COMMAND_QUEUE_CAPACITY: usize = 32;
 const STATE_POLL_INTERVAL: Duration = Duration::from_millis(500);
