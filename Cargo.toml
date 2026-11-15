@@ -13,6 +13,7 @@ http = "1"
 axum = "0.8"
 dirs = "6"
 gpui = { package = "gpui-ce", version = "=0.2.2" }
+gpui-base = { package = "gpui_ce_components_base", version = "=0.2.0" }
 raw-window-handle = "0.6"
 gpui_platform = { package = "gpui_ce_platform", version = "0.1" }
 keyring = { version = "=3.6.3", default-features = false, features = ["windows-native"] }
