@@ -58,7 +58,6 @@ struct SenzoApp {
     metadata_language: String,
     poster_size: String,
     selected_title: Option<String>,
-    search_query: String,
     search_input: Option<Entity<InputState>>,
     search_input_subscription: Option<Subscription>,
     search_debounce_task: Option<Task<()>>,
@@ -4245,7 +4244,6 @@ impl Render for SenzoApp {
                 root.child(render_discovery_page(
                     self.active_page,
                     self.selected_title.clone(),
-                    self.search_query.clone(),
                     self.search_input.clone(),
                     self.database.installed_addons().unwrap_or_default(),
                     self.addon_manifest_preview.clone(),
@@ -6351,15 +6349,6 @@ fn render_discovery_page(
                     })),
             )
         })
-        .when(page == AppPage::Search, |this| {
-            this.child(
-                div()
-                    .p_5()
-                    .rounded_lg()
-                    .bg(rgb(0x151719))
-                    .child(div().text_sm().text_color(rgb(0x9299A1)).child("Search TMDB using a copied title. Choose Paste movie search or Paste TV search above; matching titles appear here and open their details and available sources.")),
-            )
-        })
 }
 
 fn tmdb_artwork_url(path: Option<&str>, size: &str) -> Option<String> {
@@ -6550,6 +6539,7 @@ fn main() {
         .run({
             let mut database = Some(database);
             move |cx: &mut App| {
+                gpui_base::init(cx);
                 let database = database.take().expect("SENZO window initialized once");
                 cx.open_window(WindowOptions::default(), move |window, cx| {
                     let native_parent_hwnd = match gpui_parent_hwnd(window) {
