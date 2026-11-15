@@ -25,6 +25,7 @@ struct PlaybackSnapshot {
 enum Command {
     Configure { enabled: bool, share_titles: bool },
     Playback(PlaybackSnapshot),
+    ClearPlayback,
     Shutdown,
 }
 
@@ -52,6 +53,10 @@ impl DiscordPresence {
 
     pub fn configure(&self, enabled: bool, share_titles: bool) {
         let _ = self.sender.send(Command::Configure { enabled, share_titles });
+    }
+
+    pub fn clear_playback(&self) {
+        let _ = self.sender.send(Command::ClearPlayback);
     }
 
     pub fn update_playback(
@@ -103,6 +108,9 @@ fn run_presence_worker(
             }
             Ok(Command::Playback(snapshot)) => {
                 playback = Some(snapshot);
+            }
+            Ok(Command::ClearPlayback) => {
+                playback = None;
             }
             Ok(Command::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                 if let Some(mut current) = pipe.take() {
