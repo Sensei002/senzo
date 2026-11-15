@@ -6,9 +6,11 @@ use std::{
 
 use anyhow::Context as _;
 use gpui::{
-    Animation, AnimationExt, App, ClipboardItem, Context, MouseButton, ObjectFit, QuitMode, Render,
-    Task, Window, WindowOptions, div, ease_in_out, img, prelude::*, px, rgb,
+    Animation, AnimationExt, App, ClipboardItem, Context, Entity, MouseButton, ObjectFit, QuitMode, Render,
+    Subscription, Task, Window, WindowOptions, div, ease_in_out, img, prelude::*, px, rgb,
 };
+use gpui_base::{Input as GpuiInput, InputBase};
+use gpui_base::input::{InputEvent, InputState};
 use serde_json::Value;
 
 use senzo::{
@@ -57,6 +59,9 @@ struct SenzoApp {
     poster_size: String,
     selected_title: Option<String>,
     search_query: String,
+    search_input: Option<Entity<InputState>>,
+    search_input_subscription: Option<Subscription>,
+    search_debounce_task: Option<Task<()>>,
     settings: PlaybackSettings,
     status: String,
     playback_worker: Option<Arc<Mutex<PlaybackWorker>>>,
@@ -196,6 +201,9 @@ impl SenzoApp {
             poster_size,
             selected_title: None,
             search_query: String::new(),
+            search_input: None,
+            search_input_subscription: None,
+            search_debounce_task: None,
             settings,
             status: "Changes are saved on this device".into(),
             playback_worker: None,
@@ -812,6 +820,63 @@ impl SenzoApp {
                         };
                     }
                     Err(error) => app.tmdb_status = format!("TMDB request failed: {error:#}"),
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    fn load_tmdb_search(&mut self, query: String, cx: &mut Context<Self>) {
+        let query = query.trim().to_owned();
+        if query.is_empty() {
+            self.tmdb_results.clear();
+            self.tmdb_status = "Type a title to search movies and TV shows".into();
+            cx.notify();
+            return;
+        }
+
+        self.tmdb_status = format!("Searching movies and TV shows for {query}…");
+        self.tmdb_results.clear();
+        let requested_query = query.clone();
+        let metadata_language = self.metadata_language.clone();
+        self.tmdb_task = Some(cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move {
+                    let client = TmdbClient::from_credential_store(&metadata_language)?;
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .context("could not initialize TMDB search runtime")?;
+                    runtime.block_on(async {
+                        let (movies, shows) = tokio::join!(
+                            client.search_movies(&query, 1),
+                            client.search_tv(&query, 1),
+                        );
+                        let movies = movies?;
+                        let shows = shows?;
+                        let mut results = Vec::with_capacity(movies.results.len() + shows.results.len());
+                        results.extend(movies.results.into_iter().map(|item| ("movie".to_owned(), item)));
+                        results.extend(shows.results.into_iter().map(|item| ("tv".to_owned(), item)));
+                        Ok::<_, anyhow::Error>(results)
+                    })
+                })
+                .await;
+            let _ = this.update(cx, |app, cx| {
+                if app.search_query.trim() != requested_query {
+                    return;
+                }
+                match result {
+                    Ok(results) => {
+                        let count = results.len();
+                        app.tmdb_results = results;
+                        app.tmdb_status = if count == 0 {
+                            format!("No movies or TV shows found for {requested_query}")
+                        } else {
+                            format!("{count} results for {requested_query}")
+                        };
+                    }
+                    Err(error) => app.tmdb_status = format!("Search failed: {error:#}"),
                 }
                 cx.notify();
             });
@@ -2639,7 +2704,48 @@ fn option_row(
 }
 
 impl Render for SenzoApp {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.active_page == AppPage::Search && self.search_input.is_none() {
+            let input = cx.new(|cx| {
+                InputState::new(window, cx).placeholder("Search movies and TV shows…")
+            });
+            let subscription = cx.subscribe(
+                &input,
+                |this, state, event: &InputEvent, cx| match event {
+                    InputEvent::Change => {
+                        this.search_query = state.read(cx).value().to_string();
+                        let query = this.search_query.trim().to_owned();
+                        if query.is_empty() {
+                            this.search_debounce_task = None;
+                            this.tmdb_results.clear();
+                            this.tmdb_status = "Type a title to search movies and TV shows".into();
+                            cx.notify();
+                        } else {
+                            this.search_debounce_task = Some(cx.spawn(async move |this, cx| {
+                                cx.background_executor()
+                                    .timer(Duration::from_millis(400))
+                                    .await;
+                                let _ = this.update(cx, |app, cx| {
+                                    if app.active_page == AppPage::Search
+                                        && app.search_query.trim() == query
+                                    {
+                                        app.load_tmdb_search(query, cx);
+                                    }
+                                });
+                            }));
+                        }
+                    }
+                    InputEvent::PressEnter { .. } => {
+                        let query = this.search_query.clone();
+                        this.search_debounce_task = None;
+                        this.load_tmdb_search(query, cx);
+                    }
+                    InputEvent::Focus | InputEvent::Blur => {}
+                },
+            );
+            self.search_input = Some(input);
+            self.search_input_subscription = Some(subscription);
+        }
         if self.active_page == AppPage::Home && !self.home_catalog_requested {
             self.load_home_catalogs(cx);
         }
@@ -4132,6 +4238,7 @@ impl Render for SenzoApp {
                     self.active_page,
                     self.selected_title.clone(),
                     self.search_query.clone(),
+                    self.search_input.clone(),
                     self.database.installed_addons().unwrap_or_default(),
                     self.addon_manifest_preview.clone(),
                     self.addon_status.clone(),
@@ -4199,6 +4306,7 @@ fn render_discovery_page(
     page: AppPage,
     selected_title: Option<String>,
     search_query: String,
+    search_input: Option<Entity<InputState>>,
     installed_addons: Vec<StoredAddon>,
     addon_manifest_preview: Option<AddonManifestPreview>,
     addon_status: String,
@@ -4735,46 +4843,53 @@ fn render_discovery_page(
                     .child(div().flex().flex_wrap().gap_2().children(title_chips))
             },
         )
-        .when(is_search, |this| {
-            this.child(
+        .when(is_search, |panel| {
+            let input = search_input
+                .clone()
+                .expect("Search input is initialized before rendering the Search page");
+            let focus_input = input.clone();
+            panel.child(
                 div()
+                    .w_full()
                     .flex()
                     .items_center()
                     .gap_3()
-                    .p_4()
-                    .rounded_lg()
-                    .bg(rgb(0x151719))
-                    .border_1()
-                    .border_color(rgb(0x263238))
                     .child(
-                        div()
-                            .text_base()
-                            .text_color(rgb(0x67E8F9))
-                            .child("⌕"),
-                    )
-                    .child(
-                        div()
+                        InputBase::new("senzo-global-search")
                             .flex_1()
-                            .text_sm()
-                            .text_color(rgb(0x9299A1))
-                            .child(if search_query.is_empty() {
-                                "Paste a copied title to search TMDB, or choose a catalogue below.".to_string()
-                            } else {
-                                search_query.clone()
-                            }),
+                            .h(px(58.))
+                            .px_4()
+                            .rounded_xl()
+                            .bg(rgb(0x151719))
+                            .border_1()
+                            .border_color(rgb(0x263238))
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(div().text_lg().text_color(rgb(0x22D3EE)).child("⌕"))
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                move |_, window, cx| {
+                                    focus_input.update(cx, |state, cx| state.focus(window, cx));
+                                },
+                            )
+                            .child(GpuiInput::new(&input)),
                     )
                     .child(dynamic_choice_chip(
-                        "Movies".into(),
-                        false,
-                        |this, _cx| this.active_page = AppPage::Movies,
-                        cx,
-                    ))
-                    .child(dynamic_choice_chip(
-                        "TV Shows".into(),
-                        false,
-                        |this, _cx| this.active_page = AppPage::TvShows,
+                        "Search".into(),
+                        true,
+                        |this, cx| {
+                            let query = this.search_query.clone();
+                            this.load_tmdb_search(query, cx);
+                        },
                         cx,
                     )),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x9299A1))
+                    .child("Search across movies and TV shows · Results update as you type · Press Enter to search"),
             )
         })
         .when(is_home, |this| {
