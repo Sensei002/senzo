@@ -130,7 +130,11 @@ fn run_presence_worker(
             continue;
         };
         let activity = activity_payload(playback.as_ref(), share_titles);
-        let encoded = activity.to_string();
+        let mut activity_key = activity.clone();
+        if let Some(object) = activity_key.as_object_mut() {
+            object.remove("timestamps");
+        }
+        let encoded = activity_key.to_string();
         if encoded == last_activity {
             continue;
         }
