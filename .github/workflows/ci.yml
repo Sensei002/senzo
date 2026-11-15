@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: windows-ci-${{ github.workflow }}-${{ github.ref }}
+  group: senzo-windows-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
