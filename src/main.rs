@@ -6,8 +6,8 @@ use std::{
 
 use anyhow::Context as _;
 use gpui::{
-    App, ClipboardItem, Context, MouseButton, ObjectFit, QuitMode, Render, Task, Window,
-    WindowOptions, div, img, prelude::*, px, rgb,
+    Animation, AnimationExt, App, ClipboardItem, Context, MouseButton, ObjectFit, QuitMode, Render,
+    Task, Window, WindowOptions, div, ease_in_out, img, prelude::*, px, rgb,
 };
 use serde_json::Value;
 
@@ -4497,7 +4497,18 @@ fn render_discovery_page(
                 let backdrop = tmdb_artwork_url(item.backdrop_path.as_deref(), "w1280");
                 div().w_full().h(px(520.)).relative().overflow_hidden().bg(rgb(0x101619))
                     .when_some(backdrop, |panel, url| {
-                        panel.child(img(url).absolute().size_full().object_fit(ObjectFit::Cover))
+                        panel.child(
+                            img(url)
+                                .absolute()
+                                .size_full()
+                                .object_fit(ObjectFit::Cover)
+                                .with_animation(
+                                    format!("home-hero-backdrop-{featured_index}"),
+                                    Animation::new(Duration::from_millis(700))
+                                        .with_easing(ease_in_out),
+                                    |element, progress| element.opacity(progress),
+                                ),
+                        )
                     })
                     .child(div().absolute().inset_0().bg(rgb(0x05090C)).opacity(0.28))
                     .child(div().absolute().left_0().top_0().bottom_0().w(px(900.)).bg(rgb(0x070A0D)).opacity(0.76))
@@ -4550,6 +4561,12 @@ fn render_discovery_page(
                                     },
                                     cx,
                                 )))
+                            .with_animation(
+                                format!("home-hero-content-{featured_index}"),
+                                Animation::new(Duration::from_millis(420))
+                                    .with_easing(ease_in_out),
+                                |element, progress| element.opacity(progress),
+                            )
                     )
             } else {
                 div().w_full().h(px(520.)).relative().overflow_hidden().bg(rgb(0x101619))
@@ -4630,6 +4647,7 @@ fn render_discovery_page(
                         .iter()
                         .any(|hidden| hidden.as_str() == *shelf)
                 }).filter_map(|shelf_name| {
+                    let shelf_animation_id = format!("home-shelf-{shelf_name}");
                     let entries = home_catalogs.iter().filter(|(name, _, _)| name == shelf_name).cloned().collect::<Vec<_>>();
                     if entries.is_empty() { return None; }
                     let cards = entries.into_iter().map(|(_, kind, item)| {
@@ -4666,7 +4684,12 @@ fn render_discovery_page(
                                 this.active_page = destination;
                                 this.load_tmdb_catalog(media_type, None, cx);
                             }, cx)))
-                        .child(div().w_full().id(shelf_name).overflow_x_scroll().flex().gap_3().children(cards)))
+                        .child(div().w_full().id(shelf_name).overflow_x_scroll().flex().gap_3().children(cards))
+                        .with_animation(
+                            shelf_animation_id,
+                            Animation::new(Duration::from_millis(360)).with_easing(ease_in_out),
+                            |element, progress| element.opacity(progress),
+                        ))
                 }))
                 .children(home_addon_catalogs.iter().map(|(shelf_name, addon, media_type, catalog_id, items)| {
                     let cards = items.iter().filter_map(|item| {
