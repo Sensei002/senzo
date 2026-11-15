@@ -293,7 +293,10 @@ impl SenzoApp {
             }
         };
 
-        let mut config = build_mpv_config(&self.settings, &senzo::playback::mpv_config::MpvConfig::startup_capabilities());
+        let mut config = build_mpv_config(
+            &self.settings,
+            &senzo::playback::mpv_config::MpvConfig::startup_capabilities(),
+        );
         if let Err(error) = config.set_native_window_id(window_id) {
             self.playback_status = format!("Could not attach MPV to the video surface: {error}");
             cx.notify();
