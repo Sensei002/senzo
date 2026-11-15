@@ -15,8 +15,8 @@ use serde_json::Value;
 
 use senzo::{
     addons::{
-        AddonCatalogExtra, AddonClient, AddonManifest, AddonManifestPreview,
-        StremioStream, StremioSubtitle, first_series_episode_id,
+        AddonCatalogExtra, AddonClient, AddonManifest, AddonManifestPreview, StremioStream,
+        StremioSubtitle, first_series_episode_id,
     },
     diagnostics,
     metadata::{TmdbClient, TmdbCredentialStore, TmdbSearchResult},
@@ -25,11 +25,11 @@ use senzo::{
         mpv_worker::{PlaybackEvent, PlaybackState, PlaybackWorker},
         windows_surface::{SurfaceBounds, WindowsVideoSurface, gpui_parent_hwnd},
     },
-    sources::{SourceProviderRegistry, SourceProviderResult},
     settings::{
         DecoderPreference, HardwareDecoding, HdrMode, PlaybackSettings, RendererPreference,
         ScalingAlgorithm,
     },
+    sources::{SourceProviderRegistry, SourceProviderResult},
     storage::{LocalDatabase, PlaybackProgress, StoredAddon},
     subtitles::{
         OpenSubtitlesClient, OpenSubtitlesCredentialStore, OpenSubtitlesResult, SubtitleSearch,
@@ -207,10 +207,8 @@ impl SenzoApp {
             .ok()
             .flatten()
             .is_some_and(|value| value == "true");
-        let discord_presence = senzo::discord::DiscordPresence::new(
-            discord_presence_enabled,
-            discord_share_titles,
-        );
+        let discord_presence =
+            senzo::discord::DiscordPresence::new(discord_presence_enabled, discord_share_titles);
 
         Self {
             database,
@@ -422,7 +420,9 @@ impl SenzoApp {
                                 PlaybackEvent::StateChanged(state) => {
                                     app.playback_state = state.clone();
                                     app.discord_presence.update_playback(
-                                        app.active_media_title.clone().or_else(|| state.media_title.clone()),
+                                        app.active_media_title
+                                            .clone()
+                                            .or_else(|| state.media_title.clone()),
                                         app.active_media_type.clone(),
                                         state.paused.unwrap_or(false),
                                         state.position_seconds,
@@ -2187,7 +2187,6 @@ impl SenzoApp {
         cx.notify();
     }
 
-
     fn set_discord_presence_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
         self.discord_presence_enabled = enabled;
         if let Err(error) = self.database.set_setting(
@@ -2207,7 +2206,8 @@ impl SenzoApp {
                 "Discord Rich Presence disabled".into()
             };
         }
-        self.discord_presence.configure(enabled, self.discord_share_titles);
+        self.discord_presence
+            .configure(enabled, self.discord_share_titles);
         cx.notify();
     }
 
@@ -2224,7 +2224,8 @@ impl SenzoApp {
             );
             self.status = "Could not save Discord privacy preference".into();
         }
-        self.discord_presence.configure(self.discord_presence_enabled, enabled);
+        self.discord_presence
+            .configure(self.discord_presence_enabled, enabled);
         cx.notify();
     }
 
@@ -4670,7 +4671,10 @@ fn render_discovery_page(
     let mut source_notes = Vec::new();
     for provider in &addon_stream_results {
         if let Some(error) = &provider.error {
-            source_notes.push(format!("{} · provider error: {error}", provider.provider_name));
+            source_notes.push(format!(
+                "{} · provider error: {error}",
+                provider.provider_name
+            ));
         }
         for stream in &provider.streams {
             let is_torrent = stream.is_torrent();
