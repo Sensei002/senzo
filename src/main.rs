@@ -531,12 +531,13 @@ impl SenzoApp {
     }
 
     fn load_home_catalogs(&mut self, cx: &mut Context<Self>) {
-        self.home_catalog_status = "Finding something to watch…".into();
-        self.home_catalogs.clear();
-        self.home_addon_catalogs.clear();
+        if self.home_catalogs.is_empty() && self.home_addon_catalogs.is_empty() {
+            self.home_catalog_status = "Finding something to watch…".into();
+        } else {
+            self.home_catalog_status = "Refreshing recommendations…".into();
+        }
         self.home_catalog_requested = true;
         let metadata_language = self.metadata_language.clone();
-
         // Snapshot enabled user-installed add-ons on the UI thread. The SQLite connection
         // is deliberately not moved into the background task.
         let mut addon_catalog_specs = Vec::new();
@@ -693,7 +694,13 @@ impl SenzoApp {
                         };
                     }
                     Err(error) => {
-                        app.home_catalog_status = format!("Recommendations are unavailable right now: {error:#}");
+                        if app.home_catalogs.is_empty() && app.home_addon_catalogs.is_empty() {
+                            app.home_catalog_status =
+                                format!("Recommendations are unavailable right now: {error:#}");
+                        } else {
+                            app.home_catalog_status =
+                                format!("Could not refresh recommendations ({error:#}); showing previous catalogs");
+                        }
                     }
                 }
                 if app.home_hero_task.is_none() {
@@ -2860,6 +2867,52 @@ impl Render for SenzoApp {
                     }
                     "escape" if this.settings_advanced_open && this.active_page == AppPage::Settings => {
                         this.settings_advanced_open = false;
+                        cx.notify();
+                    }
+                    "1" | "h" | "H"
+                        if this.active_page != AppPage::Search
+                            && this.active_page != AppPage::Player =>
+                    {
+                        this.active_page = AppPage::Home;
+                        cx.notify();
+                    }
+                    "2" if this.active_page != AppPage::Search
+                        && this.active_page != AppPage::Player =>
+                    {
+                        this.active_page = AppPage::Movies;
+                        this.load_tmdb_catalog("trending", None, cx);
+                        cx.notify();
+                    }
+                    "3" if this.active_page != AppPage::Search
+                        && this.active_page != AppPage::Player =>
+                    {
+                        this.active_page = AppPage::TvShows;
+                        this.load_tmdb_catalog("tv", None, cx);
+                        cx.notify();
+                    }
+                    "4" | "/"
+                        if this.active_page != AppPage::Search
+                            && this.active_page != AppPage::Player =>
+                    {
+                        this.active_page = AppPage::Search;
+                        cx.notify();
+                    }
+                    "5" if this.active_page != AppPage::Search
+                        && this.active_page != AppPage::Player =>
+                    {
+                        this.active_page = AppPage::Library;
+                        cx.notify();
+                    }
+                    "6" if this.active_page != AppPage::Search
+                        && this.active_page != AppPage::Player =>
+                    {
+                        this.active_page = AppPage::Addons;
+                        cx.notify();
+                    }
+                    "7" if this.active_page != AppPage::Search
+                        && this.active_page != AppPage::Player =>
+                    {
+                        this.active_page = AppPage::Settings;
                         cx.notify();
                     }
                     _ => {}
@@ -5029,7 +5082,32 @@ fn render_discovery_page(
                             .child(div()),
                     )
             };
-            this.child(hero).child(div().text_xs().text_color(rgb(0x858C94)).child(home_catalog_status.clone()))
+            this.child(hero)
+                .when(
+                    home_catalog_status.contains("could not")
+                        || home_catalog_status.contains("unavailable"),
+                    |panel| {
+                        panel.child(
+                            div()
+                                .px_4()
+                                .py_2_5()
+                                .rounded_xl()
+                                .bg(rgb(0x181F26))
+                                .border_1()
+                                .border_color(rgb(0xF59E0B))
+                                .flex()
+                                .items_center()
+                                .gap_2_5()
+                                .child(div().text_sm().text_color(rgb(0xFBBF24)).child("⚠"))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(0xFBBF24))
+                                        .child(home_catalog_status.clone()),
+                                ),
+                        )
+                    },
+                )
                 .when(!continue_watching_cards.is_empty(), |panel| {
                     panel.child(
                         div()
@@ -6061,5 +6139,30 @@ mod tests {
         let time_str = current_time_string();
         assert!(!time_str.is_empty());
         assert!(time_str.contains("AM") || time_str.contains("PM") || time_str.contains("UTC"));
+    }
+
+    #[test]
+    fn test_home_shelf_known_names_consistency() {
+        let known = [
+            "Trending Movies",
+            "Trending TV Shows",
+            "Popular movies",
+            "Popular TV",
+            "Trending this week",
+        ];
+        assert_eq!(known.len(), 5);
+        assert!(known.contains(&"Trending Movies"));
+        assert!(known.contains(&"Trending TV Shows"));
+    }
+
+    #[test]
+    fn test_home_status_warning_detection() {
+        let ok_status = "14 recommendations · 2 add-on shelves";
+        let fail_status = "Recommendations are unavailable right now: timeout";
+        let partial_status = "some recommendations could not load";
+        let is_warn = |s: &str| s.contains("could not") || s.contains("unavailable");
+        assert!(!is_warn(ok_status));
+        assert!(is_warn(fail_status));
+        assert!(is_warn(partial_status));
     }
 }
