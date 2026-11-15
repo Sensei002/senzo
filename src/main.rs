@@ -58,6 +58,7 @@ struct SenzoApp {
     metadata_language: String,
     poster_size: String,
     selected_title: Option<String>,
+    search_query: String,
     search_input: Option<Entity<InputState>>,
     search_input_subscription: Option<Subscription>,
     search_debounce_task: Option<Task<()>>,
@@ -199,6 +200,7 @@ impl SenzoApp {
             metadata_language,
             poster_size,
             selected_title: None,
+            search_query: String::new(),
             search_query: String::new(),
             search_input: None,
             search_input_subscription: None,
@@ -4244,6 +4246,7 @@ impl Render for SenzoApp {
                 root.child(render_discovery_page(
                     self.active_page,
                     self.selected_title.clone(),
+                    self.search_query.clone(),
                     self.search_input.clone(),
                     self.database.installed_addons().unwrap_or_default(),
                     self.addon_manifest_preview.clone(),
