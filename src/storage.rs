@@ -322,7 +322,10 @@ impl LocalDatabase {
     }
 
     pub fn remove_addon(&self, id: &str) -> Result<bool> {
-        Ok(self.connection.execute("DELETE FROM addons WHERE id = ?1", [id])? > 0)
+        Ok(self
+            .connection
+            .execute("DELETE FROM addons WHERE id = ?1", [id])?
+            > 0)
     }
 
     /// Moves an add-on one position up (-1) or down (+1).
@@ -331,9 +334,8 @@ impl LocalDatabase {
             bail!("add-on movement direction must be -1 or 1");
         }
         let transaction = self.connection.unchecked_transaction()?;
-        let mut statement = transaction.prepare(
-            "SELECT id FROM addons ORDER BY sort_order, name COLLATE NOCASE",
-        )?;
+        let mut statement = transaction
+            .prepare("SELECT id FROM addons ORDER BY sort_order, name COLLATE NOCASE")?;
         let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
         let mut ids = rows.collect::<rusqlite::Result<Vec<_>>>()?;
         drop(statement);
@@ -427,8 +429,7 @@ mod tests {
     #[test]
     fn add_on_order_and_manifest_refresh_metadata_persist() {
         let directory = tempfile::tempdir().expect("temporary directory");
-        let database =
-            LocalDatabase::open(directory.path().join("senzo.db")).expect("database");
+        let database = LocalDatabase::open(directory.path().join("senzo.db")).expect("database");
         for (id, name) in [("first", "First"), ("second", "Second"), ("third", "Third")] {
             database
                 .save_addon(&StoredAddon {
@@ -447,7 +448,10 @@ mod tests {
         assert!(database.move_addon("third", -1).expect("move up"));
         let after = database.installed_addons().expect("reordered list");
         assert_eq!(
-            after.iter().map(|addon| addon.id.as_str()).collect::<Vec<_>>(),
+            after
+                .iter()
+                .map(|addon| addon.id.as_str())
+                .collect::<Vec<_>>(),
             vec!["first", "third", "second"]
         );
         let refreshed_manifest =
@@ -458,9 +462,11 @@ mod tests {
             manifest_json: refreshed_manifest.into(),
             ..after[1].clone()
         };
-        assert!(database
-            .update_addon_manifest(&refreshed)
-            .expect("refresh manifest"));
+        assert!(
+            database
+                .update_addon_manifest(&refreshed)
+                .expect("refresh manifest")
+        );
         assert_eq!(database.installed_addons().expect("list")[1].version, "2");
         assert!(!database.move_addon("first", -1).expect("boundary move"));
     }

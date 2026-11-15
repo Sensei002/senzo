@@ -68,23 +68,15 @@ impl AddonManifest {
                     let types = object
                         .get("types")
                         .and_then(Value::as_array)
-                        .map(|values| {
-                            values.iter().filter_map(Value::as_str).collect::<Vec<_>>()
-                        })
+                        .map(|values| values.iter().filter_map(Value::as_str).collect::<Vec<_>>())
                         .filter(|values| !values.is_empty())
-                        .unwrap_or_else(|| {
-                            self.content_types.iter().map(String::as_str).collect()
-                        });
+                        .unwrap_or_else(|| self.content_types.iter().map(String::as_str).collect());
                     let prefixes = object
                         .get("idPrefixes")
                         .and_then(Value::as_array)
-                        .map(|values| {
-                            values.iter().filter_map(Value::as_str).collect::<Vec<_>>()
-                        })
+                        .map(|values| values.iter().filter_map(Value::as_str).collect::<Vec<_>>())
                         .filter(|values| !values.is_empty())
-                        .unwrap_or_else(|| {
-                            self.id_prefixes.iter().map(String::as_str).collect()
-                        });
+                        .unwrap_or_else(|| self.id_prefixes.iter().map(String::as_str).collect());
                     (name, types, prefixes)
                 }
                 _ => return false,
@@ -99,8 +91,7 @@ impl AddonManifest {
             };
             let type_matches = types.is_empty()
                 || types.iter().any(|kind| {
-                    *kind == normalized_type
-                        || (*kind == "tv" && normalized_type == "series")
+                    *kind == normalized_type || (*kind == "tv" && normalized_type == "series")
                 });
             let prefix_matches = resource == "catalog"
                 || prefixes.is_empty()
@@ -124,14 +115,15 @@ impl AddonManifest {
             .get("extraRequired")
             .and_then(Value::as_array)
             .is_some_and(|extras| !extras.is_empty());
-        let declared_required = catalog
-            .get("extra")
-            .and_then(Value::as_array)
-            .is_some_and(|extras| {
-                extras.iter().any(|extra| {
-                    extra.get("isRequired").and_then(Value::as_bool) == Some(true)
-                })
-            });
+        let declared_required =
+            catalog
+                .get("extra")
+                .and_then(Value::as_array)
+                .is_some_and(|extras| {
+                    extras
+                        .iter()
+                        .any(|extra| extra.get("isRequired").and_then(Value::as_bool) == Some(true))
+                });
         legacy_required || declared_required
     }
 }
@@ -365,8 +357,8 @@ impl AddonClient {
         let requests = addons
             .iter()
             .filter(|addon| addon.enabled)
-            .filter_map(|addon| {
-                match serde_json::from_str::<AddonManifest>(&addon.manifest_json) {
+            .filter_map(
+                |addon| match serde_json::from_str::<AddonManifest>(&addon.manifest_json) {
                     Ok(manifest)
                         if manifest.supports_resource_for("stream", media_type, media_id) =>
                     {
@@ -377,8 +369,8 @@ impl AddonClient {
                         addon.clone(),
                         Some(format!("invalid saved manifest: {error}")),
                     )),
-                }
-            })
+                },
+            )
             .map(|(addon, manifest_error)| async move {
                 if let Some(error) = manifest_error {
                     return AddonStreamResult {
@@ -680,7 +672,9 @@ async fn client_for_public_url(url: &Url) -> Result<Client> {
 }
 
 fn normalize_manifest_url(input: &str) -> Result<Url> {
-    if input.trim().len() > 2048 { bail!("add-on manifest URLs cannot exceed 2048 characters"); }
+    if input.trim().len() > 2048 {
+        bail!("add-on manifest URLs cannot exceed 2048 characters");
+    }
     let mut url = Url::parse(input.trim()).context("enter a valid add-on URL")?;
     if url.scheme() != "https" || url.host().is_none() {
         bail!("add-on manifest URLs must use HTTPS");
@@ -1026,15 +1020,21 @@ mod tests {
 
     #[test]
     fn detects_required_catalog_filters_in_stremio_and_legacy_shapes() {
-        assert!(AddonManifest::catalog_requires_user_input(&serde_json::json!({
-            "extra": [{"name": "genre", "isRequired": true}]
-        })));
-        assert!(AddonManifest::catalog_requires_user_input(&serde_json::json!({
-            "extraRequired": ["genre"]
-        })));
-        assert!(!AddonManifest::catalog_requires_user_input(&serde_json::json!({
-            "extra": [{"name": "genre", "isRequired": false}]
-        })));
+        assert!(AddonManifest::catalog_requires_user_input(
+            &serde_json::json!({
+                "extra": [{"name": "genre", "isRequired": true}]
+            })
+        ));
+        assert!(AddonManifest::catalog_requires_user_input(
+            &serde_json::json!({
+                "extraRequired": ["genre"]
+            })
+        ));
+        assert!(!AddonManifest::catalog_requires_user_input(
+            &serde_json::json!({
+                "extra": [{"name": "genre", "isRequired": false}]
+            })
+        ));
     }
 
     #[test]

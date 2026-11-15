@@ -1291,14 +1291,16 @@ impl SenzoApp {
     fn refresh_addon(&mut self, addon: StoredAddon, cx: &mut Context<Self>) {
         self.addon_status = format!("Refreshing {}…", addon.name);
         self.addon_task = Some(cx.spawn(async move |this, cx| {
-            let result = cx.background_spawn(async move {
-                let client = AddonClient::new();
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .context("could not initialize add-on refresh runtime")?;
-                runtime.block_on(client.refresh_manifest(&addon))
-            }).await;
+            let result = cx
+                .background_spawn(async move {
+                    let client = AddonClient::new();
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .context("could not initialize add-on refresh runtime")?;
+                    runtime.block_on(client.refresh_manifest(&addon))
+                })
+                .await;
             let _ = this.update(cx, |app, cx| {
                 match result {
                     Ok(refreshed) => match app.database.update_addon_manifest(&refreshed) {
@@ -1323,9 +1325,7 @@ impl SenzoApp {
                                 format!("Could not save refreshed manifest: {error:#}")
                         }
                     },
-                    Err(error) => {
-                        app.addon_status = format!("Add-on refresh failed: {error:#}")
-                    }
+                    Err(error) => app.addon_status = format!("Add-on refresh failed: {error:#}"),
                 }
                 cx.notify();
             });
@@ -3413,7 +3413,11 @@ fn render_discovery_page(
                 "{} · {}{}",
                 addon.name,
                 name,
-                if needs_filters { " · filters required" } else { "" }
+                if needs_filters {
+                    " · filters required"
+                } else {
+                    ""
+                }
             );
             let addon_copy = addon.clone();
             let catalog_id = id.to_owned();
