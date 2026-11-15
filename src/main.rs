@@ -19,7 +19,7 @@ use senzo::{
     diagnostics,
     metadata::{TmdbClient, TmdbCredentialStore, TmdbSearchResult},
     playback::{
-        mpv_config::{MpvCapabilities, build_mpv_config},
+        mpv_config::build_mpv_config,
         mpv_worker::{PlaybackEvent, PlaybackState, PlaybackWorker},
         windows_surface::{SurfaceBounds, WindowsVideoSurface, gpui_parent_hwnd},
     },
@@ -2495,7 +2495,7 @@ impl Render for SenzoApp {
             self.load_home_catalogs(cx);
         }
         let settings = self.settings.clone();
-        let playback_capabilities = senzo::playback::mpv_config::MpvConfig::startup_capabilities();
+        let startup_capabilities = senzo::playback::mpv_config::MpvConfig::startup_capabilities();
         let seek_bar_bounds = self.seek_bar_bounds.clone();
         let volume_bar_bounds = self.volume_bar_bounds.clone();
         let playback_position = self.playback_state.position_seconds;
@@ -3419,10 +3419,10 @@ impl Render for SenzoApp {
                             )))
                             .child(div().text_sm().text_color(rgb(0x9299A1)).child(format!(
                                 "HDR source: {} · Windows HDR enabled: {} · Tone mapping: {} · Passthrough: {}",
-                                if playback_capabilities.hdr_source_detected { "yes" } else { "no / unknown" },
-                                if playback_capabilities.hdr_display_enabled { "yes" } else { "no / unknown" },
-                                if playback_capabilities.hdr_tone_mapping_supported { "supported" } else { "unavailable" },
-                                if playback_capabilities.hdr_output_supported && playback_capabilities.gpu_next_available { "supported" } else { "unavailable" }
+                                if self.playback_state.capabilities.hdr_source_detected { "yes" } else { "no / unknown" },
+                                if self.playback_state.capabilities.hdr_display_enabled { "yes" } else { "no / unknown" },
+                                if self.playback_state.capabilities.hdr_tone_mapping_supported { "supported" } else { "unavailable" },
+                                if self.playback_state.capabilities.hdr_passthrough_supported { "supported" } else { "unavailable" }
                             ))),
                     ))
                     .child(section(
@@ -3459,7 +3459,7 @@ impl Render for SenzoApp {
                             ))
                             .child(option_row(
                                 "Decoder preference",
-                                "Manual decoder choices are shown only after the active MPV session reports that decoder in use.",
+                                "Manual decoder choices supported by the bundled MPV runtime are available before playback starts.",
                                 div()
                                     .flex()
                                     .flex_wrap()
@@ -3470,7 +3470,7 @@ impl Render for SenzoApp {
                                         |this, _cx| this.settings.decoder = DecoderPreference::Auto,
                                         cx,
                                     ))
-                                    .when(playback_capabilities.d3d11va_available, |row| {
+                                    .when(startup_capabilities.d3d11va_available, |row| {
                                         row.child(choice_chip(
                                             "D3D11VA",
                                             settings.decoder == DecoderPreference::D3d11va,
@@ -3478,7 +3478,7 @@ impl Render for SenzoApp {
                                             cx,
                                         ))
                                     })
-                                    .when(playback_capabilities.dxva2_available, |row| {
+                                    .when(startup_capabilities.dxva2_available, |row| {
                                         row.child(choice_chip(
                                             "DXVA2",
                                             settings.decoder == DecoderPreference::Dxva2,
@@ -3495,7 +3495,7 @@ impl Render for SenzoApp {
                             ))
                             .child(option_row(
                                 "Video renderer",
-                                "Only the renderer confirmed by the active MPV session is offered as a manual override. Automatic remains available at all times.",
+                                "Renderer choices supported by the bundled MPV runtime are available before playback starts. Automatic remains available at all times.",
                                 div()
                                     .flex()
                                     .flex_wrap()
@@ -3506,7 +3506,7 @@ impl Render for SenzoApp {
                                         |this, _cx| this.settings.renderer = RendererPreference::Auto,
                                         cx,
                                     ))
-                                    .when(playback_capabilities.gpu_next_available, |row| {
+                                    .when(startup_capabilities.gpu_next_available, |row| {
                                         row.child(choice_chip(
                                             "GPU Next",
                                             settings.renderer == RendererPreference::GpuNext,
@@ -3514,7 +3514,7 @@ impl Render for SenzoApp {
                                             cx,
                                         ))
                                     })
-                                    .when(playback_capabilities.gpu_available, |row| {
+                                    .when(startup_capabilities.gpu_available, |row| {
                                         row.child(choice_chip(
                                             "GPU",
                                             settings.renderer == RendererPreference::Gpu,
@@ -3559,17 +3559,17 @@ impl Render for SenzoApp {
                             ))
                             .child(option_row(
                                 "HDR handling",
-                                "Options appear only when the active MPV renderer and Windows display report support. HDR passthrough requires GPU Next and Windows Advanced Color enabled on every active display.",
+                                "Options appear when the bundled MPV renderer and Windows display support them. HDR passthrough requires GPU Next and Windows Advanced Color enabled on every active display.",
                                 div()
                                     .flex()
                                     .flex_wrap()
                                     .gap_2()
                                     .child(choice_chip("Auto", settings.hdr == HdrMode::Auto, |this, _cx| this.settings.hdr = HdrMode::Auto, cx))
-                                    .when(playback_capabilities.hdr_tone_mapping_supported, |row| {
+                                    .when(startup_capabilities.hdr_tone_mapping_supported, |row| {
                                         row.child(choice_chip("Tone map", settings.hdr == HdrMode::ToneMap, |this, _cx| this.settings.hdr = HdrMode::ToneMap, cx))
                                             .child(choice_chip("Off", settings.hdr == HdrMode::Disabled, |this, _cx| this.settings.hdr = HdrMode::Disabled, cx))
                                     })
-                                    .when(playback_capabilities.hdr_passthrough_supported, |row| {
+                                    .when((startup_capabilities.hdr_output_supported && startup_capabilities.gpu_next_available), |row| {
                                         row.child(choice_chip("Passthrough", settings.hdr == HdrMode::Passthrough, |this, _cx| this.settings.hdr = HdrMode::Passthrough, cx))
                                     }),
                             ))
