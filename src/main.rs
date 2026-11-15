@@ -2558,11 +2558,8 @@ where
         .flex()
         .items_center()
         .gap_3()
-        .bg(if selected {
-            rgb(0x22D3EE)
-        } else {
-            gpui::transparent_black()
-        })
+        .bg(gpui::transparent_black())
+        .when(selected, |style| style.bg(rgb(0x22D3EE)))
         .text_color(if selected {
             rgb(0xFFFFFF)
         } else {
@@ -4688,7 +4685,7 @@ fn render_discovery_page(
                                                 div()
                                                     .flex()
                                                     .flex_col()
-                                                    .gap_0_5()
+                                                    .gap_0p5()
                                                     .child(
                                                         div()
                                                             .text_sm()
@@ -5089,7 +5086,7 @@ fn render_discovery_page(
                                     .child(
                                         div()
                                             .px_2_5()
-                                            .py_0_5()
+                                            .py_0p5()
                                             .rounded_full()
                                             .bg(rgb(0x1E293B))
                                             .text_xs()
