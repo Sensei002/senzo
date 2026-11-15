@@ -2116,20 +2116,97 @@ impl SenzoApp {
     fn resume_saved_media(&mut self, media_id: String, cx: &mut Context<Self>) {
         if let Some(rest) = media_id.strip_prefix("tmdb:") {
             let mut parts = rest.split(':');
-            let (Some(kind), Some(raw_id)) = (parts.next(), parts.next()) else { return; };
-            if parts.next().is_some() || !matches!(kind, "movie" | "tv") { self.playback_status = "Saved metadata identity is invalid".into(); cx.notify(); return; }
-            let Ok(id) = raw_id.parse::<u64>() else { self.playback_status = "Saved metadata identity is invalid".into(); cx.notify(); return; };
-            let title = self.database.playback_progress(&media_id).ok().flatten().and_then(|item| item.title).unwrap_or_else(|| "Continue watching".into());
-            let item = TmdbSearchResult { id, title: (kind == "movie").then(|| title.clone()), name: (kind == "tv").then(|| title), original_title: None, original_name: None, overview: None, poster_path: None, backdrop_path: None, release_date: None, first_air_date: None, vote_average: None, vote_count: None, media_type: Some(kind.into()) };
-            self.select_tmdb_title(kind.to_owned(), item, cx); return;
+            let (Some(kind), Some(raw_id)) = (parts.next(), parts.next()) else {
+                return;
+            };
+            if parts.next().is_some() || !matches!(kind, "movie" | "tv") {
+                self.playback_status = "Saved metadata identity is invalid".into();
+                cx.notify();
+                return;
+            }
+            let Ok(id) = raw_id.parse::<u64>() else {
+                self.playback_status = "Saved metadata identity is invalid".into();
+                cx.notify();
+                return;
+            };
+            let title = self
+                .database
+                .playback_progress(&media_id)
+                .ok()
+                .flatten()
+                .and_then(|item| item.title)
+                .unwrap_or_else(|| "Continue watching".into());
+            let item = TmdbSearchResult {
+                id,
+                title: (kind == "movie").then(|| title.clone()),
+                name: (kind == "tv").then(|| title),
+                original_title: None,
+                original_name: None,
+                overview: None,
+                poster_path: None,
+                backdrop_path: None,
+                release_date: None,
+                first_air_date: None,
+                vote_average: None,
+                vote_count: None,
+                media_type: Some(kind.into()),
+            };
+            self.select_tmdb_title(kind.to_owned(), item, cx);
+            return;
         }
-        let Some(raw_path) = media_id.strip_prefix("local-file:") else { self.playback_status = "This saved item cannot be resumed".into(); cx.notify(); return; };
+        let Some(raw_path) = media_id.strip_prefix("local-file:") else {
+            self.playback_status = "This saved item cannot be resumed".into();
+            cx.notify();
+            return;
+        };
         let path = PathBuf::from(raw_path);
-        if !path.is_file() { self.playback_status = "The original media file could not be found".into(); cx.notify(); return; }
-        let resume_position = match self.database.playback_progress(&media_id) { Ok(Some(progress)) => Some(progress.position_seconds), Ok(None) => None, Err(error) => { self.playback_status = format!("Could not read saved position: {error:#}"); cx.notify(); return; } };
-        if self.playback_worker.is_none() { self.start_playback(cx); }
-        let result = self.playback_worker.as_ref().ok_or_else(|| anyhow::anyhow!("MPV runtime is unavailable")).and_then(|worker| { let worker = worker.lock().map_err(|_| anyhow::anyhow!("playback worker lock is unavailable"))?; worker.load_file_with_resume(path.clone(), resume_position)?; Ok(()) });
-        match result { Ok(()) => { self.active_media_id = Some(media_id); self.active_media_title = path.file_name().and_then(|name| name.to_str()).map(str::to_owned); self.active_media_type = Some("local".into()); self.last_progress_save = None; self.active_page = AppPage::Player; self.playback_status = format!("Resuming {}", path.file_name().and_then(|name| name.to_str()).unwrap_or("media")); }, Err(error) => self.playback_status = format!("Could not resume media: {error:#}") }
+        if !path.is_file() {
+            self.playback_status = "The original media file could not be found".into();
+            cx.notify();
+            return;
+        }
+        let resume_position = match self.database.playback_progress(&media_id) {
+            Ok(Some(progress)) => Some(progress.position_seconds),
+            Ok(None) => None,
+            Err(error) => {
+                self.playback_status = format!("Could not read saved position: {error:#}");
+                cx.notify();
+                return;
+            }
+        };
+        if self.playback_worker.is_none() {
+            self.start_playback(cx);
+        }
+        let result = self
+            .playback_worker
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("MPV runtime is unavailable"))
+            .and_then(|worker| {
+                let worker = worker
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("playback worker lock is unavailable"))?;
+                worker.load_file_with_resume(path.clone(), resume_position)?;
+                Ok(())
+            });
+        match result {
+            Ok(()) => {
+                self.active_media_id = Some(media_id);
+                self.active_media_title = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(str::to_owned);
+                self.active_media_type = Some("local".into());
+                self.last_progress_save = None;
+                self.active_page = AppPage::Player;
+                self.playback_status = format!(
+                    "Resuming {}",
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("media")
+                );
+            }
+            Err(error) => self.playback_status = format!("Could not resume media: {error:#}"),
+        }
         cx.notify();
     }
 
