@@ -1469,11 +1469,21 @@ impl SenzoApp {
             .and_then(|item| item.text())
             .filter(|value| !value.trim().is_empty())
         else {
-            self.addon_status = "Clipboard does not contain a manifest URL".into();
+            self.addon_status = "Clipboard does not contain a manifest URL. Copy an HTTPS manifest URL first.".into();
             cx.notify();
             return;
         };
+        self.preview_addon_url(input.trim().to_owned(), cx);
+    }
 
+    fn preview_torrentio(&mut self, cx: &mut Context<Self>) {
+        self.preview_addon_url(
+            "https://torrentio.strem.fun/manifest.json".to_owned(),
+            cx,
+        );
+    }
+
+    fn preview_addon_url(&mut self, input: String, cx: &mut Context<Self>) {
         self.addon_status = "Fetching and validating add-on manifest…".into();
         self.addon_manifest_preview = None;
         self.addon_task = Some(cx.spawn(async move |this, cx| {
@@ -1498,11 +1508,13 @@ impl SenzoApp {
                         app.addon_manifest_preview = Some(preview);
                     }
                     Err(error) => {
+                        // User-configured provider URLs can contain private credentials.
+                        // Keep detailed errors in the UI, but never log the supplied URL.
                         app.addon_status = format!("Manifest preview failed: {error:#}");
                         diagnostics::record(
                             diagnostics::Level::Warn,
                             "addons",
-                            "user-supplied add-on manifest preview failed",
+                            "user-supplied add-on manifest preview failed; see the Add-ons screen for the request error",
                         );
                     }
                 }
@@ -4539,9 +4551,16 @@ fn render_discovery_page(
                         .child(div().flex().flex_col().gap_3()
                             .child(div().text_2xl().font_weight(gpui::FontWeight::BOLD).child("Your next favourite starts here"))
                             .child(div().text_base().text_color(rgb(0xA1A1AA)).child(home_catalog_status.clone()))
-                            .child(dynamic_choice_chip("Retry discovery".into(), true, |this, cx| {
-                                this.load_home_catalogs(cx);
-                            }, cx))))
+                            .child(div().flex().flex_wrap().gap_2()
+                                .child(dynamic_choice_chip("Retry discovery".into(), true, |this, cx| {
+                                    this.load_home_catalogs(cx);
+                                }, cx))
+                                .when(self.tmdb_credentials_status.starts_with("TMDB is not configured"), |actions| {
+                                    actions.child(dynamic_choice_chip("Configure TMDB".into(), false, |this, cx| {
+                                        this.active_page = AppPage::Settings;
+                                        this.configure_tmdb_key(cx);
+                                    }, cx))
+                                }))))
             };
             this.child(hero).child(div().text_xs().text_color(rgb(0x858C94)).child(home_catalog_status.clone()))
                 .when(!continue_watching_cards.is_empty(), |panel| {
@@ -4949,12 +4968,21 @@ fn render_discovery_page(
                             .child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child("Install a Stremio add-on"))
                             .child(div().text_sm().text_color(rgb(0x9299A1)).child("Copy the add-on's HTTPS manifest URL, then paste it here for a preview. Nothing is installed until you confirm."))
                             .child(div().text_sm().text_color(rgb(0xB7BEC6)).child(addon_status.clone()))
-                            .child(dynamic_choice_chip(
-                                "Paste manifest URL".into(),
-                                false,
-                                |this, cx| this.preview_addon_from_clipboard(cx),
-                                cx,
-                            ))
+                            .child(div().flex().flex_wrap().gap_2()
+                                .child(dynamic_choice_chip(
+                                    "Paste manifest URL".into(),
+                                    false,
+                                    |this, cx| this.preview_addon_from_clipboard(cx),
+                                    cx,
+                                ))
+                                .child(dynamic_choice_chip(
+                                    "Preview Torrentio",
+                                    true,
+                                    |this, cx| this.preview_torrentio(cx),
+                                    cx,
+                                )))
+                            .child(div().text_xs().text_color(rgb(0x858C94))
+                                .child("Torrentio opens with its standard manifest. For a custom provider / debrid setup, copy the configured manifest URL from torrentio.strem.fun/configure and use Paste manifest URL."))
                             .when(addon_manifest_preview.is_some(), |panel| {
                                 let preview = addon_manifest_preview.clone().expect("preview exists");
                                 panel.child(

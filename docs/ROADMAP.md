@@ -181,6 +181,22 @@ Batch 8 turns the existing MPV worker integration into a dedicated, usable nativ
 
 **Nuvio reference:** PlayerScreen.kt, PlayerControls.kt, PlayerTimeline.kt, PlayerTrackSelection.kt, PlayerMediaInfo.kt, and PlayerLoadingStatus.kt in NuvioMedia/NuvioDesktop (branch Dev). Adapt interaction patterns and user-facing behavior to Rust + GPUI and native libmpv; do not port Kotlin/Compose UI code.
 
+## Phase 9.1 — Experience and Discovery Remediation (Batch 8.1)
+
+**Status: In progress.** Windows user testing exposed gaps that were not covered by compile-time CI: the installed UI does not yet match the approved SENZO media-center design, Torrentio manifest preview failed, and Home discovery was empty when TMDB credentials were not configured.
+
+- [x] Add a direct Torrentio standard-manifest preview action, independent of clipboard behavior.
+- [x] Keep configured Torrentio URLs supported through the existing Paste manifest URL flow.
+- [x] Show the actual manifest request / validation error in the Add-ons screen while keeping user-supplied URLs out of diagnostic logs.
+- [x] Provide a direct Home empty-state path to securely configure the TMDB Read Access Token when it is missing.
+- [ ] Verify Torrentio installation and stream discovery on Windows with the standard and configured manifest URLs.
+- [ ] Verify Home recommendations after TMDB credential setup and improve provider-failure recovery.
+- [ ] Redesign the real GPUI Home and navigation UI to match the approved SENZO visual reference.
+- [ ] Implement polished hero transitions, carousel motion, and shelf interaction animations.
+- [ ] Validate the complete experience on Windows before starting Batch 9.
+
+**Boundary:** This remediation does not bundle Torrentio or any other streaming provider. TMDB credentials remain user-configurable and stored in Windows Credential Manager. CI success alone does not mark these user-facing tasks complete.
+
 ## Phase 10 — Additional sources and presence (Batch 9)
 
 - [ ] Define a stable source-adapter interface for additional providers.
