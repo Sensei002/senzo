@@ -4041,9 +4041,9 @@ fn render_discovery_page(
     let is_library = page == AppPage::Library;
     let is_home = page == AppPage::Home;
     let (poster_width, poster_height) = if poster_size == "compact" {
-        (px(140.), px(202.))
+        (px(148.), px(214.))
     } else {
-        (px(164.), px(236.))
+        (px(176.), px(250.))
     };
     let _content_language = metadata_language;
     let mut title_chips = Vec::new();
@@ -4495,7 +4495,7 @@ fn render_discovery_page(
                 let selected = item.clone();
                 let selected_kind = kind.clone();
                 let backdrop = tmdb_artwork_url(item.backdrop_path.as_deref(), "w1280");
-                div().w_full().h(px(520.)).relative().overflow_hidden().bg(rgb(0x101619))
+                div().w_full().h(px(560.)).relative().overflow_hidden().bg(rgb(0x101619))
                     .when_some(backdrop, |panel, url| {
                         panel.child(
                             img(url)
@@ -4514,20 +4514,20 @@ fn render_discovery_page(
                     .child(div().absolute().left_0().top_0().bottom_0().w(px(900.)).bg(rgb(0x070A0D)).opacity(0.76))
                     .child(div().absolute().left_0().right_0().bottom_0().h(px(250.)).bg(rgb(0x070A0D)).opacity(0.58))
                     .child(
-                        div().relative().h_full().p_8().flex().flex_col().justify_between()
+                        div().relative().h_full().p_10().flex().flex_col().justify_between()
                             .child(div().flex().items_center().justify_between()
                                 .child(div().text_xs().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xFBBF24)).child("SENZO  /  FEATURED"))
                                 .child(div().px_3().py_2().rounded_full().bg(rgb(0x111719)).opacity(0.92)
                                     .text_xs().text_color(rgb(0xE4E4E7)).child("DISCOVER")))
                             .child(div().flex().flex_col().gap_3().max_w(px(720.))
-                                .child(div().text_2xl().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xFBBF24)).child(title))
+                                .child(div().text_3xl().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xFBBF24)).child(title))
                                 .child(div().flex().items_center().gap_2()
                                     .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(0xF4F4F5))
                                         .child(format!("{}  •  {}  •  {}", if kind == "movie" { "Movie" } else { "Series" }, year, rating))))
                                 .child(div().max_w(px(690.)).text_base().text_color(rgb(0xE4E4E7)).child(overview))
                                 .child(div().flex().items_center().gap_3().pt_2()
-                                    .child(dynamic_choice_chip("View details".into(), true, move |this, cx| this.select_tmdb_title(selected_kind.clone(), selected.clone(), cx), cx))
-                                    .child(dynamic_choice_chip("Explore movies".into(), false, |this, cx| this.load_tmdb_catalog("movie", None, cx), cx))))
+                                    .child(dynamic_choice_chip("More info & sources".into(), true, move |this, cx| this.select_tmdb_title(selected_kind.clone(), selected.clone(), cx), cx))
+                                    .child(dynamic_choice_chip("Browse movies".into(), false, |this, cx| this.load_tmdb_catalog("movie", None, cx), cx))))
                             .child(div().flex().items_center().justify_end().gap_2()
                                 .child(dynamic_choice_chip("‹".into(), false, move |this, cx| {
                                     if featured_count > 0 {
@@ -4661,20 +4661,24 @@ fn render_discovery_page(
                         div().w(poster_width).flex_shrink_0().rounded_lg().bg(rgb(0x171D20))
                             .border_1().border_color(rgb(0x263238)).overflow_hidden().flex().flex_col().gap_2()
                             .cursor_pointer().hover(|style| style.border_color(rgb(0x22D3EE)))
-                            .child(div().w_full().h(poster_height).bg(rgb(0x20272B)).when_some(poster, |panel, url| {
+                            .child(div().w_full().h(poster_height).relative().bg(rgb(0x20272B)).when_some(poster, |panel, url| {
                                 panel.child(img(url).w_full().h(poster_height).object_fit(ObjectFit::Cover))
+                            }).when(!rating.is_empty(), |panel| {
+                                panel.child(div().absolute().top(px(8.)).right(px(8.)).px_2().py_1().rounded_md()
+                                    .bg(rgb(0x0A0C0E)).text_xs().font_weight(gpui::FontWeight::BOLD)
+                                    .text_color(rgb(0xFBBF24)).child(rating.clone()))
                             }))
                             .child(div().px_2().pb_2().flex().flex_col().gap_1()
                                 .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
-                                .child(div().text_xs().text_color(rgb(0x9299A1)).child(format!("{year} · {rating}"))))
+                                .child(div().text_xs().text_color(rgb(0x9299A1)).child(year)))
                             .tab_index(0)
                             .on_mouse_down(MouseButton::Left, cx.listener(move |this, _event, _window, cx| {
                                 this.select_tmdb_title(selected_kind.clone(), selected.clone(), cx);
                             }))
                     }).collect::<Vec<_>>();
-                    Some(div().flex().flex_col().gap_3()
+                    Some(div().flex().flex_col().gap_4()
                         .child(div().flex().items_center().justify_between()
-                            .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child(shelf_name))
+                            .child(div().text_xl().font_weight(gpui::FontWeight::SEMIBOLD).child(shelf_name))
                             .child(dynamic_choice_chip("View all".into(), false, move |this, cx| {
                                 let (media_type, destination) = match shelf_name {
                                     "Trending this week" => ("trending", AppPage::Movies),

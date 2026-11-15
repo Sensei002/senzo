@@ -192,6 +192,7 @@ Batch 8 turns the existing MPV worker integration into a dedicated, usable nativ
 - [ ] Verify Torrentio installation and stream discovery on Windows with the standard and configured manifest URLs.
 - [ ] Verify Home recommendations after TMDB credential setup and improve provider-failure recovery.
 - [ ] Redesign the real GPUI Home and navigation UI to match the approved SENZO visual reference.
+- [x] Establish larger cinematic hero proportions, stronger title hierarchy, larger poster cards, and on-artwork rating badges in native GPUI shelves.
 - [ ] Implement polished hero transitions, carousel motion, and shelf interaction animations.
 - [ ] Validate the complete experience on Windows before starting Batch 9.
 
