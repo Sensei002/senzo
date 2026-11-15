@@ -4336,7 +4336,7 @@ fn render_discovery_page(
     addon_catalog_page: usize,
     addon_catalog_filter_specs: Vec<AddonCatalogExtra>,
     addon_catalog_filter_values: Vec<(String, Vec<String>)>,
-    addon_stream_results: Vec<AddonStreamResult>,
+    addon_stream_results: Vec<SourceProviderResult>,
     stream_status: String,
     torrent_files: Vec<TorrentVideoFile>,
     torrent_status: String,
@@ -4571,7 +4571,7 @@ fn render_discovery_page(
             if is_direct || is_torrent {
                 let label = format!(
                     "{} · {} · {}",
-                    provider.addon_name,
+                    provider.provider_name,
                     stream
                         .name
                         .as_deref()
@@ -4596,7 +4596,7 @@ fn render_discovery_page(
                     .into_any_element(),
                 );
             } else if let Some(external_url) = stream.external_url.as_deref() {
-                let provider_name = provider.addon_name.clone();
+                let provider_name = provider.provider_name.clone();
                 let label = format!(
                     "{} · {} · open link",
                     provider_name,
