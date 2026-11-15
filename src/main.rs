@@ -4736,7 +4736,11 @@ fn render_discovery_page(
                 ),
         )
         .when(
-            !is_home && page != AppPage::Addons && page != AppPage::Library && page != AppPage::Details,
+            !is_home
+                && !is_search
+                && page != AppPage::Addons
+                && page != AppPage::Library
+                && page != AppPage::Details,
             |panel| {
                 panel
                     .child(
@@ -4891,6 +4895,43 @@ fn render_discovery_page(
                     .text_color(rgb(0x9299A1))
                     .child("Search across movies and TV shows · Results update as you type · Press Enter to search"),
             )
+            .when(tmdb_not_configured, |content| {
+                content.child(
+                    div()
+                        .p_4()
+                        .rounded_xl()
+                        .bg(rgb(0x181F26))
+                        .border_1()
+                        .border_color(rgb(0x263238))
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap_1()
+                                .child(div().text_sm().font_weight(gpui::FontWeight::BOLD).child("TMDB search is not configured"))
+                                .child(div().text_xs().text_color(rgb(0x94A3B8)).child("Configure metadata access in Settings to search movies and TV shows.")),
+                        )
+                        .child(dynamic_choice_chip(
+                            "Configure TMDB".into(),
+                            true,
+                            |this, cx| {
+                                this.active_page = AppPage::Settings;
+                                this.configure_tmdb_key(cx);
+                            },
+                            cx,
+                        )),
+                )
+            })
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x9299A1))
+                    .child(tmdb_status.clone()),
+            )
+            .child(div().flex().flex_wrap().gap_2().children(title_chips))
         })
         .when(is_home, |this| {
             let mut ordered_shelf_names = [
