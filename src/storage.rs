@@ -131,7 +131,30 @@ impl LocalDatabase {
             let transaction = connection
                 .transaction()
                 .context("failed to begin the metadata playback migration")?;
-            transaction.execute_batch("\n                ALTER TABLE playback_progress ADD COLUMN title TEXT;\n                ALTER TABLE playback_progress ADD COLUMN media_type TEXT;\n                PRAGMA user_version = 3;\n            ")?;
+            // Some early v1 databases only contained the add-on registry. Create the
+            // playback tables when absent before applying the additive metadata migration.
+            transaction.execute_batch(
+                "
+                CREATE TABLE IF NOT EXISTS playback_progress (
+                    media_id TEXT PRIMARY KEY NOT NULL,
+                    position_seconds REAL NOT NULL,
+                    duration_seconds REAL,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS watch_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    media_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    media_type TEXT NOT NULL,
+                    watched_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_watch_history_watched_at
+                    ON watch_history(watched_at DESC);
+                ALTER TABLE playback_progress ADD COLUMN title TEXT;
+                ALTER TABLE playback_progress ADD COLUMN media_type TEXT;
+                PRAGMA user_version = 3;
+                ",
+            )?;
             transaction
                 .commit()
                 .context("failed to commit the metadata playback migration")?;
