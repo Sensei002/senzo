@@ -2550,8 +2550,9 @@ where
 {
     div()
         .w_full()
-        .px_4()
-        .py_2_5()
+        .h(px(40.))
+        .flex_shrink_0()
+        .px_3()
         .rounded_xl()
         .cursor_pointer()
         .flex()
@@ -2560,12 +2561,12 @@ where
         .bg(if selected {
             rgb(0x22D3EE)
         } else {
-            rgb(0x0A0A0A)
+            gpui::transparent_black()
         })
         .text_color(if selected {
             rgb(0xFFFFFF)
         } else {
-            rgb(0x9CA3AF)
+            rgb(0x94A3B8)
         })
         .font_weight(if selected {
             gpui::FontWeight::BOLD
@@ -2922,6 +2923,7 @@ impl Render for SenzoApp {
                 div()
                     .w(px(220.))
                     .h_full()
+                    .flex_shrink_0()
                     .flex()
                     .flex_col()
                     .justify_between()
@@ -2934,6 +2936,7 @@ impl Render for SenzoApp {
                             .flex()
                             .flex_col()
                             .gap_6()
+                            .flex_shrink_0()
                             .child(
                                 div()
                                     .flex()
@@ -2960,7 +2963,8 @@ impl Render for SenzoApp {
                                 div()
                                     .flex()
                                     .flex_col()
-                                    .gap_2()
+                                    .gap_1_5()
+                                    .flex_shrink_0()
                                     .child(nav_button("Home", "⌂", self.active_page == AppPage::Home, |this, _cx| this.active_page = AppPage::Home, cx))
                                     .child(nav_button("Movies", "🎬", self.active_page == AppPage::Movies, |this, cx| {
                                         this.active_page = AppPage::Movies;
@@ -2984,6 +2988,7 @@ impl Render for SenzoApp {
                             .flex()
                             .flex_col()
                             .gap_3()
+                            .flex_shrink_0()
                             .child(div().h(px(1.)).bg(rgb(0x1E242B)).w_full())
                             .child(
                                 div()
@@ -4659,12 +4664,77 @@ fn render_discovery_page(
                                 cx,
                             )),
                     )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0x9299A1))
-                            .child(tmdb_status.clone()),
+                    .when(
+                        tmdb_not_configured || tmdb_status.contains("not configured"),
+                        |content| {
+                            content.child(
+                                div()
+                                    .w_full()
+                                    .p_4()
+                                    .rounded_xl()
+                                    .bg(rgb(0x181F26))
+                                    .border_1()
+                                    .border_color(rgb(0x242E35))
+                                    .flex()
+                                    .items_center()
+                                    .justify_between()
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap_3()
+                                            .child(div().text_lg().child("🔑"))
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .flex_col()
+                                                    .gap_0_5()
+                                                    .child(
+                                                        div()
+                                                            .text_sm()
+                                                            .font_weight(gpui::FontWeight::BOLD)
+                                                            .text_color(rgb(0xF8FAFC))
+                                                            .child("TMDB Metadata Token Required"),
+                                                    )
+                                                    .child(
+                                                        div()
+                                                            .text_xs()
+                                                            .text_color(rgb(0x94A3B8))
+                                                            .child("Configure your free TMDB API token in Settings to explore catalogues and search titles."),
+                                                    ),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .px_4()
+                                            .py_2()
+                                            .rounded_lg()
+                                            .bg(rgb(0x22D3EE))
+                                            .text_color(rgb(0x0A0A0A))
+                                            .font_weight(gpui::FontWeight::BOLD)
+                                            .text_xs()
+                                            .cursor_pointer()
+                                            .hover(|s| s.bg(rgb(0x67E8F9)))
+                                            .child("Configure TMDB")
+                                            .on_mouse_down(
+                                                MouseButton::Left,
+                                                cx.listener(|this, _event, _window, cx| {
+                                                    this.active_page = AppPage::Settings;
+                                                    this.configure_tmdb_key(cx);
+                                                }),
+                                            ),
+                                    ),
+                            )
+                        },
                     )
+                    .when(!tmdb_not_configured && !tmdb_status.contains("not configured"), |content| {
+                        content.child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(0x9299A1))
+                                .child(tmdb_status.clone()),
+                        )
+                    })
                     .child(div().flex().flex_wrap().gap_2().children(title_chips))
             },
         )
@@ -4749,6 +4819,7 @@ fn render_discovery_page(
                 div()
                     .w_full()
                     .h(px(520.))
+                    .flex_shrink_0()
                     .relative()
                     .overflow_hidden()
                     .rounded_2xl()
@@ -4988,6 +5059,7 @@ fn render_discovery_page(
                 div()
                     .w_full()
                     .h(px(420.))
+                    .flex_shrink_0()
                     .relative()
                     .overflow_hidden()
                     .rounded_2xl()
@@ -5004,21 +5076,37 @@ fn render_discovery_page(
                             .justify_between()
                             .child(
                                 div()
-                                    .text_xs()
-                                    .font_weight(gpui::FontWeight::BOLD)
-                                    .text_color(rgb(0x22D3EE))
-                                    .child("WELCOME TO SENZO"),
+                                    .flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .font_weight(gpui::FontWeight::BOLD)
+                                            .text_color(rgb(0x22D3EE))
+                                            .child("WELCOME TO SENZO"),
+                                    )
+                                    .child(
+                                        div()
+                                            .px_2_5()
+                                            .py_0_5()
+                                            .rounded_full()
+                                            .bg(rgb(0x1E293B))
+                                            .text_xs()
+                                            .text_color(rgb(0x94A3B8))
+                                            .child("Native Media Center"),
+                                    ),
                             )
                             .child(
                                 div()
                                     .flex()
                                     .flex_col()
                                     .gap_3()
-                                    .max_w(px(640.))
+                                    .max_w(px(720.))
                                     .child(
                                         div()
                                             .text_3xl()
-                                            .font_weight(gpui::FontWeight::BOLD)
+                                            .font_weight(gpui::FontWeight::EXTRA_BOLD)
                                             .text_color(rgb(0xF8FAFC))
                                             .child("Your next favourite starts here"),
                                     )
@@ -5026,14 +5114,14 @@ fn render_discovery_page(
                                         div()
                                             .text_sm()
                                             .text_color(rgb(0x94A3B8))
-                                            .child(home_catalog_status.clone()),
+                                            .child("Connect TMDB in Settings to unlock trending movies and TV shows, or install Stremio add-ons like Torrentio to stream directly."),
                                     )
                                     .child(
                                         div()
                                             .flex()
                                             .items_center()
                                             .gap_3()
-                                            .pt_2()
+                                            .pt_3()
                                             .child(
                                                 div()
                                                     .px_5()
@@ -5045,6 +5133,79 @@ fn render_discovery_page(
                                                     .text_sm()
                                                     .cursor_pointer()
                                                     .hover(|s| s.bg(rgb(0x67E8F9)))
+                                                    .flex()
+                                                    .items_center()
+                                                    .gap_2()
+                                                    .child("🔑")
+                                                    .child("Configure TMDB")
+                                                    .tab_index(0)
+                                                    .on_mouse_down(
+                                                        MouseButton::Left,
+                                                        cx.listener(|this, _event, _window, cx| {
+                                                            this.active_page = AppPage::Settings;
+                                                            this.configure_tmdb_key(cx);
+                                                        }),
+                                                    ),
+                                            )
+                                            .child(
+                                                div()
+                                                    .px_5()
+                                                    .py_2_5()
+                                                    .rounded_xl()
+                                                    .bg(rgb(0x1F2937))
+                                                    .text_color(rgb(0xF8FAFC))
+                                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                                    .text_sm()
+                                                    .cursor_pointer()
+                                                    .hover(|s| s.bg(rgb(0x374151)))
+                                                    .flex()
+                                                    .items_center()
+                                                    .gap_2()
+                                                    .child("🧩")
+                                                    .child("Browse Add-ons")
+                                                    .tab_index(0)
+                                                    .on_mouse_down(
+                                                        MouseButton::Left,
+                                                        cx.listener(|this, _event, _window, cx| {
+                                                            this.active_page = AppPage::Addons;
+                                                        }),
+                                                    ),
+                                            )
+                                            .child(
+                                                div()
+                                                    .px_5()
+                                                    .py_2_5()
+                                                    .rounded_xl()
+                                                    .bg(rgb(0x1F2937))
+                                                    .text_color(rgb(0xF8FAFC))
+                                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                                    .text_sm()
+                                                    .cursor_pointer()
+                                                    .hover(|s| s.bg(rgb(0x374151)))
+                                                    .flex()
+                                                    .items_center()
+                                                    .gap_2()
+                                                    .child("⚙")
+                                                    .child("Settings")
+                                                    .tab_index(0)
+                                                    .on_mouse_down(
+                                                        MouseButton::Left,
+                                                        cx.listener(|this, _event, _window, cx| {
+                                                            this.active_page = AppPage::Settings;
+                                                        }),
+                                                    ),
+                                            )
+                                            .child(
+                                                div()
+                                                    .px_4()
+                                                    .py_2_5()
+                                                    .rounded_xl()
+                                                    .bg(rgb(0x181F26))
+                                                    .text_color(rgb(0x94A3B8))
+                                                    .font_weight(gpui::FontWeight::MEDIUM)
+                                                    .text_sm()
+                                                    .cursor_pointer()
+                                                    .hover(|s| s.bg(rgb(0x242E35)).text_color(rgb(0xF8FAFC)))
                                                     .child("Retry discovery")
                                                     .tab_index(0)
                                                     .on_mouse_down(
@@ -5053,30 +5214,7 @@ fn render_discovery_page(
                                                             this.load_home_catalogs(cx);
                                                         }),
                                                     ),
-                                            )
-                                            .when(tmdb_not_configured, |actions| {
-                                                actions.child(
-                                                    div()
-                                                        .px_5()
-                                                        .py_2_5()
-                                                        .rounded_xl()
-                                                        .bg(rgb(0x1F2937))
-                                                        .text_color(rgb(0xF8FAFC))
-                                                        .font_weight(gpui::FontWeight::SEMIBOLD)
-                                                        .text_sm()
-                                                        .cursor_pointer()
-                                                        .hover(|s| s.bg(rgb(0x374151)))
-                                                        .child("Configure TMDB")
-                                                        .tab_index(0)
-                                                        .on_mouse_down(
-                                                            MouseButton::Left,
-                                                            cx.listener(|this, _event, _window, cx| {
-                                                                this.active_page = AppPage::Settings;
-                                                                this.configure_tmdb_key(cx);
-                                                            }),
-                                                        ),
-                                                )
-                                            }),
+                                            ),
                                     ),
                             )
                             .child(div()),
@@ -5084,11 +5222,14 @@ fn render_discovery_page(
             };
             this.child(hero)
                 .when(
-                    home_catalog_status.contains("could not")
-                        || home_catalog_status.contains("unavailable"),
+                    (home_catalog_status.contains("could not")
+                        || home_catalog_status.contains("unavailable"))
+                        && (!home_catalogs.is_empty() || !home_addon_catalogs.is_empty()),
                     |panel| {
                         panel.child(
                             div()
+                                .w_full()
+                                .flex_shrink_0()
                                 .px_4()
                                 .py_2_5()
                                 .rounded_xl()
@@ -5108,6 +5249,143 @@ fn render_discovery_page(
                         )
                     },
                 )
+                .when(home_catalogs.is_empty() && home_addon_catalogs.is_empty(), |panel| {
+                    panel.child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_4()
+                            .flex_shrink_0()
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_2_5()
+                                    .child(div().w(px(3.)).h(px(18.)).rounded_full().bg(rgb(0x22D3EE)))
+                                    .child(div().text_xl().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xF8FAFC)).child("Getting Started"))
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .gap_4()
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .p_5()
+                                            .rounded_xl()
+                                            .bg(rgb(0x13191E))
+                                            .border_1()
+                                            .border_color(rgb(0x1E262E))
+                                            .flex()
+                                            .flex_col()
+                                            .justify_between()
+                                            .gap_4()
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .flex_col()
+                                                    .gap_1_5()
+                                                    .child(div().text_xl().child("🧩"))
+                                                    .child(div().text_base().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xF8FAFC)).child("Add-ons & Streaming"))
+                                                    .child(div().text_xs().text_color(rgb(0x94A3B8)).child("Install community Stremio add-ons like Torrentio or Cinemeta to browse catalogs and stream titles."))
+                                            )
+                                            .child(
+                                                div()
+                                                    .px_4()
+                                                    .py_2()
+                                                    .rounded_lg()
+                                                    .bg(rgb(0x1E293B))
+                                                    .text_color(rgb(0x22D3EE))
+                                                    .text_xs()
+                                                    .font_weight(gpui::FontWeight::BOLD)
+                                                    .cursor_pointer()
+                                                    .hover(|s| s.bg(rgb(0x334155)))
+                                                    .child("Open Add-ons →")
+                                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _event, _window, cx| {
+                                                        this.active_page = AppPage::Addons;
+                                                    }))
+                                            )
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .p_5()
+                                            .rounded_xl()
+                                            .bg(rgb(0x13191E))
+                                            .border_1()
+                                            .border_color(rgb(0x1E262E))
+                                            .flex()
+                                            .flex_col()
+                                            .justify_between()
+                                            .gap_4()
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .flex_col()
+                                                    .gap_1_5()
+                                                    .child(div().text_xl().child("🔑"))
+                                                    .child(div().text_base().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xF8FAFC)).child("TMDB Metadata"))
+                                                    .child(div().text_xs().text_color(rgb(0x94A3B8)).child("Provide your free TMDB API Read Access Token in Settings to explore trending movies, series, and cast details."))
+                                            )
+                                            .child(
+                                                div()
+                                                    .px_4()
+                                                    .py_2()
+                                                    .rounded_lg()
+                                                    .bg(rgb(0x1E293B))
+                                                    .text_color(rgb(0x22D3EE))
+                                                    .text_xs()
+                                                    .font_weight(gpui::FontWeight::BOLD)
+                                                    .cursor_pointer()
+                                                    .hover(|s| s.bg(rgb(0x334155)))
+                                                    .child("Configure Token →")
+                                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _event, _window, cx| {
+                                                        this.active_page = AppPage::Settings;
+                                                        this.configure_tmdb_key(cx);
+                                                    }))
+                                            )
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .p_5()
+                                            .rounded_xl()
+                                            .bg(rgb(0x13191E))
+                                            .border_1()
+                                            .border_color(rgb(0x1E262E))
+                                            .flex()
+                                            .flex_col()
+                                            .justify_between()
+                                            .gap_4()
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .flex_col()
+                                                    .gap_1_5()
+                                                    .child(div().text_xl().child("⚙"))
+                                                    .child(div().text_base().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xF8FAFC)).child("Native Playback"))
+                                                    .child(div().text_xs().text_color(rgb(0x94A3B8)).child("Hardware-accelerated libmpv player with custom audio, subtitle track selection, and HDR controls."))
+                                            )
+                                            .child(
+                                                div()
+                                                    .px_4()
+                                                    .py_2()
+                                                    .rounded_lg()
+                                                    .bg(rgb(0x1E293B))
+                                                    .text_color(rgb(0x22D3EE))
+                                                    .text_xs()
+                                                    .font_weight(gpui::FontWeight::BOLD)
+                                                    .cursor_pointer()
+                                                    .hover(|s| s.bg(rgb(0x334155)))
+                                                    .child("View Settings →")
+                                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _event, _window, cx| {
+                                                        this.active_page = AppPage::Settings;
+                                                    }))
+                                            )
+                                    )
+                            )
+                    )
+                })
                 .when(!continue_watching_cards.is_empty(), |panel| {
                     panel.child(
                         div()
@@ -6164,5 +6442,19 @@ mod tests {
         assert!(!is_warn(ok_status));
         assert!(is_warn(fail_status));
         assert!(is_warn(partial_status));
+    }
+
+    #[test]
+    fn test_navigation_items_count() {
+        let pages = [
+            AppPage::Home,
+            AppPage::Movies,
+            AppPage::TvShows,
+            AppPage::Search,
+            AppPage::Library,
+            AppPage::Addons,
+            AppPage::Settings,
+        ];
+        assert_eq!(pages.len(), 7);
     }
 }

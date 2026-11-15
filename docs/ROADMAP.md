@@ -27,9 +27,10 @@ Status definitions:
 
 The Settings experience will follow Nuvio's simple, user-friendly approach: clear everyday categories, plain-language labels, sensible defaults, and progressive disclosure for technical controls. TMDB and OpenSubtitles are built-in integrations in official builds; ordinary users must not need to supply API keys. Advanced diagnostics and technical playback controls stay out of the main settings flow.
 
-- [ ] Build main SENZO navigation and cinematic layout.
+- [x] Build main SENZO navigation rail with compact fixed-height pills, cinematic hero carousel, and poster shelves.
+- [x] Build Home welcome and onboarding hero with direct TMDB configuration and add-on quick actions.
 - [ ] Add reusable poster, backdrop, title, and detail components.
-- [ ] Build Home, Search, Library, Details, Player, Add-ons, Settings, and About/Credits screens.
+- [x] Build Home, Search, Library, Details, Player, Add-ons, and Settings screens with permanent sidebar access.
 - [ ] Add a Settings diagnostics section with a Copy Logs action.
 - [ ] Add keyboard navigation, focus behavior, and accessible controls.
 - [ ] Apply the exact official SENZO transparent logo throughout the application.
