@@ -63,6 +63,8 @@ struct SenzoApp {
     playback_state: PlaybackState,
     playback_status: String,
     active_media_id: Option<String>,
+    active_media_title: Option<String>,
+    active_media_type: Option<String>,
     last_progress_save: Option<Instant>,
     playback_monitor: Option<Task<()>>,
     online_subtitle_results: Vec<OpenSubtitlesResult>,
@@ -194,6 +196,8 @@ impl SenzoApp {
             playback_state: PlaybackState::default(),
             playback_status: "MPV runtime not found (expected runtime/libmpv-2.dll)".into(),
             active_media_id: None,
+            active_media_title: None,
+            active_media_type: None,
             last_progress_save: None,
             playback_monitor: None,
             online_subtitle_results: Vec::new(),
@@ -493,6 +497,8 @@ impl SenzoApp {
         match result {
             Ok(()) => {
                 self.active_media_id = Some(media_id);
+                self.active_media_title = Some(file_name.clone());
+                self.active_media_type = Some("local".into());
                 self.active_page = AppPage::Player;
                 self.last_progress_save = None;
                 self.playback_status = match resume_position {
@@ -805,6 +811,7 @@ impl SenzoApp {
         let Some(display_title) = title.display_title().map(str::to_owned) else {
             return;
         };
+        self.persist_playback_progress(true);
         let tmdb_id = title.id;
         let addons = self.database.installed_addons().unwrap_or_default();
         self.selected_title = Some(display_title.clone());
@@ -814,6 +821,8 @@ impl SenzoApp {
         self.stream_status = "Resolving provider IDs and checking enabled add-ons…".into();
         self.tmdb_status = format!("Loading details for {display_title}…");
         self.active_media_id = Some(title.media_id(&media_type));
+        self.active_media_title = Some(display_title.clone());
+        self.active_media_type = Some(if media_type == "tv" { "episode".into() } else { "movie".into() });
         let metadata_language = self.metadata_language.clone();
         self.tmdb_task = Some(cx.spawn(async move |this, cx| {
             let result = cx.background_spawn(async move {
@@ -1381,6 +1390,7 @@ impl SenzoApp {
             return;
         };
         let url_string = url.to_string();
+        let resume_position = self.active_media_id.as_deref().and_then(|id| self.database.playback_progress(id).ok().flatten()).map(|progress| progress.position_seconds).filter(|position| *position > 5.0);
         let previous = self.torrent_session.take();
         self.torrent_files.clear();
         self.torrent_progress = None;
@@ -1414,7 +1424,7 @@ impl SenzoApp {
                         let worker = worker
                             .lock()
                             .map_err(|_| anyhow::anyhow!("playback worker lock is unavailable"))?;
-                        worker.load_url(parsed.as_str())?;
+                        worker.load_url_with_resume(parsed.as_str(), resume_position)?;
                         Ok::<_, anyhow::Error>(())
                     })
                 })
@@ -1423,7 +1433,7 @@ impl SenzoApp {
                 match result {
                     Ok(()) => {
                         app.stream_status = "Direct stream queued in MPV".into();
-                        app.playback_status = "Playing selected add-on stream".into();
+                        app.playback_status = match resume_position { Some(position) => format!("Resuming selected stream from {:.0} seconds", position), None => "Playing selected add-on stream".into() };
                         app.active_page = AppPage::Player;
                     }
                     Err(error) => {
@@ -2090,55 +2100,22 @@ impl SenzoApp {
     }
 
     fn resume_saved_media(&mut self, media_id: String, cx: &mut Context<Self>) {
-        let Some(raw_path) = media_id.strip_prefix("local-file:") else {
-            self.playback_status =
-                "This saved item cannot be resumed from a local file path yet".into();
-            cx.notify();
-            return;
-        };
+        if let Some(rest) = media_id.strip_prefix("tmdb:") {
+            let mut parts = rest.split(':');
+            let (Some(kind), Some(raw_id)) = (parts.next(), parts.next()) else { return; };
+            if parts.next().is_some() || !matches!(kind, "movie" | "tv") { self.playback_status = "Saved metadata identity is invalid".into(); cx.notify(); return; }
+            let Ok(id) = raw_id.parse::<u64>() else { self.playback_status = "Saved metadata identity is invalid".into(); cx.notify(); return; };
+            let title = self.database.playback_progress(&media_id).ok().flatten().and_then(|item| item.title).unwrap_or_else(|| "Continue watching".into());
+            let item = TmdbSearchResult { id, title: (kind == "movie").then(|| title.clone()), name: (kind == "tv").then(|| title), original_title: None, original_name: None, overview: None, poster_path: None, backdrop_path: None, release_date: None, first_air_date: None, vote_average: None, vote_count: None, media_type: Some(kind.into()) };
+            self.select_tmdb_title(kind.to_owned(), item, cx); return;
+        }
+        let Some(raw_path) = media_id.strip_prefix("local-file:") else { self.playback_status = "This saved item cannot be resumed".into(); cx.notify(); return; };
         let path = PathBuf::from(raw_path);
-        if !path.is_file() {
-            self.playback_status = "The original media file could not be found".into();
-            cx.notify();
-            return;
-        }
-        let resume_position = match self.database.playback_progress(&media_id) {
-            Ok(Some(progress)) => Some(progress.position_seconds),
-            Ok(None) => None,
-            Err(error) => {
-                self.playback_status = format!("Could not read saved position: {error:#}");
-                cx.notify();
-                return;
-            }
-        };
-        if self.playback_worker.is_none() {
-            self.start_playback(cx);
-        }
-        let result = self
-            .playback_worker
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("MPV runtime is unavailable"))
-            .and_then(|worker| {
-                let worker = worker
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("playback worker lock is unavailable"))?;
-                worker.load_file_with_resume(path.clone(), resume_position)?;
-                Ok(())
-            });
-        match result {
-            Ok(()) => {
-                self.persist_playback_progress(true);
-                self.active_media_id = Some(media_id);
-                self.last_progress_save = None;
-                self.playback_status = format!(
-                    "Resuming {}",
-                    path.file_name()
-                        .and_then(|name| name.to_str())
-                        .unwrap_or("media")
-                );
-            }
-            Err(error) => self.playback_status = format!("Could not resume media: {error:#}"),
-        }
+        if !path.is_file() { self.playback_status = "The original media file could not be found".into(); cx.notify(); return; }
+        let resume_position = match self.database.playback_progress(&media_id) { Ok(Some(progress)) => Some(progress.position_seconds), Ok(None) => None, Err(error) => { self.playback_status = format!("Could not read saved position: {error:#}"); cx.notify(); return; } };
+        if self.playback_worker.is_none() { self.start_playback(cx); }
+        let result = self.playback_worker.as_ref().ok_or_else(|| anyhow::anyhow!("MPV runtime is unavailable")).and_then(|worker| { let worker = worker.lock().map_err(|_| anyhow::anyhow!("playback worker lock is unavailable"))?; worker.load_file_with_resume(path.clone(), resume_position)?; Ok(()) });
+        match result { Ok(()) => { self.active_media_id = Some(media_id); self.active_media_title = path.file_name().and_then(|name| name.to_str()).map(str::to_owned); self.active_media_type = Some("local".into()); self.last_progress_save = None; self.active_page = AppPage::Player; self.playback_status = format!("Resuming {}", path.file_name().and_then(|name| name.to_str()).unwrap_or("media")); }, Err(error) => self.playback_status = format!("Could not resume media: {error:#}") }
         cx.notify();
     }
 
@@ -2167,10 +2144,17 @@ impl SenzoApp {
             .duration_since(UNIX_EPOCH)
             .map(|value| value.as_secs() as i64)
             .unwrap_or_default();
-        match self
-            .database
-            .save_playback_progress(media_id, position, duration, updated_at)
-        {
+        let completion_threshold = duration.filter(|value| value.is_finite() && *value > 0.0).map(|value| value - 30.0_f64.min(value * 0.05));
+        if completion_threshold.is_some_and(|threshold| position >= threshold) {
+            let title = self.active_media_title.as_deref().unwrap_or("Unknown title");
+            let media_type = self.active_media_type.as_deref().unwrap_or("unknown");
+            match self.database.complete_playback(media_id, title, media_type, updated_at) {
+                Ok(()) => { self.last_progress_save = Some(now); self.active_media_id = None; self.playback_status = format!("Completed {title}"); diagnostics::record(diagnostics::Level::Audit, "playback", "media completion recorded in local watch history"); }
+                Err(error) => diagnostics::record(diagnostics::Level::Warn, "playback", &format!("could not record completed playback: {error:#}")),
+            }
+            return;
+        }
+        match self.database.save_playback_progress_with_metadata(media_id, position, duration, updated_at, self.active_media_title.as_deref(), self.active_media_type.as_deref()) {
             Ok(()) => self.last_progress_save = Some(now),
             Err(error) => diagnostics::record(
                 diagnostics::Level::Warn,
@@ -4122,19 +4106,10 @@ fn render_discovery_page(
 
     let continue_watching_cards = continue_watching
         .into_iter()
-        .filter(|progress| progress.media_id.starts_with("local-file:"))
+        .filter(|progress| progress.media_id.starts_with("local-file:") || progress.media_id.starts_with("tmdb:"))
         .map(|progress| {
             let media_id = progress.media_id.clone();
-            let title = progress
-                .media_id
-                .strip_prefix("local-file:")
-                .and_then(|path| {
-                    PathBuf::from(path)
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .map(str::to_owned)
-                })
-                .unwrap_or_else(|| "Recently watched".into());
+            let title = progress.title.clone().or_else(|| progress.media_id.strip_prefix("local-file:").and_then(|path| PathBuf::from(path).file_name().and_then(|name| name.to_str()).map(str::to_owned))).unwrap_or_else(|| "Recently watched".into());
             let progress_label = progress
                 .duration_seconds
                 .filter(|duration| duration.is_finite() && *duration > 0.0)

@@ -167,14 +167,14 @@ The Settings experience will follow Nuvio's simple, user-friendly approach: clea
 
 Batch 8 turns the existing MPV worker integration into a dedicated, usable native player. The Player destination owns the native video viewport and presents essential transport, track, subtitle, and diagnostics controls without routing ordinary playback through Advanced Settings.
 
-- [ ] Deliver the dedicated Player screen with a native MPV video viewport and safe child-window visibility/lifecycle handling.
-- [ ] Connect seek, play/pause, stop, volume, mute, fullscreen, audio-track, and subtitle-track controls to the worker.
-- [ ] Add keyboard playback controls: Space, Left/Right, Up/Down, M, F, and Escape.
-- [ ] Preserve selected TMDB/Stremio media identity across direct-stream and torrent handoff so network playback progress is not discarded.
-- [ ] Resume metadata-backed network streams from their saved position.
-- [ ] Record completion-aware watch history and make metadata-backed Continue Watching actionable.
+- [x] Deliver the dedicated Player screen with a native MPV video viewport and child-window visibility/lifecycle handling.
+- [x] Connect seek, play/pause, stop, volume, mute, fullscreen, audio-track, and subtitle-track controls to the worker.
+- [x] Add keyboard playback controls: Space, Left/Right, Up/Down, M, F, and Escape.
+- [x] Preserve selected TMDB/Stremio media identity across direct-stream and torrent handoff; persist metadata-backed titles and media types with progress.
+- [x] Resume metadata-backed network streams from their saved position after MPV confirms the loaded URL and duration; Continue Watching returns to title details and source selection.
+- [x] Record completion-aware watch history atomically and remove completed items from Continue Watching.
 - [ ] Detect runtime decoder, renderer, and HDR capabilities and only expose settings the active runtime supports.
-- [ ] Complete Settings → Diagnostics with Copy Logs and Open Log Folder; exports remain bounded and exclude personal history/database contents.
+- [x] Complete Settings → Diagnostics with Copy Logs and Open Log Folder; exports remain bounded and exclude personal history/database contents.
 - [ ] Validate native MPV video presentation, fullscreen behavior, track switching, seeking, buffering, and shutdown on Windows hardware.
 
 **Batch 8 boundary:** CI validates code, tests, and packaging, but native video presentation and provider playback still require real Windows runtime testing. Do not claim hardware capability support until the active libmpv/GPU/output path is detected and the selected options are confirmed.
