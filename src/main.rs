@@ -2492,7 +2492,7 @@ fn current_time_string() -> String {
         second: u16,
         milliseconds: u16,
     }
-    extern "system" {
+    unsafe extern "system" {
         fn GetLocalTime(lp_system_time: *mut SystemTimeWin32);
     }
     let mut st = SystemTimeWin32 {
@@ -3745,7 +3745,7 @@ impl Render for SenzoApp {
                                         row.child(choice_chip("Tone map", settings.hdr == HdrMode::ToneMap, |this, _cx| this.settings.hdr = HdrMode::ToneMap, cx))
                                             .child(choice_chip("Off", settings.hdr == HdrMode::Disabled, |this, _cx| this.settings.hdr = HdrMode::Disabled, cx))
                                     })
-                                    .when((startup_capabilities.hdr_output_supported && startup_capabilities.gpu_next_available), |row| {
+                                    .when(startup_capabilities.hdr_output_supported && startup_capabilities.gpu_next_available, |row| {
                                         row.child(choice_chip("Passthrough", settings.hdr == HdrMode::Passthrough, |this, _cx| this.settings.hdr = HdrMode::Passthrough, cx))
                                     }),
                             ))
@@ -4748,7 +4748,7 @@ fn render_discovery_page(
                                     .max_w(px(640.))
                                     .child(
                                         div()
-                                            .text_4xl()
+                                            .text_3xl()
                                             .font_weight(gpui::FontWeight::EXTRA_BOLD)
                                             .text_color(rgb(0xF8FAFC))
                                             .child(title),
