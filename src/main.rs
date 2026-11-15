@@ -13,8 +13,8 @@ use serde_json::Value;
 
 use senzo::{
     addons::{
-        AddonClient, AddonManifest, AddonManifestPreview, AddonStreamResult, StremioStream,
-        first_series_episode_id,
+        AddonCatalogExtra, AddonClient, AddonManifest, AddonManifestPreview, AddonStreamResult,
+        StremioStream, StremioSubtitle, first_series_episode_id,
     },
     diagnostics,
     metadata::{TmdbClient, TmdbCredentialStore, TmdbSearchResult},
@@ -65,6 +65,8 @@ struct SenzoApp {
     last_progress_save: Option<Instant>,
     playback_monitor: Option<Task<()>>,
     online_subtitle_results: Vec<OpenSubtitlesResult>,
+    addon_subtitle_results: Vec<(StoredAddon, StremioSubtitle)>,
+    addon_subtitle_status: String,
     subtitle_provider_status: String,
     subtitle_credentials_status: String,
     tmdb_credentials_status: String,
@@ -92,6 +94,8 @@ struct SenzoApp {
     addon_catalog_media_type: String,
     addon_catalog_id: String,
     addon_catalog_page: usize,
+    addon_catalog_filter_specs: Vec<AddonCatalogExtra>,
+    addon_catalog_filter_values: Vec<(String, Vec<String>)>,
     addon_stream_results: Vec<AddonStreamResult>,
     stream_status: String,
     torrent_session: Option<TorrentPlaybackSession>,
@@ -173,6 +177,8 @@ impl SenzoApp {
             last_progress_save: None,
             playback_monitor: None,
             online_subtitle_results: Vec::new(),
+            addon_subtitle_results: Vec::new(),
+            addon_subtitle_status: "No add-on subtitles loaded for this title".into(),
             subtitle_provider_status: "Online subtitles have not been searched".into(),
             subtitle_credentials_status: match OpenSubtitlesCredentialStore::has_api_key() {
                 Ok(true) => "API key saved in Windows Credential Manager".into(),
@@ -212,6 +218,8 @@ impl SenzoApp {
             addon_catalog_media_type: "movie".into(),
             addon_catalog_id: String::new(),
             addon_catalog_page: 0,
+            addon_catalog_filter_specs: Vec::new(),
+            addon_catalog_filter_values: Vec::new(),
             addon_stream_results: Vec::new(),
             stream_status: "Choose a title or catalog item to discover sources".into(),
             torrent_session: None,
@@ -847,6 +855,12 @@ impl SenzoApp {
         self.addon_catalog_page = page;
         self.addon_catalog_items.clear();
         self.addon_catalog_addon = Some(addon.clone());
+        let mut request_extra = self.addon_catalog_filter_values.iter()
+            .filter(|(name, values)| name != "skip" && !values.is_empty())
+            .map(|(name, values)| (name.clone(), values.join(",")))
+            .collect::<Vec<_>>();
+        let skip = (page * 100).to_string();
+        request_extra.push(("skip".to_owned(), skip));
         self.addon_task = Some(cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
@@ -855,8 +869,9 @@ impl SenzoApp {
                         .enable_all()
                         .build()
                         .context("could not initialize add-on catalog runtime")?;
-                    let skip = (page * 100).to_string();
-                    let extra = [("skip", skip.as_str())];
+                    let extra = request_extra.iter()
+                        .map(|(key, value)| (key.as_str(), value.as_str()))
+                        .collect::<Vec<_>>();
                     runtime.block_on(client.catalog(&addon, &media_type, &catalog_id, &extra))
                 })
                 .await;
@@ -877,6 +892,87 @@ impl SenzoApp {
         cx.notify();
     }
 
+    fn select_addon_catalog(
+        &mut self,
+        addon: StoredAddon,
+        media_type: String,
+        catalog_id: String,
+        catalog: Value,
+        cx: &mut Context<Self>,
+    ) {
+        self.addon_catalog_filter_specs = AddonManifest::catalog_extra_properties(&catalog);
+        self.addon_catalog_filter_values.clear();
+        self.addon_catalog_addon = Some(addon.clone());
+        self.addon_catalog_media_type = media_type.clone();
+        self.addon_catalog_id = catalog_id.clone();
+        self.addon_catalog_items.clear();
+        self.addon_catalog_page = 0;
+        if self.addon_catalog_filter_specs.is_empty() {
+            self.load_addon_catalog_page(addon, media_type, catalog_id, 0, cx);
+        } else {
+            let count = self.addon_catalog_filter_specs.len();
+            let required = self.addon_catalog_filter_specs.iter().filter(|property| property.is_required).count();
+            self.addon_catalog_status = format!(
+                "Configure {count} catalogue filter(s) before loading this catalogue. {required} required."
+            );
+            cx.notify();
+        }
+    }
+
+    fn toggle_addon_catalog_filter(
+        &mut self, name: String, value: String, limit: usize, cx: &mut Context<Self>,
+    ) {
+        if let Some((_, selected)) = self.addon_catalog_filter_values.iter_mut().find(|(key, _)| key == &name) {
+            if selected.iter().any(|item| item == &value) {
+                selected.retain(|item| item != &value);
+            } else if limit <= 1 {
+                selected.clear();
+                selected.push(value);
+            } else if selected.len() < limit {
+                selected.push(value);
+            }
+        } else {
+            self.addon_catalog_filter_values.push((name, vec![value]));
+        }
+        cx.notify();
+    }
+
+    fn paste_addon_catalog_filter(&mut self, name: String, cx: &mut Context<Self>) {
+        let Some(value) = cx.read_from_clipboard().and_then(|item| item.text())
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control))
+        else {
+            self.addon_catalog_status = "Copy a filter value (up to 256 characters), then paste it here.".into();
+            cx.notify();
+            return;
+        };
+        if let Some((_, selected)) = self.addon_catalog_filter_values.iter_mut().find(|(key, _)| key == &name) {
+            *selected = vec![value];
+        } else {
+            self.addon_catalog_filter_values.push((name, vec![value]));
+        }
+        cx.notify();
+    }
+
+    fn load_filtered_addon_catalog(&mut self, cx: &mut Context<Self>) {
+        for property in &self.addon_catalog_filter_specs {
+            let has_value = self.addon_catalog_filter_values.iter()
+                .any(|(name, values)| name == &property.name && !values.is_empty());
+            if property.is_required && !has_value {
+                self.addon_catalog_status = format!("Choose or paste a value for required filter: {}", property.name);
+                cx.notify();
+                return;
+            }
+        }
+        let Some(addon) = self.addon_catalog_addon.clone() else {
+            self.addon_catalog_status = "Choose an add-on catalogue first.".into();
+            cx.notify();
+            return;
+        };
+        self.load_addon_catalog_page(addon, self.addon_catalog_media_type.clone(),
+            self.addon_catalog_id.clone(), 0, cx);
+    }
+
     fn select_addon_catalog_meta(
         &mut self,
         addon: StoredAddon,
@@ -895,6 +991,9 @@ impl SenzoApp {
             .to_owned();
         let addon_id = addon.id.clone();
         let addon_name = addon.name.clone();
+        let subtitle_addon = addon.clone();
+        self.addon_subtitle_results.clear();
+        self.addon_subtitle_status = "Checking the selected add-on for subtitle tracks…".into();
         self.addon_catalog_status = format!("Loading details and streams for {media_id}…");
         self.selected_title = meta
             .get("name")
@@ -917,14 +1016,23 @@ impl SenzoApp {
                         media_id.clone()
                     };
                     let streams = client.streams(&addon, &media_type, &stream_id).await?;
-                    Ok::<_, anyhow::Error>((metadata, streams.streams, media_id))
+                    let subtitles = client.subtitles(&addon, &media_type, &stream_id).await
+                        .map(|response| response.subtitles).unwrap_or_default();
+                    Ok::<_, anyhow::Error>((metadata, streams.streams, media_id, subtitles))
                 })
             }).await;
             let _ = this.update(cx, |app, cx| {
                 match result {
-                    Ok((metadata, streams, id)) => {
+                    Ok((metadata, streams, id, subtitles)) => {
                         app.tmdb_details = Some(metadata);
                         app.addon_stream_results = vec![AddonStreamResult { addon_id: addon_id.clone(), addon_name: addon_name.clone(), streams, error: None }];
+                        app.addon_subtitle_results = subtitles.into_iter()
+                            .map(|subtitle| (subtitle_addon.clone(), subtitle)).collect();
+                        app.addon_subtitle_status = if app.addon_subtitle_results.is_empty() {
+                            "This add-on returned no subtitle tracks for the selected episode".into()
+                        } else {
+                            format!("{} add-on subtitle track(s) available", app.addon_subtitle_results.len())
+                        };
                         app.addon_catalog_status = format!("Metadata and streams loaded for {id}");
                         app.stream_status = "Choose a direct stream, or inspect torrent entries for Batch 5 playback".into();
                     }
@@ -1635,6 +1743,47 @@ impl SenzoApp {
         cx.notify();
     }
 
+    fn download_addon_subtitle(
+        &mut self, addon: StoredAddon, subtitle: StremioSubtitle, cx: &mut Context<Self>,
+    ) {
+        let Some(worker) = self.playback_worker.clone() else {
+            self.addon_subtitle_status = "Start playback before loading an add-on subtitle".into();
+            cx.notify();
+            return;
+        };
+        let label = subtitle.label.clone().or_else(|| subtitle.language.clone())
+            .unwrap_or_else(|| "subtitle".into());
+        self.addon_subtitle_status = format!("Downloading {label} from {}…", addon.name);
+        self.subtitle_task = Some(cx.spawn(async move |this, cx| {
+            let result = cx.background_spawn(async move {
+                let client = AddonClient::new();
+                let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
+                    .context("could not initialize add-on subtitle runtime")?;
+                let path = runtime.block_on(client.download_subtitle(&subtitle))?;
+                {
+                    let worker = worker.lock().map_err(|_| anyhow::anyhow!("playback worker lock is unavailable"))?;
+                    worker.add_subtitle_file(path.clone())?;
+                }
+                Ok::<PathBuf, anyhow::Error>(path)
+            }).await;
+            let _ = this.update(cx, |app, cx| {
+                match result {
+                    Ok(path) => {
+                        let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("subtitle");
+                        app.addon_subtitle_status = format!("Loaded add-on subtitle: {name}");
+                        diagnostics::record(diagnostics::Level::Audit, "subtitles", "user loaded a subtitle from an installed Stremio add-on");
+                    }
+                    Err(error) => {
+                        app.addon_subtitle_status = format!("Add-on subtitle download failed: {error:#}");
+                        diagnostics::record(diagnostics::Level::Warn, "subtitles", &app.addon_subtitle_status);
+                    }
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
     fn open_subtitle_file(&mut self, cx: &mut Context<Self>) {
         let Some(path) = rfd::FileDialog::new()
             .set_title("Open subtitle")
@@ -2220,6 +2369,16 @@ impl Render for SenzoApp {
             }
         }
 
+        let mut addon_subtitle_chips = Vec::new();
+        for (addon, subtitle) in &self.addon_subtitle_results {
+            let label = format!("{} · {}", addon.name,
+                subtitle.label.as_deref().or(subtitle.language.as_deref()).unwrap_or("Subtitle"));
+            let selected_addon = addon.clone();
+            let selected_subtitle = subtitle.clone();
+            addon_subtitle_chips.push(dynamic_choice_chip(label, false,
+                move |this, cx| this.download_addon_subtitle(selected_addon.clone(), selected_subtitle.clone(), cx),
+                cx));
+        }
         let mut subtitle_track_chips = Vec::new();
         for track in self
             .playback_state
@@ -2958,6 +3117,8 @@ impl Render for SenzoApp {
                                     .text_color(rgb(0x9299A1))
                                     .child(self.subtitle_provider_status.clone()),
                             )
+                            .child(div().text_xs().text_color(rgb(0x9299A1)).child(self.addon_subtitle_status.clone()))
+                            .child(div().flex().flex_wrap().gap_2().children(addon_subtitle_chips))
                             .child(
                                 div()
                                     .flex()
@@ -3338,6 +3499,8 @@ impl Render for SenzoApp {
                     self.addon_catalog_media_type.clone(),
                     self.addon_catalog_id.clone(),
                     self.addon_catalog_page,
+                    self.addon_catalog_filter_specs.clone(),
+                    self.addon_catalog_filter_values.clone(),
                     self.addon_stream_results.clone(),
                     self.stream_status.clone(),
                     self.torrent_files.clone(),
@@ -3402,6 +3565,8 @@ fn render_discovery_page(
     addon_catalog_media_type: String,
     addon_catalog_id: String,
     addon_catalog_page: usize,
+    addon_catalog_filter_specs: Vec<AddonCatalogExtra>,
+    addon_catalog_filter_values: Vec<(String, Vec<String>)>,
     addon_stream_results: Vec<AddonStreamResult>,
     stream_status: String,
     torrent_files: Vec<TorrentVideoFile>,
@@ -3488,39 +3653,46 @@ fn render_discovery_page(
                 continue;
             }
             let name = catalog.get("name").and_then(Value::as_str).unwrap_or(id);
-            let needs_filters = AddonManifest::catalog_requires_user_input(catalog);
-            let label = format!(
-                "{} · {}{}",
-                addon.name,
-                name,
-                if needs_filters {
-                    " · filters required"
-                } else {
-                    ""
-                }
-            );
+            let has_filters = !AddonManifest::catalog_extra_properties(catalog).is_empty();
+            let label = format!("{} · {}{}", addon.name, name, if has_filters { " · filters" } else { "" });
             let addon_copy = addon.clone();
+            let catalog_copy = catalog.clone();
             let catalog_id = id.to_owned();
-            catalog_chips.push(dynamic_choice_chip(
-                label,
-                false,
-                move |this, cx| {
-                    if needs_filters {
-                        this.addon_catalog_status =
-                            "This catalog requires filters; SENZO will not guess values.".into();
-                        cx.notify();
-                    } else {
-                        this.load_addon_catalog(
-                            addon_copy.clone(),
-                            kind.clone(),
-                            catalog_id.clone(),
-                            cx,
-                        )
-                    }
-                },
-                cx,
-            ));
+            catalog_chips.push(dynamic_choice_chip(label, false, move |this, cx| {
+                this.select_addon_catalog(addon_copy.clone(), kind.clone(), catalog_id.clone(), catalog_copy.clone(), cx)
+            }, cx));
         }
+    }
+    let mut catalog_filter_rows = Vec::new();
+    for property in &addon_catalog_filter_specs {
+        let selected_values = addon_catalog_filter_values.iter()
+            .find(|(name, _)| name == &property.name)
+            .map(|(_, values)| values.clone()).unwrap_or_default();
+        let mut choices = Vec::new();
+        if property.options.is_empty() {
+            let name = property.name.clone();
+            choices.push(dynamic_choice_chip(format!("Paste value for {}", property.name),
+                !selected_values.is_empty(),
+                move |this, cx| this.paste_addon_catalog_filter(name.clone(), cx),
+                cx).into_any_element());
+        } else {
+            for option in &property.options {
+                let name = property.name.clone();
+                let value = option.clone();
+                let selected = selected_values.iter().any(|item| item == option);
+                let limit = property.options_limit;
+                choices.push(dynamic_choice_chip(option.clone(), selected,
+                    move |this, cx| this.toggle_addon_catalog_filter(name.clone(), value.clone(), limit, cx),
+                    cx).into_any_element());
+            }
+        }
+        let current = if selected_values.is_empty() { "No value selected".to_owned() } else { selected_values.join(", ") };
+        catalog_filter_rows.push(div().p_3().rounded_md().bg(rgb(0x101315)).flex().flex_col().gap_2()
+            .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(format!(
+                "{}{} · {}", property.name, if property.is_required { " *" } else { "" }, current
+            )))
+            .child(div().flex().flex_wrap().gap_2().children(choices))
+            .into_any_element());
     }
     let mut catalog_item_chips = Vec::new();
     if let Some(addon) = addon_catalog_addon.clone() {
@@ -4246,6 +4418,15 @@ fn render_discovery_page(
                 .child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child("Installed add-on catalogs"))
                 .child(div().text_xs().text_color(rgb(0x9299A1)).child("Catalogs are loaded from each enabled add-on manifest."))
                 .child(div().flex().flex_wrap().gap_2().children(catalog_chips))
+                .when(!addon_catalog_filter_specs.is_empty(), |panel| {
+                    panel.child(div().p_3().rounded_md().bg(rgb(0x101315)).flex().flex_col().gap_3()
+                        .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child("Catalogue filters"))
+                        .child(div().text_xs().text_color(rgb(0x9299A1)).child("Choose declared options or paste a custom value from your clipboard. Required fields are marked with *."))
+                        .children(catalog_filter_rows)
+                        .child(dynamic_choice_chip("Load filtered catalogue".into(), false, |this, cx| {
+                            this.load_filtered_addon_catalog(cx)
+                        }, cx)))
+                })
                 .child(div().text_xs().text_color(rgb(0x9299A1)).child(addon_catalog_status.clone()))
                 .child(div().flex().flex_wrap().gap_2().children(catalog_item_chips))
                 .child(div().flex().items_center().gap_2()
