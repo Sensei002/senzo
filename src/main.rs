@@ -140,7 +140,13 @@ impl SenzoApp {
             .flatten()
             .filter(|value| matches!(value.as_str(), "compact" | "comfortable"))
             .unwrap_or_else(|| "comfortable".into());
-        let known_home_shelves = ["Trending this week", "Popular movies", "Popular TV"];
+        let known_home_shelves = [
+            "Trending Movies",
+            "Trending TV Shows",
+            "Popular movies",
+            "Popular TV",
+            "Trending this week",
+        ];
         let mut home_shelf_order = database
             .get_setting("home.shelf_order")
             .ok()
@@ -597,16 +603,28 @@ impl SenzoApp {
                         let mut shelves = Vec::new();
                         let mut failures = Vec::new();
                         match trending {
-                            Ok(page) => shelves.extend(page.results.into_iter().map(|item| {
-                                let kind = item.media_type.clone().unwrap_or_else(|| {
-                                    if item.title.is_some() || item.original_title.is_some() { "movie".into() } else { "tv".into() }
-                                });
-                                ("Trending this week".to_owned(), kind, item)
-                            })),
+                            Ok(page) => {
+                                for item in page.results {
+                                    let is_tv = item.media_type.as_deref() == Some("tv")
+                                        || (item.title.is_none() && item.name.is_some());
+                                    let kind = if is_tv { "tv".to_string() } else { "movie".to_string() };
+                                    if is_tv {
+                                        shelves.push(("Trending TV Shows".to_owned(), kind.clone(), item.clone()));
+                                    } else {
+                                        shelves.push(("Trending Movies".to_owned(), kind.clone(), item.clone()));
+                                    }
+                                    shelves.push(("Trending this week".to_owned(), kind, item));
+                                }
+                            }
                             Err(_) => failures.push("trending"),
                         }
                         match movies {
-                            Ok(page) => shelves.extend(page.results.into_iter().map(|item| ("Popular movies".to_owned(), "movie".to_owned(), item))),
+                            Ok(page) => {
+                                for item in page.results {
+                                    shelves.push(("Popular Movies".to_owned(), "movie".to_owned(), item.clone()));
+                                    shelves.push(("Popular movies".to_owned(), "movie".to_owned(), item));
+                                }
+                            }
                             Err(_) => failures.push("popular movies"),
                         }
                         match shows {
@@ -691,7 +709,9 @@ impl SenzoApp {
                                 let trending_count = app
                                     .home_catalogs
                                     .iter()
-                                    .filter(|(shelf, _, _)| shelf == "Trending this week")
+                                    .filter(|(shelf, _, _)| {
+                                        shelf == "Trending Movies" || shelf == "Trending this week"
+                                    })
                                     .count()
                                     .min(7);
                                 let featured_count = if trending_count == 0 {
@@ -2458,6 +2478,120 @@ where
         )
 }
 
+#[cfg(windows)]
+fn current_time_string() -> String {
+    #[repr(C)]
+    #[allow(dead_code)]
+    struct SystemTimeWin32 {
+        year: u16,
+        month: u16,
+        day_of_week: u16,
+        day: u16,
+        hour: u16,
+        minute: u16,
+        second: u16,
+        milliseconds: u16,
+    }
+    extern "system" {
+        fn GetLocalTime(lp_system_time: *mut SystemTimeWin32);
+    }
+    let mut st = SystemTimeWin32 {
+        year: 0,
+        month: 0,
+        day_of_week: 0,
+        day: 0,
+        hour: 0,
+        minute: 0,
+        second: 0,
+        milliseconds: 0,
+    };
+    unsafe { GetLocalTime(&mut st) };
+    let hour = st.hour;
+    let am_pm = if hour >= 12 { "PM" } else { "AM" };
+    let hour_12 = match hour % 12 {
+        0 => 12,
+        h => h,
+    };
+    format!("{}:{:02} {}", hour_12, st.minute, am_pm)
+}
+
+#[cfg(not(windows))]
+fn current_time_string() -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let hours = (now / 3600) % 24;
+    let minutes = (now / 60) % 60;
+    let am_pm = if hours >= 12 { "PM" } else { "AM" };
+    let hour_12 = match hours % 12 {
+        0 => 12,
+        h => h,
+    };
+    format!("{}:{:02} {}", hour_12, minutes, am_pm)
+}
+
+fn nav_button<F>(
+    label: &'static str,
+    icon: &'static str,
+    selected: bool,
+    action: F,
+    cx: &mut Context<SenzoApp>,
+) -> impl IntoElement + use<F>
+where
+    F: Fn(&mut SenzoApp, &mut Context<SenzoApp>) + 'static,
+{
+    div()
+        .w_full()
+        .px_4()
+        .py_2_5()
+        .rounded_xl()
+        .cursor_pointer()
+        .flex()
+        .items_center()
+        .gap_3()
+        .bg(if selected {
+            rgb(0x22D3EE)
+        } else {
+            rgb(0x0A0A0A)
+        })
+        .text_color(if selected {
+            rgb(0xFFFFFF)
+        } else {
+            rgb(0x9CA3AF)
+        })
+        .font_weight(if selected {
+            gpui::FontWeight::BOLD
+        } else {
+            gpui::FontWeight::MEDIUM
+        })
+        .hover(|style| {
+            if !selected {
+                style.bg(rgb(0x181F26)).text_color(rgb(0xF4F4F5))
+            } else {
+                style
+            }
+        })
+        .child(
+            div()
+                .text_base()
+                .child(icon),
+        )
+        .child(
+            div()
+                .text_sm()
+                .child(label),
+        )
+        .tab_index(0)
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, _event, _window, cx| {
+                action(this, cx);
+                cx.notify();
+            }),
+        )
+}
+
 fn section(
     title: &'static str,
     description: &'static str,
@@ -2672,7 +2806,7 @@ impl Render for SenzoApp {
                 match event.keystroke.key.as_str() {
                     "left" if this.active_page == AppPage::Home => {
                         let count = this.home_catalogs.iter()
-                            .filter(|(shelf, _, _)| shelf == "Trending this week")
+                            .filter(|(shelf, _, _)| shelf == "Trending Movies" || shelf == "Trending this week")
                             .count().min(7);
                         let count = if count == 0 { this.home_catalogs.len().min(7) } else { count };
                         if count > 1 {
@@ -2682,7 +2816,7 @@ impl Render for SenzoApp {
                     }
                     "right" if this.active_page == AppPage::Home => {
                         let count = this.home_catalogs.iter()
-                            .filter(|(shelf, _, _)| shelf == "Trending this week")
+                            .filter(|(shelf, _, _)| shelf == "Trending Movies" || shelf == "Trending this week")
                             .count().min(7);
                         let count = if count == 0 { this.home_catalogs.len().min(7) } else { count };
                         if count > 1 {
@@ -2741,63 +2875,95 @@ impl Render for SenzoApp {
             }))
             .child(
                 div()
-                    .w(px(76.))
+                    .w(px(220.))
                     .h_full()
                     .flex()
                     .flex_col()
-                    .gap_6()
-                    .p_3()
-                    .bg(rgb(0x101315))
+                    .justify_between()
+                    .p_4()
+                    .bg(rgb(0x0A0A0A))
+                    .border_r_1()
+                    .border_color(rgb(0x181F26))
                     .child(
                         div()
                             .flex()
-                            .items_center()
-                            .gap_2()
+                            .flex_col()
+                            .gap_6()
                             .child(
                                 div()
-                                    .size(px(9.))
-                                    .rounded_full()
-                                    .bg(rgb(0x22D3EE)),
+                                    .flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .px_3()
+                                    .py_2()
+                                    .child(
+                                        div()
+                                            .text_xl()
+                                            .text_color(rgb(0x22D3EE))
+                                            .font_weight(gpui::FontWeight::EXTRA_BOLD)
+                                            .child("▶"),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xl()
+                                            .font_weight(gpui::FontWeight::EXTRA_BOLD)
+                                            .text_color(rgb(0xF8FAFC))
+                                            .child("SENZO"),
+                                    ),
                             )
                             .child(
                                 div()
-                                    .text_lg()
-                                    .font_weight(gpui::FontWeight::BOLD)
-                                    .text_color(rgb(0xF8FAFC))
-                                    .child("S"),
+                                    .flex()
+                                    .flex_col()
+                                    .gap_2()
+                                    .child(nav_button("Home", "⌂", self.active_page == AppPage::Home, |this, _cx| this.active_page = AppPage::Home, cx))
+                                    .child(nav_button("Movies", "🎬", self.active_page == AppPage::Movies, |this, cx| {
+                                        this.active_page = AppPage::Movies;
+                                        this.load_tmdb_catalog("movie", None, cx);
+                                    }, cx))
+                                    .child(nav_button("TV Shows", "📺", self.active_page == AppPage::TvShows, |this, cx| {
+                                        this.active_page = AppPage::TvShows;
+                                        this.load_tmdb_catalog("tv", None, cx);
+                                    }, cx))
+                                    .child(nav_button("Search", "🔍", self.active_page == AppPage::Search, |this, _cx| this.active_page = AppPage::Search, cx))
+                                    .child(nav_button("Library", "🔖", self.active_page == AppPage::Library, |this, _cx| this.active_page = AppPage::Library, cx))
+                                    .child(nav_button("Add-ons", "🧩", self.active_page == AppPage::Addons, |this, _cx| this.active_page = AppPage::Addons, cx))
+                                    .child(nav_button("Settings", "⚙", self.active_page == AppPage::Settings, |this, _cx| this.active_page = AppPage::Settings, cx))
+                                    .when(self.active_page == AppPage::Player, |nav| {
+                                        nav.child(nav_button("Now Playing", "▶", true, |this, _cx| this.active_page = AppPage::Player, cx))
+                                    }),
                             ),
                     )
                     .child(
                         div()
                             .flex()
                             .flex_col()
-                            .gap_2()
-                            .child(dynamic_choice_chip("⌂".into(), self.active_page == AppPage::Home, |this, _cx| this.active_page = AppPage::Home, cx))
-                            .child(dynamic_choice_chip("▣".into(), self.active_page == AppPage::Movies, |this, _cx| this.active_page = AppPage::Movies, cx))
-                            .child(dynamic_choice_chip("▤".into(), self.active_page == AppPage::TvShows, |this, _cx| this.active_page = AppPage::TvShows, cx))
-                            .child(dynamic_choice_chip("⌕".into(), self.active_page == AppPage::Search, |this, _cx| this.active_page = AppPage::Search, cx))
-                            .child(dynamic_choice_chip("▧".into(), self.active_page == AppPage::Library, |this, _cx| this.active_page = AppPage::Library, cx))
-                            .child(dynamic_choice_chip("▶".into(), self.active_page == AppPage::Player, |this, _cx| this.active_page = AppPage::Player, cx))
-                            .child(dynamic_choice_chip("＋".into(), self.active_page == AppPage::Addons, |this, _cx| this.active_page = AppPage::Addons, cx))
-                            .child(dynamic_choice_chip("⚙".into(), self.active_page == AppPage::Settings, |this, _cx| this.active_page = AppPage::Settings, cx)),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
+                            .gap_3()
+                            .child(div().h(px(1.)).bg(rgb(0x1E242B)).w_full())
                             .child(
                                 div()
-                                    .text_xs()
-                                    .text_color(rgb(0x858C94))
-                                    .child("LOCAL-FIRST"),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(rgb(0xB7BEC6))
-                                    .child("Your settings stay on this device."),
+                                    .px_3()
+                                    .py_1()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgb(0x64748B))
+                                            .child("v0.1.0"),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgb(0x94A3B8))
+                                            .flex()
+                                            .items_center()
+                                            .gap_1()
+                                            .child("Built with ")
+                                            .child(div().text_color(rgb(0xEF4444)).child("❤️"))
+                                            .child(" for the community"),
+                                    ),
                             ),
                     ),
             )
@@ -4041,9 +4207,9 @@ fn render_discovery_page(
     let is_library = page == AppPage::Library;
     let is_home = page == AppPage::Home;
     let (poster_width, poster_height) = if poster_size == "compact" {
-        (px(148.), px(214.))
+        (px(150.), px(225.))
     } else {
-        (px(176.), px(250.))
+        (px(180.), px(270.))
     };
     let _content_language = metadata_language;
     let mut title_chips = Vec::new();
@@ -4362,22 +4528,60 @@ fn render_discovery_page(
         .flex()
         .flex_col()
         .gap_6()
-        .bg(rgb(0x0A0C0E))
+        .bg(rgb(0x0A0A0A))
         .child(
             div()
+                .w_full()
                 .flex()
-                .flex_col()
-                .gap_2()
+                .items_center()
+                .justify_between()
                 .child(
                     div()
-                        .text_2xl()
-                        .font_weight(gpui::FontWeight::BOLD)
-                        .child(heading),
+                        .when(!is_home, |top| {
+                            top.child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .text_2xl()
+                                            .font_weight(gpui::FontWeight::BOLD)
+                                            .child(heading),
+                                    )
+                                    .child(div().text_sm().text_color(rgb(0x9299A1)).child(description)),
+                            )
+                        })
                 )
-                .child(div().text_sm().text_color(rgb(0x9299A1)).child(description)),
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_3()
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_1_5()
+                                .text_xs()
+                                .text_color(rgb(0x94A3B8))
+                                .child("🕒")
+                                .child(current_time_string()),
+                        )
+                        .child(
+                            div()
+                                .px_2()
+                                .py_1()
+                                .rounded_md()
+                                .bg(rgb(0x181F26))
+                                .text_xs()
+                                .text_color(rgb(0xE2E8F0))
+                                .child("🗖"),
+                        ),
+                ),
         )
         .when(
-            page != AppPage::Addons && page != AppPage::Library && page != AppPage::Details,
+            !is_home && page != AppPage::Addons && page != AppPage::Library && page != AppPage::Details,
             |panel| {
                 panel
                     .child(
@@ -4463,6 +4667,8 @@ fn render_discovery_page(
         })
         .when(is_home, |this| {
             let mut ordered_shelf_names = [
+                "Trending Movies",
+                "Trending TV Shows",
                 "Trending this week",
                 "Popular movies",
                 "Popular TV",
@@ -4474,7 +4680,7 @@ fn render_discovery_page(
                     .unwrap_or(usize::MAX)
             });
             let featured_items = home_catalogs.iter()
-                .filter(|(shelf, _, _)| shelf == "Trending this week")
+                .filter(|(shelf, _, _)| shelf == "Trending Movies" || shelf == "Trending this week")
                 .take(7)
                 .cloned()
                 .collect::<Vec<_>>();
@@ -4495,7 +4701,15 @@ fn render_discovery_page(
                 let selected = item.clone();
                 let selected_kind = kind.clone();
                 let backdrop = tmdb_artwork_url(item.backdrop_path.as_deref(), "w1280");
-                div().w_full().h(px(560.)).relative().overflow_hidden().bg(rgb(0x101619))
+                div()
+                    .w_full()
+                    .h(px(520.))
+                    .relative()
+                    .overflow_hidden()
+                    .rounded_2xl()
+                    .bg(rgb(0x101619))
+                    .border_1()
+                    .border_color(rgb(0x1E242B))
                     .when_some(backdrop, |panel, url| {
                         panel.child(
                             img(url)
@@ -4510,100 +4724,378 @@ fn render_discovery_page(
                                 ),
                         )
                     })
-                    .child(div().absolute().inset_0().bg(rgb(0x05090C)).opacity(0.28))
-                    .child(div().absolute().left_0().top_0().bottom_0().w(px(900.)).bg(rgb(0x070A0D)).opacity(0.76))
-                    .child(div().absolute().left_0().right_0().bottom_0().h(px(250.)).bg(rgb(0x070A0D)).opacity(0.58))
+                    .child(div().absolute().inset_0().bg(rgb(0x05090C)).opacity(0.35))
+                    .child(div().absolute().left_0().top_0().bottom_0().w(px(900.)).bg(rgb(0x070A0D)).opacity(0.82))
+                    .child(div().absolute().left_0().right_0().bottom_0().h(px(260.)).bg(rgb(0x070A0D)).opacity(0.65))
                     .child(
-                        div().relative().h_full().p_10().flex().flex_col().justify_between()
-                            .child(div().flex().items_center().justify_between()
-                                .child(div().text_xs().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xFBBF24)).child("SENZO  /  FEATURED"))
-                                .child(div().px_3().py_2().rounded_full().bg(rgb(0x111719)).opacity(0.92)
-                                    .text_xs().text_color(rgb(0xE4E4E7)).child("DISCOVER")))
-                            .child(div().flex().flex_col().gap_3().max_w(px(720.))
-                                .child(div().text_3xl().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xFBBF24)).child(title))
-                                .child(div().flex().items_center().gap_2()
-                                    .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(0xF4F4F5))
-                                        .child(format!("{}  •  {}  •  {}", if kind == "movie" { "Movie" } else { "Series" }, year, rating))))
-                                .child(div().max_w(px(690.)).text_base().text_color(rgb(0xE4E4E7)).child(overview))
-                                .child(div().flex().items_center().gap_3().pt_2()
-                                    .child(dynamic_choice_chip("More info & sources".into(), true, move |this, cx| this.select_tmdb_title(selected_kind.clone(), selected.clone(), cx), cx))
-                                    .child(dynamic_choice_chip("Browse movies".into(), false, |this, cx| this.load_tmdb_catalog("movie", None, cx), cx))))
-                            .child(div().flex().items_center().justify_end().gap_2()
-                                .child(dynamic_choice_chip("‹".into(), false, move |this, cx| {
-                                    if featured_count > 0 {
-                                        this.home_hero_index = (featured_index + featured_count - 1) % featured_count;
-                                        cx.notify();
-                                    }
-                                }, cx))
-                                .children((0..featured_count).map(|index| {
-                                    dynamic_choice_chip(
-                                        "•".into(),
-                                        index == featured_index,
-                                        move |this, cx| {
-                                            this.home_hero_index = index;
-                                            cx.notify();
-                                        },
-                                        cx,
+                        div()
+                            .relative()
+                            .h_full()
+                            .p_10()
+                            .flex()
+                            .flex_col()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .font_weight(gpui::FontWeight::BOLD)
+                                            .text_color(rgb(0x22D3EE))
+                                            .child("SENZO FEATURED"),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_3()
+                                    .max_w(px(640.))
+                                    .child(
+                                        div()
+                                            .text_4xl()
+                                            .font_weight(gpui::FontWeight::EXTRA_BOLD)
+                                            .text_color(rgb(0xF8FAFC))
+                                            .child(title),
                                     )
-                                }))
-                                .child(dynamic_choice_chip("›".into(), false, move |this, cx| {
-                                    if featured_count > 0 {
-                                        this.home_hero_index = (featured_index + 1) % featured_count;
-                                        cx.notify();
-                                    }
-                                }, cx))
-                                .child(dynamic_choice_chip(
-                                    if home_hero_paused { "Resume rotation".into() } else { "Pause rotation".into() },
-                                    home_hero_paused,
-                                    |this, cx| {
-                                        this.home_hero_paused = !this.home_hero_paused;
-                                        cx.notify();
-                                    },
-                                    cx,
-                                )))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                                    .text_color(rgb(0x94A3B8))
+                                                    .child(format!(
+                                                        "{}  •  {}  •  {}",
+                                                        if kind == "movie" { "Movie" } else { "Series" },
+                                                        year,
+                                                        rating
+                                                    )),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .max_w(px(620.))
+                                            .text_sm()
+                                            .text_color(rgb(0xD1D5DB))
+                                            .child(overview),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap_3()
+                                            .pt_3()
+                                            .child({
+                                                let play_kind = selected_kind.clone();
+                                                let play_item = selected.clone();
+                                                div()
+                                                    .px_6()
+                                                    .py_2_5()
+                                                    .rounded_xl()
+                                                    .bg(rgb(0x22D3EE))
+                                                    .text_color(rgb(0x0A0A0A))
+                                                    .font_weight(gpui::FontWeight::BOLD)
+                                                    .text_sm()
+                                                    .cursor_pointer()
+                                                    .hover(|s| s.bg(rgb(0x67E8F9)))
+                                                    .flex()
+                                                    .items_center()
+                                                    .gap_2()
+                                                    .child("▶")
+                                                    .child("Play")
+                                                    .tab_index(0)
+                                                    .on_mouse_down(
+                                                        MouseButton::Left,
+                                                        cx.listener(move |this, _event, _window, cx| {
+                                                            this.select_tmdb_title(
+                                                                play_kind.clone(),
+                                                                play_item.clone(),
+                                                                cx,
+                                                            );
+                                                        }),
+                                                    )
+                                            })
+                                            .child({
+                                                let info_kind = selected_kind.clone();
+                                                let info_item = selected.clone();
+                                                div()
+                                                    .px_5()
+                                                    .py_2_5()
+                                                    .rounded_xl()
+                                                    .bg(rgb(0x1F2937))
+                                                    .text_color(rgb(0xF8FAFC))
+                                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                                    .text_sm()
+                                                    .cursor_pointer()
+                                                    .hover(|s| s.bg(rgb(0x374151)))
+                                                    .flex()
+                                                    .items_center()
+                                                    .gap_2()
+                                                    .child("ℹ")
+                                                    .child("More Info")
+                                                    .tab_index(0)
+                                                    .on_mouse_down(
+                                                        MouseButton::Left,
+                                                        cx.listener(move |this, _event, _window, cx| {
+                                                            this.select_tmdb_title(
+                                                                info_kind.clone(),
+                                                                info_item.clone(),
+                                                                cx,
+                                                            );
+                                                        }),
+                                                    )
+                                            }),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .justify_end()
+                                    .gap_3()
+                                    .children((0..featured_count).map(|index| {
+                                        let is_active = index == featured_index;
+                                        div()
+                                            .h(px(8.))
+                                            .w(if is_active { px(22.) } else { px(8.) })
+                                            .rounded_full()
+                                            .bg(if is_active {
+                                                rgb(0x22D3EE)
+                                            } else {
+                                                rgb(0x374151)
+                                            })
+                                            .cursor_pointer()
+                                            .hover(|s| {
+                                                if !is_active {
+                                                    s.bg(rgb(0x6B7280))
+                                                } else {
+                                                    s
+                                                }
+                                            })
+                                            .on_mouse_down(
+                                                MouseButton::Left,
+                                                cx.listener(move |this, _event, _window, cx| {
+                                                    this.home_hero_index = index;
+                                                    cx.notify();
+                                                }),
+                                            )
+                                    }))
+                                    .child(
+                                        div()
+                                            .size(px(32.))
+                                            .rounded_full()
+                                            .bg(rgb(0x18181B))
+                                            .text_color(rgb(0xF4F4F5))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .cursor_pointer()
+                                            .hover(|s| s.bg(rgb(0x27272A)))
+                                            .child("‹")
+                                            .on_mouse_down(
+                                                MouseButton::Left,
+                                                cx.listener(move |this, _event, _window, cx| {
+                                                    if featured_count > 0 {
+                                                        this.home_hero_index = (featured_index + featured_count - 1) % featured_count;
+                                                        cx.notify();
+                                                    }
+                                                }),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .size(px(32.))
+                                            .rounded_full()
+                                            .bg(rgb(0x18181B))
+                                            .text_color(rgb(0xF4F4F5))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .cursor_pointer()
+                                            .hover(|s| s.bg(rgb(0x27272A)))
+                                            .child("›")
+                                            .on_mouse_down(
+                                                MouseButton::Left,
+                                                cx.listener(move |this, _event, _window, cx| {
+                                                    if featured_count > 0 {
+                                                        this.home_hero_index = (featured_index + 1) % featured_count;
+                                                        cx.notify();
+                                                    }
+                                                }),
+                                            ),
+                                    )
+                            )
                             .with_animation(
                                 format!("home-hero-content-{featured_index}"),
                                 Animation::new(Duration::from_millis(420))
                                     .with_easing(ease_in_out),
                                 |element, progress| element.opacity(progress),
-                            )
+                            ),
                     )
             } else {
-                div().w_full().h(px(520.)).relative().overflow_hidden().bg(rgb(0x101619))
-                    .child(div().absolute().inset_0().bg(rgb(0x090D10)).opacity(0.35))
-                    .child(div().relative().h_full().p_8().flex().flex_col().justify_between()
-                        .child(div().text_xs().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xFBBF24)).child("WELCOME TO SENZO"))
-                        .child(div().flex().flex_col().gap_3()
-                            .child(div().text_2xl().font_weight(gpui::FontWeight::BOLD).child("Your next favourite starts here"))
-                            .child(div().text_base().text_color(rgb(0xA1A1AA)).child(home_catalog_status.clone()))
-                            .child(div().flex().flex_wrap().gap_2()
-                                .child(dynamic_choice_chip("Retry discovery".into(), true, |this, cx| {
-                                    this.load_home_catalogs(cx);
-                                }, cx))
-                                .when(tmdb_not_configured, |actions| {
-                                    actions.child(dynamic_choice_chip("Configure TMDB".into(), false, |this, cx| {
-                                        this.active_page = AppPage::Settings;
-                                        this.configure_tmdb_key(cx);
-                                    }, cx))
-                                }))))
+                div()
+                    .w_full()
+                    .h(px(420.))
+                    .relative()
+                    .overflow_hidden()
+                    .rounded_2xl()
+                    .bg(rgb(0x101619))
+                    .border_1()
+                    .border_color(rgb(0x1E242B))
+                    .child(
+                        div()
+                            .relative()
+                            .h_full()
+                            .p_10()
+                            .flex()
+                            .flex_col()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(gpui::FontWeight::BOLD)
+                                    .text_color(rgb(0x22D3EE))
+                                    .child("WELCOME TO SENZO"),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_3()
+                                    .max_w(px(640.))
+                                    .child(
+                                        div()
+                                            .text_3xl()
+                                            .font_weight(gpui::FontWeight::BOLD)
+                                            .text_color(rgb(0xF8FAFC))
+                                            .child("Your next favourite starts here"),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(rgb(0x94A3B8))
+                                            .child(home_catalog_status.clone()),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap_3()
+                                            .pt_2()
+                                            .child(
+                                                div()
+                                                    .px_5()
+                                                    .py_2_5()
+                                                    .rounded_xl()
+                                                    .bg(rgb(0x22D3EE))
+                                                    .text_color(rgb(0x0A0A0A))
+                                                    .font_weight(gpui::FontWeight::BOLD)
+                                                    .text_sm()
+                                                    .cursor_pointer()
+                                                    .hover(|s| s.bg(rgb(0x67E8F9)))
+                                                    .child("Retry discovery")
+                                                    .tab_index(0)
+                                                    .on_mouse_down(
+                                                        MouseButton::Left,
+                                                        cx.listener(|this, _event, _window, cx| {
+                                                            this.load_home_catalogs(cx);
+                                                        }),
+                                                    ),
+                                            )
+                                            .when(tmdb_not_configured, |actions| {
+                                                actions.child(
+                                                    div()
+                                                        .px_5()
+                                                        .py_2_5()
+                                                        .rounded_xl()
+                                                        .bg(rgb(0x1F2937))
+                                                        .text_color(rgb(0xF8FAFC))
+                                                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                                                        .text_sm()
+                                                        .cursor_pointer()
+                                                        .hover(|s| s.bg(rgb(0x374151)))
+                                                        .child("Configure TMDB")
+                                                        .tab_index(0)
+                                                        .on_mouse_down(
+                                                            MouseButton::Left,
+                                                            cx.listener(|this, _event, _window, cx| {
+                                                                this.active_page = AppPage::Settings;
+                                                                this.configure_tmdb_key(cx);
+                                                            }),
+                                                        ),
+                                                )
+                                            }),
+                                    ),
+                            )
+                            .child(div()),
+                    )
             };
             this.child(hero).child(div().text_xs().text_color(rgb(0x858C94)).child(home_catalog_status.clone()))
                 .when(!continue_watching_cards.is_empty(), |panel| {
-                    panel.child(div().flex().flex_col().gap_3()
-                        .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child("Continue watching"))
-                        .child(div().w_full().id("continue-watching-shelf").overflow_x_scroll().flex().gap_3().children(continue_watching_cards)))
+                    panel.child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_4()
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_2_5()
+                                    .child(
+                                        div()
+                                            .w(px(3.))
+                                            .h(px(18.))
+                                            .rounded_full()
+                                            .bg(rgb(0x22D3EE)),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xl()
+                                            .font_weight(gpui::FontWeight::BOLD)
+                                            .text_color(rgb(0xF8FAFC))
+                                            .child("Continue Watching"),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .w_full()
+                                    .id("continue-watching-shelf")
+                                    .overflow_x_scroll()
+                                    .flex()
+                                    .gap_3()
+                                    .children(continue_watching_cards),
+                            ),
+                    )
                 })
-                .child(div().flex().items_center().justify_between()
-                    .child(div().text_sm().text_color(rgb(0xA1A1AA)).child("Make Home yours"))
-                    .child(dynamic_choice_chip(
-                        if home_customize_open { "Done".into() } else { "Customize shelves".into() },
-                        home_customize_open,
-                        |this, cx| {
-                            this.home_customize_open = !this.home_customize_open;
-                            cx.notify();
-                        },
-                        cx,
-                    )))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(rgb(0x94A3B8))
+                                .child("Customize your home screen"),
+                        )
+                        .child(dynamic_choice_chip(
+                            if home_customize_open { "Done".into() } else { "Customize shelves".into() },
+                            home_customize_open,
+                            |this, cx| {
+                                this.home_customize_open = !this.home_customize_open;
+                                cx.notify();
+                            },
+                            cx,
+                        )),
+                )
                 .when(home_customize_open, |panel| {
                     panel.child(section(
                         "Home shelves",
@@ -4642,59 +5134,199 @@ fn render_discovery_page(
                         ),
                     ))
                 })
-                .children(ordered_shelf_names.into_iter().filter(|shelf| {
-                    !hidden_home_shelves
-                        .iter()
-                        .any(|hidden| hidden.as_str() == *shelf)
-                }).filter_map(|shelf_name| {
-                    let shelf_animation_id = format!("home-shelf-{shelf_name}");
-                    let entries = home_catalogs.iter().filter(|(name, _, _)| name == shelf_name).cloned().collect::<Vec<_>>();
-                    if entries.is_empty() { return None; }
-                    let cards = entries.into_iter().map(|(_, kind, item)| {
-                        let title = item.display_title().unwrap_or("Untitled").to_owned();
-                        let year = item.release_date.as_deref().or(item.first_air_date.as_deref())
-                            .and_then(|date| date.get(0..4)).unwrap_or("—").to_owned();
-                        let rating = item.vote_average.map(|value| format!("★ {value:.1}")).unwrap_or_default();
-                        let selected = item.clone();
-                        let selected_kind = kind.clone();
-                        let poster = tmdb_artwork_url(item.poster_path.as_deref(), "w342");
-                        div().w(poster_width).flex_shrink_0().rounded_lg().bg(rgb(0x171D20))
-                            .border_1().border_color(rgb(0x263238)).overflow_hidden().flex().flex_col().gap_2()
-                            .cursor_pointer().hover(|style| style.border_color(rgb(0x22D3EE)))
-                            .child(div().w_full().h(poster_height).relative().bg(rgb(0x20272B)).when_some(poster, |panel, url| {
-                                panel.child(img(url).w_full().h(poster_height).object_fit(ObjectFit::Cover))
-                            }).when(!rating.is_empty(), |panel| {
-                                panel.child(div().absolute().top(px(8.)).right(px(8.)).px_2().py_1().rounded_md()
-                                    .bg(rgb(0x0A0C0E)).text_xs().font_weight(gpui::FontWeight::BOLD)
-                                    .text_color(rgb(0xFBBF24)).child(rating.clone()))
-                            }))
-                            .child(div().px_2().pb_2().flex().flex_col().gap_1()
-                                .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
-                                .child(div().text_xs().text_color(rgb(0x9299A1)).child(year)))
-                            .tab_index(0)
-                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _event, _window, cx| {
-                                this.select_tmdb_title(selected_kind.clone(), selected.clone(), cx);
-                            }))
-                    }).collect::<Vec<_>>();
-                    Some(div().flex().flex_col().gap_4()
-                        .child(div().flex().items_center().justify_between()
-                            .child(div().text_xl().font_weight(gpui::FontWeight::SEMIBOLD).child(shelf_name))
-                            .child(dynamic_choice_chip("View all".into(), false, move |this, cx| {
-                                let (media_type, destination) = match shelf_name {
-                                    "Trending this week" => ("trending", AppPage::Movies),
-                                    "Popular TV" => ("tv", AppPage::TvShows),
-                                    _ => ("movie", AppPage::Movies),
-                                };
-                                this.active_page = destination;
-                                this.load_tmdb_catalog(media_type, None, cx);
-                            }, cx)))
-                        .child(div().w_full().id(shelf_name).overflow_x_scroll().flex().gap_3().children(cards))
-                        .with_animation(
-                            shelf_animation_id,
-                            Animation::new(Duration::from_millis(360)).with_easing(ease_in_out),
-                            |element, progress| element.opacity(progress),
-                        ))
-                }))
+                .children({
+                    let mut rendered_shelves = Vec::new();
+                    let has_trending_movies = home_catalogs.iter().any(|(s, _, _)| s == "Trending Movies");
+                    for shelf in ordered_shelf_names {
+                        if hidden_home_shelves.iter().any(|hidden| hidden.as_str() == *shelf) {
+                            continue;
+                        }
+                        if *shelf == "Trending this week" && has_trending_movies {
+                            continue;
+                        }
+                        rendered_shelves.push(*shelf);
+                    }
+                    rendered_shelves.into_iter().filter_map(|shelf_name| {
+                        let shelf_animation_id = format!("home-shelf-{shelf_name}");
+                        let entries = home_catalogs
+                            .iter()
+                            .filter(|(name, _, _)| name == shelf_name)
+                            .cloned()
+                            .collect::<Vec<_>>();
+                        if entries.is_empty() {
+                            return None;
+                        }
+                        let shelf_display = match shelf_name {
+                            "Trending Movies" | "Trending this week" => "Trending Movies",
+                            "Trending TV Shows" | "Popular TV" => "Trending TV Shows",
+                            "Popular Movies" | "Popular movies" => "Popular Movies",
+                            other => other,
+                        };
+                        let cards = entries
+                            .into_iter()
+                            .map(|(_, kind, item)| {
+                                let title = item.display_title().unwrap_or("Untitled").to_owned();
+                                let year = item
+                                    .release_date
+                                    .as_deref()
+                                    .or(item.first_air_date.as_deref())
+                                    .and_then(|date| date.get(0..4))
+                                    .unwrap_or("—")
+                                    .to_owned();
+                                let rating = item
+                                    .vote_average
+                                    .map(|value| format!("★ {value:.1}"))
+                                    .unwrap_or_default();
+                                let selected = item.clone();
+                                let selected_kind = kind.clone();
+                                let poster = tmdb_artwork_url(item.poster_path.as_deref(), "w342");
+                                div()
+                                    .w(poster_width)
+                                    .h(poster_height)
+                                    .flex_shrink_0()
+                                    .rounded_xl()
+                                    .bg(rgb(0x181F26))
+                                    .border_1()
+                                    .border_color(rgb(0x242E35))
+                                    .overflow_hidden()
+                                    .relative()
+                                    .cursor_pointer()
+                                    .hover(|style| style.border_color(rgb(0x22D3EE)))
+                                    .when_some(poster, |panel, url| {
+                                        panel.child(
+                                            img(url)
+                                                .w_full()
+                                                .h_full()
+                                                .object_fit(ObjectFit::Cover),
+                                        )
+                                    })
+                                    .when(!rating.is_empty(), |panel| {
+                                        panel.child(
+                                            div()
+                                                .absolute()
+                                                .top(px(8.))
+                                                .right(px(8.))
+                                                .px_2()
+                                                .py_1()
+                                                .rounded_md()
+                                                .bg(rgb(0x0A0C0E))
+                                                .opacity(0.85)
+                                                .text_xs()
+                                                .font_weight(gpui::FontWeight::BOLD)
+                                                .text_color(rgb(0xFBBF24))
+                                                .child(rating.clone()),
+                                        )
+                                    })
+                                    .when(poster.is_none(), |panel| {
+                                        panel.child(
+                                            div()
+                                                .size_full()
+                                                .flex()
+                                                .flex_col()
+                                                .justify_center()
+                                                .items_center()
+                                                .p_4()
+                                                .bg(rgb(0x181F26))
+                                                .child(
+                                                    div()
+                                                        .text_sm()
+                                                        .font_weight(gpui::FontWeight::BOLD)
+                                                        .text_center()
+                                                        .child(title.clone()),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(rgb(0x94A3B8))
+                                                        .text_center()
+                                                        .child(year.clone()),
+                                                ),
+                                        )
+                                    })
+                                    .tab_index(0)
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(move |this, _event, _window, cx| {
+                                            this.select_tmdb_title(
+                                                selected_kind.clone(),
+                                                selected.clone(),
+                                                cx,
+                                            );
+                                        }),
+                                    )
+                            })
+                            .collect::<Vec<_>>();
+                        Some(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap_4()
+                                .child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .justify_between()
+                                        .child(
+                                            div()
+                                                .flex()
+                                                .items_center()
+                                                .gap_2_5()
+                                                .child(
+                                                    div()
+                                                        .w(px(3.))
+                                                        .h(px(18.))
+                                                        .rounded_full()
+                                                        .bg(rgb(0x22D3EE)),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_xl()
+                                                        .font_weight(gpui::FontWeight::BOLD)
+                                                        .text_color(rgb(0xF8FAFC))
+                                                        .child(shelf_display),
+                                                ),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .font_weight(gpui::FontWeight::MEDIUM)
+                                                .text_color(rgb(0x9CA3AF))
+                                                .cursor_pointer()
+                                                .hover(|s| s.text_color(rgb(0x22D3EE)))
+                                                .child("View All →")
+                                                .tab_index(0)
+                                                .on_mouse_down(
+                                                    MouseButton::Left,
+                                                    cx.listener(move |this, _event, _window, cx| {
+                                                        let (media_type, destination) = match shelf_name {
+                                                            "Trending Movies" | "Trending this week" => ("trending", AppPage::Movies),
+                                                            "Trending TV Shows" | "Popular TV" => ("tv", AppPage::TvShows),
+                                                            _ => ("movie", AppPage::Movies),
+                                                        };
+                                                        this.active_page = destination;
+                                                        this.load_tmdb_catalog(media_type, None, cx);
+                                                    }),
+                                                ),
+                                        ),
+                                )
+                                .child(
+                                    div()
+                                        .w_full()
+                                        .id(shelf_name)
+                                        .overflow_x_scroll()
+                                        .flex()
+                                        .gap_3()
+                                        .children(cards),
+                                )
+                                .with_animation(
+                                    shelf_animation_id,
+                                    Animation::new(Duration::from_millis(360))
+                                        .with_easing(ease_in_out),
+                                    |element, progress| element.opacity(progress),
+                                ),
+                        )
+                    })
+                })
                 .children(home_addon_catalogs.iter().map(|(shelf_name, addon, media_type, catalog_id, items)| {
                     let cards = items.iter().filter_map(|item| {
                         let title = item.get("name").or_else(|| item.get("title"))
@@ -4705,16 +5337,20 @@ fn render_discovery_page(
                         let year = item.get("releaseInfo").and_then(Value::as_str)
                             .or_else(|| item.get("year").and_then(Value::as_str))
                             .unwrap_or(" ");
-                        Some(div().w(poster_width).flex_shrink_0().rounded_lg().bg(rgb(0x171D20))
-                            .border_1().border_color(rgb(0x263238)).overflow_hidden().flex().flex_col().gap_2()
+                        Some(div().w(poster_width).h(poster_height).flex_shrink_0().rounded_xl().bg(rgb(0x181F26))
+                            .border_1().border_color(rgb(0x242E35)).overflow_hidden().relative()
                             .cursor_pointer().hover(|style| style.border_color(rgb(0x22D3EE)))
-                            .child(div().w_full().h(poster_height).bg(rgb(0x20272B))
-                                .when_some(poster, |panel, url| {
-                                    panel.child(img(url).w_full().h(poster_height).object_fit(ObjectFit::Cover))
-                                }))
-                            .child(div().px_2().pb_2().flex().flex_col().gap_1()
-                                .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
-                                .child(div().text_xs().text_color(rgb(0x9299A1)).child(year.to_owned())))
+                            .when_some(poster, |panel, url| {
+                                panel.child(img(url).w_full().h_full().object_fit(ObjectFit::Cover))
+                            })
+                            .when(poster.is_none(), |panel| {
+                                panel.child(
+                                    div().size_full().flex().flex_col().justify_center().items_center().p_4()
+                                        .bg(rgb(0x181F26))
+                                        .child(div().text_sm().font_weight(gpui::FontWeight::BOLD).text_center().child(title.clone()))
+                                        .child(div().text_xs().text_color(rgb(0x94A3B8)).text_center().child(year.to_owned()))
+                                )
+                            })
                             .tab_index(0)
                             .on_mouse_down(MouseButton::Left, cx.listener(move |this, _event, _window, cx| {
                                 this.select_addon_catalog_meta(selected_addon.clone(), selected.clone(), cx);
@@ -4724,9 +5360,14 @@ fn render_discovery_page(
                     let selected_addon = addon.clone();
                     let selected_type = media_type.clone();
                     let selected_catalog = catalog_id.clone();
-                    div().flex().flex_col().gap_3()
+                    div().flex().flex_col().gap_4()
                         .child(div().flex().items_center().justify_between()
-                            .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child(shelf_name.clone()))
+                            .child(
+                                div().flex().items_center().gap_2_5()
+                                    .child(div().w(px(3.)).h(px(18.)).rounded_full().bg(rgb(0x22D3EE)))
+                                    .child(div().text_xl().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xF8FAFC))
+                                        .child(shelf_name.clone()))
+                            )
                             .child(div().flex().items_center().gap_2()
                                 .child(div().text_xs().text_color(rgb(0x67E8F9)).child("ADD-ON"))
                                 .child(dynamic_choice_chip("View all".into(), false, move |this, cx| {
@@ -5415,4 +6056,16 @@ fn main() {
                 cx.activate(true);
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_current_time_string_format() {
+        let time_str = current_time_string();
+        assert!(!time_str.is_empty());
+        assert!(time_str.contains("AM") || time_str.contains("PM") || time_str.contains("UTC"));
+    }
 }

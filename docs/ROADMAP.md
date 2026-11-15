@@ -189,11 +189,11 @@ Batch 8 turns the existing MPV worker integration into a dedicated, usable nativ
 - [x] Keep configured Torrentio URLs supported through the existing Paste manifest URL flow.
 - [x] Show the actual manifest request / validation error in the Add-ons screen while keeping user-supplied URLs out of diagnostic logs.
 - [x] Provide a direct Home empty-state path to securely configure the TMDB Read Access Token when it is missing.
+- [x] Redesign the real GPUI Home and navigation UI to match the approved SENZO visual reference (media-center navigation rail, cinematic hero carousel with Play/More Info pills, dot/arrow controls, shelf headers with vertical cyan accent bars, View All routes, and 2:3 cinematic poster cards).
+- [x] Establish larger cinematic hero proportions, stronger title hierarchy, larger poster cards, and on-artwork rating badges in native GPUI shelves.
+- [x] Implement polished hero transitions, carousel motion, and shelf interaction animations.
 - [ ] Verify Torrentio installation and stream discovery on Windows with the standard and configured manifest URLs.
 - [ ] Verify Home recommendations after TMDB credential setup and improve provider-failure recovery.
-- [ ] Redesign the real GPUI Home and navigation UI to match the approved SENZO visual reference.
-- [x] Establish larger cinematic hero proportions, stronger title hierarchy, larger poster cards, and on-artwork rating badges in native GPUI shelves.
-- [ ] Implement polished hero transitions, carousel motion, and shelf interaction animations.
 - [ ] Validate the complete experience on Windows before starting Batch 9.
 
 **Boundary:** This remediation does not bundle Torrentio or any other streaming provider. TMDB credentials remain user-configurable and stored in Windows Credential Manager. CI success alone does not mark these user-facing tasks complete.
