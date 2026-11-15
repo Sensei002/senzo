@@ -202,9 +202,9 @@ Batch 8 turns the existing MPV worker integration into a dedicated, usable nativ
 
 ## Phase 10 — Additional sources and presence (Batch 9)
 
-- [ ] Define a stable source-adapter interface for additional providers.
-- [ ] Add more authorized source adapters without changing metadata or playback layers.
-- [ ] Add Discord Rich Presence, playback-state updates, and privacy controls.
+- [x] Define a stable source-adapter interface and route the discovery UI through a provider registry; the Stremio adapter preserves the existing user-installed add-on behavior.
+- [ ] Add more authorized source adapters without changing metadata or playback layers. Do not add a bundled/default provider; the dedicated Direct Sources provider system remains a later roadmap item.
+- [ ] Add Discord Rich Presence, playback-state updates, and privacy controls. The opt-in IPC worker and title-sharing privacy control are implemented; Windows CI and Discord application-ID configuration remain to be verified.
 
 ## Phase 11 — Windows distribution
 
