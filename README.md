@@ -196,13 +196,13 @@ TMDB provides metadata and images under its applicable API terms and attribution
 
 ## License
 
-SENZO is licensed under the **GNU Affero General Public License v3.0 only (AGPL-3.0-only)**.
+SENZO is licensed under the **GNU General Public License v3.0 only (GPL-3.0-only)**.
 
 - The complete license text is provided in the repository-root [`LICENSE`](LICENSE) file.
-- Cargo package metadata declares `AGPL-3.0-only`.
+- Cargo package metadata declares `GPL-3.0-only`.
 - You may use, study, modify, and redistribute SENZO under the terms and conditions of AGPL-3.0.
-- Modified versions that users interact with over a network are subject to the source-offer requirement in section 13 of the AGPL.
-- Commercial use is permitted when the license terms are followed. AGPL-3.0 does not prohibit commercial use or impose field-of-use restrictions.
+- Modified versions that are distributed must comply with the GPL's source and corresponding-license requirements. GPL-3.0 does not add the AGPL's network-interaction source-offer requirement.
+- Commercial use is permitted when the license terms are followed. GPL-3.0 does not prohibit commercial use or impose field-of-use restrictions.
 - Third-party services, metadata, media, trademarks, add-ons, and dependencies remain subject to their own terms and licenses.
 
 See the [Licensing Policy](docs/LICENSING_POLICY.md) for a practical explanation. This project uses the SPDX identifier `AGPL-3.0-only`, not `UNLICENSED`.
