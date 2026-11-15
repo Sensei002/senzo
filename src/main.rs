@@ -6,11 +6,11 @@ use std::{
 
 use anyhow::Context as _;
 use gpui::{
-    Animation, AnimationExt, App, ClipboardItem, Context, Entity, MouseButton, ObjectFit, QuitMode, Render,
-    Subscription, Task, Window, WindowOptions, div, ease_in_out, img, prelude::*, px, rgb,
+    Animation, AnimationExt, App, ClipboardItem, Context, Entity, MouseButton, ObjectFit, QuitMode,
+    Render, Subscription, Task, Window, WindowOptions, div, ease_in_out, img, prelude::*, px, rgb,
 };
-use gpui_base::{Input as GpuiInput, InputBase};
 use gpui_base::input::{InputEvent, InputState};
+use gpui_base::{Input as GpuiInput, InputBase};
 use serde_json::Value;
 
 use senzo::{
@@ -855,9 +855,20 @@ impl SenzoApp {
                         );
                         let movies = movies?;
                         let shows = shows?;
-                        let mut results = Vec::with_capacity(movies.results.len() + shows.results.len());
-                        results.extend(movies.results.into_iter().map(|item| ("movie".to_owned(), item)));
-                        results.extend(shows.results.into_iter().map(|item| ("tv".to_owned(), item)));
+                        let mut results =
+                            Vec::with_capacity(movies.results.len() + shows.results.len());
+                        results.extend(
+                            movies
+                                .results
+                                .into_iter()
+                                .map(|item| ("movie".to_owned(), item)),
+                        );
+                        results.extend(
+                            shows
+                                .results
+                                .into_iter()
+                                .map(|item| ("tv".to_owned(), item)),
+                        );
                         Ok::<_, anyhow::Error>(results)
                     })
                 })
@@ -2706,12 +2717,10 @@ fn option_row(
 impl Render for SenzoApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.active_page == AppPage::Search && self.search_input.is_none() {
-            let input = cx.new(|cx| {
-                InputState::new(window, cx).placeholder("Search movies and TV shows…")
-            });
-            let subscription = cx.subscribe(
-                &input,
-                |this, state, event: &InputEvent, cx| match event {
+            let input =
+                cx.new(|cx| InputState::new(window, cx).placeholder("Search movies and TV shows…"));
+            let subscription =
+                cx.subscribe(&input, |this, state, event: &InputEvent, cx| match event {
                     InputEvent::Change => {
                         this.search_query = state.read(cx).value().to_string();
                         let query = this.search_query.trim().to_owned();
@@ -2741,8 +2750,7 @@ impl Render for SenzoApp {
                         this.load_tmdb_search(query, cx);
                     }
                     InputEvent::Focus | InputEvent::Blur => {}
-                },
-            );
+                });
             self.search_input = Some(input);
             self.search_input_subscription = Some(subscription);
         }
@@ -4911,8 +4919,18 @@ fn render_discovery_page(
                                 .flex()
                                 .flex_col()
                                 .gap_1()
-                                .child(div().text_sm().font_weight(gpui::FontWeight::BOLD).child("TMDB search is not configured"))
-                                .child(div().text_xs().text_color(rgb(0x94A3B8)).child("Configure metadata access in Settings to search movies and TV shows.")),
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .font_weight(gpui::FontWeight::BOLD)
+                                        .child("TMDB search is not configured"),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(0x94A3B8))
+                                        .child("Configure metadata access in Settings to search movies and TV shows."),
+                                ),
                         )
                         .child(dynamic_choice_chip(
                             "Configure TMDB".into(),
