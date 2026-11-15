@@ -32,9 +32,15 @@ Rapid pushes may cancel or queue earlier workflow runs depending on workflow con
 - `src/lib.rs` — library module exports.
 - `src/storage.rs` — SQLite persistence and local application data.
 - `src/metadata.rs` — TMDB API client and metadata models.
-- `src/addons.rs` — add-on manifest handling and source requests.
+- `src/addons.rs` — Stremio manifest handling and protocol requests.
+- `src/sources.rs` — provider-neutral source adapter contract and registry.
+- `src/discord.rs` — optional local Discord IPC presence worker.
 
 As the application grows, keep UI, metadata, persistence, source adapters, playback, and platform-specific code separated.
+
+## Discord Rich Presence build configuration
+
+Discord Rich Presence is disabled by default and requires a Discord application ID owned by SENZO. Set the public (non-secret) `SENZO_DISCORD_CLIENT_ID` environment variable in the build environment before compiling. For GitHub Actions, configure it as a repository Actions variable and expose it to the build step; do not copy an ID from Nuvio or another application. If the variable is absent, the UI explains that the feature is unavailable in that build. Media-title sharing is a separate local preference and remains off by default.
 
 ## Engineering rules
 
