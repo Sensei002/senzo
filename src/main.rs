@@ -3568,14 +3568,17 @@ fn render_discovery_page(
                     if is_torrent { "torrent" } else { "stream" }
                 );
                 let selected = stream.clone();
-                stream_chips.push(dynamic_choice_chip(
-                    label,
-                    false,
-                    move |this: &mut SenzoApp, cx: &mut Context<SenzoApp>| {
-                        this.play_addon_stream(selected.clone(), cx)
-                    },
-                    cx,
-                ));
+                stream_chips.push(
+                    dynamic_choice_chip(
+                        label,
+                        false,
+                        move |this: &mut SenzoApp, cx: &mut Context<SenzoApp>| {
+                            this.play_addon_stream(selected.clone(), cx)
+                        },
+                        cx,
+                    )
+                    .into_any_element(),
+                );
             } else if let Some(external_url) = stream.external_url.as_deref() {
                 let provider_name = provider.addon_name.clone();
                 let label = format!(
@@ -3588,14 +3591,17 @@ fn render_discovery_page(
                         .unwrap_or("External source")
                 );
                 let external_url = external_url.to_owned();
-                stream_chips.push(dynamic_choice_chip(
-                    label,
-                    false,
-                    move |this: &mut SenzoApp, cx: &mut Context<SenzoApp>| {
-                        this.open_addon_external_link(&external_url, cx)
-                    },
-                    cx,
-                ));
+                stream_chips.push(
+                    dynamic_choice_chip(
+                        label,
+                        false,
+                        move |this: &mut SenzoApp, cx: &mut Context<SenzoApp>| {
+                            this.open_addon_external_link(&external_url, cx)
+                        },
+                        cx,
+                    )
+                    .into_any_element(),
+                );
             }
         }
     }
