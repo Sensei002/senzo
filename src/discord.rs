@@ -191,7 +191,7 @@ fn activity_payload(snapshot: Option<&PlaybackSnapshot>, share_titles: bool) -> 
 #[cfg(windows)]
 fn connect_discord(client_id: &str) -> Option<std::fs::File> {
     use std::{
-        fs::{File, OpenOptions},
+        fs::OpenOptions,
         io::{Read, Write},
     };
 
