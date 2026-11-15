@@ -548,13 +548,18 @@ impl AddonClient {
     }
 
     /// Retrieves validated subtitle descriptors from an enabled add-on.
+    /// Both resource names are used by real-world Stremio-compatible providers.
     pub async fn subtitles(
         &self,
         addon: &StoredAddon,
         media_type: &str,
         media_id: &str,
     ) -> Result<StremioSubtitleResponse> {
-        let endpoint = resource_endpoint(addon, "subtitles", media_type, media_id, &[])?;
+        let manifest: AddonManifest = serde_json::from_str(&addon.manifest_json)
+            .context("the stored add-on manifest is invalid")?;
+        let resource = subtitle_resource_name(&manifest, media_type, media_id)
+            .context("the selected add-on does not declare subtitle support for this media")?;
+        let endpoint = resource_endpoint(addon, resource, media_type, media_id, &[])?;
         let value = request_json(&endpoint, MAX_ADDON_RESOURCE_BYTES).await?;
         let response: StremioSubtitleResponse = serde_json::from_value(value)
             .context("add-on returned an invalid subtitle response")?;
@@ -578,6 +583,33 @@ impl AddonClient {
             validate_addon_subtitle_url(&subtitle.url)?;
         }
         Ok(response)
+    }
+
+    /// Queries every enabled add-on that declares subtitle support. A failed provider does not
+    /// prevent subtitle tracks from other providers being offered to the user.
+    pub async fn discover_subtitles(
+        &self,
+        addons: &[StoredAddon],
+        media_type: &str,
+        media_id: &str,
+    ) -> Vec<(StoredAddon, StremioSubtitle)> {
+        let requests = subtitle_addon_candidates(addons, media_type, media_id)
+            .into_iter()
+            .map(|addon| async move {
+                match self.subtitles(&addon, media_type, media_id).await {
+                    Ok(response) => response
+                        .subtitles
+                        .into_iter()
+                        .map(|subtitle| (addon.clone(), subtitle))
+                        .collect::<Vec<_>>(),
+                    Err(_) => Vec::new(),
+                }
+            });
+        futures::future::join_all(requests)
+            .await
+            .into_iter()
+            .flatten()
+            .collect()
     }
 
     /// Downloads an add-on subtitle into SENZO's local cache for native MPV playback.
@@ -753,6 +785,38 @@ fn validate_catalog_extra(extra: &[(&str, &str)]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn subtitle_resource_name(
+    manifest: &AddonManifest,
+    media_type: &str,
+    media_id: &str,
+) -> Option<&'static str> {
+    if manifest.supports_resource_for("subtitles", media_type, media_id) {
+        Some("subtitles")
+    } else if manifest.supports_resource_for("subtitle", media_type, media_id) {
+        Some("subtitle")
+    } else {
+        None
+    }
+}
+
+fn subtitle_addon_candidates(
+    addons: &[StoredAddon],
+    media_type: &str,
+    media_id: &str,
+) -> Vec<StoredAddon> {
+    addons
+        .iter()
+        .filter(|addon| addon.enabled)
+        .filter(|addon| {
+            serde_json::from_str::<AddonManifest>(&addon.manifest_json)
+                .ok()
+                .and_then(|manifest| subtitle_resource_name(&manifest, media_type, media_id))
+                .is_some()
+        })
+        .cloned()
+        .collect()
 }
 
 fn resource_endpoint(
@@ -1345,5 +1409,44 @@ mod tests {
         })).expect("subtitle response");
         assert_eq!(response.subtitles[0].language.as_deref(), Some("eng"));
         assert_eq!(response.subtitles[0].format.as_deref(), Some("srt"));
+    }
+
+    #[test]
+    fn recognizes_both_stremio_subtitle_resource_names() {
+        let plural = stored_addon(&["subtitles"]);
+        let plural_manifest: AddonManifest =
+            serde_json::from_str(&plural.manifest_json).expect("plural manifest");
+        assert_eq!(
+            subtitle_resource_name(&plural_manifest, "movie", "tt123"),
+            Some("subtitles")
+        );
+
+        let singular = stored_addon(&["subtitle"]);
+        let singular_manifest: AddonManifest =
+            serde_json::from_str(&singular.manifest_json).expect("singular manifest");
+        assert_eq!(
+            subtitle_resource_name(&singular_manifest, "movie", "tt123"),
+            Some("subtitle")
+        );
+    }
+
+    #[test]
+    fn subtitle_discovery_candidates_include_only_enabled_compatible_addons() {
+        let plural = stored_addon(&["subtitles"]);
+        let mut singular = stored_addon(&["subtitle"]);
+        singular.id = "org.example.singular".into();
+        let mut disabled = stored_addon(&["subtitles"]);
+        disabled.id = "org.example.disabled".into();
+        disabled.enabled = false;
+        let unsupported = stored_addon(&["stream"]);
+
+        let candidates = subtitle_addon_candidates(
+            &[plural.clone(), singular.clone(), disabled, unsupported],
+            "movie",
+            "tt123",
+        );
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates.iter().any(|addon| addon.id == plural.id));
+        assert!(candidates.iter().any(|addon| addon.id == singular.id));
     }
 }

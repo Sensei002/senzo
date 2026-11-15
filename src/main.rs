@@ -1025,7 +1025,7 @@ impl SenzoApp {
             .to_owned();
         let addon_id = addon.id.clone();
         let addon_name = addon.name.clone();
-        let subtitle_addon = addon.clone();
+        let subtitle_addons = self.installed_addons.clone();
         self.addon_subtitle_results.clear();
         self.addon_subtitle_status = "Checking the selected add-on for subtitle tracks…".into();
         self.addon_catalog_status = format!("Loading details and streams for {media_id}…");
@@ -1050,8 +1050,9 @@ impl SenzoApp {
                         media_id.clone()
                     };
                     let streams = client.streams(&addon, &media_type, &stream_id).await?;
-                    let subtitles = client.subtitles(&addon, &media_type, &stream_id).await
-                        .map(|response| response.subtitles).unwrap_or_default();
+                    let subtitles = client
+                        .discover_subtitles(&subtitle_addons, &media_type, &stream_id)
+                        .await;
                     Ok::<_, anyhow::Error>((metadata, streams.streams, media_id, subtitles))
                 })
             }).await;
@@ -1060,8 +1061,7 @@ impl SenzoApp {
                     Ok((metadata, streams, id, subtitles)) => {
                         app.tmdb_details = Some(metadata);
                         app.addon_stream_results = vec![AddonStreamResult { addon_id: addon_id.clone(), addon_name: addon_name.clone(), streams, error: None }];
-                        app.addon_subtitle_results = subtitles.into_iter()
-                            .map(|subtitle| (subtitle_addon.clone(), subtitle)).collect();
+                        app.addon_subtitle_results = subtitles;
                         app.addon_subtitle_status = if app.addon_subtitle_results.is_empty() {
                             "This add-on returned no subtitle tracks for the selected episode".into()
                         } else {
