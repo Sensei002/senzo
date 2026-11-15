@@ -8,3 +8,4 @@ pub mod storage;
 pub mod subtitles;
 pub mod torrent;
 pub mod torrent_engine;
+pub mod sources;
