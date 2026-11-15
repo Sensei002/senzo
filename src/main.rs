@@ -1674,7 +1674,13 @@ impl SenzoApp {
                     "metadata",
                     "TMDB Read Access Token configured securely",
                 );
-            }
+                // A Home request may already have completed in the missing-credential
+                // state. Reset it and immediately retry with the newly saved token.
+                self.home_catalog_requested = false;
+                self.home_catalog_status = "TMDB configured · refreshing recommendations…".into();
+                if self.active_page == AppPage::Home {
+                    self.load_home_catalogs(cx);
+                }
             Ok(false) => {
                 self.tmdb_credentials_status = "TMDB token setup cancelled; no changes made".into()
             }

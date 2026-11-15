@@ -1274,6 +1274,40 @@ mod tests {
     }
 
     #[test]
+    fn validates_official_torrentio_manifest_shape_and_resource_capabilities() {
+        // Mirrors Torrentio's public Stremio manifest contract. Torrentio is a
+        // stream provider, not a catalog provider, and must remain user-installed.
+        let manifest: AddonManifest = serde_json::from_value(serde_json::json!({
+            "id": "com.stremio.torrentio",
+            "name": "Torrentio",
+            "version": "0.0.15",
+            "description": "Torrentio",
+            "catalogs": [],
+            "resources": [{
+                "name": "stream",
+                "types": ["movie", "series", "anime"],
+                "idPrefixes": ["tt", "kitsu"]
+            }],
+            "types": ["movie", "series", "anime", "other"],
+            "idPrefixes": ["tt", "kitsu"],
+            "behaviorHints": {
+                "configurable": true,
+                "configurationRequired": false
+            }
+        }))
+        .expect("official Torrentio manifest");
+        validate_manifest(&manifest).expect("official Torrentio manifest is valid");
+
+        assert!(manifest.supports_resource_for("stream", "movie", "tt123456"));
+        assert!(manifest.supports_resource_for("stream", "series", "tt123456:1:1"));
+        assert!(manifest.supports_resource_for("stream", "anime", "kitsu:12345"));
+        assert!(!manifest.supports_resource_for("stream", "movie", "tmdb:12345"));
+        assert!(!manifest.supports_resource_for("catalog", "movie", "popular"));
+        assert!(manifest.catalogs.is_empty());
+        assert!(!manifest.requires_configuration());
+    }
+
+    #[test]
     fn resource_support_honors_types_and_id_prefixes() {
         let manifest: AddonManifest = serde_json::from_value(serde_json::json!({
             "id": "example",
