@@ -75,10 +75,12 @@ struct SenzoApp {
     tmdb_results: Vec<(String, TmdbSearchResult)>,
     tmdb_status: String,
     home_catalogs: Vec<(String, String, TmdbSearchResult)>,
-    home_addon_catalogs: Vec<(String, StoredAddon, String, Vec<Value>)>,
+    home_addon_catalogs: Vec<(String, StoredAddon, String, String, Vec<Value>)>,
     home_catalog_status: String,
     home_catalog_requested: bool,
     home_hero_index: usize,
+    home_hero_paused: bool,
+    home_hero_task: Option<Task<()>>,
     home_shelf_order: Vec<String>,
     hidden_home_shelves: Vec<String>,
     home_customize_open: bool,
@@ -194,6 +196,8 @@ impl SenzoApp {
             home_catalog_status: "Loading recommendations…".into(),
             home_catalog_requested: false,
             home_hero_index: 0,
+            home_hero_paused: false,
+            home_hero_task: None,
             home_shelf_order,
             hidden_home_shelves,
             home_customize_open: false,
@@ -585,13 +589,13 @@ impl SenzoApp {
                                         Some(meta)
                                     }).take(20).collect::<Vec<_>>()
                                 });
-                                (addon, media_type, shelf_name, metas)
+                                (addon, media_type, catalog_id, shelf_name, metas)
                             }
                         });
                         futures::future::join_all(requests).await.into_iter()
-                            .filter_map(|(addon, media_type, shelf_name, result)| {
+                            .filter_map(|(addon, media_type, catalog_id, shelf_name, result)| {
                                 result.ok().filter(|metas| !metas.is_empty())
-                                    .map(|metas| (shelf_name, addon, media_type, metas))
+                                    .map(|metas| (shelf_name, addon, media_type, catalog_id, metas))
                             }).collect::<Vec<_>>()
                     };
 
@@ -630,6 +634,38 @@ impl SenzoApp {
                     Err(error) => {
                         app.home_catalog_status = format!("Recommendations are unavailable right now: {error:#}");
                     }
+                }
+                if app.home_hero_task.is_none() {
+                    app.home_hero_task = Some(cx.spawn(async move |this, cx| {
+                        loop {
+                            cx.background_executor()
+                                .timer(Duration::from_secs(8))
+                                .await;
+                            let updated = this.update(cx, |app, cx| {
+                                if app.active_page != AppPage::Home || app.home_hero_paused {
+                                    return;
+                                }
+                                let trending_count = app
+                                    .home_catalogs
+                                    .iter()
+                                    .filter(|(shelf, _, _)| shelf == "Trending this week")
+                                    .count()
+                                    .min(7);
+                                let featured_count = if trending_count == 0 {
+                                    app.home_catalogs.len().min(7)
+                                } else {
+                                    trending_count
+                                };
+                                if featured_count > 1 {
+                                    app.home_hero_index = (app.home_hero_index + 1) % featured_count;
+                                    cx.notify();
+                                }
+                            });
+                            if updated.is_err() {
+                                break;
+                            }
+                        }
+                    }));
                 }
                 cx.notify();
             });
@@ -1876,13 +1912,11 @@ where
         .cursor_pointer()
         .hover(|style| style.bg(rgb(0x30363B)))
         .child(label)
-        .on_mouse_down(
-            gpui::MouseButton::Left,
-            cx.listener(move |this, _event, _window, cx| {
-                action(this, cx);
-                this.persist(cx);
-            }),
-        )
+        .tab_index(0)
+        .on_click(cx.listener(move |this, _event, _window, cx| {
+            action(this, cx);
+            this.persist(cx);
+        }))
 }
 
 fn dynamic_choice_chip<F>(
@@ -1912,13 +1946,11 @@ where
         .cursor_pointer()
         .hover(|style| style.bg(rgb(0x30363B)))
         .child(label)
-        .on_mouse_down(
-            gpui::MouseButton::Left,
-            cx.listener(move |this, _event, _window, cx| {
-                action(this, cx);
-                cx.notify();
-            }),
-        )
+        .tab_index(0)
+        .on_click(cx.listener(move |this, _event, _window, cx| {
+            action(this, cx);
+            cx.notify();
+        }))
 }
 
 fn section(
@@ -2091,6 +2123,39 @@ impl Render for SenzoApp {
             .flex()
             .bg(rgb(0x0A0C0E))
             .text_color(rgb(0xF4F4F5))
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _window, cx| {
+                match event.keystroke.key.as_str() {
+                    "left" if this.active_page == AppPage::Home => {
+                        let count = this.home_catalogs.iter()
+                            .filter(|(shelf, _, _)| shelf == "Trending this week")
+                            .count().min(7);
+                        let count = if count == 0 { this.home_catalogs.len().min(7) } else { count };
+                        if count > 1 {
+                            this.home_hero_index = (this.home_hero_index + count - 1) % count;
+                            cx.notify();
+                        }
+                    }
+                    "right" if this.active_page == AppPage::Home => {
+                        let count = this.home_catalogs.iter()
+                            .filter(|(shelf, _, _)| shelf == "Trending this week")
+                            .count().min(7);
+                        let count = if count == 0 { this.home_catalogs.len().min(7) } else { count };
+                        if count > 1 {
+                            this.home_hero_index = (this.home_hero_index + 1) % count;
+                            cx.notify();
+                        }
+                    }
+                    "escape" if this.active_page == AppPage::Details => {
+                        this.active_page = AppPage::Home;
+                        cx.notify();
+                    }
+                    "escape" if this.settings_advanced_open && this.active_page == AppPage::Settings => {
+                        this.settings_advanced_open = false;
+                        cx.notify();
+                    }
+                    _ => {}
+                }
+            }))
             .child(
                 div()
                     .w(px(76.))
@@ -3131,6 +3196,7 @@ impl Render for SenzoApp {
                     self.home_addon_catalogs.clone(),
                     self.home_catalog_status.clone(),
                     self.home_hero_index,
+                    self.home_hero_paused,
                     self.tmdb_details.clone(),
                     self.addon_catalog_items.clone(),
                     self.addon_catalog_status.clone(),
@@ -3188,9 +3254,10 @@ fn render_discovery_page(
     tmdb_results: Vec<(String, TmdbSearchResult)>,
     tmdb_status: String,
     home_catalogs: Vec<(String, String, TmdbSearchResult)>,
-    home_addon_catalogs: Vec<(String, StoredAddon, String, Vec<Value>)>,
+    home_addon_catalogs: Vec<(String, StoredAddon, String, String, Vec<Value>)>,
     home_catalog_status: String,
     home_hero_index: usize,
+    home_hero_paused: bool,
     tmdb_details: Option<Value>,
     addon_catalog_items: Vec<Value>,
     addon_catalog_status: String,
@@ -3618,7 +3685,16 @@ fn render_discovery_page(
                                         this.home_hero_index = (featured_index + 1) % featured_count;
                                         cx.notify();
                                     }
-                                }, cx)))
+                                }, cx))
+                                .child(dynamic_choice_chip(
+                                    if home_hero_paused { "Resume rotation".into() } else { "Pause rotation".into() },
+                                    home_hero_paused,
+                                    |this, cx| {
+                                        this.home_hero_paused = !this.home_hero_paused;
+                                        cx.notify();
+                                    },
+                                    cx,
+                                )))
                     )
             } else {
                 div().w_full().h(px(520.)).relative().overflow_hidden().bg(rgb(0x101619))
@@ -3627,7 +3703,10 @@ fn render_discovery_page(
                         .child(div().text_xs().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xFBBF24)).child("WELCOME TO SENZO"))
                         .child(div().flex().flex_col().gap_3()
                             .child(div().text_2xl().font_weight(gpui::FontWeight::BOLD).child("Your next favourite starts here"))
-                            .child(div().text_base().text_color(rgb(0xA1A1AA)).child(home_catalog_status.clone()))))
+                            .child(div().text_base().text_color(rgb(0xA1A1AA)).child(home_catalog_status.clone()))
+                            .child(dynamic_choice_chip("Retry discovery".into(), true, |this, cx| {
+                                this.load_home_catalogs(cx);
+                            }, cx))))
             };
             this.child(hero).child(div().text_xs().text_color(rgb(0x858C94)).child(home_catalog_status.clone()))
                 .when(!continue_watching_cards.is_empty(), |panel| {
@@ -3708,7 +3787,8 @@ fn render_discovery_page(
                             .child(div().px_2().pb_2().flex().flex_col().gap_1()
                                 .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
                                 .child(div().text_xs().text_color(rgb(0x9299A1)).child(format!("{year} · {rating}"))))
-                            .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |this, _event, _window, cx| {
+                            .tab_index(0)
+                            .on_click(cx.listener(move |this, _event, _window, cx| {
                                 this.select_tmdb_title(selected_kind.clone(), selected.clone(), cx);
                             }))
                     }).collect::<Vec<_>>();
@@ -3716,19 +3796,17 @@ fn render_discovery_page(
                         .child(div().flex().items_center().justify_between()
                             .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child(shelf_name))
                             .child(dynamic_choice_chip("View all".into(), false, move |this, cx| {
-                                this.load_tmdb_catalog(
-                                    match shelf_name {
-                                        "Trending this week" => "trending",
-                                        "Popular TV" => "tv",
-                                        _ => "movie",
-                                    },
-                                    None,
-                                    cx,
-                                );
+                                let (media_type, destination) = match shelf_name {
+                                    "Trending this week" => ("trending", AppPage::Movies),
+                                    "Popular TV" => ("tv", AppPage::TvShows),
+                                    _ => ("movie", AppPage::Movies),
+                                };
+                                this.active_page = destination;
+                                this.load_tmdb_catalog(media_type, None, cx);
                             }, cx)))
                         .child(div().w_full().id(shelf_name).overflow_x_scroll().flex().gap_3().children(cards)))
                 }))
-                .children(home_addon_catalogs.iter().map(|(shelf_name, addon, media_type, items)| {
+                .children(home_addon_catalogs.iter().map(|(shelf_name, addon, media_type, catalog_id, items)| {
                     let cards = items.iter().filter_map(|item| {
                         let title = item.get("name").or_else(|| item.get("title"))
                             .and_then(Value::as_str)?.to_owned();
@@ -3748,15 +3826,24 @@ fn render_discovery_page(
                             .child(div().px_2().pb_2().flex().flex_col().gap_1()
                                 .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
                                 .child(div().text_xs().text_color(rgb(0x9299A1)).child(year.to_owned())))
-                            .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |this, _event, _window, cx| {
+                            .tab_index(0)
+                            .on_click(cx.listener(move |this, _event, _window, cx| {
                                 this.select_addon_catalog_meta(selected_addon.clone(), selected.clone(), cx);
                             }))
                         )
                     }).collect::<Vec<_>>();
+                    let selected_addon = addon.clone();
+                    let selected_type = media_type.clone();
+                    let selected_catalog = catalog_id.clone();
                     div().flex().flex_col().gap_3()
                         .child(div().flex().items_center().justify_between()
                             .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child(shelf_name.clone()))
-                            .child(div().text_xs().text_color(rgb(0x67E8F9)).child("ADD-ON")))
+                            .child(div().flex().items_center().gap_2()
+                                .child(div().text_xs().text_color(rgb(0x67E8F9)).child("ADD-ON"))
+                                .child(dynamic_choice_chip("View all".into(), false, move |this, cx| {
+                                    this.active_page = AppPage::Addons;
+                                    this.load_addon_catalog(selected_addon.clone(), selected_type.clone(), selected_catalog.clone(), cx);
+                                }, cx))))
                         .child(div().w_full().id(format!("addon-shelf-{}-{}", addon.id, media_type))
                             .overflow_x_scroll().flex().gap_3().children(cards))
                 }))

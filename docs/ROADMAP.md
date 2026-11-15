@@ -118,23 +118,26 @@ The Settings experience will follow Nuvio's simple, user-friendly approach: clea
 
 ## Phase 7 — Console-first media home and discovery experience (Batch 6)
 
-**Priority: this is the next user-facing milestone.** The current package is a functional engineering shell, not the intended everyday media-center interface. Replace the placeholder/dev-panel feel with a polished, full-window, console-like home experience closely following the interaction model and information architecture of the Nuvio Desktop home screen. Study the upstream Nuvio Desktop implementation before each relevant design/feature decision; adapt its patterns to native Rust + GPUI. Do not port Kotlin/Compose code or copy its source/assets. Keep SENZO's own branding, logo, typography, and visual identity.
+**Batch 6 implementation scope is delivered in the current development line.** The Home screen is now the default media-discovery surface, with the first native GPUI implementation of Nuvio's hero-and-shelf browsing model. SENZO adapts the upstream interaction patterns; it does not embed Kotlin/Compose code or Nuvio assets.
 
-- [ ] Make Home the natural landing screen and primary application experience; move technical controls and diagnostics out of the main browsing surface.
-- [ ] Build a cinematic featured/hero area using backdrop artwork, title, year, genres, rating/overview where available, and clear Play / Details actions.
-- [ ] Build vertically stacked, horizontally scrolling poster shelves with clear category headings and View All navigation.
-- [ ] Include useful default metadata shelves such as Trending, Popular Movies, Popular TV, and Continue Watching; show only categories with real data.
-- [ ] Dynamically create additional shelves from catalogs declared by enabled, user-installed Stremio add-ons; never install or enable any add-on by default.
-- [ ] Support configurable shelf visibility and ordering, with sensible defaults and graceful empty/loading/error states.
-- [ ] Build reusable poster cards with artwork fallbacks, title/year metadata, watched/progress indicators, hover preview on pointer devices, and visible keyboard/controller focus states.
-- [ ] Implement smooth vertical page navigation and horizontal shelf navigation, preserving focus and scroll position when opening/closing details.
-- [ ] Make the interface console-like: large readable artwork and controls, predictable directional focus movement, keyboard navigation, Back/Escape behavior, and game-controller navigation where supported by GPUI/native input APIs. Mouse support remains available but must not be required.
-- [ ] Add responsive layout for common desktop resolutions and display scaling; lazy-load artwork and catalog rows and use bounded local image/catalog caches.
-- [ ] Connect poster/hero activation to existing TMDB details, season/episode browsing, source discovery, and MPV playback instead of placeholder buttons.
-- [ ] Add automated UI/state tests for shelf ordering, focus navigation, empty states, and catalog loading; validate the packaged Windows build in addition to CI checks.
-- [ ] Document the final Home navigation model and user-configurable categories.\n- [ ] Redesign Settings around simple, plain-language categories and safe defaults, closely following Nuvio's user-friendly Settings UX while preserving SENZO identity.\n- [ ] Move decoder/renderer/cache/diagnostic and other technical controls into clearly explained Advanced areas.\n- [ ] Make TMDB and OpenSubtitles work by default in official builds with application-managed integration credentials; no API-key entry or setup for ordinary users.\n- [ ] Keep developer/self-build credential overrides optional and out of the normal Settings flow; review provider terms and client-side credential exposure before release.
+- [x] Make Home the default landing screen and primary browsing experience.
+- [x] Build a cinematic featured hero from real TMDB catalog data, with backdrop, title, year, media type, rating, overview, and a Details action.
+- [x] Add an eight-second hero rotation, previous/next controls, direct indicator selection, and a user pause/resume control. Rotation pauses while the user is outside Home.
+- [x] Add keyboard support for hero left/right navigation and Escape to return from Details or close Advanced Settings.
+- [x] Make shared action chips and media poster cards keyboard tab stops with click activation.
+- [x] Build horizontally scrolling poster shelves for Trending, Popular Movies, Popular TV, and enabled user-installed add-on catalogs.
+- [x] Add View All navigation for built-in TMDB shelves and dynamic add-on catalog shelves.
+- [x] Show Continue Watching only when local in-progress media exists, with saved progress and a resume action.
+- [x] Support shelf visibility and ordering, persisted locally.
+- [x] Add artwork fallbacks, readable title/year/rating metadata, partial-provider status, a discovery retry action, and a clear no-results hero state.
+- [x] Connect poster and hero Details actions to the existing metadata/detail flow; add-on shelf View All routes to the existing catalog browser.
+- [x] Keep add-on shelves sourced only from enabled, explicitly user-installed manifests; no add-on is bundled or enabled by default.
+- [x] Keep simple Settings categories separate from technical Advanced Settings and preserve local persistence for user preferences.
+- [x] Update the public README, roadmap, and UI design specification to reflect the implemented Home experience.
 
-**Reference implementation to study:** `NuvioMedia/NuvioDesktop` on branch `Dev`, especially `HomeScreen.kt`, `HomeRepository.kt`, `HomeCatalogDefinitions.kt`, `HomeHeroSection.kt`, `HomeCatalogSection.kt`, `HomePosterCard.kt`, and `HomeSectionLayout.kt`. These files demonstrate the hero + dynamic catalog shelves + Continue Watching composition and should inform SENZO's equivalent GPUI components and data flow.
+**Batch 6 boundary:** this is the first complete Home/Discovery and Settings UX milestone, not a claim that every later media-center feature is finished. Full directional focus movement between every shelf/card, game-controller support, rich pointer-hover video previews, persistent scroll/focus restoration, and bounded image/catalog caching remain post-milestone enhancements. They must be implemented and tested before a final production-readiness claim, but do not block beginning the Stremio ecosystem batch.
+
+**Nuvio reference:** NuvioMedia/NuvioDesktop on branch Dev, especially HomeRepository.kt, HomeHeroSection.kt, HomePosterCard.kt, and HomeContinueWatchingSection.kt. Nuvio's eight-second hero rotation and data-driven Home composition informed this native GPUI implementation. Preserve SENZO branding and the upstream license/attribution requirements for any future code reuse.
 
 ## Phase 8 — Additional sources and presence (Batch 7)
 

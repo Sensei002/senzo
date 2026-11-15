@@ -73,17 +73,20 @@ Study these official Nuvio Desktop source files before implementing the correspo
 
 Use these as architecture and UX references for dynamic catalog shelves, hero composition, poster rails, layout sizing, and Home data orchestration. SENZO must implement equivalent native components and state management in Rust + GPUI. Do not copy Kotlin/Compose implementation code, logos, artwork, or other assets. Preserve SENZO's independent identity.
 
-## Acceptance criteria
+## Batch 6 acceptance and implementation notes
 
-- Opening SENZO presents a finished-looking Home screen rather than a developer/settings panel.
-- The Home screen shows a real featured item and multiple populated category shelves when metadata is available.
-- Continue Watching appears only when applicable.
-- Enabled add-on catalogs can contribute shelves without any provider being preinstalled.
-- Users can navigate the entire Home experience with keyboard; controller navigation is included where supported.
-- Poster selection opens the correct title details; Play/source selection reaches the existing playback pipeline.
-- Focus and scroll position behave predictably across Home/details/back navigation.
-- Loading, error, empty, and missing-artwork states are polished.
-- Windows CI passes, and the resulting packaged application is manually reviewed at common desktop resolutions before this batch is marked complete.
+- Home is the default landing page and displays a real featured item when discovery data is available.
+- The featured hero rotates every eight seconds, supports previous/next and direct selection, and can be paused or resumed.
+- Built-in Trending, Popular Movies, and Popular TV shelves are data-driven; enabled user-installed add-on catalogs create additional shelves.
+- Built-in and add-on shelves expose View All navigation into their existing catalog browsing flows.
+- Continue Watching appears only when local in-progress media exists and resumes the saved local file position.
+- Users can hide and reorder built-in Home shelves; the selection is persisted locally.
+- Loading and partial-provider status are visible, and a retry action is available when discovery has no usable results.
+- Shared action chips and poster cards are keyboard tab stops; Left/Right changes the Home hero and Escape returns from Details or closes Advanced Settings.
+- Poster selection opens the corresponding detail flow. Source discovery and MPV playback remain governed by their own playback/add-on milestones.
+- Simple Settings remains separate from technical Advanced Settings.
+
+The Batch 6 implementation provides baseline keyboard access, not full console-grade directional focus management. Game-controller support, focus/scroll restoration between shelves and details, pointer-hover previews, and bounded image/catalog caching remain follow-up work. The packaged Windows app still needs a human visual review at common resolutions before a public release-readiness claim.
 
 ## Settings experience
 

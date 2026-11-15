@@ -126,8 +126,10 @@ The repository currently contains early service and persistence foundations. It 
 | MPV configuration adapter | Pure MPV option mapping with capability-aware fallbacks and unit tests |\n| MPV runtime and worker | Dynamic libmpv loader, dedicated worker, bounded commands and playback-state polling; GPUI can open a local file and issue basic transport, seek, mute, fullscreen and volume-step commands when a trusted runtime is supplied; local-file resume positions are saved to SQLite and restored when the same file is opened again. Runtime is not yet packaged and no native video surface exists |
 | TMDB service | Initial movie/TV search, detail requests, season/episode and external-ID services, image URL construction |
 | Add-on service | Stremio manifest preview/validation, local registry, catalog/meta/stream/subtitle request services, DNS-pinned HTTPS requests, and direct stream URL validation; native manager supports enable/disable/remove. Clipboard-assisted manifest URL preview and explicit install confirmation are implemented; catalog browsing and end-to-end source selection remain in progress |
-| GPUI media-center screens | Settings shell only; Home/Search/Library/Details/Player/Add-ons remain planned |
-| Metadata-driven Home/Search/Details | Planned |
+| GPUI media-center screens | Native Home/Discovery, Details, Add-ons, and Settings surfaces are connected; broader Library and player UX remains in progress |
+| Metadata-driven Home and catalog shelves | Trending, Popular Movies, Popular TV, Continue Watching, and enabled user-installed add-on shelves; hero auto-rotates every 8 seconds with pause/resume |
+| Home navigation and customization | Shelf visibility/order persistence, built-in/add-on View All routes, keyboard tab stops, hero arrow navigation, and Escape back behavior |
+| Home loading and recovery | Partial-provider status, empty-state messaging, and retry action |
 | User-facing add-on manager | Initial installed-provider list and enable/disable/remove controls; URL entry and install confirmation remain in progress |
 | Stremio catalog/meta/stream/subtitle routing | Service layer implemented; browsing and source-selection UI remain in progress |
 | End-user MPV playback | Early integration only: local-file selection and command controls are wired; actual video presentation and packaged runtime remain planned |
@@ -135,7 +137,7 @@ The repository currently contains early service and persistence foundations. It 
 | Discord Rich Presence | Planned |
 | Windows installer and updater | Planned |
 
-A feature is not considered complete merely because a service module exists. It must be connected to the application where appropriate, tested, and verified by Windows CI. See the [Roadmap](docs/ROADMAP.md) for phase-by-phase status.
+Batch 6 delivers the first complete Home/Discovery and Settings UX milestone. It does not make SENZO production-ready: full directional focus navigation, game-controller support, hover previews, cache/lazy-loading work, broader Library features, complete streaming playback validation, and Windows visual QA remain outstanding. A feature is not considered complete merely because a service module exists; it must be connected, tested, and verified by Windows CI. See the [Roadmap](docs/ROADMAP.md) for phase-by-phase status.
 
 ## Technology
 
