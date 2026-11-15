@@ -4218,6 +4218,14 @@ fn render_discovery_page(
             )
         })
         .when(page == AppPage::Addons, |this| {
+            let previous_addon = addon_catalog_addon.clone();
+            let next_addon = addon_catalog_addon.clone();
+            let previous_media_type = addon_catalog_media_type.clone();
+            let next_media_type = addon_catalog_media_type.clone();
+            let previous_catalog_id = addon_catalog_id.clone();
+            let next_catalog_id = addon_catalog_id.clone();
+            let previous_page = addon_catalog_page;
+            let next_page = addon_catalog_page;
             this.child(div().p_4().rounded_lg().bg(rgb(0x151719)).flex().flex_col().gap_3()
                 .child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child("Installed add-on catalogs"))
                 .child(div().text_xs().text_color(rgb(0x9299A1)).child("Catalogs are loaded from each enabled add-on manifest."))
@@ -4226,13 +4234,13 @@ fn render_discovery_page(
                 .child(div().flex().flex_wrap().gap_2().children(catalog_item_chips))
                 .child(div().flex().items_center().gap_2()
                     .child(dynamic_choice_chip("Previous page".into(), false, move |this, cx| {
-                        if addon_catalog_page > 0 {
-                            if let Some(addon) = addon_catalog_addon.clone() {
+                        if previous_page > 0 {
+                            if let Some(addon) = previous_addon.clone() {
                                 this.load_addon_catalog_page(
                                     addon,
-                                    addon_catalog_media_type.clone(),
-                                    addon_catalog_id.clone(),
-                                    addon_catalog_page - 1,
+                                    previous_media_type.clone(),
+                                    previous_catalog_id.clone(),
+                                    previous_page - 1,
                                     cx,
                                 );
                             }
@@ -4240,12 +4248,12 @@ fn render_discovery_page(
                     }, cx))
                     .child(div().text_xs().text_color(rgb(0x9299A1)).child(format!("Page {}", addon_catalog_page + 1)))
                     .child(dynamic_choice_chip("Next page".into(), false, move |this, cx| {
-                        if let Some(addon) = addon_catalog_addon.clone() {
+                        if let Some(addon) = next_addon.clone() {
                             this.load_addon_catalog_page(
                                 addon,
-                                addon_catalog_media_type.clone(),
-                                addon_catalog_id.clone(),
-                                addon_catalog_page + 1,
+                                next_media_type.clone(),
+                                next_catalog_id.clone(),
+                                next_page + 1,
                                 cx,
                             );
                         }
