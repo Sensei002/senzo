@@ -96,7 +96,11 @@ impl SourceProviderRegistry {
     }
 
     pub fn register(&mut self, adapter: Box<dyn SourceAdapter>) {
-        if self.adapters.iter().any(|existing| existing.id() == adapter.id()) {
+        if self
+            .adapters
+            .iter()
+            .any(|existing| existing.id() == adapter.id())
+        {
             return;
         }
         self.adapters.push(adapter);
@@ -108,9 +112,10 @@ impl SourceProviderRegistry {
         media_type: &str,
         media_id: &str,
     ) -> Vec<SourceProviderResult> {
-        let requests = self.adapters.iter().map(|adapter| {
-            adapter.discover(addons, media_type, media_id)
-        });
+        let requests = self
+            .adapters
+            .iter()
+            .map(|adapter| adapter.discover(addons, media_type, media_id));
         futures::future::join_all(requests)
             .await
             .into_iter()
@@ -157,9 +162,6 @@ mod tests {
         let mut registry = SourceProviderRegistry::default();
         registry.register(Box::new(EmptyAdapter));
         registry.register(Box::new(EmptyAdapter));
-        assert_eq!(
-            registry.adapter_ids(),
-            vec!["stremio-addon", "test-empty"]
-        );
+        assert_eq!(registry.adapter_ids(), vec!["stremio-addon", "test-empty"]);
     }
 }
