@@ -3419,7 +3419,7 @@ impl Render for SenzoApp {
                                 if playback_capabilities.hdr_source_detected { "yes" } else { "no / unknown" },
                                 if playback_capabilities.hdr_display_enabled { "yes" } else { "no / unknown" },
                                 if playback_capabilities.hdr_tone_mapping_supported { "supported" } else { "unavailable" },
-                                if playback_capabilities.hdr_passthrough_supported { "supported" } else { "unavailable" }
+                                if (playback_capabilities.hdr_output_supported && playback_capabilities.gpu_next_available) { "supported" } else { "unavailable" }
                             ))),
                     ))
                     .child(section(
@@ -3467,7 +3467,7 @@ impl Render for SenzoApp {
                                         |this, _cx| this.settings.decoder = DecoderPreference::Auto,
                                         cx,
                                     ))
-                                    .when(playback_capabilities.d3d11va_active, |row| {
+                                    .when(playback_capabilities.d3d11va_available, |row| {
                                         row.child(choice_chip(
                                             "D3D11VA",
                                             settings.decoder == DecoderPreference::D3d11va,
@@ -3475,7 +3475,7 @@ impl Render for SenzoApp {
                                             cx,
                                         ))
                                     })
-                                    .when(playback_capabilities.dxva2_active, |row| {
+                                    .when(playback_capabilities.dxva2_available, |row| {
                                         row.child(choice_chip(
                                             "DXVA2",
                                             settings.decoder == DecoderPreference::Dxva2,
@@ -3503,7 +3503,7 @@ impl Render for SenzoApp {
                                         |this, _cx| this.settings.renderer = RendererPreference::Auto,
                                         cx,
                                     ))
-                                    .when(playback_capabilities.gpu_next_renderer_active, |row| {
+                                    .when(playback_capabilities.gpu_next_available, |row| {
                                         row.child(choice_chip(
                                             "GPU Next",
                                             settings.renderer == RendererPreference::GpuNext,
@@ -3511,7 +3511,7 @@ impl Render for SenzoApp {
                                             cx,
                                         ))
                                     })
-                                    .when(playback_capabilities.gpu_renderer_active, |row| {
+                                    .when(playback_capabilities.gpu_available, |row| {
                                         row.child(choice_chip(
                                             "GPU",
                                             settings.renderer == RendererPreference::Gpu,
