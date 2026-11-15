@@ -162,11 +162,22 @@ impl SenzoApp {
             .collect();
 
         let (native_video_surface, native_surface_error) = match native_parent_hwnd {
-            Some(parent) => match WindowsVideoSurface::create(parent, SurfaceBounds { x: -2, y: -2, width: 1, height: 1 }) {
+            Some(parent) => match WindowsVideoSurface::create(
+                parent,
+                SurfaceBounds {
+                    x: -2,
+                    y: -2,
+                    width: 1,
+                    height: 1,
+                },
+            ) {
                 Ok(surface) => (Some(surface), None),
                 Err(error) => (None, Some(format!("{error:#}"))),
             },
-            None => (None, Some("GPUI did not provide a Win32 parent HWND".into())),
+            None => (
+                None,
+                Some("GPUI did not provide a Win32 parent HWND".into()),
+            ),
         };
 
         Self {
@@ -1232,7 +1243,10 @@ impl SenzoApp {
             return;
         };
         let worker = Some(worker);
-        let media_id = self.active_media_id.clone().or_else(|| session.media_id_for_file(file_index).ok());
+        let media_id = self
+            .active_media_id
+            .clone()
+            .or_else(|| session.media_id_for_file(file_index).ok());
         let resume_position = media_id
             .as_deref()
             .and_then(|id| self.database.playback_progress(id).ok().flatten())
@@ -2209,7 +2223,11 @@ impl SenzoApp {
             Ok(()) => self.status = "Opened the SENZO diagnostic log folder".into(),
             Err(error) => {
                 self.status = format!("Could not open log folder: {error:#}");
-                diagnostics::record(diagnostics::Level::Error, "diagnostics", "failed to open the diagnostic log folder");
+                diagnostics::record(
+                    diagnostics::Level::Error,
+                    "diagnostics",
+                    "failed to open the diagnostic log folder",
+                );
             }
         }
         cx.notify();
