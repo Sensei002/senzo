@@ -196,7 +196,7 @@ impl AddonManifest {
                     continue;
                 }
                 if let Some(existing) = properties.iter_mut().find(|property| property.name == name)
- {
+                {
                     existing.is_required = true;
                     continue;
                 }
