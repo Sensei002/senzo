@@ -78,6 +78,7 @@ struct SenzoApp {
     home_addon_catalogs: Vec<(String, StoredAddon, String, Vec<Value>)>,
     home_catalog_status: String,
     home_catalog_requested: bool,
+    home_hero_index: usize,
     home_shelf_order: Vec<String>,
     hidden_home_shelves: Vec<String>,
     home_customize_open: bool,
@@ -192,6 +193,7 @@ impl SenzoApp {
             home_addon_catalogs: Vec::new(),
             home_catalog_status: "Loading recommendations…".into(),
             home_catalog_requested: false,
+            home_hero_index: 0,
             home_shelf_order,
             hidden_home_shelves,
             home_customize_open: false,
@@ -3128,6 +3130,7 @@ impl Render for SenzoApp {
                     self.home_catalogs.clone(),
                     self.home_addon_catalogs.clone(),
                     self.home_catalog_status.clone(),
+                    self.home_hero_index,
                     self.tmdb_details.clone(),
                     self.addon_catalog_items.clone(),
                     self.addon_catalog_status.clone(),
@@ -3187,6 +3190,7 @@ fn render_discovery_page(
     home_catalogs: Vec<(String, String, TmdbSearchResult)>,
     home_addon_catalogs: Vec<(String, StoredAddon, String, Vec<Value>)>,
     home_catalog_status: String,
+    home_hero_index: usize,
     tmdb_details: Option<Value>,
     addon_catalog_items: Vec<Value>,
     addon_catalog_status: String,
@@ -3547,8 +3551,19 @@ fn render_discovery_page(
                     .position(|saved| saved == *name)
                     .unwrap_or(usize::MAX)
             });
-            let featured = home_catalogs.iter().find(|(shelf, _, _)| shelf == "Trending this week")
-                .or_else(|| home_catalogs.first()).cloned();
+            let featured_items = home_catalogs.iter()
+                .filter(|(shelf, _, _)| shelf == "Trending this week")
+                .take(7)
+                .cloned()
+                .collect::<Vec<_>>();
+            let featured_items = if featured_items.is_empty() {
+                home_catalogs.iter().take(7).cloned().collect::<Vec<_>>()
+            } else {
+                featured_items
+            };
+            let featured_count = featured_items.len();
+            let featured_index = if featured_count == 0 { 0 } else { home_hero_index % featured_count };
+            let featured = featured_items.get(featured_index).cloned();
             let hero = if let Some((_, kind, item)) = featured {
                 let title = item.display_title().unwrap_or("Featured title").to_owned();
                 let year = item.release_date.as_deref().or(item.first_air_date.as_deref())
@@ -3581,10 +3596,29 @@ fn render_discovery_page(
                                     .child(dynamic_choice_chip("View details".into(), true, move |this, cx| this.select_tmdb_title(selected_kind.clone(), selected.clone(), cx), cx))
                                     .child(dynamic_choice_chip("Explore movies".into(), false, |this, cx| this.load_tmdb_catalog("movie", None, cx), cx))))
                             .child(div().flex().items_center().justify_end().gap_2()
-                                .children((0..7).map(|index| {
-                                    div().size(px(if index == 0 { 9. } else { 7. }))
-                                        .rounded_full().bg(if index == 0 { rgb(0xF4F4F5) } else { rgb(0x858C94) })
-                                })))
+                                .child(dynamic_choice_chip("‹".into(), false, move |this, cx| {
+                                    if featured_count > 0 {
+                                        this.home_hero_index = (featured_index + featured_count - 1) % featured_count;
+                                        cx.notify();
+                                    }
+                                }, cx))
+                                .children((0..featured_count).map(|index| {
+                                    dynamic_choice_chip(
+                                        "•".into(),
+                                        index == featured_index,
+                                        move |this, cx| {
+                                            this.home_hero_index = index;
+                                            cx.notify();
+                                        },
+                                        cx,
+                                    )
+                                }))
+                                .child(dynamic_choice_chip("›".into(), false, move |this, cx| {
+                                    if featured_count > 0 {
+                                        this.home_hero_index = (featured_index + 1) % featured_count;
+                                        cx.notify();
+                                    }
+                                }, cx)))
                     )
             } else {
                 div().w_full().h(px(520.)).relative().overflow_hidden().bg(rgb(0x101619))
