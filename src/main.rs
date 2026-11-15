@@ -201,7 +201,6 @@ impl SenzoApp {
             poster_size,
             selected_title: None,
             search_query: String::new(),
-            search_query: String::new(),
             search_input: None,
             search_input_subscription: None,
             search_debounce_task: None,
@@ -4399,6 +4398,29 @@ fn render_discovery_page(
             cx,
         ));
     }
+    let mut search_title_chips = Vec::new();
+    for (media_type, item) in &tmdb_results {
+        let title = item.display_title().unwrap_or("Untitled").to_owned();
+        let year = item
+            .release_date
+            .as_deref()
+            .or(item.first_air_date.as_deref())
+            .and_then(|date| date.get(0..4))
+            .unwrap_or("—");
+        let rating = item
+            .vote_average
+            .map(|value| format!(" · {value:.1}/10"))
+            .unwrap_or_default();
+        let label = format!("{title} · {year}{rating}");
+        let selected = item.clone();
+        let kind = media_type.clone();
+        search_title_chips.push(dynamic_choice_chip(
+            label,
+            false,
+            move |this, cx| this.select_tmdb_title(kind.clone(), selected.clone(), cx),
+            cx,
+        ));
+    }
     let mut catalog_chips = Vec::new();
     for addon in &installed_addons {
         if !addon.enabled {
@@ -4950,7 +4972,7 @@ fn render_discovery_page(
                     .text_color(rgb(0x9299A1))
                     .child(tmdb_status.clone()),
             )
-            .child(div().flex().flex_wrap().gap_2().children(title_chips))
+            .child(div().flex().flex_wrap().gap_2().children(search_title_chips))
         })
         .when(is_home, |this| {
             let mut ordered_shelf_names = [
