@@ -47,12 +47,16 @@ impl DiscordPresence {
     }
 
     pub fn is_configured() -> bool {
-        option_env!("SENZO_DISCORD_CLIENT_ID")
-            .is_some_and(|value| !value.trim().is_empty() && value.trim().bytes().all(|b| b.is_ascii_digit()))
+        option_env!("SENZO_DISCORD_CLIENT_ID").is_some_and(|value| {
+            !value.trim().is_empty() && value.trim().bytes().all(|b| b.is_ascii_digit())
+        })
     }
 
     pub fn configure(&self, enabled: bool, share_titles: bool) {
-        let _ = self.sender.send(Command::Configure { enabled, share_titles });
+        let _ = self.sender.send(Command::Configure {
+            enabled,
+            share_titles,
+        });
     }
 
     pub fn clear_playback(&self) {
@@ -96,7 +100,10 @@ fn run_presence_worker(
 
     loop {
         match receiver.recv_timeout(Duration::from_secs(1)) {
-            Ok(Command::Configure { enabled: next_enabled, share_titles: next_share_titles }) => {
+            Ok(Command::Configure {
+                enabled: next_enabled,
+                share_titles: next_share_titles,
+            }) => {
                 enabled = next_enabled;
                 share_titles = next_share_titles;
                 last_activity.clear();
@@ -170,7 +177,10 @@ fn activity_payload(snapshot: Option<&PlaybackSnapshot>, share_titles: bool) -> 
         _ => "media",
     };
     let details = if share_titles {
-        snapshot.title.as_deref().filter(|title| !title.trim().is_empty())
+        snapshot
+            .title
+            .as_deref()
+            .filter(|title| !title.trim().is_empty())
             .map(str::to_owned)
             .unwrap_or_else(|| format!("Watching {kind}"))
     } else {
@@ -265,14 +275,20 @@ fn write_activity(file: &mut std::fs::File, activity: Option<Value>) -> std::io:
     let opcode = u32::from_le_bytes(header[0..4].try_into().unwrap_or([0; 4]));
     let length = u32::from_le_bytes(header[4..8].try_into().unwrap_or([0; 4])) as usize;
     if opcode != 1 || length > 1_048_576 {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid Discord IPC response"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "invalid Discord IPC response",
+        ));
     }
     let mut response = vec![0_u8; length];
     file.read_exact(&mut response)?;
     let response: Value = serde_json::from_slice(&response)
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
     if response.get("cmd").and_then(Value::as_str) != Some("SET_ACTIVITY") {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "unexpected Discord IPC command response"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "unexpected Discord IPC command response",
+        ));
     }
     Ok(())
 }
@@ -281,8 +297,12 @@ fn write_activity(file: &mut std::fs::File, activity: Option<Value>) -> std::io:
 fn write_frame(file: &mut std::fs::File, opcode: u32, payload: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
 
-    let length = u32::try_from(payload.len())
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Discord IPC payload too large"))?;
+    let length = u32::try_from(payload.len()).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Discord IPC payload too large",
+        )
+    })?;
     file.write_all(&opcode.to_le_bytes())?;
     file.write_all(&length.to_le_bytes())?;
     file.write_all(payload)
