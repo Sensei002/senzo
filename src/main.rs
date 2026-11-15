@@ -5127,16 +5127,16 @@ fn render_discovery_page(
                     ))
                 })
                 .children({
-                    let mut rendered_shelves = Vec::new();
+                    let mut rendered_shelves: Vec<&'static str> = Vec::new();
                     let has_trending_movies = home_catalogs.iter().any(|(s, _, _)| s == "Trending Movies");
                     for shelf in ordered_shelf_names {
-                        if hidden_home_shelves.iter().any(|hidden| hidden.as_str() == *shelf) {
+                        if hidden_home_shelves.iter().any(|hidden| hidden.as_str() == shelf) {
                             continue;
                         }
-                        if *shelf == "Trending this week" && has_trending_movies {
+                        if shelf == "Trending this week" && has_trending_movies {
                             continue;
                         }
-                        rendered_shelves.push(*shelf);
+                        rendered_shelves.push(shelf);
                     }
                     rendered_shelves.into_iter().filter_map(|shelf_name| {
                         let shelf_animation_id = format!("home-shelf-{shelf_name}");
@@ -5172,6 +5172,7 @@ fn render_discovery_page(
                                 let selected = item.clone();
                                 let selected_kind = kind.clone();
                                 let poster = tmdb_artwork_url(item.poster_path.as_deref(), "w342");
+                                let has_poster = poster.is_some();
                                 div()
                                     .w(poster_width)
                                     .h(poster_height)
@@ -5209,7 +5210,7 @@ fn render_discovery_page(
                                                 .child(rating.clone()),
                                         )
                                     })
-                                    .when(poster.is_none(), |panel| {
+                                    .when(!has_poster, |panel| {
                                         panel.child(
                                             div()
                                                 .size_full()
