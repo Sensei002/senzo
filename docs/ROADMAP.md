@@ -173,11 +173,11 @@ Batch 8 turns the existing MPV worker integration into a dedicated, usable nativ
 - [x] Preserve selected TMDB/Stremio media identity across direct-stream and torrent handoff; persist metadata-backed titles and media types with progress.
 - [x] Resume metadata-backed network streams from their saved position after MPV confirms the loaded URL and duration; Continue Watching returns to title details and source selection.
 - [x] Record completion-aware watch history atomically and remove completed items from Continue Watching.
-- [ ] Detect runtime decoder, renderer, and HDR capabilities and only expose settings the active runtime supports.
+- [x] Detect the active MPV renderer and hardware decoder, inspect source/output transfer functions, query Windows Advanced Color state for every active display, and expose manual renderer/decoder/HDR overrides only when the live runtime confirms support.
 - [x] Complete Settings → Diagnostics with Copy Logs and Open Log Folder; exports remain bounded and exclude personal history/database contents.
 - [ ] Validate native MPV video presentation, fullscreen behavior, track switching, seeking, buffering, and shutdown on Windows hardware.
 
-**Batch 8 boundary:** CI validates code, tests, and packaging, but native video presentation and provider playback still require real Windows runtime testing. Do not claim hardware capability support until the active libmpv/GPU/output path is detected and the selected options are confirmed.
+**Batch 8 boundary:** Runtime capability detection is implemented conservatively: unavailable or unknown values are never treated as supported. HDR passthrough is offered only when GPU Next is the active renderer and Windows Advanced Color is enabled on every active display; tone mapping is offered only with an active GPU renderer. Decoder and renderer overrides are shown only after MPV reports the corresponding active path. CI validates code, tests, and packaging, but native video presentation, display targeting on multi-monitor systems, track switching, seeking, buffering, and shutdown still require real Windows hardware validation.
 
 **Nuvio reference:** PlayerScreen.kt, PlayerControls.kt, PlayerTimeline.kt, PlayerTrackSelection.kt, PlayerMediaInfo.kt, and PlayerLoadingStatus.kt in NuvioMedia/NuvioDesktop (branch Dev). Adapt interaction patterns and user-facing behavior to Rust + GPUI and native libmpv; do not port Kotlin/Compose UI code.
 

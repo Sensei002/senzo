@@ -2492,6 +2492,7 @@ impl Render for SenzoApp {
             self.load_home_catalogs(cx);
         }
         let settings = self.settings.clone();
+        let playback_capabilities = self.playback_state.capabilities;
         let seek_bar_bounds = self.seek_bar_bounds.clone();
         let volume_bar_bounds = self.volume_bar_bounds.clone();
         let playback_position = self.playback_state.position_seconds;
@@ -3397,6 +3398,31 @@ impl Render for SenzoApp {
                             ),
                     ))
                     .child(section(
+                        "Runtime capability detection",
+                        "These values come from the live libmpv session and Windows display configuration. Unknown capabilities stay unavailable rather than being guessed.",
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(div().text_sm().text_color(rgb(0xD4D4D8)).child(format!(
+                                "Renderer: {} · Hardware decoder: {}",
+                                self.playback_state.diagnostics.video_output.as_deref().unwrap_or("not detected"),
+                                self.playback_state.diagnostics.hardware_decoder.as_deref().unwrap_or("not active")
+                            )))
+                            .child(div().text_sm().text_color(rgb(0xD4D4D8)).child(format!(
+                                "Source transfer: {} · Output transfer: {}",
+                                self.playback_state.diagnostics.source_transfer.as_deref().unwrap_or("not detected"),
+                                self.playback_state.diagnostics.output_transfer.as_deref().unwrap_or("not detected")
+                            )))
+                            .child(div().text_sm().text_color(rgb(0x9299A1)).child(format!(
+                                "HDR source: {} · Windows HDR enabled: {} · Tone mapping: {} · Passthrough: {}",
+                                if playback_capabilities.hdr_source_detected { "yes" } else { "no / unknown" },
+                                if playback_capabilities.hdr_display_enabled { "yes" } else { "no / unknown" },
+                                if playback_capabilities.hdr_tone_mapping_supported { "supported" } else { "unavailable" },
+                                if playback_capabilities.hdr_passthrough_supported { "supported" } else { "unavailable" }
+                            ))),
+                    ))
+                    .child(section(
                         "Hardware acceleration",
                         "Automatic is recommended. Manual decoder choices are advanced compatibility overrides.",
                         div()
@@ -3405,7 +3431,7 @@ impl Render for SenzoApp {
                             .gap_4()
                             .child(option_row(
                                 "Hardware decoding",
-                                "Choose whether the playback engine may use your GPU decoder.",
+                                "Automatic and software are always available. A manual decoder appears only after MPV confirms it is active for the current media.",
                                 div()
                                     .flex()
                                     .flex_wrap()
@@ -3430,7 +3456,7 @@ impl Render for SenzoApp {
                             ))
                             .child(option_row(
                                 "Decoder preference",
-                                "D3D11VA is the preferred Windows path. DXVA2 remains for compatibility.",
+                                "Manual decoder choices are shown only after the active MPV session reports that decoder in use.",
                                 div()
                                     .flex()
                                     .flex_wrap()
@@ -3441,18 +3467,22 @@ impl Render for SenzoApp {
                                         |this, _cx| this.settings.decoder = DecoderPreference::Auto,
                                         cx,
                                     ))
-                                    .child(choice_chip(
-                                        "D3D11VA",
-                                        settings.decoder == DecoderPreference::D3d11va,
-                                        |this, _cx| this.settings.decoder = DecoderPreference::D3d11va,
-                                        cx,
-                                    ))
-                                    .child(choice_chip(
-                                        "DXVA2",
-                                        settings.decoder == DecoderPreference::Dxva2,
-                                        |this, _cx| this.settings.decoder = DecoderPreference::Dxva2,
-                                        cx,
-                                    ))
+                                    .when(playback_capabilities.d3d11va_active, |row| {
+                                        row.child(choice_chip(
+                                            "D3D11VA",
+                                            settings.decoder == DecoderPreference::D3d11va,
+                                            |this, _cx| this.settings.decoder = DecoderPreference::D3d11va,
+                                            cx,
+                                        ))
+                                    })
+                                    .when(playback_capabilities.dxva2_active, |row| {
+                                        row.child(choice_chip(
+                                            "DXVA2",
+                                            settings.decoder == DecoderPreference::Dxva2,
+                                            |this, _cx| this.settings.decoder = DecoderPreference::Dxva2,
+                                            cx,
+                                        ))
+                                    })
                                     .child(choice_chip(
                                         "Software",
                                         settings.decoder == DecoderPreference::Software,
@@ -3462,7 +3492,7 @@ impl Render for SenzoApp {
                             ))
                             .child(option_row(
                                 "Video renderer",
-                                "Renderer preference is applied when the MPV playback session starts.",
+                                "Only the renderer confirmed by the active MPV session is offered as a manual override. Automatic remains available at all times.",
                                 div()
                                     .flex()
                                     .flex_wrap()
@@ -3473,18 +3503,22 @@ impl Render for SenzoApp {
                                         |this, _cx| this.settings.renderer = RendererPreference::Auto,
                                         cx,
                                     ))
-                                    .child(choice_chip(
-                                        "GPU Next",
-                                        settings.renderer == RendererPreference::GpuNext,
-                                        |this, _cx| this.settings.renderer = RendererPreference::GpuNext,
-                                        cx,
-                                    ))
-                                    .child(choice_chip(
-                                        "GPU",
-                                        settings.renderer == RendererPreference::Gpu,
-                                        |this, _cx| this.settings.renderer = RendererPreference::Gpu,
-                                        cx,
-                                    )),
+                                    .when(playback_capabilities.gpu_next_renderer_active, |row| {
+                                        row.child(choice_chip(
+                                            "GPU Next",
+                                            settings.renderer == RendererPreference::GpuNext,
+                                            |this, _cx| this.settings.renderer = RendererPreference::GpuNext,
+                                            cx,
+                                        ))
+                                    })
+                                    .when(playback_capabilities.gpu_renderer_active, |row| {
+                                        row.child(choice_chip(
+                                            "GPU",
+                                            settings.renderer == RendererPreference::Gpu,
+                                            |this, _cx| this.settings.renderer = RendererPreference::Gpu,
+                                            cx,
+                                        ))
+                                    }),
                             )),
                     ))
                     .child(section(
@@ -3522,15 +3556,19 @@ impl Render for SenzoApp {
                             ))
                             .child(option_row(
                                 "HDR handling",
-                                "The playback engine will validate the display and renderer before applying HDR output.",
+                                "Options appear only when the active MPV renderer and Windows display report support. HDR passthrough requires GPU Next and Windows Advanced Color enabled on every active display.",
                                 div()
                                     .flex()
                                     .flex_wrap()
                                     .gap_2()
                                     .child(choice_chip("Auto", settings.hdr == HdrMode::Auto, |this, _cx| this.settings.hdr = HdrMode::Auto, cx))
-                                    .child(choice_chip("Tone map", settings.hdr == HdrMode::ToneMap, |this, _cx| this.settings.hdr = HdrMode::ToneMap, cx))
-                                    .child(choice_chip("Passthrough", settings.hdr == HdrMode::Passthrough, |this, _cx| this.settings.hdr = HdrMode::Passthrough, cx))
-                                    .child(choice_chip("Off", settings.hdr == HdrMode::Disabled, |this, _cx| this.settings.hdr = HdrMode::Disabled, cx)),
+                                    .when(playback_capabilities.hdr_tone_mapping_supported, |row| {
+                                        row.child(choice_chip("Tone map", settings.hdr == HdrMode::ToneMap, |this, _cx| this.settings.hdr = HdrMode::ToneMap, cx))
+                                            .child(choice_chip("Off", settings.hdr == HdrMode::Disabled, |this, _cx| this.settings.hdr = HdrMode::Disabled, cx))
+                                    })
+                                    .when(playback_capabilities.hdr_passthrough_supported, |row| {
+                                        row.child(choice_chip("Passthrough", settings.hdr == HdrMode::Passthrough, |this, _cx| this.settings.hdr = HdrMode::Passthrough, cx))
+                                    }),
                             ))
                             .child(toggle_row(
                                 "Debanding",

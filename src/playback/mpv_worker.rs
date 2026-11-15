@@ -13,6 +13,8 @@ use std::{
 use anyhow::{Context as _, anyhow, bail};
 
 use super::{mpv_config::MpvConfig, mpv_runtime::MpvRuntime};
+#[cfg(windows)]
+use super::windows_capabilities::hdr_output_enabled;
 
 const COMMAND_QUEUE_CAPACITY: usize = 32;
 const STATE_POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -39,6 +41,7 @@ pub struct PlaybackState {
     pub fullscreen: Option<bool>,
     pub speed: Option<f64>,
     pub diagnostics: PlaybackDiagnostics,
+    pub capabilities: PlaybackCapabilities,
     pub tracks: Vec<PlaybackTrack>,
 }
 
@@ -54,10 +57,43 @@ pub struct PlaybackDiagnostics {
     pub video_height: Option<u32>,
     pub frame_rate: Option<f64>,
     pub dropped_frames: Option<u64>,
+    pub source_transfer: Option<String>,
+    pub output_transfer: Option<String>,
+}
+
+/// Capabilities confirmed by the active MPV output and current Windows display state.
+/// Unknown values are deliberately treated as unsupported.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PlaybackCapabilities {
+    pub gpu_renderer_active: bool,
+    pub gpu_next_renderer_active: bool,
+    pub d3d11va_active: bool,
+    pub dxva2_active: bool,
+    pub hdr_display_enabled: bool,
+    pub hdr_source_detected: bool,
+    pub hdr_tone_mapping_supported: bool,
+    pub hdr_passthrough_supported: bool,
 }
 
 impl PlaybackState {
     fn read(runtime: &MpvRuntime) -> Self {
+        let video_output = read_property(runtime, "current-vo");
+        let hardware_decoder = read_property(runtime, "hwdec-current");
+        let source_transfer = read_property(runtime, "video-params/gamma");
+        let output_transfer = read_property(runtime, "video-out-params/gamma");
+        #[cfg(windows)]
+        let hdr_display_enabled = hdr_output_enabled();
+        #[cfg(not(windows))]
+        let hdr_display_enabled = false;
+
+        let renderer = video_output.as_deref().unwrap_or_default();
+        let decoder = hardware_decoder.as_deref().unwrap_or_default();
+        let gpu_renderer_active = renderer.eq_ignore_ascii_case("gpu");
+        let gpu_next_renderer_active = renderer.eq_ignore_ascii_case("gpu-next");
+        let hdr_source_detected = source_transfer.as_deref().is_some_and(is_hdr_transfer);
+        let hdr_tone_mapping_supported = gpu_renderer_active || gpu_next_renderer_active;
+        let hdr_passthrough_supported = gpu_next_renderer_active && hdr_display_enabled;
+
         Self {
             position_seconds: read_number(runtime, "time-pos"),
             duration_seconds: read_number(runtime, "duration"),
@@ -71,16 +107,35 @@ impl PlaybackState {
             diagnostics: PlaybackDiagnostics {
                 video_codec: read_property(runtime, "video-codec"),
                 video_decoder: read_property(runtime, "video-dec-params/codec"),
-                hardware_decoder: read_property(runtime, "hwdec-current"),
-                video_output: read_property(runtime, "current-vo"),
+                hardware_decoder,
+                video_output,
                 video_width: read_integer(runtime, "video-out-params/w"),
                 video_height: read_integer(runtime, "video-out-params/h"),
                 frame_rate: read_number(runtime, "estimated-vf-fps"),
                 dropped_frames: read_unsigned(runtime, "frame-drop-count"),
+                source_transfer,
+                output_transfer,
+            },
+            capabilities: PlaybackCapabilities {
+                gpu_renderer_active,
+                gpu_next_renderer_active,
+                d3d11va_active: decoder.to_ascii_lowercase().starts_with("d3d11va"),
+                dxva2_active: decoder.to_ascii_lowercase().starts_with("dxva2"),
+                hdr_display_enabled,
+                hdr_source_detected,
+                hdr_tone_mapping_supported,
+                hdr_passthrough_supported,
             },
             tracks: read_tracks(runtime),
         }
     }
+}
+
+fn is_hdr_transfer(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "pq" | "smpte2084" | "hlg" | "arib-std-b67"
+    )
 }
 
 fn read_property(runtime: &MpvRuntime, name: &str) -> Option<String> {
@@ -651,6 +706,28 @@ impl Drop for PlaybackWorker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn hdr_transfer_detection_is_conservative_and_case_insensitive() {
+        assert!(is_hdr_transfer("pq"));
+        assert!(is_hdr_transfer("SMPTE2084"));
+        assert!(is_hdr_transfer("hlg"));
+        assert!(is_hdr_transfer("ARIB-STD-B67"));
+        assert!(!is_hdr_transfer("bt.1886"));
+        assert!(!is_hdr_transfer("srgb"));
+        assert!(!is_hdr_transfer(""));
+    }
+
+    #[test]
+    fn active_decoder_flags_only_report_the_decoder_mpv_is_using() {
+        let d3d11va = "d3d11va-copy";
+        let dxva2 = "dxva2";
+        let software = "no";
+        assert!(d3d11va.to_ascii_lowercase().starts_with("d3d11va"));
+        assert!(dxva2.to_ascii_lowercase().starts_with("dxva2"));
+        assert!(!software.to_ascii_lowercase().starts_with("d3d11va"));
+        assert!(!software.to_ascii_lowercase().starts_with("dxva2"));
+    }
+
     #[test]
     fn accepts_only_the_authenticated_loopback_stream_shape() {
         assert!(validate_local_stream_url("http://127.0.0.1:3456/token/1/0").is_ok());
