@@ -64,6 +64,9 @@ struct SenzoApp {
     search_input_subscription: Option<Subscription>,
     search_debounce_task: Option<Task<()>>,
     settings: PlaybackSettings,
+    discord_presence_enabled: bool,
+    discord_share_titles: bool,
+    discord_presence: senzo::discord::DiscordPresence,
     status: String,
     playback_worker: Option<Arc<Mutex<PlaybackWorker>>>,
     playback_state: PlaybackState,
@@ -194,6 +197,21 @@ impl SenzoApp {
             ),
         };
 
+        let discord_presence_enabled = database
+            .get_setting("integrations.discord.enabled")
+            .ok()
+            .flatten()
+            .is_some_and(|value| value == "true");
+        let discord_share_titles = database
+            .get_setting("integrations.discord.share_titles")
+            .ok()
+            .flatten()
+            .is_some_and(|value| value == "true");
+        let discord_presence = senzo::discord::DiscordPresence::new(
+            discord_presence_enabled,
+            discord_share_titles,
+        );
+
         Self {
             database,
             active_page: AppPage::Home,
@@ -206,6 +224,9 @@ impl SenzoApp {
             search_input_subscription: None,
             search_debounce_task: None,
             settings,
+            discord_presence_enabled,
+            discord_share_titles,
+            discord_presence,
             status: "Changes are saved on this device".into(),
             playback_worker: None,
             playback_state: PlaybackState::default(),
@@ -400,6 +421,13 @@ impl SenzoApp {
                                 }
                                 PlaybackEvent::StateChanged(state) => {
                                     app.playback_state = state.clone();
+                                    app.discord_presence.update_playback(
+                                        app.active_media_title.clone().or_else(|| state.media_title.clone()),
+                                        app.active_media_type.clone(),
+                                        state.paused.unwrap_or(false),
+                                        state.position_seconds,
+                                        state.duration_seconds,
+                                    );
                                     app.persist_playback_progress(false);
                                 }
                                 PlaybackEvent::CommandCompleted { operation } => {
@@ -2154,6 +2182,47 @@ impl SenzoApp {
                 diagnostics::record(diagnostics::Level::Warn, "settings", &self.status);
             }
         }
+        cx.notify();
+    }
+
+
+    fn set_discord_presence_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        self.discord_presence_enabled = enabled;
+        if let Err(error) = self.database.set_setting(
+            "integrations.discord.enabled",
+            if enabled { "true" } else { "false" },
+        ) {
+            diagnostics::record(
+                diagnostics::Level::Error,
+                "discord",
+                &format!("could not save Discord Rich Presence preference: {error:#}"),
+            );
+            self.status = "Could not save Discord Rich Presence preference".into();
+        } else {
+            self.status = if enabled {
+                "Discord Rich Presence enabled".into()
+            } else {
+                "Discord Rich Presence disabled".into()
+            };
+        }
+        self.discord_presence.configure(enabled, self.discord_share_titles);
+        cx.notify();
+    }
+
+    fn set_discord_title_sharing(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        self.discord_share_titles = enabled;
+        if let Err(error) = self.database.set_setting(
+            "integrations.discord.share_titles",
+            if enabled { "true" } else { "false" },
+        ) {
+            diagnostics::record(
+                diagnostics::Level::Error,
+                "discord",
+                &format!("could not save Discord title-sharing preference: {error:#}"),
+            );
+            self.status = "Could not save Discord privacy preference".into();
+        }
+        self.discord_presence.configure(self.discord_presence_enabled, enabled);
         cx.notify();
     }
 
@@ -4077,6 +4146,42 @@ impl Render for SenzoApp {
                                 "MiB",
                                 |this, _cx| this.settings.buffer.memory_limit_mib = this.settings.buffer.memory_limit_mib.saturating_sub(64).max(32),
                                 |this, _cx| this.settings.buffer.memory_limit_mib = this.settings.buffer.memory_limit_mib.saturating_add(64).min(2048),
+                                cx,
+                            )),
+                    ))
+
+                    .child(section(
+                        "Discord Rich Presence",
+                        "Optional local Discord integration. It is off by default; media titles are hidden unless you explicitly allow title sharing.",
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .child(div().text_sm().text_color(rgb(0xB7BEC6)).child(
+                                if senzo::discord::DiscordPresence::is_configured() {
+                                    "Discord application ID is configured for this build. Discord must be running to publish presence."
+                                } else {
+                                    "Discord application ID is not configured in this build. The feature stays inactive until SENZO is built with SENZO_DISCORD_CLIENT_ID."
+                                }
+                            ))
+                            .child(toggle_row(
+                                "Enable Discord Rich Presence",
+                                "Show SENZO browsing or playback status on your Discord profile.",
+                                self.discord_presence_enabled,
+                                |this, cx| {
+                                    let enabled = !this.discord_presence_enabled;
+                                    this.set_discord_presence_enabled(enabled, cx);
+                                },
+                                cx,
+                            ))
+                            .child(toggle_row(
+                                "Share media titles",
+                                "When enabled, the current movie or episode title may be visible to anyone who can see your Discord activity. Off by default.",
+                                self.discord_share_titles,
+                                |this, cx| {
+                                    let enabled = !this.discord_share_titles;
+                                    this.set_discord_title_sharing(enabled, cx);
+                                },
                                 cx,
                             )),
                     ))
