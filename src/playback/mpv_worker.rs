@@ -338,11 +338,30 @@ impl PlaybackWorker {
             .spawn(move || {
                 let runtime = match MpvRuntime::open(&library_path, &config) {
                     Ok(runtime) => runtime,
-                    Err(error) => {
-                        let _ = event_tx.send(PlaybackEvent::Failed {
-                            message: format!("{error:#}"),
-                        });
-                        return;
+                    Err(primary_error) => {
+                        // A renderer, decoder, or HDR override can be accepted
+                        // by the option parser but fail during device initialization.
+                        // Retry once with MPV automatic renderer/decoder/output selection.
+                        let fallback_config = config.safe_startup_fallback();
+                        match MpvRuntime::open(&library_path, &fallback_config) {
+                            Ok(runtime) => {
+                                let _ = event_tx.send(PlaybackEvent::CommandFailed {
+                                    operation: "playback preferences",
+                                    message: format!(
+                                        "Some device-specific playback overrides could not be initialized; MPV automatic renderer/decoder/HDR handling is being used. Initial error: {primary_error:#}"
+                                    ),
+                                });
+                                runtime
+                            }
+                            Err(fallback_error) => {
+                                let _ = event_tx.send(PlaybackEvent::Failed {
+                                    message: format!(
+                                        "MPV startup failed with configured and safe settings. Configured attempt: {primary_error:#}. Safe fallback: {fallback_error:#}"
+                                    ),
+                                });
+                                return;
+                            }
+                        }
                     }
                 };
 

@@ -34,6 +34,38 @@ pub struct MpvConfig {
 }
 
 impl MpvConfig {
+    /// Build a capability snapshot for the bundled Windows MPV runtime before
+    /// the first media is loaded. Device-specific HDR output is queried live;
+    /// runtime initialization still has a conservative retry path below.
+    pub fn startup_capabilities() -> MpvCapabilities {
+        #[cfg(windows)]
+        {
+            MpvCapabilities {
+                gpu_available: true,
+                gpu_next_available: true,
+                d3d11va_available: true,
+                dxva2_available: true,
+                hdr_output_supported: super::windows_capabilities::hdr_output_enabled(),
+                hdr_tone_mapping_supported: true,
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            MpvCapabilities::default()
+        }
+    }
+
+    /// Remove optional device-specific overrides while retaining the native
+    /// window, buffering, scaling, and subtitle preferences for a safe retry.
+    pub fn safe_startup_fallback(&self) -> Self {
+        let mut fallback = self.clone();
+        fallback.options.remove("vo");
+        fallback.options.insert("hwdec".into(), "auto-safe".into());
+        fallback.options.remove("tone-mapping");
+        fallback.options.remove("target-colorspace-hint");
+        fallback.options.remove("target-trc");
+        fallback
+    }
     /// Attach MPV's native video output to a caller-owned Win32 child window.
     ///
     /// The ID must be a non-zero HWND value representable by Win32's 32-bit
@@ -248,6 +280,23 @@ mod tests {
             hdr_output_supported: true,
             hdr_tone_mapping_supported: true,
         }
+    }
+
+    #[test]
+    fn safe_startup_fallback_keeps_window_and_generic_options_but_removes_device_overrides() {
+        let settings = PlaybackSettings {
+            renderer: RendererPreference::GpuNext,
+            decoder: DecoderPreference::D3d11va,
+            hdr: HdrMode::Passthrough,
+            ..PlaybackSettings::default()
+        };
+        let config = build_mpv_config(&settings, &full_capabilities());
+        let fallback = config.safe_startup_fallback();
+        assert!(!fallback.options.contains_key("vo"));
+        assert_eq!(fallback.options["hwdec"], "auto-safe");
+        assert!(!fallback.options.contains_key("target-colorspace-hint"));
+        assert!(fallback.options.contains_key("scale"));
+        assert!(fallback.options.contains_key("cache"));
     }
 
     #[test]
