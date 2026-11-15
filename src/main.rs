@@ -943,7 +943,10 @@ impl SenzoApp {
                     && url.host().is_some()
                     && url.username().is_empty()
                     && url.password().is_none()
-                    && url.fragment().is_none() => url,
+                    && url.fragment().is_none() =>
+            {
+                url
+            }
             _ => {
                 self.stream_status = "Provider external links must be valid HTTPS URLs without credentials or fragments".into();
                 cx.notify();
@@ -979,7 +982,8 @@ impl SenzoApp {
         #[cfg(not(windows))]
         {
             let _ = parsed;
-            self.stream_status = "External-link handoff is currently available on Windows only".into();
+            self.stream_status =
+                "External-link handoff is currently available on Windows only".into();
         }
         cx.notify();
     }
@@ -3577,7 +3581,11 @@ fn render_discovery_page(
                 let label = format!(
                     "{} · {} · open link",
                     provider_name,
-                    stream.name.as_deref().or(stream.title.as_deref()).unwrap_or("External source")
+                    stream
+                        .name
+                        .as_deref()
+                        .or(stream.title.as_deref())
+                        .unwrap_or("External source")
                 );
                 let external_url = external_url.to_owned();
                 stream_chips.push(dynamic_choice_chip(
