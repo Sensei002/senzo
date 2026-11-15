@@ -88,6 +88,8 @@ impl PlaybackState {
 
         let renderer = video_output.as_deref().unwrap_or_default();
         let decoder = hardware_decoder.as_deref().unwrap_or_default();
+        let d3d11va_active = decoder.to_ascii_lowercase().starts_with("d3d11va");
+        let dxva2_active = decoder.to_ascii_lowercase().starts_with("dxva2");
         let gpu_renderer_active = renderer.eq_ignore_ascii_case("gpu");
         let gpu_next_renderer_active = renderer.eq_ignore_ascii_case("gpu-next");
         let hdr_source_detected = source_transfer.as_deref().is_some_and(is_hdr_transfer);
@@ -119,8 +121,8 @@ impl PlaybackState {
             capabilities: PlaybackCapabilities {
                 gpu_renderer_active,
                 gpu_next_renderer_active,
-                d3d11va_active: decoder.to_ascii_lowercase().starts_with("d3d11va"),
-                dxva2_active: decoder.to_ascii_lowercase().starts_with("dxva2"),
+                d3d11va_active,
+                dxva2_active,
                 hdr_display_enabled,
                 hdr_source_detected,
                 hdr_tone_mapping_supported,

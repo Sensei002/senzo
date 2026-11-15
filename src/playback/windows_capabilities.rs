@@ -14,8 +14,8 @@ pub fn hdr_output_enabled() -> bool {
     };
 
     const QDC_ONLY_ACTIVE_PATHS: u32 = 0x0000_0002;
-    const ERROR_SUCCESS: i32 = 0;
-    const ERROR_INSUFFICIENT_BUFFER: i32 = 122;
+    const ERROR_SUCCESS: u32 = 0;
+    const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
 
     // Display topology can change between sizing and querying. Retry once on
     // ERROR_INSUFFICIENT_BUFFER and otherwise fail closed.
