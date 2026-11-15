@@ -1025,7 +1025,7 @@ impl SenzoApp {
             .to_owned();
         let addon_id = addon.id.clone();
         let addon_name = addon.name.clone();
-        let subtitle_addons = self.installed_addons.clone();
+        let subtitle_addons = self.database.installed_addons().unwrap_or_default();
         self.addon_subtitle_results.clear();
         self.addon_subtitle_status = "Checking the selected add-on for subtitle tracks…".into();
         self.addon_catalog_status = format!("Loading details and streams for {media_id}…");
