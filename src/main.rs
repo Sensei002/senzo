@@ -89,6 +89,9 @@ struct SenzoApp {
     addon_catalog_items: Vec<Value>,
     addon_catalog_status: String,
     addon_catalog_addon: Option<StoredAddon>,
+    addon_catalog_media_type: String,
+    addon_catalog_id: String,
+    addon_catalog_page: usize,
     addon_stream_results: Vec<AddonStreamResult>,
     stream_status: String,
     torrent_session: Option<TorrentPlaybackSession>,
@@ -206,6 +209,9 @@ impl SenzoApp {
             addon_catalog_items: Vec::new(),
             addon_catalog_status: "Choose a catalog from an installed add-on".into(),
             addon_catalog_addon: None,
+            addon_catalog_media_type: "movie".into(),
+            addon_catalog_id: String::new(),
+            addon_catalog_page: 0,
             addon_stream_results: Vec::new(),
             stream_status: "Choose a title or catalog item to discover sources".into(),
             torrent_session: None,
@@ -824,7 +830,21 @@ impl SenzoApp {
         catalog_id: String,
         cx: &mut Context<Self>,
     ) {
-        self.addon_catalog_status = format!("Loading {} catalog…", addon.name);
+        self.load_addon_catalog_page(addon, media_type, catalog_id, 0, cx);
+    }
+
+    fn load_addon_catalog_page(
+        &mut self,
+        addon: StoredAddon,
+        media_type: String,
+        catalog_id: String,
+        page: usize,
+        cx: &mut Context<Self>,
+    ) {
+        self.addon_catalog_status = format!("Loading {} catalog · page {}…", addon.name, page + 1);
+        self.addon_catalog_media_type = media_type.clone();
+        self.addon_catalog_id = catalog_id.clone();
+        self.addon_catalog_page = page;
         self.addon_catalog_items.clear();
         self.addon_catalog_addon = Some(addon.clone());
         self.addon_task = Some(cx.spawn(async move |this, cx| {
@@ -835,7 +855,9 @@ impl SenzoApp {
                         .enable_all()
                         .build()
                         .context("could not initialize add-on catalog runtime")?;
-                    runtime.block_on(client.catalog(&addon, &media_type, &catalog_id, &[]))
+                    let skip = (page * 100).to_string();
+                    let extra = [("skip", skip.as_str())];
+                    runtime.block_on(client.catalog(&addon, &media_type, &catalog_id, &extra))
                 })
                 .await;
             let _ = this.update(cx, |app, cx| {
@@ -911,6 +933,54 @@ impl SenzoApp {
                 cx.notify();
             });
         }));
+        cx.notify();
+    }
+
+    fn open_addon_external_link(&mut self, raw_url: &str, cx: &mut Context<Self>) {
+        let parsed = match url::Url::parse(raw_url) {
+            Ok(url)
+                if url.scheme() == "https"
+                    && url.host().is_some()
+                    && url.username().is_empty()
+                    && url.password().is_none()
+                    && url.fragment().is_none() => url,
+            _ => {
+                self.stream_status = "Provider external links must be valid HTTPS URLs without credentials or fragments".into();
+                cx.notify();
+                return;
+            }
+        };
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStrExt;
+            use windows_sys::Win32::UI::Shell::ShellExecuteW;
+            let operation: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
+            let target: Vec<u16> = std::ffi::OsStr::new(parsed.as_str())
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            let result = unsafe {
+                ShellExecuteW(
+                    std::ptr::null_mut(),
+                    operation.as_ptr(),
+                    target.as_ptr(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    1,
+                )
+            };
+            self.stream_status = if (result as isize) <= 32 {
+                "Windows could not open the provider's external link".into()
+            } else {
+                "Opened provider external link in the default browser".into()
+            };
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = parsed;
+            self.stream_status = "External-link handoff is currently available on Windows only".into();
+        }
         cx.notify();
     }
 
@@ -3261,6 +3331,9 @@ impl Render for SenzoApp {
                     self.addon_catalog_items.clone(),
                     self.addon_catalog_status.clone(),
                     self.addon_catalog_addon.clone(),
+                    self.addon_catalog_media_type.clone(),
+                    self.addon_catalog_id.clone(),
+                    self.addon_catalog_page,
                     self.addon_stream_results.clone(),
                     self.stream_status.clone(),
                     self.torrent_files.clone(),
@@ -3322,6 +3395,9 @@ fn render_discovery_page(
     addon_catalog_items: Vec<Value>,
     addon_catalog_status: String,
     addon_catalog_addon: Option<StoredAddon>,
+    addon_catalog_media_type: String,
+    addon_catalog_id: String,
+    addon_catalog_page: usize,
     addon_stream_results: Vec<AddonStreamResult>,
     stream_status: String,
     torrent_files: Vec<TorrentVideoFile>,
@@ -3496,10 +3572,19 @@ fn render_discovery_page(
                     },
                     cx,
                 ));
-            } else if stream.external_url.is_some() {
-                source_notes.push(format!(
-                    "{} · external link supplied by provider",
-                    provider.addon_name
+            } else if let Some(external_url) = stream.external_url.as_deref() {
+                let provider_name = provider.addon_name.clone();
+                let label = format!(
+                    "{} · {} · open link",
+                    provider_name,
+                    stream.name.as_deref().or(stream.title.as_deref()).unwrap_or("External source")
+                );
+                let external_url = external_url.to_owned();
+                stream_chips.push(dynamic_choice_chip(
+                    label,
+                    false,
+                    move |this, cx| this.open_addon_external_link(&external_url, cx),
+                    cx,
                 ));
             }
         }
@@ -4138,7 +4223,33 @@ fn render_discovery_page(
                 .child(div().text_xs().text_color(rgb(0x9299A1)).child("Catalogs are loaded from each enabled add-on manifest."))
                 .child(div().flex().flex_wrap().gap_2().children(catalog_chips))
                 .child(div().text_xs().text_color(rgb(0x9299A1)).child(addon_catalog_status.clone()))
-                .child(div().flex().flex_wrap().gap_2().children(catalog_item_chips)))
+                .child(div().flex().flex_wrap().gap_2().children(catalog_item_chips))
+                .child(div().flex().items_center().gap_2()
+                    .child(dynamic_choice_chip("Previous page".into(), false, move |this, cx| {
+                        if addon_catalog_page > 0 {
+                            if let Some(addon) = addon_catalog_addon.clone() {
+                                this.load_addon_catalog_page(
+                                    addon,
+                                    addon_catalog_media_type.clone(),
+                                    addon_catalog_id.clone(),
+                                    addon_catalog_page - 1,
+                                    cx,
+                                );
+                            }
+                        }
+                    }, cx))
+                    .child(div().text_xs().text_color(rgb(0x9299A1)).child(format!("Page {}", addon_catalog_page + 1)))
+                    .child(dynamic_choice_chip("Next page".into(), false, move |this, cx| {
+                        if let Some(addon) = addon_catalog_addon.clone() {
+                            this.load_addon_catalog_page(
+                                addon,
+                                addon_catalog_media_type.clone(),
+                                addon_catalog_id.clone(),
+                                addon_catalog_page + 1,
+                                cx,
+                            );
+                        }
+                    }, cx)))
                 .child(
                 div()
                     .flex()

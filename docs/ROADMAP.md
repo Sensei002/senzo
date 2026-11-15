@@ -152,11 +152,13 @@ The Settings experience will follow Nuvio's simple, user-friendly approach: clea
 - [x] Surface configuration-required provider hints and never guess required catalog filter values.
 - [x] Keep Torrentio and every other streaming add-on absent by default; only explicitly installed and enabled providers are queried.
 - [x] Add fixture/unit coverage for resource types, ID prefixes, configured Torrentio instance identity, catalog extras, provider ordering, and schema upgrade.
-- [ ] Add a native catalog-filter editor for required/optional extra fields and catalog pagination.
-- [ ] Integrate add-on subtitle results into the native player and support safe external-link handoff.
+- [ ] Add a native catalog-filter editor for required/optional extra fields.
+- [x] Add catalog pagination using Stremio's `skip` extra parameter, with previous/next page controls.
+- [ ] Integrate add-on subtitle results into the native player.
+- [x] Add safe HTTPS external-link handoff through the Windows default browser without shell command construction.
 - [ ] Add runtime validation with real user-configured Torrentio manifests and live provider responses on Windows.
 
-**Batch 7 boundary:** Stremio manifest/catalog/meta/stream/subtitle request services and Torrentio-style BitTorrent v1 stream handoff are present. This batch hardens protocol eligibility, configuration identity, provider lifecycle, and ordering. It does not claim complete Stremio feature parity: generic provider configuration screens, required catalog filter UI, pagination UI, add-on subtitle playback, external-link launching, BitTorrent v2, and live provider/runtime validation remain follow-ups.
+**Batch 7 boundary:** Stremio manifest/catalog/meta/stream/subtitle request services and Torrentio-style BitTorrent v1 stream handoff are present. This batch hardens protocol eligibility, configuration identity, provider lifecycle, and ordering. It does not claim complete Stremio feature parity: generic provider configuration screens, required catalog filter UI, add-on subtitle playback, BitTorrent v2, and live provider/runtime validation remain follow-ups.
 
 **Nuvio reference:** AddonModels.kt, AddonManifestParser.kt, AddonRepository.kt, AddonTransportUrls.kt, and AddonsScreen.kt in NuvioMedia/NuvioDesktop (branch Dev). SENZO adapts the product and protocol concepts to Rust/GPUI and its local-first security model; no Kotlin/Compose source or Nuvio assets are copied.
 
