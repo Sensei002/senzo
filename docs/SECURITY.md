@@ -38,7 +38,7 @@ Before production release, the add-on networking layer must:
 - Limit response size and request duration; redirects are currently disabled for manifest requests.
 - Reject obvious localhost/private/reserved IP literals and local hostname suffixes before manifest requests.
 - Complete DNS-resolution-aware private-address blocking and revalidation against DNS rebinding before production release.
-- Validate manifest identity, resources, supported types, and response schemas.
+- Validate manifest identity, resource declarations, catalog definitions, and resource-specific media types and ID prefixes. Bound catalog extra-property names, values, and counts. Preserve configured manifest paths, keep different configuration URLs independently installable, and retain enabled state when refreshing a manifest.
 - Avoid sending SENZO credentials to add-on servers.
 - Validate returned stream and subtitle URLs before handing them to playback.
 - Handle redirects deliberately and revalidate the final destination.

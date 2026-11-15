@@ -25,7 +25,7 @@ pub struct StoredAddon {
     pub installed_at: i64,
 }
 
-const CURRENT_SCHEMA_VERSION: i64 = 1;
+const CURRENT_SCHEMA_VERSION: i64 = 2;
 
 pub struct LocalDatabase {
     connection: Connection,
@@ -109,6 +109,18 @@ impl LocalDatabase {
             transaction
                 .commit()
                 .context("failed to commit the local database schema migration")?;
+        }
+
+        if schema_version < 2 {
+            let transaction = connection
+                .transaction()
+                .context("failed to begin the add-on ordering migration")?;
+            transaction.execute_batch(
+                "\n                ALTER TABLE addons ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;\n                UPDATE addons SET sort_order = (\n                    SELECT COUNT(*) FROM addons AS earlier\n                    WHERE earlier.name COLLATE NOCASE < addons.name COLLATE NOCASE\n                       OR (earlier.name COLLATE NOCASE = addons.name COLLATE NOCASE AND earlier.id < addons.id)\n                );\n                CREATE INDEX IF NOT EXISTS idx_addons_sort_order ON addons(sort_order, name);\n                PRAGMA user_version = 2;\n                ",
+            )?;
+            transaction
+                .commit()
+                .context("failed to commit the add-on ordering migration")?;
         }
 
         Ok(Self { connection })
@@ -242,8 +254,9 @@ impl LocalDatabase {
     pub fn save_addon(&self, addon: &StoredAddon) -> Result<()> {
         self.connection.execute(
             "INSERT INTO addons
-                (id, name, version, manifest_url, enabled, manifest_json, installed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                (id, name, version, manifest_url, enabled, manifest_json, installed_at, sort_order)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7,
+                (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM addons))
              ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 version = excluded.version,
@@ -263,10 +276,26 @@ impl LocalDatabase {
         Ok(())
     }
 
+    pub fn update_addon_manifest(&self, addon: &StoredAddon) -> Result<bool> {
+        let changed = self.connection.execute(
+            "UPDATE addons
+             SET name = ?2, version = ?3, manifest_url = ?4, manifest_json = ?5
+             WHERE id = ?1",
+            params![
+                addon.id,
+                addon.name,
+                addon.version,
+                addon.manifest_url,
+                addon.manifest_json
+            ],
+        )?;
+        Ok(changed > 0)
+    }
+
     pub fn installed_addons(&self) -> Result<Vec<StoredAddon>> {
         let mut statement = self.connection.prepare(
             "SELECT id, name, version, manifest_url, enabled, manifest_json, installed_at
-             FROM addons ORDER BY name COLLATE NOCASE",
+             FROM addons ORDER BY sort_order, name COLLATE NOCASE",
         )?;
         let rows = statement.query_map([], |row| {
             Ok(StoredAddon {
@@ -293,10 +322,37 @@ impl LocalDatabase {
     }
 
     pub fn remove_addon(&self, id: &str) -> Result<bool> {
-        let removed = self
-            .connection
-            .execute("DELETE FROM addons WHERE id = ?1", [id])?;
-        Ok(removed > 0)
+        Ok(self.connection.execute("DELETE FROM addons WHERE id = ?1", [id])? > 0)
+    }
+
+    /// Moves an add-on one position up (-1) or down (+1).
+    pub fn move_addon(&self, id: &str, direction: i8) -> Result<bool> {
+        if !matches!(direction, -1 | 1) {
+            bail!("add-on movement direction must be -1 or 1");
+        }
+        let transaction = self.connection.unchecked_transaction()?;
+        let mut statement = transaction.prepare(
+            "SELECT id FROM addons ORDER BY sort_order, name COLLATE NOCASE",
+        )?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        let mut ids = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(statement);
+        let Some(index) = ids.iter().position(|value| value == id) else {
+            return Ok(false);
+        };
+        let target = index as isize + direction as isize;
+        if !(0..ids.len() as isize).contains(&target) {
+            return Ok(false);
+        }
+        ids.swap(index, target as usize);
+        for (position, addon_id) in ids.iter().enumerate() {
+            transaction.execute(
+                "UPDATE addons SET sort_order = ?2 WHERE id = ?1",
+                params![addon_id, position as i64],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(true)
     }
 }
 
@@ -368,6 +424,71 @@ mod tests {
 
         assert_eq!(database.installed_addons().expect("list add-ons").len(), 1);
     }
+    #[test]
+    fn add_on_order_and_manifest_refresh_metadata_persist() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let database =
+            LocalDatabase::open(directory.path().join("senzo.db")).expect("database");
+        for (id, name) in [("first", "First"), ("second", "Second"), ("third", "Third")] {
+            database
+                .save_addon(&StoredAddon {
+                    id: id.into(),
+                    name: name.into(),
+                    version: "1".into(),
+                    manifest_url: format!("https://example.org/{id}/manifest.json"),
+                    enabled: true,
+                    manifest_json: format!(
+                        r#"{{"id":"{id}","name":"{name}","version":"1","resources":["stream"]}}"#
+                    ),
+                    installed_at: 10,
+                })
+                .expect("save add-on");
+        }
+        assert!(database.move_addon("third", -1).expect("move up"));
+        let after = database.installed_addons().expect("reordered list");
+        assert_eq!(
+            after.iter().map(|addon| addon.id.as_str()).collect::<Vec<_>>(),
+            vec!["first", "third", "second"]
+        );
+        let refreshed_manifest =
+            r#"{"id":"third","name":"Third refreshed","version":"2","resources":["stream"]}"#;
+        let refreshed = StoredAddon {
+            name: "Third refreshed".into(),
+            version: "2".into(),
+            manifest_json: refreshed_manifest.into(),
+            ..after[1].clone()
+        };
+        assert!(database
+            .update_addon_manifest(&refreshed)
+            .expect("refresh manifest"));
+        assert_eq!(database.installed_addons().expect("list")[1].version, "2");
+        assert!(!database.move_addon("first", -1).expect("boundary move"));
+    }
+
+    #[test]
+    fn upgrades_an_existing_version_one_addon_registry_without_losing_entries() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let path = directory.path().join("legacy.db");
+        let connection = Connection::open(&path).expect("legacy database");
+        connection
+            .execute_batch(
+                "CREATE TABLE addons (
+                    id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, version TEXT NOT NULL,
+                    manifest_url TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
+                    manifest_json TEXT NOT NULL, installed_at INTEGER NOT NULL
+                );
+                INSERT INTO addons VALUES ('legacy', 'Legacy', '1', 'https://example.org/manifest.json', 1, '{}', 42);
+                PRAGMA user_version = 1;",
+            )
+            .expect("create version one registry");
+        drop(connection);
+        let database = LocalDatabase::open(&path).expect("upgrade database");
+        let addons = database.installed_addons().expect("read upgraded registry");
+        assert_eq!(addons.len(), 1);
+        assert_eq!(addons[0].id, "legacy");
+        assert_eq!(addons[0].installed_at, 42);
+    }
+
     #[test]
     fn schema_migration_is_versioned_and_idempotent() {
         let directory = tempfile::tempdir().expect("temporary directory");

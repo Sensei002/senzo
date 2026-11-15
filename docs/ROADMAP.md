@@ -139,13 +139,34 @@ The Settings experience will follow Nuvio's simple, user-friendly approach: clea
 
 **Nuvio reference:** NuvioMedia/NuvioDesktop on branch Dev, especially HomeRepository.kt, HomeHeroSection.kt, HomePosterCard.kt, and HomeContinueWatchingSection.kt. Nuvio's eight-second hero rotation and data-driven Home composition informed this native GPUI implementation. Preserve SENZO branding and the upstream license/attribution requirements for any future code reuse.
 
-## Phase 8 — Additional sources and presence (Batch 7)
+## Phase 8 — Stremio add-on ecosystem (Batch 7)
+
+**Batch 7 delivers the core add-on management and protocol-compatibility milestone.** It builds on the existing manifest/catalog/meta/stream/subtitle services and Batch 5 torrent transport, with Nuvio's native add-on management concepts used as a product reference rather than copying Kotlin/Compose code.
+
+- [x] Honor Stremio resource-level and manifest-level media types and ID prefixes before requesting catalogs, metadata, or streams.
+- [x] Validate manifest resource/catalog declarations and bound catalog extra-property keys, values, and counts.
+- [x] Discover compatible stream providers concurrently while isolating each provider's failure.
+- [x] Preserve path-configured manifest URLs, including user-configured Torrentio URLs; allow multiple configurations of the same provider to be installed independently.
+- [x] Add explicit manifest refresh while preserving the configured URL, enabled state, installation date, and provider identity.
+- [x] Add persistent provider ordering with Move Up/Move Down controls and a versioned SQLite migration that preserves existing installations.
+- [x] Surface configuration-required provider hints and never guess required catalog filter values.
+- [x] Keep Torrentio and every other streaming add-on absent by default; only explicitly installed and enabled providers are queried.
+- [x] Add fixture/unit coverage for resource types, ID prefixes, configured Torrentio instance identity, catalog extras, provider ordering, and schema upgrade.
+- [ ] Add a native catalog-filter editor for required/optional extra fields and catalog pagination.
+- [ ] Integrate add-on subtitle results into the native player and support safe external-link handoff.
+- [ ] Add runtime validation with real user-configured Torrentio manifests and live provider responses on Windows.
+
+**Batch 7 boundary:** Stremio manifest/catalog/meta/stream/subtitle request services and Torrentio-style BitTorrent v1 stream handoff are present. This batch hardens protocol eligibility, configuration identity, provider lifecycle, and ordering. It does not claim complete Stremio feature parity: generic provider configuration screens, required catalog filter UI, pagination UI, add-on subtitle playback, external-link launching, BitTorrent v2, and live provider/runtime validation remain follow-ups.
+
+**Nuvio reference:** AddonModels.kt, AddonManifestParser.kt, AddonRepository.kt, AddonTransportUrls.kt, and AddonsScreen.kt in NuvioMedia/NuvioDesktop (branch Dev). SENZO adapts the product and protocol concepts to Rust/GPUI and its local-first security model; no Kotlin/Compose source or Nuvio assets are copied.
+
+## Phase 9 — Additional sources and presence (Batch 8)
 
 - [ ] Define a stable source-adapter interface for additional providers.
 - [ ] Add more authorized source adapters without changing metadata or playback layers.
 - [ ] Add Discord Rich Presence, playback-state updates, and privacy controls.
 
-## Phase 9 — Windows distribution
+## Phase 10 — Windows distribution
 
 - [ ] Build optimized Windows release binaries in GitHub Actions.
 - [ ] Build a per-machine Windows installer targeting `%ProgramFiles%\\SENZO` (normally `C:\\Program Files\\SENZO`), with UAC elevation, Start Menu shortcuts, and a Windows uninstall entry.

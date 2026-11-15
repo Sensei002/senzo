@@ -29,6 +29,10 @@ pub struct AddonManifest {
     pub id_prefixes: Vec<String>,
     #[serde(default)]
     pub catalogs: Vec<Value>,
+    #[serde(default)]
+    pub logo: Option<String>,
+    #[serde(default, rename = "behaviorHints")]
+    pub behavior_hints: Option<Value>,
 }
 
 impl AddonManifest {
@@ -42,6 +46,99 @@ impl AddonManifest {
             _ => false,
         })
     }
+
+    /// Applies Stremio resource-level type/prefix rules, falling back to manifest defaults.
+    pub fn supports_resource_for(
+        &self,
+        resource: &str,
+        media_type: &str,
+        resource_id: &str,
+    ) -> bool {
+        self.resources.iter().any(|entry| {
+            let (name, types, prefixes): (&str, Vec<&str>, Vec<&str>) = match entry {
+                Value::String(name) => (
+                    name.as_str(),
+                    self.content_types.iter().map(String::as_str).collect(),
+                    self.id_prefixes.iter().map(String::as_str).collect(),
+                ),
+                Value::Object(object) => {
+                    let Some(name) = object.get("name").and_then(Value::as_str) else {
+                        return false;
+                    };
+                    let types = object
+                        .get("types")
+                        .and_then(Value::as_array)
+                        .map(|values| {
+                            values.iter().filter_map(Value::as_str).collect::<Vec<_>>()
+                        })
+                        .filter(|values| !values.is_empty())
+                        .unwrap_or_else(|| {
+                            self.content_types.iter().map(String::as_str).collect()
+                        });
+                    let prefixes = object
+                        .get("idPrefixes")
+                        .and_then(Value::as_array)
+                        .map(|values| {
+                            values.iter().filter_map(Value::as_str).collect::<Vec<_>>()
+                        })
+                        .filter(|values| !values.is_empty())
+                        .unwrap_or_else(|| {
+                            self.id_prefixes.iter().map(String::as_str).collect()
+                        });
+                    (name, types, prefixes)
+                }
+                _ => return false,
+            };
+            if name != resource {
+                return false;
+            }
+            let normalized_type = if media_type == "tv" {
+                "series"
+            } else {
+                media_type
+            };
+            let type_matches = types.is_empty()
+                || types.iter().any(|kind| {
+                    *kind == normalized_type
+                        || (*kind == "tv" && normalized_type == "series")
+                });
+            let prefix_matches = resource == "catalog"
+                || prefixes.is_empty()
+                || prefixes
+                    .iter()
+                    .any(|prefix| resource_id.starts_with(*prefix));
+            type_matches && prefix_matches
+        })
+    }
+
+    pub fn requires_configuration(&self) -> bool {
+        self.behavior_hints
+            .as_ref()
+            .and_then(|hints| hints.get("configurationRequired"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    }
+
+    pub fn catalog_requires_user_input(catalog: &Value) -> bool {
+        let legacy_required = catalog
+            .get("extraRequired")
+            .and_then(Value::as_array)
+            .is_some_and(|extras| !extras.is_empty());
+        let declared_required = catalog
+            .get("extra")
+            .and_then(Value::as_array)
+            .is_some_and(|extras| {
+                extras.iter().any(|extra| {
+                    extra.get("isRequired").and_then(Value::as_bool) == Some(true)
+                })
+            });
+        legacy_required || declared_required
+    }
+}
+
+/// Stable per-installation key; configured instances of one provider remain independent.
+pub fn addon_instance_id(manifest_id: &str, manifest_url: &str) -> String {
+    format!("{}:{}{}", manifest_id.len(), manifest_id, manifest_url)
 }
 
 #[derive(Debug, Clone)]
@@ -208,7 +305,7 @@ impl AddonClient {
         validate_manifest(&manifest)?;
 
         let stored = StoredAddon {
-            id: manifest.id,
+            id: addon_instance_id(&manifest.id, manifest_url.as_str()),
             name: manifest.name,
             version: manifest.version,
             manifest_url: manifest_url.to_string(),
@@ -265,37 +362,48 @@ impl AddonClient {
         media_type: &str,
         media_id: &str,
     ) -> Vec<AddonStreamResult> {
-        let mut results = Vec::new();
-        for addon in addons.iter().filter(|addon| addon.enabled) {
-            match serde_json::from_str::<AddonManifest>(&addon.manifest_json) {
-                Ok(manifest) if manifest.supports_resource("stream") => {}
-                Ok(_) => continue,
-                Err(error) => {
-                    results.push(AddonStreamResult {
-                        addon_id: addon.id.clone(),
-                        addon_name: addon.name.clone(),
-                        streams: Vec::new(),
-                        error: Some(format!("invalid saved manifest: {error}")),
-                    });
-                    continue;
+        let requests = addons
+            .iter()
+            .filter(|addon| addon.enabled)
+            .filter_map(|addon| {
+                match serde_json::from_str::<AddonManifest>(&addon.manifest_json) {
+                    Ok(manifest)
+                        if manifest.supports_resource_for("stream", media_type, media_id) =>
+                    {
+                        Some((addon.clone(), None))
+                    }
+                    Ok(_) => None,
+                    Err(error) => Some((
+                        addon.clone(),
+                        Some(format!("invalid saved manifest: {error}")),
+                    )),
                 }
-            }
-            match self.streams(addon, media_type, media_id).await {
-                Ok(response) => results.push(AddonStreamResult {
-                    addon_id: addon.id.clone(),
-                    addon_name: addon.name.clone(),
-                    streams: response.streams,
-                    error: None,
-                }),
-                Err(error) => results.push(AddonStreamResult {
-                    addon_id: addon.id.clone(),
-                    addon_name: addon.name.clone(),
-                    streams: Vec::new(),
-                    error: Some(format!("{error:#}")),
-                }),
-            }
-        }
-        results
+            })
+            .map(|(addon, manifest_error)| async move {
+                if let Some(error) = manifest_error {
+                    return AddonStreamResult {
+                        addon_id: addon.id,
+                        addon_name: addon.name,
+                        streams: Vec::new(),
+                        error: Some(error),
+                    };
+                }
+                match self.streams(&addon, media_type, media_id).await {
+                    Ok(response) => AddonStreamResult {
+                        addon_id: addon.id,
+                        addon_name: addon.name,
+                        streams: response.streams,
+                        error: None,
+                    },
+                    Err(error) => AddonStreamResult {
+                        addon_id: addon.id,
+                        addon_name: addon.name,
+                        streams: Vec::new(),
+                        error: Some(format!("{error:#}")),
+                    },
+                }
+            });
+        futures::future::join_all(requests).await
     }
 
     /// Resolve a stream hostname and reject every local/reserved DNS answer before handoff.
@@ -336,6 +444,26 @@ impl AddonClient {
         Ok(())
     }
 
+    /// Refreshes a manifest while preserving its configured URL, enabled state, install date,
+    /// and stable per-installation identity.
+    pub async fn refresh_manifest(&self, installed: &StoredAddon) -> Result<StoredAddon> {
+        let preview = self.preview_from_url(&installed.manifest_url).await?;
+        let installed_manifest: AddonManifest = serde_json::from_str(&installed.manifest_json)
+            .context("the installed add-on manifest is invalid")?;
+        if preview.manifest.id != installed_manifest.id {
+            bail!("the refreshed manifest ID does not match the installed add-on identity");
+        }
+        Ok(StoredAddon {
+            id: installed.id.clone(),
+            name: preview.manifest.name,
+            version: preview.manifest.version,
+            manifest_url: preview.manifest_url,
+            enabled: installed.enabled,
+            manifest_json: preview.manifest_json,
+            installed_at: installed.installed_at,
+        })
+    }
+
     /// Retrieves subtitle tracks from an enabled add-on.
     pub async fn subtitles(
         &self,
@@ -358,8 +486,60 @@ fn validate_manifest(manifest: &AddonManifest) -> Result<()> {
     if manifest.id.len() > 512 || manifest.name.len() > 256 || manifest.version.len() > 64 {
         bail!("the add-on manifest contains an overlong id, name, or version");
     }
-    if manifest.resources.is_empty() {
-        bail!("the add-on manifest does not declare any resources");
+    if manifest.resources.is_empty() || manifest.resources.len() > 64 {
+        bail!("the add-on manifest must declare between 1 and 64 resources");
+    }
+    if manifest.catalogs.len() > 256
+        || manifest.content_types.len() > 32
+        || manifest.id_prefixes.len() > 128
+    {
+        bail!("the add-on manifest declares too many types, prefixes, or catalogs");
+    }
+    for resource in &manifest.resources {
+        match resource {
+            Value::String(name) if !name.trim().is_empty() && name.len() <= 64 => {}
+            Value::Object(object)
+                if object
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .is_some_and(|name| !name.trim().is_empty() && name.len() <= 64) => {}
+            _ => bail!("the add-on manifest contains an invalid resource declaration"),
+        }
+    }
+    for catalog in &manifest.catalogs {
+        if !catalog.is_object()
+            || catalog
+                .get("id")
+                .and_then(Value::as_str)
+                .is_none_or(|id| id.trim().is_empty() || id.len() > 256)
+            || catalog
+                .get("type")
+                .and_then(Value::as_str)
+                .is_none_or(|kind| !matches!(kind, "movie" | "series" | "tv" | "channel"))
+        {
+            bail!("the add-on manifest contains an invalid catalog declaration");
+        }
+    }
+    Ok(())
+}
+
+fn validate_catalog_extra(extra: &[(&str, &str)]) -> Result<()> {
+    if extra.len() > 12 {
+        bail!("a catalog request cannot contain more than 12 extra properties");
+    }
+    let mut keys = std::collections::HashSet::new();
+    for (key, value) in extra {
+        if key.is_empty()
+            || key.len() > 64
+            || !key
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+            || value.len() > 256
+            || value.chars().any(char::is_control)
+            || !keys.insert(*key)
+        {
+            bail!("catalog extra properties contain an invalid or duplicate key/value");
+        }
     }
     Ok(())
 }
@@ -383,9 +563,10 @@ fn resource_endpoint(
 
     let manifest: AddonManifest = serde_json::from_str(&addon.manifest_json)
         .context("the stored add-on manifest is invalid")?;
-    if !manifest.supports_resource(resource) {
-        bail!("the selected add-on does not declare the {resource} resource");
+    if !manifest.supports_resource_for(resource, media_type, resource_id) {
+        bail!("the selected add-on does not declare {resource} support for this media type or ID");
     }
+    validate_catalog_extra(extra)?;
 
     let mut endpoint = addon_base_url(&addon.manifest_url)?;
     let final_segment = if extra.is_empty() {
@@ -499,6 +680,7 @@ async fn client_for_public_url(url: &Url) -> Result<Client> {
 }
 
 fn normalize_manifest_url(input: &str) -> Result<Url> {
+    if input.trim().len() > 2048 { bail!("add-on manifest URLs cannot exceed 2048 characters"); }
     let mut url = Url::parse(input.trim()).context("enter a valid add-on URL")?;
     if url.scheme() != "https" || url.host().is_none() {
         bail!("add-on manifest URLs must use HTTPS");
@@ -653,6 +835,13 @@ mod tests {
             addon_base_url(url.as_str()).expect("base URL").as_str(),
             "https://example.org/torrentio/key/"
         );
+        let second =
+            normalize_manifest_url("https://example.org/torrentio/other-config/manifest.json")
+                .expect("second config");
+        assert_ne!(
+            addon_instance_id("org.stremio.torrentio", url.as_str()),
+            addon_instance_id("org.stremio.torrentio", second.as_str())
+        );
     }
 
     #[test]
@@ -805,6 +994,55 @@ mod tests {
                 .scheme(),
             "https"
         );
+    }
+
+    #[test]
+    fn resource_support_honors_types_and_id_prefixes() {
+        let manifest: AddonManifest = serde_json::from_value(serde_json::json!({
+            "id": "example",
+            "name": "Example",
+            "version": "1.0.0",
+            "types": ["movie", "series"],
+            "idPrefixes": ["tt"],
+            "resources": [
+                {
+                    "name": "stream",
+                    "types": ["movie", "series"],
+                    "idPrefixes": ["tt"]
+                },
+                {"name": "meta", "types": ["movie"], "idPrefixes": ["tmdb:"]},
+                "catalog"
+            ]
+        }))
+        .expect("manifest");
+        assert!(manifest.supports_resource_for("stream", "movie", "tt123"));
+        assert!(manifest.supports_resource_for("stream", "series", "tt123:1:2"));
+        assert!(!manifest.supports_resource_for("stream", "movie", "tmdb:123"));
+        assert!(!manifest.supports_resource_for("stream", "channel", "tt123"));
+        assert!(manifest.supports_resource_for("meta", "movie", "tmdb:123"));
+        assert!(!manifest.supports_resource_for("meta", "series", "tmdb:123"));
+        assert!(manifest.supports_resource_for("catalog", "movie", "popular"));
+    }
+
+    #[test]
+    fn detects_required_catalog_filters_in_stremio_and_legacy_shapes() {
+        assert!(AddonManifest::catalog_requires_user_input(&serde_json::json!({
+            "extra": [{"name": "genre", "isRequired": true}]
+        })));
+        assert!(AddonManifest::catalog_requires_user_input(&serde_json::json!({
+            "extraRequired": ["genre"]
+        })));
+        assert!(!AddonManifest::catalog_requires_user_input(&serde_json::json!({
+            "extra": [{"name": "genre", "isRequired": false}]
+        })));
+    }
+
+    #[test]
+    fn catalog_extra_properties_are_bounded_and_unique() {
+        assert!(validate_catalog_extra(&[("genre", "Action"), ("skip", "20")]).is_ok());
+        assert!(validate_catalog_extra(&[("genre", "Action"), ("genre", "Comedy")]).is_err());
+        assert!(validate_catalog_extra(&[("bad/key", "Action")]).is_err());
+        assert!(validate_catalog_extra(&[("genre", &"x".repeat(257))]).is_err());
     }
 
     #[test]

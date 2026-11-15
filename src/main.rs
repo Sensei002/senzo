@@ -496,7 +496,10 @@ impl SenzoApp {
                 else {
                     continue;
                 };
-                if !manifest.supports_resource("catalog") {
+                if !manifest.supports_resource_for("catalog", "movie", "home")
+                    && !manifest.supports_resource_for("catalog", "series", "home")
+                    && !manifest.supports_resource_for("catalog", "tv", "home")
+                {
                     continue;
                 }
                 for catalog in manifest.catalogs {
@@ -512,11 +515,7 @@ impl SenzoApp {
                     }
                     // Catalogs that require user-supplied filters are exposed in the Add-ons
                     // page, but are not guessed or silently queried from the Home screen.
-                    if catalog
-                        .get("extraRequired")
-                        .and_then(Value::as_array)
-                        .is_some_and(|items| !items.is_empty())
-                    {
+                    if AddonManifest::catalog_requires_user_input(&catalog) {
                         continue;
                     }
                     let catalog_name = catalog
@@ -1254,7 +1253,7 @@ impl SenzoApp {
             .map(|value| value.as_secs() as i64)
             .unwrap_or_default();
         let addon = StoredAddon {
-            id: preview.manifest.id,
+            id: senzo::addons::addon_instance_id(&preview.manifest.id, &preview.manifest_url),
             name: preview.manifest.name,
             version: preview.manifest.version,
             manifest_url: preview.manifest_url,
@@ -1262,6 +1261,16 @@ impl SenzoApp {
             manifest_json: preview.manifest_json,
             installed_at,
         };
+        if self.database.installed_addons().is_ok_and(|installed| {
+            installed
+                .iter()
+                .any(|item| item.manifest_url == addon.manifest_url)
+        }) {
+            self.addon_status = "This exact configured add-on URL is already installed".into();
+            self.addon_manifest_preview = None;
+            cx.notify();
+            return;
+        }
         match self.database.save_addon(&addon) {
             Ok(()) => {
                 self.addon_status = format!("Installed {} successfully", addon.name);
@@ -1276,6 +1285,51 @@ impl SenzoApp {
                 self.addon_manifest_preview = None;
             }
         }
+        cx.notify();
+    }
+
+    fn refresh_addon(&mut self, addon: StoredAddon, cx: &mut Context<Self>) {
+        self.addon_status = format!("Refreshing {}…", addon.name);
+        self.addon_task = Some(cx.spawn(async move |this, cx| {
+            let result = cx.background_spawn(async move {
+                let client = AddonClient::new();
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .context("could not initialize add-on refresh runtime")?;
+                runtime.block_on(client.refresh_manifest(&addon))
+            }).await;
+            let _ = this.update(cx, |app, cx| {
+                match result {
+                    Ok(refreshed) => match app.database.update_addon_manifest(&refreshed) {
+                        Ok(true) => {
+                            app.addon_status = format!(
+                                "Updated {} to version {}",
+                                refreshed.name, refreshed.version
+                            );
+                            app.home_catalog_requested = false;
+                            diagnostics::record(
+                                diagnostics::Level::Audit,
+                                "addons",
+                                "user refreshed an installed add-on manifest",
+                            );
+                        }
+                        Ok(false) => {
+                            app.addon_status =
+                                "The add-on was removed before refresh completed".into()
+                        }
+                        Err(error) => {
+                            app.addon_status =
+                                format!("Could not save refreshed manifest: {error:#}")
+                        }
+                    },
+                    Err(error) => {
+                        app.addon_status = format!("Add-on refresh failed: {error:#}")
+                    }
+                }
+                cx.notify();
+            });
+        }));
         cx.notify();
     }
 
@@ -3332,36 +3386,56 @@ fn render_discovery_page(
     }
     let mut catalog_chips = Vec::new();
     for addon in &installed_addons {
-        if let Ok(manifest) = serde_json::from_str::<AddonManifest>(&addon.manifest_json) {
-            if manifest.supports_resource("catalog") {
-                for catalog in &manifest.catalogs {
-                    let Some(id) = catalog.get("id").and_then(Value::as_str) else {
-                        continue;
-                    };
-                    let kind = catalog
-                        .get("type")
-                        .and_then(Value::as_str)
-                        .unwrap_or("movie")
-                        .to_owned();
-                    let name = catalog.get("name").and_then(Value::as_str).unwrap_or(id);
-                    let label = format!("{} · {}", addon.name, name);
-                    let addon_copy = addon.clone();
-                    let catalog_id = id.to_owned();
-                    catalog_chips.push(dynamic_choice_chip(
-                        label,
-                        false,
-                        move |this, cx| {
-                            this.load_addon_catalog(
-                                addon_copy.clone(),
-                                kind.clone(),
-                                catalog_id.clone(),
-                                cx,
-                            )
-                        },
-                        cx,
-                    ));
-                }
+        if !addon.enabled {
+            continue;
+        }
+        let Ok(manifest) = serde_json::from_str::<AddonManifest>(&addon.manifest_json) else {
+            continue;
+        };
+        if !manifest.supports_resource("catalog") {
+            continue;
+        }
+        for catalog in &manifest.catalogs {
+            let Some(id) = catalog.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            let kind = catalog
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or("movie")
+                .to_owned();
+            if !manifest.supports_resource_for("catalog", &kind, id) {
+                continue;
             }
+            let name = catalog.get("name").and_then(Value::as_str).unwrap_or(id);
+            let needs_filters = AddonManifest::catalog_requires_user_input(catalog);
+            let label = format!(
+                "{} · {}{}",
+                addon.name,
+                name,
+                if needs_filters { " · filters required" } else { "" }
+            );
+            let addon_copy = addon.clone();
+            let catalog_id = id.to_owned();
+            catalog_chips.push(dynamic_choice_chip(
+                label,
+                false,
+                move |this, cx| {
+                    if needs_filters {
+                        this.addon_catalog_status =
+                            "This catalog requires filters; SENZO will not guess values.".into();
+                        cx.notify();
+                    } else {
+                        this.load_addon_catalog(
+                            addon_copy.clone(),
+                            kind.clone(),
+                            catalog_id.clone(),
+                            cx,
+                        )
+                    }
+                },
+                cx,
+            ));
         }
     }
     let mut catalog_item_chips = Vec::new();
@@ -4095,6 +4169,19 @@ fn render_discovery_page(
                                         .child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child(preview.manifest.name.clone()))
                                         .child(div().text_xs().text_color(rgb(0xA1A1AA)).child(format!("{} · version {}", preview.manifest.id, preview.manifest.version)))
                                         .child(div().text_sm().text_color(rgb(0x9299A1)).child(preview.manifest.description.clone().unwrap_or_else(|| "No description supplied".into())))
+                                        .when(
+                                            preview.manifest.requires_configuration(),
+                                            |panel| {
+                                                panel.child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(rgb(0xFBBF24))
+                                                        .child(
+                                                            "Provider needs configuration; paste its configured manifest URL."
+                                                        ),
+                                                )
+                                            },
+                                        )
                                         .child(div().text_xs().text_color(rgb(0x67E8F9)).child(format!("Resources: {}", preview.manifest.resources.iter().map(|value| value.as_str().or_else(|| value.get("name").and_then(serde_json::Value::as_str)).unwrap_or("unknown")).collect::<Vec<_>>().join(", "))))
                                         .child(div().flex().flex_wrap().gap_2()
                                             .child(dynamic_choice_chip("Confirm install".into(), false, |this, cx| this.confirm_addon_install(cx), cx))
@@ -4117,6 +4204,9 @@ fn render_discovery_page(
                     .children(installed_addons.into_iter().map(|addon| {
                         let addon_id = addon.id.clone();
                         let toggle_id = addon.id.clone();
+                        let refresh_addon = addon.clone();
+                        let move_up_id = addon.id.clone();
+                        let move_down_id = addon.id.clone();
                         let enabled = addon.enabled;
                         let name = addon.name.clone();
                         let version = addon.version.clone();
@@ -4163,6 +4253,56 @@ fn render_discovery_page(
                                                 Err(error) => this.status = format!("Could not update add-on: {error:#}"),
                                             }
                                             this.home_catalog_requested = false;
+                                            cx.notify();
+                                        },
+                                        cx,
+                                    ))
+                                    .child(dynamic_choice_chip(
+                                        "Refresh".into(),
+                                        false,
+                                        move |this, cx| {
+                                            this.refresh_addon(refresh_addon.clone(), cx)
+                                        },
+                                        cx,
+                                    ))
+                                    .child(dynamic_choice_chip(
+                                        "Move up".into(),
+                                        false,
+                                        move |this, cx| {
+                                            match this.database.move_addon(&move_up_id, -1) {
+                                                Ok(true) => {
+                                                    this.status = "Add-on order updated".into()
+                                                }
+                                                Ok(false) => {
+                                                    this.status = "Add-on is already at the top".into()
+                                                }
+                                                Err(error) => {
+                                                    this.status = format!(
+                                                        "Could not reorder add-on: {error:#}"
+                                                    )
+                                                }
+                                            }
+                                            cx.notify();
+                                        },
+                                        cx,
+                                    ))
+                                    .child(dynamic_choice_chip(
+                                        "Move down".into(),
+                                        false,
+                                        move |this, cx| {
+                                            match this.database.move_addon(&move_down_id, 1) {
+                                                Ok(true) => {
+                                                    this.status = "Add-on order updated".into()
+                                                }
+                                                Ok(false) => {
+                                                    this.status = "Add-on is already at the bottom".into()
+                                                }
+                                                Err(error) => {
+                                                    this.status = format!(
+                                                        "Could not reorder add-on: {error:#}"
+                                                    )
+                                                }
+                                            }
                                             cx.notify();
                                         },
                                         cx,

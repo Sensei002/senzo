@@ -20,13 +20,13 @@ SENZO is an independent project with its own architecture and product decisions.
 - **Language and UI:** Rust + GPUI.
 - **Current platform:** Windows (MSVC).
 - **Planned Windows installation:** Per-machine installation in `C:\\Program Files\\SENZO`; user data remains in `%LOCALAPPDATA%\\SENZO`.
-- **Playback runtime:** Windows x64 `libmpv-2.dll` from the upstream LGPL release, packaged with its runtime dependencies and licence notices as a GitHub Actions artifact; application deployment and runtime validation remain pending.
+- **Playback runtime:** Windows x64 `libmpv-2.dll` from the upstream LGPL release, packaged with its runtime dependencies and licence notices as a GitHub Actions artifact; the CI package includes the runtime; actual playback and deployment validation remain pending.
 - **Planned installer branding:** Official transparent SENZO logo; intended verified Windows publisher name: `Sensei.STGR` (requires a trusted Authenticode certificate).
 - **Later platform:** Linux, after the Windows application is established.
 - **Metadata:** TMDB is the primary metadata provider.
-- **Sources:** Optional, user-installed add-ons using the Stremio HTTP add-on protocol; catalog browsing, metadata lookup, stream discovery, and direct HTTP(S) MPV handoff are now connected.
+- **Sources:** Optional, user-installed add-ons using the Stremio HTTP add-on protocol. SENZO validates manifest resource types and ID prefixes, browses compatible catalogs, resolves metadata, and discovers streams concurrently. Configured manifest paths are preserved, so users can install their own configured Torrentio URL; separate configurations of the same provider remain separate local installs. Provider refresh and persistent ordering are available. Required catalog filters are never guessed; a dedicated filter editor and pagination UI remain planned.
 - **Torrent transport:** Batch 5 connects user-selected Stremio BitTorrent v1 streams to MPV through a token-protected loopback HTTP Range server. The embedded `librqbit` 9.1.0 engine is statically linked with upload/seeding support compiled out; torrent payloads are temporary and playback progress remains in SQLite. Windows CI builds a downloadable x64 application package with the MPV runtime and direct engine license notices. Real-world peer discovery, buffering, seeking, and playback still need manual Windows validation.
-- **Playback:** MPV through a dynamically loaded libmpv C API adapter; the Windows runtime is not yet packaged.
+- **Playback:** MPV through a dynamically loaded libmpv C API adapter; the runtime is included in the CI package; actual playback validation remains pending.
 - **Personal data:** Local SQLite database under the SENZO app-data directory.
 - **Third-party engine notice:** The embedded torrent engine's Apache-2.0 license and attribution are included in [licenses/librqbit-NOTICE.md](licenses/librqbit-NOTICE.md).
 - **Accounts:** No SENZO sign-up, login, or cloud account.
@@ -40,7 +40,7 @@ SENZO will use **The Movie Database (TMDB)** as its primary metadata provider. T
 
 - Search for movies or TV series.
 - Browse artwork-led home and discovery shelves.
-- Use a console-style Home screen with a cinematic featured title and horizontally scrolling, data-driven movie/TV category shelves. The detailed implementation brief is in [docs/UI_DESIGN_SPEC.md](docs/UI_DESIGN_SPEC.md) and is the next planned UI milestone.
+- Use a console-style Home screen with a cinematic featured title and horizontally scrolling, data-driven movie/TV category shelves. The detailed implementation brief is in [docs/UI_DESIGN_SPEC.md](docs/UI_DESIGN_SPEC.md); the initial Home and discovery implementation is delivered in Batch 6.
 - View posters, backdrops, overviews, release dates, genres, ratings, and runtime.
 - Explore cast, crew, trailers, and videos when available.
 - Browse TV seasons and episodes, including episode descriptions and stills.
@@ -50,7 +50,7 @@ TMDB supplies metadata and artwork; it is not a streaming source. SENZO will dis
 
 ### Choose your own streaming sources
 
-SENZO uses a user-managed add-on list. The **Add-ons** screen lets users paste a compatible HTTPS manifest URL from the clipboard, inspect its identity and declared resources, explicitly confirm installation, browse declared catalogs, and enable, disable, or remove installed providers.
+SENZO uses a user-managed add-on list. The **Add-ons** screen lets users paste a compatible HTTPS manifest URL from the clipboard, inspect its identity and declared resources, explicitly confirm installation, browse declared catalogs, enable, disable, refresh, reorder, or remove installed providers. Manifest capability checks honor both global and resource-specific media types and ID prefixes. Configured manifest URL paths are retained, which is important for providers such as Torrentio whose settings are encoded in the URL path. Different configured URLs for the same provider are stored as independent installations.
 
 - No streaming add-on is bundled or preinstalled.
 - **Torrentio is not integrated into SENZO's default source list.**
@@ -58,7 +58,7 @@ SENZO uses a user-managed add-on list. The **Add-ons** screen lets users paste a
 - A user who deliberately chooses to use Torrentio may manually add their own configured manifest URL, just like any other compatible add-on.
 - Only add-ons that the user has installed and enabled should be queried.
 
-Initial compatibility targets the Stremio add-on HTTP protocol. Enabled providers can supply catalog entries and title metadata; movie/episode source discovery isolates provider failures and presents direct HTTP(S), torrent-info-hash, and external-link results. Direct HTTP(S) sources can be handed to MPV after URL and DNS destination validation. Torrent v1 results can be inspected, video files selected, and selected files streamed to MPV through a loopback-only byte-range endpoint. Torrent upload/seeding and persistent engine state are disabled; normal shutdown removes temporary payloads and startup recovery removes abandoned sessions. BitTorrent v2-only hashes are not yet supported. Real-world peer availability, buffering, and seek behavior still require runtime validation. Compatibility with every Stremio add-on and provider-specific extension is not guaranteed.
+Initial compatibility targets the Stremio add-on HTTP protocol. Enabled providers can supply catalog entries and title metadata; movie/episode source discovery runs compatible providers concurrently, isolates provider failures, and presents direct HTTP(S), torrent-info-hash, and external-link results. Required catalog extra fields are detected and never silently filled with guessed values. The current UI does not yet provide a general-purpose catalog-filter editor or pagination controls. Direct HTTP(S) sources can be handed to MPV after URL and DNS destination validation. Torrent v1 results can be inspected, video files selected, and selected files streamed to MPV through a loopback-only byte-range endpoint. Torrent upload/seeding and persistent engine state are disabled; normal shutdown removes temporary payloads and startup recovery removes abandoned sessions. BitTorrent v2-only hashes are not yet supported. Real-world peer availability, buffering, and seek behavior still require runtime validation. Compatibility with every Stremio add-on and provider-specific extension is not guaranteed.
 
 ### Keep personal data on your device
 
