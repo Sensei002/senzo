@@ -15,7 +15,7 @@ use serde_json::Value;
 
 use senzo::{
     addons::{
-        AddonCatalogExtra, AddonClient, AddonManifest, AddonManifestPreview, AddonStreamResult,
+        AddonCatalogExtra, AddonClient, AddonManifest, AddonManifestPreview,
         StremioStream, StremioSubtitle, first_series_episode_id,
     },
     diagnostics,
@@ -25,6 +25,7 @@ use senzo::{
         mpv_worker::{PlaybackEvent, PlaybackState, PlaybackWorker},
         windows_surface::{SurfaceBounds, WindowsVideoSurface, gpui_parent_hwnd},
     },
+    sources::{SourceProviderRegistry, SourceProviderResult},
     settings::{
         DecoderPreference, HardwareDecoding, HdrMode, PlaybackSettings, RendererPreference,
         ScalingAlgorithm,
@@ -104,7 +105,7 @@ struct SenzoApp {
     addon_catalog_page: usize,
     addon_catalog_filter_specs: Vec<AddonCatalogExtra>,
     addon_catalog_filter_values: Vec<(String, Vec<String>)>,
-    addon_stream_results: Vec<AddonStreamResult>,
+    addon_stream_results: Vec<SourceProviderResult>,
     stream_status: String,
     torrent_session: Option<TorrentPlaybackSession>,
     torrent_files: Vec<TorrentVideoFile>,
@@ -948,7 +949,7 @@ impl SenzoApp {
                     let provider_id = external_ids.imdb_id.clone().unwrap_or_else(|| format!("tmdb:{tmdb_id}"));
                     let stremio_id = if media_type == "tv" { format!("{provider_id}:1:1") } else { provider_id };
                     let stremio_type = if media_type == "tv" { "series" } else { "movie" };
-                    let streams = AddonClient::new().discover_streams(&addons, stremio_type, &stremio_id).await;
+                    let streams = SourceProviderRegistry::default().discover(&addons, stremio_type, &stremio_id).await;
                     Ok::<_, anyhow::Error>((details, streams, stremio_id))
                 })
             }).await;
@@ -1201,7 +1202,7 @@ impl SenzoApp {
                 match result {
                     Ok((metadata, streams, id, subtitles)) => {
                         app.tmdb_details = Some(metadata);
-                        app.addon_stream_results = vec![AddonStreamResult { addon_id: addon_id.clone(), addon_name: addon_name.clone(), streams, error: None }];
+                        app.addon_stream_results = vec![SourceProviderResult { provider_id: addon_id.clone(), provider_name: addon_name.clone(), streams, error: None }];
                         app.addon_subtitle_results = subtitles;
                         app.addon_subtitle_status = if app.addon_subtitle_results.is_empty() {
                             "This add-on returned no subtitle tracks for the selected episode".into()
@@ -4562,7 +4563,7 @@ fn render_discovery_page(
     let mut source_notes = Vec::new();
     for provider in &addon_stream_results {
         if let Some(error) = &provider.error {
-            source_notes.push(format!("{} · provider error: {error}", provider.addon_name));
+            source_notes.push(format!("{} · provider error: {error}", provider.provider_name));
         }
         for stream in &provider.streams {
             let is_torrent = stream.is_torrent();
