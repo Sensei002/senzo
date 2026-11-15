@@ -1,12 +1,12 @@
-pub mod discord;
 pub mod addons;
 pub mod artwork;
 pub mod diagnostics;
+pub mod discord;
 pub mod metadata;
 pub mod playback;
 pub mod settings;
+pub mod sources;
 pub mod storage;
 pub mod subtitles;
 pub mod torrent;
 pub mod torrent_engine;
-pub mod sources;
