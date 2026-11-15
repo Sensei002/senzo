@@ -2525,9 +2525,6 @@ impl Render for SenzoApp {
         }
 
         div()
-            .id("senzo-root")
-            .size_full()
-            .flex()
             .on_children_prepainted({
                 let surface = self.native_video_surface.clone();
                 let show_video = self.active_page == AppPage::Player;
@@ -2541,6 +2538,9 @@ impl Render for SenzoApp {
                     }
                 }
             })
+            .id("senzo-root")
+            .size_full()
+            .flex()
             .bg(rgb(0x0A0C0E))
             .text_color(rgb(0xF4F4F5))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _window, cx| {
@@ -3869,6 +3869,7 @@ fn render_discovery_page(
         ),
         AppPage::Addons => ("Add-ons", "Manage the sources you choose to install"),
         AppPage::Settings => ("Settings", "Application preferences"),
+        AppPage::Player => ("Now Playing", "Native playback and playback controls"),
     };
 
     let is_details = page == AppPage::Details;
