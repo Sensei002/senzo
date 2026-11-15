@@ -3591,7 +3591,9 @@ fn render_discovery_page(
                 stream_chips.push(dynamic_choice_chip(
                     label,
                     false,
-                    move |this, cx| this.open_addon_external_link(&external_url, cx),
+                    move |this: &mut SenzoApp, cx: &mut Context<SenzoApp>| {
+                        this.open_addon_external_link(&external_url, cx)
+                    },
                     cx,
                 ));
             }
