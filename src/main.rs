@@ -855,7 +855,9 @@ impl SenzoApp {
         self.addon_catalog_page = page;
         self.addon_catalog_items.clear();
         self.addon_catalog_addon = Some(addon.clone());
-        let mut request_extra = self.addon_catalog_filter_values.iter()
+        let mut request_extra = self
+            .addon_catalog_filter_values
+            .iter()
             .filter(|(name, values)| name != "skip" && !values.is_empty())
             .map(|(name, values)| (name.clone(), values.join(",")))
             .collect::<Vec<_>>();
@@ -869,7 +871,8 @@ impl SenzoApp {
                         .enable_all()
                         .build()
                         .context("could not initialize add-on catalog runtime")?;
-                    let extra = request_extra.iter()
+                    let extra = request_extra
+                        .iter()
                         .map(|(key, value)| (key.as_str(), value.as_str()))
                         .collect::<Vec<_>>();
                     runtime.block_on(client.catalog(&addon, &media_type, &catalog_id, &extra))
@@ -911,7 +914,11 @@ impl SenzoApp {
             self.load_addon_catalog_page(addon, media_type, catalog_id, 0, cx);
         } else {
             let count = self.addon_catalog_filter_specs.len();
-            let required = self.addon_catalog_filter_specs.iter().filter(|property| property.is_required).count();
+            let required = self
+                .addon_catalog_filter_specs
+                .iter()
+                .filter(|property| property.is_required)
+                .count();
             self.addon_catalog_status = format!(
                 "Configure {count} catalogue filter(s) before loading this catalogue. {required} required."
             );
@@ -920,9 +927,17 @@ impl SenzoApp {
     }
 
     fn toggle_addon_catalog_filter(
-        &mut self, name: String, value: String, limit: usize, cx: &mut Context<Self>,
+        &mut self,
+        name: String,
+        value: String,
+        limit: usize,
+        cx: &mut Context<Self>,
     ) {
-        if let Some((_, selected)) = self.addon_catalog_filter_values.iter_mut().find(|(key, _)| key == &name) {
+        if let Some((_, selected)) = self
+            .addon_catalog_filter_values
+            .iter_mut()
+            .find(|(key, _)| key == &name)
+        {
             if selected.iter().any(|item| item == &value) {
                 selected.retain(|item| item != &value);
             } else if limit <= 1 {
@@ -938,15 +953,24 @@ impl SenzoApp {
     }
 
     fn paste_addon_catalog_filter(&mut self, name: String, cx: &mut Context<Self>) {
-        let Some(value) = cx.read_from_clipboard().and_then(|item| item.text())
+        let Some(value) = cx
+            .read_from_clipboard()
+            .and_then(|item| item.text())
             .map(|value| value.trim().to_owned())
-            .filter(|value| !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control))
+            .filter(|value| {
+                !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
+            })
         else {
-            self.addon_catalog_status = "Copy a filter value (up to 256 characters), then paste it here.".into();
+            self.addon_catalog_status =
+                "Copy a filter value (up to 256 characters), then paste it here.".into();
             cx.notify();
             return;
         };
-        if let Some((_, selected)) = self.addon_catalog_filter_values.iter_mut().find(|(key, _)| key == &name) {
+        if let Some((_, selected)) = self
+            .addon_catalog_filter_values
+            .iter_mut()
+            .find(|(key, _)| key == &name)
+        {
             *selected = vec![value];
         } else {
             self.addon_catalog_filter_values.push((name, vec![value]));
@@ -956,10 +980,15 @@ impl SenzoApp {
 
     fn load_filtered_addon_catalog(&mut self, cx: &mut Context<Self>) {
         for property in &self.addon_catalog_filter_specs {
-            let has_value = self.addon_catalog_filter_values.iter()
+            let has_value = self
+                .addon_catalog_filter_values
+                .iter()
                 .any(|(name, values)| name == &property.name && !values.is_empty());
             if property.is_required && !has_value {
-                self.addon_catalog_status = format!("Choose or paste a value for required filter: {}", property.name);
+                self.addon_catalog_status = format!(
+                    "Choose or paste a value for required filter: {}",
+                    property.name
+                );
                 cx.notify();
                 return;
             }
@@ -969,8 +998,13 @@ impl SenzoApp {
             cx.notify();
             return;
         };
-        self.load_addon_catalog_page(addon, self.addon_catalog_media_type.clone(),
-            self.addon_catalog_id.clone(), 0, cx);
+        self.load_addon_catalog_page(
+            addon,
+            self.addon_catalog_media_type.clone(),
+            self.addon_catalog_id.clone(),
+            0,
+            cx,
+        );
     }
 
     fn select_addon_catalog_meta(
@@ -1744,38 +1778,62 @@ impl SenzoApp {
     }
 
     fn download_addon_subtitle(
-        &mut self, addon: StoredAddon, subtitle: StremioSubtitle, cx: &mut Context<Self>,
+        &mut self,
+        addon: StoredAddon,
+        subtitle: StremioSubtitle,
+        cx: &mut Context<Self>,
     ) {
         let Some(worker) = self.playback_worker.clone() else {
             self.addon_subtitle_status = "Start playback before loading an add-on subtitle".into();
             cx.notify();
             return;
         };
-        let label = subtitle.label.clone().or_else(|| subtitle.language.clone())
+        let label = subtitle
+            .label
+            .clone()
+            .or_else(|| subtitle.language.clone())
             .unwrap_or_else(|| "subtitle".into());
         self.addon_subtitle_status = format!("Downloading {label} from {}…", addon.name);
         self.subtitle_task = Some(cx.spawn(async move |this, cx| {
-            let result = cx.background_spawn(async move {
-                let client = AddonClient::new();
-                let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
-                    .context("could not initialize add-on subtitle runtime")?;
-                let path = runtime.block_on(client.download_subtitle(&subtitle))?;
-                {
-                    let worker = worker.lock().map_err(|_| anyhow::anyhow!("playback worker lock is unavailable"))?;
-                    worker.add_subtitle_file(path.clone())?;
-                }
-                Ok::<PathBuf, anyhow::Error>(path)
-            }).await;
+            let result = cx
+                .background_spawn(async move {
+                    let client = AddonClient::new();
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .context("could not initialize add-on subtitle runtime")?;
+                    let path = runtime.block_on(client.download_subtitle(&subtitle))?;
+                    {
+                        let worker = worker
+                            .lock()
+                            .map_err(|_| anyhow::anyhow!("playback worker lock is unavailable"))?;
+                        worker.add_subtitle_file(path.clone())?;
+                    }
+                    Ok::<PathBuf, anyhow::Error>(path)
+                })
+                .await;
             let _ = this.update(cx, |app, cx| {
                 match result {
                     Ok(path) => {
-                        let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("subtitle");
+                        let name = path
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or("subtitle");
                         app.addon_subtitle_status = format!("Loaded add-on subtitle: {name}");
-                        diagnostics::record(diagnostics::Level::Audit, "subtitles", "user loaded a subtitle from an installed Stremio add-on");
+                        diagnostics::record(
+                            diagnostics::Level::Audit,
+                            "subtitles",
+                            "user loaded a subtitle from an installed Stremio add-on",
+                        );
                     }
                     Err(error) => {
-                        app.addon_subtitle_status = format!("Add-on subtitle download failed: {error:#}");
-                        diagnostics::record(diagnostics::Level::Warn, "subtitles", &app.addon_subtitle_status);
+                        app.addon_subtitle_status =
+                            format!("Add-on subtitle download failed: {error:#}");
+                        diagnostics::record(
+                            diagnostics::Level::Warn,
+                            "subtitles",
+                            &app.addon_subtitle_status,
+                        );
                     }
                 }
                 cx.notify();
@@ -2371,13 +2429,29 @@ impl Render for SenzoApp {
 
         let mut addon_subtitle_chips = Vec::new();
         for (addon, subtitle) in &self.addon_subtitle_results {
-            let label = format!("{} · {}", addon.name,
-                subtitle.label.as_deref().or(subtitle.language.as_deref()).unwrap_or("Subtitle"));
+            let label = format!(
+                "{} · {}",
+                addon.name,
+                subtitle
+                    .label
+                    .as_deref()
+                    .or(subtitle.language.as_deref())
+                    .unwrap_or("Subtitle")
+            );
             let selected_addon = addon.clone();
             let selected_subtitle = subtitle.clone();
-            addon_subtitle_chips.push(dynamic_choice_chip(label, false,
-                move |this, cx| this.download_addon_subtitle(selected_addon.clone(), selected_subtitle.clone(), cx),
-                cx));
+            addon_subtitle_chips.push(dynamic_choice_chip(
+                label,
+                false,
+                move |this, cx| {
+                    this.download_addon_subtitle(
+                        selected_addon.clone(),
+                        selected_subtitle.clone(),
+                        cx,
+                    )
+                },
+                cx,
+            ));
         }
         let mut subtitle_track_chips = Vec::new();
         for track in self
@@ -3654,45 +3728,96 @@ fn render_discovery_page(
             }
             let name = catalog.get("name").and_then(Value::as_str).unwrap_or(id);
             let has_filters = !AddonManifest::catalog_extra_properties(catalog).is_empty();
-            let label = format!("{} · {}{}", addon.name, name, if has_filters { " · filters" } else { "" });
+            let label = format!(
+                "{} · {}{}",
+                addon.name,
+                name,
+                if has_filters { " · filters" } else { "" }
+            );
             let addon_copy = addon.clone();
             let catalog_copy = catalog.clone();
             let catalog_id = id.to_owned();
-            catalog_chips.push(dynamic_choice_chip(label, false, move |this, cx| {
-                this.select_addon_catalog(addon_copy.clone(), kind.clone(), catalog_id.clone(), catalog_copy.clone(), cx)
-            }, cx));
+            catalog_chips.push(dynamic_choice_chip(
+                label,
+                false,
+                move |this, cx| {
+                    this.select_addon_catalog(
+                        addon_copy.clone(),
+                        kind.clone(),
+                        catalog_id.clone(),
+                        catalog_copy.clone(),
+                        cx,
+                    )
+                },
+                cx,
+            ));
         }
     }
     let mut catalog_filter_rows = Vec::new();
     for property in &addon_catalog_filter_specs {
-        let selected_values = addon_catalog_filter_values.iter()
+        let selected_values = addon_catalog_filter_values
+            .iter()
             .find(|(name, _)| name == &property.name)
-            .map(|(_, values)| values.clone()).unwrap_or_default();
+            .map(|(_, values)| values.clone())
+            .unwrap_or_default();
         let mut choices = Vec::new();
         if property.options.is_empty() {
             let name = property.name.clone();
-            choices.push(dynamic_choice_chip(format!("Paste value for {}", property.name),
-                !selected_values.is_empty(),
-                move |this, cx| this.paste_addon_catalog_filter(name.clone(), cx),
-                cx).into_any_element());
+            choices.push(
+                dynamic_choice_chip(
+                    format!("Paste value for {}", property.name),
+                    !selected_values.is_empty(),
+                    move |this, cx| this.paste_addon_catalog_filter(name.clone(), cx),
+                    cx,
+                )
+                .into_any_element(),
+            );
         } else {
             for option in &property.options {
                 let name = property.name.clone();
                 let value = option.clone();
                 let selected = selected_values.iter().any(|item| item == option);
                 let limit = property.options_limit;
-                choices.push(dynamic_choice_chip(option.clone(), selected,
-                    move |this, cx| this.toggle_addon_catalog_filter(name.clone(), value.clone(), limit, cx),
-                    cx).into_any_element());
+                choices.push(
+                    dynamic_choice_chip(
+                        option.clone(),
+                        selected,
+                        move |this, cx| {
+                            this.toggle_addon_catalog_filter(name.clone(), value.clone(), limit, cx)
+                        },
+                        cx,
+                    )
+                    .into_any_element(),
+                );
             }
         }
-        let current = if selected_values.is_empty() { "No value selected".to_owned() } else { selected_values.join(", ") };
-        catalog_filter_rows.push(div().p_3().rounded_md().bg(rgb(0x101315)).flex().flex_col().gap_2()
-            .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(format!(
-                "{}{} · {}", property.name, if property.is_required { " *" } else { "" }, current
-            )))
-            .child(div().flex().flex_wrap().gap_2().children(choices))
-            .into_any_element());
+        let current = if selected_values.is_empty() {
+            "No value selected".to_owned()
+        } else {
+            selected_values.join(", ")
+        };
+        catalog_filter_rows.push(
+            div()
+                .p_3()
+                .rounded_md()
+                .bg(rgb(0x101315))
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .child(format!(
+                            "{}{} · {}",
+                            property.name,
+                            if property.is_required { " *" } else { "" },
+                            current
+                        )),
+                )
+                .child(div().flex().flex_wrap().gap_2().children(choices))
+                .into_any_element(),
+        );
     }
     let mut catalog_item_chips = Vec::new();
     if let Some(addon) = addon_catalog_addon.clone() {

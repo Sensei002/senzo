@@ -154,19 +154,37 @@ impl AddonManifest {
         let mut properties = Vec::new();
         if let Some(extras) = catalog.get("extra").and_then(Value::as_array) {
             for extra in extras {
-                let Some(name) = extra.get("name").and_then(Value::as_str)
+                let Some(name) = extra
+                    .get("name")
+                    .and_then(Value::as_str)
                     .filter(|name| !name.trim().is_empty() && name.len() <= 64)
-                else { continue };
-                let options = extra.get("options").and_then(Value::as_array)
-                    .map(|values| values.iter().filter_map(Value::as_str)
-                        .filter(|value| !value.trim().is_empty() && value.len() <= 128)
-                        .map(str::to_owned).take(100).collect::<Vec<_>>())
+                else {
+                    continue;
+                };
+                let options = extra
+                    .get("options")
+                    .and_then(Value::as_array)
+                    .map(|values| {
+                        values
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .filter(|value| !value.trim().is_empty() && value.len() <= 128)
+                            .map(str::to_owned)
+                            .take(100)
+                            .collect::<Vec<_>>()
+                    })
                     .unwrap_or_default();
-                let options_limit = extra.get("optionsLimit").and_then(Value::as_u64)
-                    .unwrap_or(1).clamp(1, 20) as usize;
+                let options_limit = extra
+                    .get("optionsLimit")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(1)
+                    .clamp(1, 20) as usize;
                 properties.push(AddonCatalogExtra {
                     name: name.to_owned(),
-                    is_required: extra.get("isRequired").and_then(Value::as_bool).unwrap_or(false),
+                    is_required: extra
+                        .get("isRequired")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
                     options,
                     options_limit,
                 });
@@ -174,8 +192,11 @@ impl AddonManifest {
         }
         if let Some(required) = catalog.get("extraRequired").and_then(Value::as_array) {
             for name in required.iter().filter_map(Value::as_str) {
-                if name.trim().is_empty() || name.len() > 64 { continue; }
-                if let Some(existing) = properties.iter_mut().find(|property| property.name == name) {
+                if name.trim().is_empty() || name.len() > 64 {
+                    continue;
+                }
+                if let Some(existing) = properties.iter_mut().find(|property| property.name == name)
+ {
                     existing.is_required = true;
                     continue;
                 }
@@ -543,8 +564,14 @@ impl AddonClient {
         for subtitle in &response.subtitles {
             if subtitle.url.len() > 2048
                 || subtitle.id.as_ref().is_some_and(|value| value.len() > 512)
-                || subtitle.language.as_ref().is_some_and(|value| value.len() > 32 || value.chars().any(char::is_control))
-                || subtitle.label.as_ref().is_some_and(|value| value.len() > 256 || value.chars().any(char::is_control))
+                || subtitle
+                    .language
+                    .as_ref()
+                    .is_some_and(|value| value.len() > 32 || value.chars().any(char::is_control))
+                || subtitle
+                    .label
+                    .as_ref()
+                    .is_some_and(|value| value.len() > 256 || value.chars().any(char::is_control))
             {
                 bail!("add-on returned an overlong or invalid subtitle descriptor");
             }
@@ -554,20 +581,36 @@ impl AddonClient {
     }
 
     /// Downloads an add-on subtitle into SENZO's local cache for native MPV playback.
-    pub async fn download_subtitle(&self, subtitle: &StremioSubtitle) -> Result<std::path::PathBuf> {
+    pub async fn download_subtitle(
+        &self,
+        subtitle: &StremioSubtitle,
+    ) -> Result<std::path::PathBuf> {
         let url = validate_addon_subtitle_url(&subtitle.url)?;
         let client = client_for_public_url(&url).await?;
-        let mut response = client.get(url.clone()).send().await
+        let mut response = client
+            .get(url.clone())
+            .send()
+            .await
             .context("add-on subtitle download request failed")?;
         if response.status() != StatusCode::OK {
-            bail!("add-on subtitle endpoint returned HTTP {}", response.status());
+            bail!(
+                "add-on subtitle endpoint returned HTTP {}",
+                response.status()
+            );
         }
         const MAX_SUBTITLE_BYTES: usize = 20 * 1024 * 1024;
-        if response.content_length().is_some_and(|length| length > MAX_SUBTITLE_BYTES as u64) {
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_SUBTITLE_BYTES as u64)
+        {
             bail!("add-on subtitle exceeds the 20 MiB safety limit");
         }
         let mut bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await.context("failed while reading add-on subtitle")? {
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .context("failed while reading add-on subtitle")?
+        {
             if bytes.len().saturating_add(chunk.len()) > MAX_SUBTITLE_BYTES {
                 bail!("add-on subtitle exceeds the 20 MiB safety limit");
             }
@@ -576,8 +619,13 @@ impl AddonClient {
         if bytes.is_empty() {
             bail!("add-on returned an empty subtitle file");
         }
-        let extension = subtitle.format.as_deref()
-            .or_else(|| url.path_segments().and_then(|mut segments| segments.next_back()))
+        let extension = subtitle
+            .format
+            .as_deref()
+            .or_else(|| {
+                url.path_segments()
+                    .and_then(|mut segments| segments.next_back())
+            })
             .and_then(|value| value.rsplit('.').next())
             .unwrap_or("srt")
             .trim_start_matches('.')
@@ -586,11 +634,16 @@ impl AddonClient {
             "srt" | "ass" | "ssa" | "vtt" | "sub" | "idx" | "sup" => extension,
             _ => bail!("add-on returned an unsupported subtitle format"),
         };
-        let directory = dirs::cache_dir().unwrap_or_else(std::env::temp_dir)
-            .join("SENZO").join("subtitles");
+        let directory = dirs::cache_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("SENZO")
+            .join("subtitles");
         std::fs::create_dir_all(&directory).context("could not create the SENZO subtitle cache")?;
         let path = directory.join(format!("addon-{}.{}", uuid::Uuid::new_v4(), extension));
-        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&path)
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
             .context("could not create the cached add-on subtitle")?;
         use std::io::Write;
         if let Err(error) = file.write_all(&bytes).and_then(|()| file.sync_all()) {
@@ -651,24 +704,31 @@ fn validate_manifest(manifest: &AddonManifest) -> Result<()> {
 
 fn validate_addon_subtitle_url(value: &str) -> Result<Url> {
     let url = Url::parse(value).context("add-on returned an invalid subtitle URL")?;
-    if url.scheme() != "https" || url.host().is_none()
-        || !url.username().is_empty() || url.password().is_some() || url.fragment().is_some()
+    if url.scheme() != "https"
+        || url.host().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
     {
         bail!("add-on subtitle URLs must be HTTPS URLs without credentials or fragments");
     }
     match url.host().expect("host was validated") {
         Host::Domain(host) => {
             let host = host.trim_end_matches('.').to_ascii_lowercase();
-            if host == "localhost" || host.ends_with(".localhost")
-                || host.ends_with(".local") || host.ends_with(".internal")
+            if host == "localhost"
+                || host.ends_with(".localhost")
+                || host.ends_with(".local")
+                || host.ends_with(".internal")
             {
                 bail!("add-on subtitle URLs cannot target local network hostnames");
             }
         }
-        Host::Ipv4(ip) if is_disallowed_ip(IpAddr::V4(ip)) =>
-            bail!("add-on subtitle URLs cannot target local or reserved IP addresses"),
-        Host::Ipv6(ip) if is_disallowed_ip(IpAddr::V6(ip)) =>
-            bail!("add-on subtitle URLs cannot target local or reserved IP addresses"),
+        Host::Ipv4(ip) if is_disallowed_ip(IpAddr::V4(ip)) => {
+            bail!("add-on subtitle URLs cannot target local or reserved IP addresses")
+        }
+        Host::Ipv6(ip) if is_disallowed_ip(IpAddr::V6(ip)) => {
+            bail!("add-on subtitle URLs cannot target local or reserved IP addresses")
+        }
         Host::Ipv4(_) | Host::Ipv6(_) => {}
     }
     Ok(url)
