@@ -680,17 +680,7 @@ impl SenzoApp {
                             let client = client.clone();
                             async move {
                                 let response = client.catalog(&addon, &media_type, &catalog_id, &[]).await;
-                                let metas = response.map(|response| {
-                                    response.metas.into_iter().filter_map(|mut meta| {
-                                        let object = meta.as_object_mut()?;
-                                        if !object.get("id").is_some_and(Value::is_string) {
-                                            return None;
-                                        }
-                                        object.entry("type").or_insert_with(|| Value::String(media_type.clone()));
-                                        Some(meta)
-                                    }).take(20).collect::<Vec<_>>()
-                                });
-                                (addon, media_type, catalog_id, shelf_name, metas)
+                                (addon, media_type, catalog_id, shelf_name, response)
                             }
                         });
                         let mut shelves = Vec::new();
