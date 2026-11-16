@@ -427,7 +427,7 @@ pub struct TmdbEpisode {
     pub vote_average: Option<f64>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct TmdbExternalIds {
     pub imdb_id: Option<String>,
     pub tvdb_id: Option<u64>,
