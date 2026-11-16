@@ -5350,13 +5350,35 @@ fn render_discovery_page(
                     .position(|saved| saved == *name)
                     .unwrap_or(usize::MAX)
             });
-            let featured_items = home_catalogs.iter()
-                .filter(|(shelf, _, _)| shelf == "Trending Movies" || shelf == "Trending this week")
+            // Prefer titles with usable artwork so the hero never selects an
+            // item that can only render as an empty backdrop.
+            let has_hero_artwork = |item: &TmdbSearchResult| {
+                item.backdrop_path
+                    .as_deref()
+                    .and_then(|path| tmdb_artwork_url(Some(path), "w1280"))
+                    .is_some()
+                    || item
+                        .poster_path
+                        .as_deref()
+                        .and_then(|path| tmdb_artwork_url(Some(path), "w780"))
+                        .is_some()
+            };
+            let featured_items = home_catalogs
+                .iter()
+                .filter(|(shelf, _, item)| {
+                    (shelf == "Trending Movies" || shelf == "Trending this week")
+                        && has_hero_artwork(item)
+                })
                 .take(7)
                 .cloned()
                 .collect::<Vec<_>>();
             let featured_items = if featured_items.is_empty() {
-                home_catalogs.iter().take(7).cloned().collect::<Vec<_>>()
+                home_catalogs
+                    .iter()
+                    .filter(|(_, _, item)| has_hero_artwork(item))
+                    .take(7)
+                    .cloned()
+                    .collect::<Vec<_>>()
             } else {
                 featured_items
             };
@@ -5371,7 +5393,9 @@ fn render_discovery_page(
                 let overview = item.overview.clone().unwrap_or_else(|| "Discover more details and available sources.".into());
                 let selected = item.clone();
                 let selected_kind = kind.clone();
-                let backdrop = tmdb_artwork_url(item.backdrop_path.as_deref(), "w1280");
+                // A poster is a deliberate fallback for titles without a backdrop.
+                let backdrop = tmdb_artwork_url(item.backdrop_path.as_deref(), "w1280")
+                    .or_else(|| tmdb_artwork_url(item.poster_path.as_deref(), "w780"));
                 div()
                     .w_full()
                     .h(px(520.))
@@ -6082,7 +6106,10 @@ fn render_discovery_page(
                                     .unwrap_or_default();
                                 let selected = item.clone();
                                 let selected_kind = kind.clone();
-                                let poster = tmdb_artwork_url(item.poster_path.as_deref(), "w342");
+                                // Some catalogue entries have no poster but do have a
+                                // backdrop. Use it as a cropped card fallback instead of a blank tile.
+                                let poster = tmdb_artwork_url(item.poster_path.as_deref(), "w342")
+                                    .or_else(|| tmdb_artwork_url(item.backdrop_path.as_deref(), "w780"));
                                 let has_poster = poster.is_some();
                                 div()
                                     .w(poster_width)
