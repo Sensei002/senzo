@@ -430,6 +430,29 @@ impl SenzoApp {
                                     app.playback_status = "MPV runtime ready".into();
                                 }
                                 PlaybackEvent::StateChanged(state) => {
+                                    if app.playback_state.diagnostics != state.diagnostics {
+                                        let video = &state.diagnostics;
+                                        diagnostics::record(
+                                            diagnostics::Level::Info,
+                                            "playback",
+                                            &format!(
+                                                "MPV video output state: codec={}; format={}; decoder={}; hwdec={}; vo={}; vo_configured={}; dimensions={}x{}; container_fps={}; output_fps={}; dropped_frames={}; decoder_dropped_frames={}; mistimed_frames={}",
+                                                video.video_codec.as_deref().unwrap_or("unknown"),
+                                                video.video_format.as_deref().unwrap_or("unknown"),
+                                                video.video_decoder.as_deref().unwrap_or("unknown"),
+                                                video.hardware_decoder.as_deref().unwrap_or("unknown"),
+                                                video.video_output.as_deref().unwrap_or("unknown"),
+                                                video.video_output_configured.map(|value| value.to_string()).unwrap_or_else(|| "unknown".into()),
+                                                video.video_width.map(|value| value.to_string()).unwrap_or_else(|| "?".into()),
+                                                video.video_height.map(|value| value.to_string()).unwrap_or_else(|| "?".into()),
+                                                video.container_frame_rate.map(|value| format!("{value:.3}")).unwrap_or_else(|| "?".into()),
+                                                video.frame_rate.map(|value| format!("{value:.3}")).unwrap_or_else(|| "?".into()),
+                                                video.dropped_frames.map(|value| value.to_string()).unwrap_or_else(|| "?".into()),
+                                                video.decoder_dropped_frames.map(|value| value.to_string()).unwrap_or_else(|| "?".into()),
+                                                video.mistimed_frames.map(|value| value.to_string()).unwrap_or_else(|| "?".into()),
+                                            ),
+                                        );
+                                    }
                                     app.playback_state = state.clone();
                                     app.discord_presence.update_playback(
                                         app.active_media_title
