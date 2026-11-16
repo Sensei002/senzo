@@ -76,6 +76,11 @@ impl MpvConfig {
             return Err("native video window ID must be a non-zero HWND");
         }
         self.set("wid", window_id);
+        // Keep the video output attached to the caller-owned child HWND even
+        // before the first video frame arrives (audio-only streams included).
+        self.set("force-window", "yes");
+        self.set("osc", "no");
+        self.set("input-default-bindings", "no");
         Ok(())
     }
 
@@ -310,6 +315,9 @@ mod tests {
             config.options.get("wid").map(String::as_str),
             Some("305441741")
         );
+        assert_eq!(config.options.get("force-window").map(String::as_str), Some("yes"));
+        assert_eq!(config.options.get("osc").map(String::as_str), Some("no"));
+        assert_eq!(config.options.get("input-default-bindings").map(String::as_str), Some("no"));
     }
 
     #[test]
