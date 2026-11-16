@@ -73,6 +73,8 @@ The Settings experience will follow Nuvio's simple, user-friendly approach: clea
 - [x] Pass the child HWND to MPV before runtime initialization; validate actual video presentation, hardware decoding, and GPU/renderer compatibility on Windows.
 - [x] Wire the native MPV child surface into the GPUI video viewport, including parent-HWND acquisition, DPI-aware viewport bounds, child creation, and resize updates. Actual Windows playback, z-order, and teardown behavior still require runtime validation.
 - [ ] Validate visible video output on Windows with real direct and user-installed Torrentio streams; confirm MPV `vo-configured`, decoded dimensions, and frame counters.
+- [x] Add an immersive Player destination that hides the discovery navigation rail while media is playing, uses a black edge-to-edge playback canvas, expands the native video viewport to consume available player space, and provides an explicit Back action to return to the previous browsing context.
+- [ ] Validate immersive player sizing and native child-HWND alignment on Windows at multiple window sizes and display scale factors; verify Back restores the previous screen without stopping playback.
 - [x] Force MPV's embedded window mode for caller-owned HWND playback and disable MPV's standalone OSC/default key bindings in the embedded surface.
 - [x] Raise the native child video surface to the top of its sibling z-order whenever its viewport is resized.
 - [x] Add native local-file selection and queue file-load commands through the GPUI playback bridge (requires a trusted runtime DLL).
