@@ -42,7 +42,7 @@ The Settings experience will follow Nuvio's simple, user-friendly approach: clea
 - [x] Connect TMDB popular catalogues, clipboard-assisted movie/TV search, and title detail requests to GPUI screens.
 - [x] Add TMDB TV season/episode detail endpoints and typed response models (UI browsing remains pending).
 - [x] Add TMDB movie/TV external-ID lookup models and endpoints (source-provider integration remains pending).
-- [ ] Add bounded local metadata and artwork caches.
+- [x] Add bounded local TMDB artwork disk caching with HTTPS-only host validation, 8 MiB per-image limit, 128 MiB total budget, and GPUI decoded-image cache integration; bounded metadata caches are tracked separately below.
 - [ ] Add continue-watching, watch history, favorites, and local library views.
 - [ ] Add safe cache cleanup that preserves personal history and settings.
 
@@ -222,6 +222,20 @@ Batch 8 turns the existing MPV worker integration into a dedicated, usable nativ
 **Boundary:** TMDB season numbering is passed through to compatible Stremio providers without guessing or silently remapping provider-specific numbering. Cache contents are disposable and may be pruned; they are never treated as user library data. Runtime provider correctness still depends on the metadata numbering matching the installed add-on's expectations.
 
 **Nuvio reference:** NuvioMedia/NuvioDesktop series/episode detail and player episode-stream selection flows. SENZO uses the native Rust + GPUI presentation and its own TMDB/Stremio/MPV service boundaries.
+
+## Phase 9.3 — Native Artwork Pipeline (Batch 8.3C)
+
+**Status: Implementation pushed; Windows CI verification pending.** The initial artwork cache existed, but the GPUI application had not registered the custom HTTP client that connects remote image elements to the secure TMDB artwork loader. As a result, valid TMDB poster URLs could remain blank.
+
+- [x] Register the secure TMDB artwork HTTP client with GPUI at application startup.
+- [x] Serve cached artwork bytes to GPUI and fetch cache misses asynchronously over HTTPS from the official TMDB image host.
+- [x] Enforce the 8 MiB per-image response limit and reject empty, failed, and non-success HTTP responses.
+- [x] Cache only successful complete image responses; report cache-write failures without breaking the current image response.
+- [x] Preserve the bounded 128 MiB disk cache and existing GPUI image decoding/rendering path for posters, backdrops, and episode stills.
+- [ ] Verify posters, backdrops, and episode stills render on Windows across Home, Search, Details, and TV episode screens.
+- [ ] Verify cache hits on relaunch, cache miss downloads, offline placeholders, and recovery after a failed request.
+
+**Boundary:** The artwork client is restricted to HTTPS on image.tmdb.org; it does not fetch arbitrary user-supplied image URLs. Artwork is disposable cache data and does not contain personal watch history or credentials.
 
 ## Phase 10 — Additional sources and presence (Batch 9)
 
