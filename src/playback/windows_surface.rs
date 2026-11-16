@@ -6,7 +6,7 @@ use std::ptr;
 use windows_sys::Win32::{
     Foundation::{GetLastError, HWND},
     UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, IsWindow, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW,
+        CreateWindowExW, DestroyWindow, IsWindow, HWND_TOP, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_SHOWWINDOW,
         SetWindowPos, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_VISIBLE,
     },
 };
@@ -154,12 +154,12 @@ impl WindowsVideoSurface {
         let ok = unsafe {
             SetWindowPos(
                 self.hwnd as HWND,
-                ptr::null_mut(),
+                HWND_TOP,
                 bounds.x,
                 bounds.y,
                 bounds.width,
                 bounds.height,
-                SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW,
             )
         };
         if ok == 0 {
