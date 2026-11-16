@@ -3448,7 +3448,7 @@ impl Render for SenzoApp {
                     _ => {}
                 }
             }))
-            .child(
+            .when(self.active_page != AppPage::Player, |root| root.child(
                 div()
                     .w(px(220.))
                     .h_full()
@@ -3545,7 +3545,7 @@ impl Render for SenzoApp {
                                     ),
                             ),
                     ),
-            )
+            ))
             .when(self.active_page == AppPage::Settings, |root| {
                 root.child(
                 div()
@@ -4609,12 +4609,14 @@ impl Render for SenzoApp {
                     }
                 }
                 root.child(
-                    div().id("senzo-player-screen").flex_1().h_full().overflow_y_scroll().p_6().flex().flex_col().gap_4()
+                    div().id("senzo-player-screen").flex_1().h_full().min_w_0().overflow_y_scroll().p_4().flex().flex_col().gap_3().bg(rgb(0x050708))
                         .child(div().flex().items_center().justify_between()
                             .child(div().flex().flex_col().gap_1()
-                                .child(div().text_2xl().font_weight(gpui::FontWeight::BOLD).child("Now Playing"))
+                                .child(div().text_2xl().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xF8FAFC)).child("NOW PLAYING"))
                                 .child(div().text_sm().text_color(rgb(0x9299A1)).child(self.playback_status.clone())))
-                            .child(choice_chip("Open media", false, |this, cx| this.open_media(cx), cx)))
+                            .child(div().flex().items_center().gap_2()
+                                .child(choice_chip("Back", false, |this, cx| { this.active_page = if this.selected_title.is_some() { AppPage::Details } else { AppPage::Home }; cx.notify(); }, cx))
+                                .child(choice_chip("Open media", false, |this, cx| this.open_media(cx), cx))))
                         .child(div().w_full().on_children_prepainted(move |children, window, _cx| {
                             if let Some(bounds) = children.first() {
                                 if let Ok(measured) = SurfaceBounds::from_logical_pixels(f32::from(bounds.origin.x), f32::from(bounds.origin.y), f32::from(bounds.size.width), f32::from(bounds.size.height), window.scale_factor()) {
@@ -4638,7 +4640,7 @@ impl Render for SenzoApp {
                                     }
                                 }
                             }
-                        }).child(div().id("player-video-viewport").w_full().h(px(500.0)).rounded_lg().border_1().border_color(rgb(0x263238)).bg(rgb(0x050708)).flex().items_center().justify_center()
+                        }).child(div().id("player-video-viewport").w_full().flex_1().min_h(px(300.0)).rounded_lg().border_1().border_color(rgb(0x263238)).bg(rgb(0x000000)).flex().items_center().justify_center()
                             .child(div().text_sm().text_color(rgb(0x67E8F9)).child("SENZO NATIVE VIDEO"))))
                         .child(div().flex().items_center().justify_between()
                             .child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child(self.playback_state.media_title.clone().or_else(|| self.selected_title.clone()).unwrap_or_else(|| "No media loaded".into())))
