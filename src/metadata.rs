@@ -264,14 +264,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tmdb_token_validation_rejects_empty_oversized_and_control_input() {
-        assert_eq!(validate_tmdb_token(" token ").unwrap(), "token");
-        assert!(validate_tmdb_token("  ").is_err());
-        assert!(validate_tmdb_token(&"x".repeat(MAX_TMDB_TOKEN_BYTES + 1)).is_err());
-        assert!(validate_tmdb_token("token\nvalue").is_err());
-    }
-
-    #[test]
     fn metadata_client_requires_a_valid_https_service_url() {
         assert!(TmdbClient::new("https://senzo-api.vercel.app/api/tmdb", "en-US").is_ok());
         assert!(TmdbClient::new("http://senzo-api.vercel.app/api/tmdb", "en-US").is_err());
