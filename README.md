@@ -23,7 +23,7 @@ SENZO is an independent project with its own architecture and product decisions.
 - **Playback runtime:** Windows x64 `libmpv-2.dll` from the upstream LGPL release, packaged with its runtime dependencies and licence notices as a GitHub Actions artifact; the CI package includes the runtime; actual playback and deployment validation remain pending.
 - **Planned installer branding:** Official transparent SENZO logo; intended verified Windows publisher name: `Sensei.STGR` (requires a trusted Authenticode certificate).
 - **Later platform:** Linux, after the Windows application is established.
-- **Metadata:** TMDB is the primary metadata provider.
+- **Metadata:** TMDB is the primary metadata provider, accessed through the hosted SENZO API (`https://senzo-api.vercel.app`). The TMDB Read Access Token stays server-side; the desktop app contains no TMDB credential and requires no user setup.
 - **Sources:** Optional, user-installed add-ons using the Stremio HTTP add-on protocol, routed through a provider-neutral source adapter registry. The Stremio adapter is the first registered adapter; additional authorized providers can be added without coupling them to metadata or MPV. SENZO validates manifest resource types and ID prefixes, browses compatible catalogs, resolves metadata, and discovers streams concurrently. Configured manifest paths are preserved, so users can install their own configured Torrentio URL; separate configurations of the same provider remain separate local installs. Provider refresh and persistent ordering are available. Catalog filters are edited natively: declared options are selectable, free-text values can be pasted from the clipboard, required fields are enforced, and catalog results support 100-item Stremio pagination. Add-on subtitle resources are exposed as native MPV subtitle tracks after a catalog title is selected.
 - **Torrent transport:** Batch 5 connects user-selected Stremio BitTorrent v1 streams to MPV through a token-protected loopback HTTP Range server. The embedded `librqbit` 9.1.0 engine is statically linked with upload/seeding support compiled out; torrent payloads are temporary and playback progress remains in SQLite. Windows CI builds a downloadable x64 application package with the MPV runtime and direct engine license notices. Real-world peer discovery, buffering, seeking, and playback still need manual Windows validation.
 - **Playback:** MPV through a dynamically loaded libmpv C API adapter. The dedicated native Player view includes a Win32 video viewport, transport/seek/volume/mute/fullscreen controls, audio/subtitle track selection, subtitle loading/search, keyboard shortcuts, and live decoder/output diagnostics. The pinned MPV runtime is included in the CI artifact; actual Windows video presentation and hardware compatibility still require runtime validation.
@@ -48,7 +48,7 @@ SENZO will use **The Movie Database (TMDB)** as its primary metadata provider. T
 - Browse every TMDB-listed TV season, including Specials, with episode-specific descriptions, air dates, runtimes, ratings, and still artwork.
 - Keep stable TMDB IDs and map external IDs such as IMDb IDs when a source provider requires them.
 
-TMDB supplies metadata and artwork; it is not a streaming source. SENZO will display the required TMDB attribution. See [TMDB attribution](#tmdb-attribution).
+TMDB supplies metadata and artwork; it is not a streaming source. The desktop app calls the hosted SENZO API, which keeps the TMDB Read Access Token in Vercel environment variables and exposes only validated, allowlisted metadata routes. No TMDB token is embedded in SENZO or requested from users. SENZO will display the required TMDB attribution. See [TMDB attribution](#tmdb-attribution).
 
 ### Choose your own streaming sources
 
@@ -126,7 +126,7 @@ The repository currently contains early service and persistence foundations. It 
 | Local diagnostics service | Initial bounded event logging and recent-log export API; Settings/clipboard UI pending |
 | Typed playback preferences | Persisted settings model and initial GPUI controls; settings persist locally |
 | MPV configuration adapter | Pure MPV option mapping with capability-aware fallbacks and unit tests |\n| MPV runtime and worker | Dynamic libmpv loader, dedicated worker, bounded commands and playback-state polling; GPUI can open a local file and issue basic transport, seek, mute, fullscreen and volume-step commands when a trusted runtime is supplied; local-file resume positions are saved to SQLite and restored when the same file is opened again. Runtime is not yet packaged and no native video surface exists |
-| TMDB service | Initial movie/TV search, detail requests, season/episode and external-ID services, image URL construction |
+| SENZO metadata API | Hosted Vercel proxy for search, trending/popular catalogues, details, external IDs, TV seasons/episodes; TMDB token remains server-side |
 | Add-on service | Stremio manifest preview/validation, local registry, catalog/meta/stream/subtitle request services, DNS-pinned HTTPS requests, and direct stream URL validation; native manager supports enable/disable/remove. Clipboard-assisted manifest URL preview and explicit install confirmation are implemented; catalog browsing and end-to-end source selection remain in progress |
 | GPUI media-center screens | Native Home/Discovery, Details, Add-ons, and Settings surfaces are connected; broader Library and player UX remains in progress |
 | Metadata-driven Home and catalog shelves | Trending, Popular Movies, Popular TV, Continue Watching, and enabled user-installed add-on shelves; hero auto-rotates every 8 seconds with pause/resume |
@@ -149,7 +149,7 @@ Batch 6 delivers the first complete Home/Discovery and Settings UX milestone. It
 - **Reqwest + Rustls** — HTTP requests.
 - **Serde / Serde JSON** — structured data and protocol parsing.
 - **SQLite / rusqlite** — local persistence.
-- **Windows Credential Manager** — secure storage for user-supplied provider keys.
+- **Windows Credential Manager** — secure storage for optional user-supplied provider credentials such as OpenSubtitles; TMDB credentials remain server-side in the SENZO API.
 - **TMDB API** — movie and television metadata.
 - **Stremio-compatible HTTP add-ons** — optional external sources.
 - **MPV / libmpv** — playback engine and C API.
