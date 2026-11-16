@@ -17,7 +17,7 @@ SENZO is for desktop users who want one interface for media discovery and playba
 - Linux is a later target. Android and iOS are not targets.
 - No SENZO account, signup, login, or required cloud service.
 - Watch history, resume progress, settings, and installed add-ons are stored locally.
-- TMDB is the primary metadata provider.
+- TMDB is the primary metadata provider, accessed through the hosted SENZO API. The desktop app must not require users to provide a TMDB token.
 - Streaming providers are optional user-installed add-ons.
 - No streaming add-on is bundled or preinstalled.
 - Torrentio is not integrated into the default source list; users may manually add their own configured manifest URL.
@@ -110,7 +110,7 @@ Planned Windows distribution includes:
 - Reqwest HTTP client.
 - Serde and Serde JSON for protocol/data handling.
 - SQLite for local persistence.
-- TMDB API for metadata.
+- Hosted SENZO API for TMDB metadata.
 - Stremio-compatible HTTP add-ons for optional sources.
 - MPV through a dynamically loaded libmpv C API adapter.
 - Discord IPC for presence.
@@ -125,7 +125,7 @@ Provider-specific logic must remain behind service or adapter interfaces. UI com
 - No preinstalled or automatically queried streaming source.
 - Explicit user action required to install and enable an add-on.
 - Validate untrusted remote manifests, responses, and stream URLs.
-- Never log or commit credentials.
+- Never log or commit credentials. The TMDB Read Access Token remains server-side in the SENZO API deployment and is never shipped in the desktop binary.
 - Clearly communicate that external providers are independent services.
 
 ## Current status
