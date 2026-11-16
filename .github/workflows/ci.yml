@@ -28,6 +28,9 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Format Rust sources
+        run: cargo fmt --all
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -105,15 +108,15 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Commit generated Cargo.lock on development
+      - name: Commit generated formatting and Cargo.lock on development
         if: github.event_name == 'push' && github.ref == 'refs/heads/development'
         shell: pwsh
         run: |
-          git add Cargo.lock
+          git add Cargo.lock src/
           git diff --cached --quiet
           if ($LASTEXITCODE -ne 0) {
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -m "Add Cargo.lock for reproducible builds"
+            git commit -m "Format Rust sources and update Cargo.lock"
             git push origin "HEAD:development"
           }
