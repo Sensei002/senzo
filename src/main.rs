@@ -4628,7 +4628,6 @@ impl Render for SenzoApp {
                     self.addon_status.clone(),
                     self.tmdb_results.clone(),
                     self.tmdb_status.clone(),
-                    false,
                     self.home_catalogs.clone(),
                     self.home_addon_catalogs.clone(),
                     self.home_catalog_status.clone(),
@@ -4701,7 +4700,6 @@ fn render_discovery_page(
     addon_status: String,
     tmdb_results: Vec<(String, TmdbSearchResult)>,
     tmdb_status: String,
-    tmdb_not_configured: bool,
     home_catalogs: Vec<(String, String, TmdbSearchResult)>,
     home_addon_catalogs: Vec<(String, StoredAddon, String, String, Vec<Value>)>,
     home_catalog_status: String,
@@ -5193,76 +5191,12 @@ fn render_discovery_page(
                                 cx,
                             )),
                     )
-                    .when(
-                        false,
-                        |content| {
-                            content.child(
-                                div()
-                                    .w_full()
-                                    .p_4()
-                                    .rounded_xl()
-                                    .bg(rgb(0x181F26))
-                                    .border_1()
-                                    .border_color(rgb(0x242E35))
-                                    .flex()
-                                    .items_center()
-                                    .justify_between()
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .items_center()
-                                            .gap_3()
-                                            .child(div().text_lg().child("🔑"))
-                                            .child(
-                                                div()
-                                                    .flex()
-                                                    .flex_col()
-                                                    .gap_0p5()
-                                                    .child(
-                                                        div()
-                                                            .text_sm()
-                                                            .font_weight(gpui::FontWeight::BOLD)
-                                                            .text_color(rgb(0xF8FAFC))
-                                                            .child("SENZO Metadata API Unavailable"),
-                                                    )
-                                                    .child(
-                                                        div()
-                                                            .text_xs()
-                                                            .text_color(rgb(0x94A3B8))
-                                                            .child("The metadata service is temporarily unavailable. Check your connection and retry."),
-                                                    ),
-                                            ),
-                                    )
-                                    .child(
-                                        div()
-                                            .px_4()
-                                            .py_2()
-                                            .rounded_lg()
-                                            .bg(rgb(0x22D3EE))
-                                            .text_color(rgb(0x0A0A0A))
-                                            .font_weight(gpui::FontWeight::BOLD)
-                                            .text_xs()
-                                            .cursor_pointer()
-                                            .hover(|s| s.bg(rgb(0x67E8F9)))
-                                            .child("Retry Metadata")
-                                            .on_mouse_down(
-                                                MouseButton::Left,
-                                                cx.listener(|this, _event, _window, cx| {
-                                                    this.load_home_catalogs(cx);
-                                                }),
-                                            ),
-                                    ),
-                            )
-                        },
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x9299A1))
+                            .child(tmdb_status.clone()),
                     )
-                    .when(!tmdb_not_configured && !tmdb_status.contains("not configured"), |content| {
-                        content.child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(0x9299A1))
-                                .child(tmdb_status.clone()),
-                        )
-                    })
                     .child(div().flex().flex_wrap().gap_2().children(title_chips))
             },
         )
@@ -5314,46 +5248,6 @@ fn render_discovery_page(
                     .text_color(rgb(0x9299A1))
                     .child("Search across movies and TV shows · Results update as you type · Press Enter to search"),
             )
-            .when(false, |content| {
-                content.child(
-                    div()
-                        .p_4()
-                        .rounded_xl()
-                        .bg(rgb(0x181F26))
-                        .border_1()
-                        .border_color(rgb(0x263238))
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap_1()
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .font_weight(gpui::FontWeight::BOLD)
-                                        .child("Metadata service is unavailable"),
-                                )
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(rgb(0x94A3B8))
-                                        .child("The hosted metadata service could not be reached. Retry your search in a moment."),
-                                ),
-                        )
-                        .child(dynamic_choice_chip(
-                            "Configure TMDB".into(),
-                            true,
-                            |this, cx| {
-                                let query = this.search_query.clone();
-                                this.load_tmdb_search(query, cx);
-                            },
-                            cx,
-                        )),
-                )
-            })
             .child(
                 div()
                     .text_sm()
