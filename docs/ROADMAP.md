@@ -72,6 +72,9 @@ The Settings experience will follow Nuvio's simple, user-friendly approach: clea
 - [x] Create and resize the native child surface from the GPUI viewport layout callback; validate client-coordinate alignment, z-order, and runtime behavior on Windows.
 - [x] Pass the child HWND to MPV before runtime initialization; validate actual video presentation, hardware decoding, and GPU/renderer compatibility on Windows.
 - [x] Wire the native MPV child surface into the GPUI video viewport, including parent-HWND acquisition, DPI-aware viewport bounds, child creation, and resize updates. Actual Windows playback, z-order, and teardown behavior still require runtime validation.
+- [ ] Validate visible video output on Windows with real direct and user-installed Torrentio streams; confirm MPV `vo-configured`, decoded dimensions, and frame counters.
+- [x] Force MPV's embedded window mode for caller-owned HWND playback and disable MPV's standalone OSC/default key bindings in the embedded surface.
+- [x] Raise the native child video surface to the top of its sibling z-order whenever its viewport is resized.
 - [x] Add native local-file selection and queue file-load commands through the GPUI playback bridge (requires a trusted runtime DLL).
 - [x] Add initial GPUI pause/resume, stop, mute, 10-second seek-step, and fullscreen command controls.
 - [x] Add GPUI volume down/up controls in 5% steps using the live MPV volume snapshot.
@@ -82,7 +85,7 @@ The Settings experience will follow Nuvio's simple, user-friendly approach: clea
 - [x] Add collision-safe local subtitle-cache persistence for validated OpenSubtitles downloads; cache writes enforce size and extension limits and never overwrite existing files.
 - [x] Add playback-screen OpenSubtitles search using the current title, show English/Bangla file results, download a user-selected file into the local cache, and queue it into MPV.
 - [x] Add Settings controls for masked native Windows API-key entry, replacement, and removal; the key is never redisplayed or written to SQLite/logs.
-- [x] Surface live MPV video diagnostics in the playback panel: codec, decoder, active hardware decoder, video output, output dimensions, estimated frame rate, and dropped-frame count.
+- [x] Surface live MPV video diagnostics in the playback panel: codec, decoder, active hardware decoder, video output/configuration state, video format, source/output dimensions, estimated frame rate, decoder drops, renderer drops, and mistimed frames; log changes to the diagnostic snapshot without recording stream URLs or credentials.
 - [ ] Detect runtime decoder/renderer/HDR capabilities and apply settings to a live MPV instance.
 - [x] Persist local-file playback progress periodically, flush before stop/media switch, and resume from the saved position when the same file is reopened.
 - [ ] Extend progress persistence to metadata-backed movie/episode IDs and watch-history completion rules.
