@@ -6,8 +6,9 @@ use std::ptr;
 use windows_sys::Win32::{
     Foundation::{GetLastError, HWND, RECT},
     UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, GetClientRect, GetParent, HWND_TOP, IsWindow, IsWindowVisible, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOOWNERZORDER,
-        SWP_SHOWWINDOW, SetWindowPos, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_VISIBLE,
+        CreateWindowExW, DestroyWindow, GetClientRect, GetParent, HWND_TOP, IsWindow,
+        IsWindowVisible, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_SHOWWINDOW,
+        SetWindowPos, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_VISIBLE,
     },
 };
 
@@ -139,7 +140,11 @@ impl WindowsVideoSurface {
         // SAFETY: client points to writable RECT storage.
         let has_client_rect = unsafe { GetClientRect(hwnd, &mut client) } != 0;
         let client_description = if has_client_rect {
-            format!("{}x{}", client.right - client.left, client.bottom - client.top)
+            format!(
+                "{}x{}",
+                client.right - client.left,
+                client.bottom - client.top
+            )
         } else {
             "unavailable".into()
         };
@@ -194,9 +199,10 @@ impl WindowsVideoSurface {
             )
         };
         if ok == 0 {
-            bail!("could not raise native video surface (Win32 error {})", unsafe {
-                GetLastError()
-            });
+            bail!(
+                "could not raise native video surface (Win32 error {})",
+                unsafe { GetLastError() }
+            );
         }
         Ok(())
     }
