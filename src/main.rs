@@ -14,6 +14,7 @@ use gpui_base::{Input as GpuiInput, InputBase};
 use serde_json::Value;
 
 use senzo::{
+    artwork::TmdbArtworkHttpClient,
     addons::{
         AddonCatalogExtra, AddonClient, AddonManifest, AddonManifestPreview, StremioStream,
         StremioSubtitle, first_series_episode_id,
@@ -7088,6 +7089,21 @@ fn main() {
             let mut database = Some(database);
             move |cx: &mut App| {
                 gpui_base::init(cx);
+                match TmdbArtworkHttpClient::new() {
+                    Ok(client) => {
+                        cx.set_http_client(Arc::new(client));
+                        diagnostics::record(
+                            diagnostics::Level::Audit,
+                            "artwork",
+                            "registered secure TMDB artwork HTTP client with GPUI",
+                        );
+                    }
+                    Err(error) => diagnostics::record(
+                        diagnostics::Level::Error,
+                        "artwork",
+                        &format!("could not initialize TMDB artwork HTTP client: {error:#}"),
+                    ),
+                }
                 let database = database.take().expect("SENZO window initialized once");
                 cx.open_window(WindowOptions::default(), move |window, cx| {
                     let native_parent_hwnd = match gpui_parent_hwnd(window) {
