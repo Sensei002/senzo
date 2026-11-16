@@ -42,8 +42,11 @@ impl HttpClient for TmdbArtworkHttpClient {
         };
 
         Box::pin(async move {
+            if let Some(body) = crate::cache::load_artwork_bytes(url.as_str())? {
+                return Ok(HttpResponse { status: StatusCode::OK, body });
+            }
             let response = client
-                .get(url)
+                .get(url.clone())
                 .send()
                 .await
                 .context("TMDB artwork request failed")?;
@@ -62,6 +65,7 @@ impl HttpClient for TmdbArtworkHttpClient {
             if body.len() > MAX_ARTWORK_BYTES {
                 bail!("TMDB artwork exceeds the 8 MiB safety limit");
             }
+            let _ = crate::cache::store_artwork_bytes(url.as_str(), &body);
             Ok(HttpResponse {
                 status,
                 body: body.to_vec(),

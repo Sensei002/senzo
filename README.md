@@ -38,14 +38,14 @@ SENZO is an independent project with its own architecture and product decisions.
 
 ### Discover movies and television
 
-SENZO will use **The Movie Database (TMDB)** as its primary metadata provider. The discovery foundation now includes TMDB popular movie/TV catalogues, clipboard-assisted title search, title details, and IMDb external-ID mapping for add-on requests. The broader artwork-led discovery experience follows a console-first, Nuvio-inspired layout and includes:
+SENZO will use **The Movie Database (TMDB)** as its primary metadata provider. The discovery foundation includes TMDB popular movie/TV catalogues, clipboard-assisted title search, cached title details, IMDb external-ID mapping, and native TV season/episode browsing. TV source discovery is tied to the episode the user selects rather than a hard-coded S01E01 request. The broader artwork-led discovery experience follows a console-first, Nuvio-inspired layout and includes:
 
 - Search for movies or TV series.
 - Browse artwork-led home and discovery shelves.
 - Use a console-style Home screen with a cinematic featured title and horizontally scrolling, data-driven movie/TV category shelves. The detailed implementation brief is in [docs/UI_DESIGN_SPEC.md](docs/UI_DESIGN_SPEC.md); the initial Home and discovery implementation is delivered in Batch 6.
 - View posters, backdrops, overviews, release dates, genres, ratings, and runtime.
 - Explore cast, crew, trailers, and videos when available.
-- Browse TV seasons and episodes, including episode descriptions and stills.
+- Browse every TMDB-listed TV season, including Specials, with episode-specific descriptions, air dates, runtimes, ratings, and still artwork.
 - Keep stable TMDB IDs and map external IDs such as IMDb IDs when a source provider requires them.
 
 TMDB supplies metadata and artwork; it is not a streaming source. SENZO will display the required TMDB attribution. See [TMDB attribution](#tmdb-attribution).
@@ -60,7 +60,7 @@ SENZO uses a user-managed add-on list. The **Add-ons** screen lets users paste a
 - A user who deliberately chooses to use Torrentio may manually add their own configured manifest URL, just like any other compatible add-on.
 - Only add-ons that the user has installed and enabled should be queried.
 
-Initial compatibility targets the Stremio add-on HTTP protocol. Enabled providers can supply catalog entries and title metadata; movie/episode source discovery runs compatible providers concurrently, isolates provider failures, and presents direct HTTP(S), torrent-info-hash, and external-link results. Required catalog extra fields are detected and never silently filled with guessed values. The current UI does not yet provide a general-purpose catalog-filter editor or pagination controls. Direct HTTP(S) sources can be handed to MPV after URL and DNS destination validation. Torrent v1 results can be inspected, video files selected, and selected files streamed to MPV through a loopback-only byte-range endpoint. Torrent upload/seeding and persistent engine state are disabled; normal shutdown removes temporary payloads and startup recovery removes abandoned sessions. BitTorrent v2-only hashes are not yet supported. Real-world peer availability, buffering, and seek behavior still require runtime validation. Compatibility with every Stremio add-on and provider-specific extension is not guaranteed.
+Initial compatibility targets the Stremio add-on HTTP protocol. Enabled providers can supply catalog entries and title metadata; movie/episode source discovery runs compatible providers concurrently, isolates provider failures, and presents direct HTTP(S), torrent-info-hash, and external-link results. TV series are browsed by season; selecting an episode requests sources using that episode's provider ID and season/episode numbering, including season-zero specials. Required catalog extra fields are detected and never silently filled with guessed values. The native UI includes a catalog-filter editor and pagination controls. Direct HTTP(S) sources can be handed to MPV after URL and DNS destination validation. Torrent v1 results can be inspected, video files selected, and selected files streamed to MPV through a loopback-only byte-range endpoint. Torrent upload/seeding and persistent engine state are disabled; normal shutdown removes temporary payloads and startup recovery removes abandoned sessions. BitTorrent v2-only hashes are not yet supported. Real-world peer availability, buffering, and seek behavior still require runtime validation. Compatibility with every Stremio add-on and provider-specific extension is not guaranteed.
 
 ### Keep personal data on your device
 
@@ -70,7 +70,7 @@ The current SQLite database is created at:
 
 `%LOCALAPPDATA%\SENZO\senzo.db`
 
-The initial schema includes local settings, playback progress, watch history, and installed add-on records. A bounded metadata and artwork cache, favorites, and a fuller local library experience are planned. Database upgrades must preserve personal history and settings.
+The initial schema includes local settings, playback progress, watch history, and installed add-on records. A bounded on-device metadata cache (500 entries, TTL-based) and artwork cache (8 MiB per image, 128 MiB total) are implemented. Cache entries are disposable and separate from settings, playback progress, and watch history. Favorites and a fuller local library experience remain planned. Database upgrades must preserve personal history and settings.
 
 ### Watch with a dedicated player
 

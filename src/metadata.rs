@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use keyring::Entry;
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Mutex;
 use zeroize::Zeroize;
@@ -403,7 +403,7 @@ fn validate_tmdb_token(value: &str) -> Result<&str> {
     Ok(value)
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TmdbSeason {
     pub id: u64,
     pub name: Option<String>,
@@ -414,7 +414,7 @@ pub struct TmdbSeason {
     pub episodes: Vec<TmdbEpisode>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TmdbEpisode {
     pub id: u64,
     pub name: Option<String>,

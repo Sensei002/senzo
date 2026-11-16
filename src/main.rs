@@ -19,7 +19,7 @@ use senzo::{
         StremioSubtitle, first_series_episode_id,
     },
     diagnostics,
-    metadata::{TmdbClient, TmdbCredentialStore, TmdbSearchResult},
+    metadata::{TmdbClient, TmdbCredentialStore, TmdbEpisode, TmdbSearchResult},
     playback::{
         mpv_config::build_mpv_config,
         mpv_worker::{PlaybackEvent, PlaybackState, PlaybackWorker},
@@ -100,6 +100,11 @@ struct SenzoApp {
     home_customize_open: bool,
     tmdb_details: Option<Value>,
     tmdb_task: Option<Task<()>>,
+    tv_seasons: Vec<(u32, String)>,
+    tv_selected_season: Option<u32>,
+    tv_episodes: Vec<TmdbEpisode>,
+    tv_selected_episode: Option<TmdbEpisode>,
+    tv_episode_status: String,
     addon_catalog_items: Vec<Value>,
     addon_catalog_status: String,
     addon_catalog_addon: Option<StoredAddon>,
@@ -270,6 +275,11 @@ impl SenzoApp {
             home_customize_open: false,
             tmdb_details: None,
             tmdb_task: None,
+            tv_seasons: Vec::new(),
+            tv_selected_season: None,
+            tv_episodes: Vec::new(),
+            tv_selected_episode: None,
+            tv_episode_status: "Choose a season to browse episodes".into(),
             addon_catalog_items: Vec::new(),
             addon_catalog_status: "Choose a catalog from an installed add-on".into(),
             addon_catalog_addon: None,
@@ -974,6 +984,11 @@ impl SenzoApp {
         self.selected_title = Some(display_title.clone());
         self.active_page = AppPage::Details;
         self.tmdb_details = None;
+        self.tv_seasons.clear();
+        self.tv_selected_season = None;
+        self.tv_episodes.clear();
+        self.tv_selected_episode = None;
+        self.tv_episode_status = "Loading TV seasons…".into();
         self.addon_stream_results.clear();
         self.stream_status = "Resolving provider IDs and checking enabled add-ons…".into();
         self.tmdb_status = format!("Loading details for {display_title}…");
@@ -991,30 +1006,160 @@ impl SenzoApp {
                 let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
                     .context("could not initialize metadata and source runtime")?;
                 runtime.block_on(async {
-                    let (details, external_ids) = if media_type == "movie" {
-                        (client.movie_details(tmdb_id).await?, client.movie_external_ids(tmdb_id).await?)
+                    let detail_key = format!("tmdb:{media_type}:{tmdb_id}:details:{metadata_language}");
+                    let details = if let Some(cached) = senzo::cache::load_metadata(&detail_key, Duration::from_secs(7 * 24 * 60 * 60)).ok().flatten() {
+                        cached
                     } else {
-                        (client.tv_details(tmdb_id).await?, client.tv_external_ids(tmdb_id).await?)
+                        let value = if media_type == "movie" { client.movie_details(tmdb_id).await? } else { client.tv_details(tmdb_id).await? };
+                        let _ = senzo::cache::store_metadata(&detail_key, &value);
+                        value
                     };
+                    let ids_key = format!("tmdb:{media_type}:{tmdb_id}:external-ids");
+                    let external_ids_value = if let Some(cached) = senzo::cache::load_metadata(&ids_key, Duration::from_secs(30 * 24 * 60 * 60)).ok().flatten() {
+                        cached
+                    } else {
+                        let ids = if media_type == "movie" { client.movie_external_ids(tmdb_id).await? } else { client.tv_external_ids(tmdb_id).await? };
+                        let value = serde_json::to_value(ids).context("could not encode TMDB external IDs")?;
+                        let _ = senzo::cache::store_metadata(&ids_key, &value);
+                        value
+                    };
+                    let external_ids: senzo::metadata::TmdbExternalIds = serde_json::from_value(external_ids_value)
+                        .context("cached TMDB external IDs are invalid")?;
                     let provider_id = external_ids.imdb_id.clone().unwrap_or_else(|| format!("tmdb:{tmdb_id}"));
-                    let stremio_id = if media_type == "tv" { format!("{provider_id}:1:1") } else { provider_id };
-                    let stremio_type = if media_type == "tv" { "series" } else { "movie" };
-                    let streams = SourceProviderRegistry::default().discover(&addons, stremio_type, &stremio_id).await;
-                    Ok::<_, anyhow::Error>((details, streams, stremio_id))
+                    if media_type == "tv" {
+                        Ok::<_, anyhow::Error>((details, Vec::new(), provider_id))
+                    } else {
+                        let streams = SourceProviderRegistry::default().discover(&addons, "movie", &provider_id).await;
+                        Ok::<_, anyhow::Error>((details, streams, provider_id))
+                    }
                 })
             }).await;
             let _ = this.update(cx, |app, cx| {
                 match result {
                     Ok((details, streams, stream_id)) => {
+                        app.tv_seasons = details.get("seasons").and_then(Value::as_array).into_iter().flatten()
+                            .filter_map(|season| {
+                                let number = season.get("season_number").and_then(Value::as_u64)? as u32;
+                                let name = season.get("name").and_then(Value::as_str).map(str::to_owned)
+                                    .unwrap_or_else(|| if number == 0 { "Specials".into() } else { format!("Season {number}") });
+                                Some((number, name))
+                            }).collect();
+                        app.tv_seasons.sort_by_key(|(number, _)| if *number == 0 { u32::MAX } else { *number });
+                        let first_season = app.tv_seasons.iter().find(|(number, _)| *number > 0)
+                            .or_else(|| app.tv_seasons.first()).map(|(number, _)| *number);
                         app.tmdb_details = Some(details);
                         app.addon_stream_results = streams;
                         app.tmdb_status = "TMDB details loaded".into();
-                        app.stream_status = format!("Source discovery completed for {stream_id} (TV currently checks S01E01)");
+                        if let Some(season) = first_season { app.load_tmdb_season(season, cx); }
+                        app.stream_status = if stream_id.starts_with("tt") || stream_id.starts_with("tmdb:") && !app.tv_seasons.is_empty() {
+                            "Choose a season and episode to discover its sources".into()
+                        } else {
+                            "Movie source discovery completed".into()
+                        };
                     }
                     Err(error) => {
                         app.tmdb_status = format!("Could not load title details: {error:#}");
                         app.stream_status = "Source discovery could not start".into();
                     }
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    fn load_tmdb_season(&mut self, season_number: u32, cx: &mut Context<Self>) {
+        let Some(tmdb_id) = self.tmdb_details.as_ref().and_then(|details| details.get("id")).and_then(Value::as_u64) else {
+            return;
+        };
+        self.tv_selected_season = Some(season_number);
+        self.tv_episodes.clear();
+        self.tv_selected_episode = None;
+        self.tv_episode_status = format!("Loading {}…", if season_number == 0 { "Specials".to_owned() } else { format!("Season {season_number}") });
+        let language = self.metadata_language.clone();
+        self.tmdb_task = Some(cx.spawn(async move |this, cx| {
+            let result = cx.background_spawn(async move {
+                let key = format!("tmdb:tv:{tmdb_id}:season:{season_number}:{language}");
+                if let Some(value) = senzo::cache::load_metadata(&key, Duration::from_secs(7 * 24 * 60 * 60)).ok().flatten() {
+                    return serde_json::from_value::<senzo::metadata::TmdbSeason>(value)
+                        .context("cached TMDB season data is invalid");
+                }
+                let client = TmdbClient::from_credential_store(&language)?;
+                let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
+                    .context("could not initialize the TV season runtime")?;
+                let season = runtime.block_on(async {
+                    let season = client.tv_season(tmdb_id, season_number).await?;
+                    let artwork_urls = season.episodes.iter().filter_map(|episode| {
+                        tmdb_artwork_url(episode.still_path.as_deref(), "w500")
+                    }).take(12).collect::<Vec<_>>();
+                    let _ = tokio::time::timeout(Duration::from_secs(2), async {
+                        let requests = artwork_urls.iter().map(|url| senzo::cache::cache_artwork(url));
+                        let _ = futures::future::join_all(requests).await;
+                    }).await;
+                    Ok::<_, anyhow::Error>(season)
+                })?;
+                if let Ok(value) = serde_json::to_value(&season) {
+                    let _ = senzo::cache::store_metadata(&key, &value);
+                }
+                Ok::<_, anyhow::Error>(season)
+            }).await;
+            let _ = this.update(cx, |app, cx| {
+                match result {
+                    Ok(season) => {
+                        app.tv_episodes = season.episodes;
+                        app.tv_episode_status = if app.tv_episodes.is_empty() {
+                            "No episodes are listed for this season".into()
+                        } else {
+                            format!("{} episodes · {}", app.tv_episodes.len(), season.name.unwrap_or_else(|| format!("Season {season_number}")))
+                        };
+                    }
+                    Err(error) => app.tv_episode_status = format!("Could not load season: {error:#}"),
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    fn select_tmdb_episode(&mut self, episode: TmdbEpisode, cx: &mut Context<Self>) {
+        let Some(details) = self.tmdb_details.as_ref() else { return; };
+        let Some(tmdb_id) = details.get("id").and_then(Value::as_u64) else { return; };
+        let provider_id = details.get("external_ids")
+            .and_then(|ids| ids.get("imdb_id"))
+            .and_then(Value::as_str)
+            .filter(|id| id.starts_with("tt"))
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("tmdb:{tmdb_id}"));
+        let stream_id = format!("{provider_id}:{}:{}", episode.season_number, episode.episode_number);
+        let addons = self.database.installed_addons().unwrap_or_default();
+        let show_title = details.get("name").and_then(Value::as_str).unwrap_or("TV show").to_owned();
+        let episode_title = episode.name.clone().unwrap_or_else(|| format!("Episode {}", episode.episode_number));
+        let title = format!("{show_title} · S{:02}E{:02} · {episode_title}", episode.season_number, episode.episode_number);
+        let season_number = episode.season_number;
+        let episode_number = episode.episode_number;
+        self.selected_title = Some(title.clone());
+        self.active_media_id = Some(format!("tmdb:tv:{tmdb_id}:{season_number}:{episode_number}"));
+        self.active_media_title = Some(title);
+        self.active_media_type = Some("episode".into());
+        self.tv_selected_episode = Some(episode);
+        self.addon_stream_results.clear();
+        self.stream_status = format!("Finding sources for S{:02}E{:02}…", season_number, episode_number);
+        let request_id = stream_id.clone();
+        self.addon_task = Some(cx.spawn(async move |this, cx| {
+            let result = cx.background_spawn(async move {
+                let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
+                    .context("could not initialize episode source discovery")?;
+                let providers = runtime.block_on(SourceProviderRegistry::default().discover(&addons, "series", &request_id));
+                Ok::<_, anyhow::Error>(providers)
+            }).await;
+            let _ = this.update(cx, |app, cx| {
+                match result {
+                    Ok(providers) => {
+                        let count = providers.iter().map(|provider| provider.streams.len()).sum::<usize>();
+                        app.addon_stream_results = providers;
+                        app.stream_status = format!("{count} source(s) found for {stream_id}");
+                    }
+                    Err(error) => app.stream_status = format!("Episode source discovery failed: {error:#}"),
                 }
                 cx.notify();
             });
@@ -4388,6 +4533,11 @@ impl Render for SenzoApp {
                     self.home_hero_index,
                     self.home_hero_paused,
                     self.tmdb_details.clone(),
+                    self.tv_seasons.clone(),
+                    self.tv_selected_season,
+                    self.tv_episodes.clone(),
+                    self.tv_selected_episode.clone(),
+                    self.tv_episode_status.clone(),
                     self.addon_catalog_items.clone(),
                     self.addon_catalog_status.clone(),
                     self.addon_catalog_addon.clone(),
@@ -4456,6 +4606,11 @@ fn render_discovery_page(
     home_hero_index: usize,
     _home_hero_paused: bool,
     tmdb_details: Option<Value>,
+    tv_seasons: Vec<(u32, String)>,
+    tv_selected_season: Option<u32>,
+    tv_episodes: Vec<TmdbEpisode>,
+    tv_selected_episode: Option<TmdbEpisode>,
+    tv_episode_status: String,
     addon_catalog_items: Vec<Value>,
     addon_catalog_status: String,
     addon_catalog_addon: Option<StoredAddon>,
@@ -6091,18 +6246,18 @@ fn render_discovery_page(
                 }).take(5).collect::<Vec<_>>().join(" · "))
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| "Genres unavailable".into());
-            let poster = tmdb_artwork_url(
+            let poster = cached_artwork_or_remote(tmdb_artwork_url(
                 details.get("poster_path").and_then(Value::as_str),
                 "w500",
             ).or_else(|| safe_addon_artwork_url(
                 details.get("poster").and_then(Value::as_str),
-            ));
-            let backdrop = tmdb_artwork_url(
+            )));
+            let backdrop = cached_artwork_or_remote(tmdb_artwork_url(
                 details.get("backdrop_path").and_then(Value::as_str),
                 "w1280",
             ).or_else(|| safe_addon_artwork_url(
                 details.get("background").and_then(Value::as_str),
-            ));
+            )));
             this.child(
                 div()
                     .w_full()
@@ -6163,6 +6318,49 @@ fn render_discovery_page(
                                     ),
                             ),
                     )
+                    .when(details.get("seasons").and_then(Value::as_array).is_some(), |panel| {
+                        let season_chips = tv_seasons.iter().map(|(number, name)| {
+                            let season_number = *number;
+                            dynamic_choice_chip(name.clone(), tv_selected_season == Some(season_number), move |this, cx| {
+                                this.load_tmdb_season(season_number, cx);
+                            }, cx)
+                        }).collect::<Vec<_>>();
+                        let episode_chips = tv_episodes.iter().cloned().map(|episode| {
+                            let selected = tv_selected_episode.as_ref().is_some_and(|item|
+                                item.season_number == episode.season_number && item.episode_number == episode.episode_number);
+                            let selected_episode = episode.clone();
+                            let episode_name = episode.name.clone().filter(|value| !value.trim().is_empty())
+                                .unwrap_or_else(|| format!("Episode {}", episode.episode_number));
+                            let label = format!("E{:02} · {}", episode.episode_number, episode_name);
+                            dynamic_choice_chip(label, selected, move |this, cx| {
+                                this.select_tmdb_episode(selected_episode.clone(), cx);
+                            }, cx)
+                        }).collect::<Vec<_>>();
+                        let episode_info = tv_selected_episode.clone().map(|episode| {
+                            let still = cached_artwork_or_remote(tmdb_artwork_url(episode.still_path.as_deref(), "w500"));
+                            let episode_title = episode.name.clone().unwrap_or_else(|| format!("Episode {}", episode.episode_number));
+                            let air_date = episode.air_date.clone().unwrap_or_else(|| "Air date unavailable".into());
+                            let runtime = episode.runtime.map(|minutes| format!("{minutes} min")).unwrap_or_else(|| "Runtime unavailable".into());
+                            let rating = episode.vote_average.map(|value| format!("★ {value:.1}")).unwrap_or_else(|| "Not rated".into());
+                            let overview = episode.overview.clone().filter(|value| !value.trim().is_empty())
+                                .unwrap_or_else(|| "No episode synopsis is available.".into());
+                            div().flex().gap_4().p_3().rounded_lg().bg(rgb(0x101719))
+                                .when_some(still, |card, url| card.child(img(url).w(px(180.)).h(px(102.)).rounded_md().object_fit(ObjectFit::Cover)))
+                                .child(div().flex_1().flex().flex_col().gap_2()
+                                    .child(div().text_sm().font_weight(gpui::FontWeight::SEMIBOLD).child(format!("S{:02}E{:02} · {}", episode.season_number, episode.episode_number, episode_title)))
+                                    .child(div().text_xs().text_color(rgb(0x9299A1)).child(format!("{air_date} · {runtime} · {rating}")))
+                                    .child(div().text_sm().text_color(rgb(0xD4D4D8)).child(overview)))
+                        });
+                        panel.child(div().p_4().rounded_xl().bg(rgb(0x151719)).border_1().border_color(rgb(0x263238))
+                            .flex().flex_col().gap_3()
+                            .child(div().flex().items_center().justify_between()
+                                .child(div().text_lg().font_weight(gpui::FontWeight::SEMIBOLD).child("Seasons & Episodes"))
+                                .child(div().text_xs().text_color(rgb(0x9299A1)).child(tv_episode_status.clone())))
+                            .child(div().flex().flex_wrap().gap_2().children(season_chips))
+                            .child(div().flex().flex_wrap().gap_2().children(episode_chips))
+                            .when_some(episode_info, |card, info| card.child(info))
+                        )
+                    })
                     .child(
                         div()
                             .flex()
@@ -6506,6 +6704,13 @@ fn render_discovery_page(
                     })),
             )
         })
+}
+
+fn cached_artwork_or_remote(url: Option<String>) -> Option<String> {
+    let url = url?;
+    senzo::cache::cached_artwork_path(&url).ok().flatten()
+        .map(|path| path.to_string_lossy().into_owned())
+        .or(Some(url))
 }
 
 fn tmdb_artwork_url(path: Option<&str>, size: &str) -> Option<String> {

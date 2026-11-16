@@ -1,4 +1,5 @@
 pub mod addons;
+pub mod cache;
 pub mod artwork;
 pub mod diagnostics;
 pub mod discord;
