@@ -272,7 +272,7 @@ Batch 8 turns the existing MPV worker integration into a dedicated, usable nativ
 **Status: In progress.** The first remediation reasserts the native child HWND's top sibling z-order during the active player viewport prepaint. This addresses a likely failure mode where the child is shown but remains behind a GPUI/native sibling after a repaint; it is a targeted fix, not yet proof of visible video.
 
 - [x] Reassert native video child-window z-order while the Player viewport is active, even when its geometry has not changed.
-- [ ] Add/verify native-surface diagnostics for HWND validity, visibility, parent, and client geometry.
+- [x] Add native-surface diagnostics for HWND validity, visibility, parent, bounds, and client geometry before MPV startup.
 - [ ] Diagnose and fix audio-only playback where MPV reports configured video output but the native video surface is not visibly presenting frames.
 - [ ] Validate Win32 child-surface geometry, z-order, clipping, resizing, and lifecycle against the GPUI viewport.
 - [ ] Verify visible video with direct HTTP(S) and user-installed Stremio/Torrentio sources.
