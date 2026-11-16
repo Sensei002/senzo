@@ -202,7 +202,7 @@ Batch 8 turns the existing MPV worker integration into a dedicated, usable nativ
 
 ## Phase 9.2 — TV Seasons, Episodes & Metadata Caching (Batch 8.2)
 
-**Status: In progress pending Windows CI verification.** This batch closes the TV-details gap left by the first discovery implementation. TMDB remains the metadata source of record; add-ons remain the source of playable streams.
+**Status: Implementation complete; Windows CI verified. Runtime acceptance remains pending on Windows hardware.** This batch closes the TV-details gap left by the first discovery implementation. TMDB remains the metadata source of record; add-ons remain the source of playable streams.
 
 - [x] Replace automatic S01E01 source lookup with user-selected season and episode browsing.
 - [x] Display TMDB-listed seasons, including Specials (season 0), and load episode lists on demand.
@@ -211,7 +211,7 @@ Batch 8 turns the existing MPV worker integration into a dedicated, usable nativ
 - [x] Cache TMDB title details, external IDs, and season responses locally with language-aware keys and TTL expiry.
 - [x] Cache official TMDB artwork locally with HTTPS host validation, an 8 MiB per-image limit, and a 128 MiB total cache budget.
 - [x] Keep cache files separate from personal settings, playback progress, and watch history.
-- [ ] Verify the Windows build and tests in GitHub Actions.
+- [x] Verify the Windows build, tests, Windows x64 release build, and package assembly in GitHub Actions.
 - [ ] Validate season switching, Specials, episode-specific source discovery, cache hits, and offline/error behavior on Windows.
 
 **Boundary:** TMDB season numbering is passed through to compatible Stremio providers without guessing or silently remapping provider-specific numbering. Cache contents are disposable and may be pruned; they are never treated as user library data. Runtime provider correctness still depends on the metadata numbering matching the installed add-on's expectations.
