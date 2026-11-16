@@ -4,9 +4,9 @@ use gpui::Window;
 use raw_window_handle::RawWindowHandle;
 use std::ptr;
 use windows_sys::Win32::{
-    Foundation::{GetLastError, HWND},
+    Foundation::{GetLastError, HWND, RECT},
     UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, HWND_TOP, IsWindow, SWP_NOACTIVATE, SWP_NOOWNERZORDER,
+        CreateWindowExW, DestroyWindow, GetClientRect, GetParent, HWND_TOP, IsWindow, IsWindowVisible, SWP_NOACTIVATE, SWP_NOOWNERZORDER,
         SWP_SHOWWINDOW, SetWindowPos, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_VISIBLE,
     },
 };
@@ -125,6 +125,36 @@ impl WindowsVideoSurface {
             hwnd: hwnd as usize,
             bounds,
         })
+    }
+
+    /// Describe the live child-window state for playback diagnostics.
+    pub fn diagnostic_snapshot(&self) -> String {
+        let hwnd = self.hwnd as HWND;
+        // SAFETY: the handle is owned by this surface and is only inspected here.
+        let valid = unsafe { IsWindow(hwnd) } != 0;
+        // SAFETY: visibility and parent queries do not mutate the owned handle.
+        let visible = unsafe { IsWindowVisible(hwnd) } != 0;
+        let parent = unsafe { GetParent(hwnd) } as usize;
+        let mut client = RECT::default();
+        // SAFETY: client points to writable RECT storage.
+        let has_client_rect = unsafe { GetClientRect(hwnd, &mut client) } != 0;
+        let client_description = if has_client_rect {
+            format!("{}x{}", client.right - client.left, client.bottom - client.top)
+        } else {
+            "unavailable".into()
+        };
+        format!(
+            "native video surface: hwnd=0x{:X}; valid={}; visible={}; parent=0x{:X}; bounds=({}, {}, {}x{}); client={}",
+            self.hwnd,
+            valid,
+            visible,
+            parent,
+            self.bounds.x,
+            self.bounds.y,
+            self.bounds.width,
+            self.bounds.height,
+            client_description
+        )
     }
 
     /// Return the Win32 HWND value required by MPV's wid option.
