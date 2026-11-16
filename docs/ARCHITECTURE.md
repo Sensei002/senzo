@@ -118,7 +118,7 @@ Planned additions include metadata cache entries, artwork cache indexing, favori
 ## 6. Application data flow
 
 1. GPUI sends a search request to the metadata service.
-2. The metadata service requests TMDB results and returns stable TMDB IDs.
+2. The desktop metadata client calls the hosted SENZO API, which requests TMDB results and returns stable TMDB IDs.
 3. A selected title is enriched with details, credits, images, videos, and external IDs.
 4. When the user requests sources, SENZO checks only installed and enabled add-ons that declare support for the relevant resource.
 5. The user selects a playable result; it is handed to the playback service.
@@ -148,7 +148,7 @@ Initial foundations exist in the repository. Windows CI is the source of truth f
 
 - `src/storage.rs`: SQLite initialization, local settings, playback progress, watch history, and installed add-on registry.
 - `src/diagnostics.rs`: local diagnostic event logging, bounded log rotation, recent-event collection, and basic credential redaction.
-- `src/metadata.rs`: TMDB movie/TV search, detail enrichment, seasons/episodes, external-ID lookup, and image URL construction.
+- `src/metadata.rs`: HTTPS client for the hosted SENZO metadata API, including movie/TV search, detail enrichment, seasons/episodes, external-ID lookup, and TMDB image URL construction.
 - `src/settings.rs`: typed playback preferences, conservative defaults, and resource-limit normalization.
 - `src/playback/mpv_config.rs`: pure mapping from user preferences to MPV option values, runtime-capability-aware fallback reporting, and unit tests.
 - `src/playback/mpv_runtime.rs`: dynamic libmpv loading, pre-initialization option application, local-file loading, pause, seek, speed, stop, and string-property access. The Windows CI packaging workflow separately produces a pinned LGPL runtime artifact; app-side runtime installation and playback validation remain outstanding.
