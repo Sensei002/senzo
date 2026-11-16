@@ -105,7 +105,7 @@ The active log rotates at 2 MiB. The support-bundle API is designed to collect r
 
 ## How SENZO is intended to work
 
-1. **Discover:** The GPUI interface requests a movie or series search from the TMDB metadata service.
+1. **Discover:** The GPUI interface requests movie and series data from the hosted SENZO metadata API, which securely proxies approved TMDB endpoints.
 2. **Enrich:** SENZO retrieves details, credits, images, videos, external IDs, and TV season/episode data.
 3. **Find sources:** When the user asks for available sources, SENZO queries only installed and enabled add-ons that support the relevant resource.
 4. **Select:** The user chooses a source. SENZO does not silently pick or install one.
@@ -150,7 +150,7 @@ Batch 6 delivers the first complete Home/Discovery and Settings UX milestone. It
 - **Serde / Serde JSON** — structured data and protocol parsing.
 - **SQLite / rusqlite** — local persistence.
 - **Windows Credential Manager** — secure storage for optional user-supplied provider credentials such as OpenSubtitles; TMDB credentials remain server-side in the SENZO API.
-- **TMDB API** — movie and television metadata.
+- **SENZO API (Vercel / Next.js)** — server-side gateway for TMDB movie and television metadata.
 - **Stremio-compatible HTTP add-ons** — optional external sources.
 - **MPV / libmpv** — playback engine and C API.
 - **GitHub Actions** — Windows formatting, compilation, tests, and future release builds.
