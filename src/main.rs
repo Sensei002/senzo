@@ -5187,7 +5187,7 @@ fn render_discovery_page(
                             )),
                     )
                     .when(
-                        tmdb_not_configured || tmdb_status.contains("not configured"),
+                        false,
                         |content| {
                             content.child(
                                 div()
@@ -5216,13 +5216,13 @@ fn render_discovery_page(
                                                             .text_sm()
                                                             .font_weight(gpui::FontWeight::BOLD)
                                                             .text_color(rgb(0xF8FAFC))
-                                                            .child("TMDB Metadata Token Required"),
+                                                            .child("SENZO Metadata API Unavailable"),
                                                     )
                                                     .child(
                                                         div()
                                                             .text_xs()
                                                             .text_color(rgb(0x94A3B8))
-                                                            .child("Configure your free TMDB API token in Settings to explore catalogues and search titles."),
+                                                            .child("The metadata service is temporarily unavailable. Check your connection and retry."),
                                                     ),
                                             ),
                                     )
@@ -5237,11 +5237,10 @@ fn render_discovery_page(
                                             .text_xs()
                                             .cursor_pointer()
                                             .hover(|s| s.bg(rgb(0x67E8F9)))
-                                            .child("Configure TMDB")
+                                            .child("Retry Metadata")
                                             .on_mouse_down(
                                                 MouseButton::Left,
                                                 cx.listener(|this, _event, _window, cx| {
-                                                    this.active_page = AppPage::Settings;
                                                     this.load_home_catalogs(cx);
                                                 }),
                                             ),
@@ -5308,7 +5307,7 @@ fn render_discovery_page(
                     .text_color(rgb(0x9299A1))
                     .child("Search across movies and TV shows · Results update as you type · Press Enter to search"),
             )
-            .when(tmdb_not_configured, |content| {
+            .when(false, |content| {
                 content.child(
                     div()
                         .p_4()
@@ -5328,21 +5327,21 @@ fn render_discovery_page(
                                     div()
                                         .text_sm()
                                         .font_weight(gpui::FontWeight::BOLD)
-                                        .child("TMDB search is not configured"),
+                                        .child("Metadata service is unavailable"),
                                 )
                                 .child(
                                     div()
                                         .text_xs()
                                         .text_color(rgb(0x94A3B8))
-                                        .child("Configure metadata access in Settings to search movies and TV shows."),
+                                        .child("The hosted metadata service could not be reached. Retry your search in a moment."),
                                 ),
                         )
                         .child(dynamic_choice_chip(
                             "Configure TMDB".into(),
                             true,
                             |this, cx| {
-                                this.active_page = AppPage::Settings;
-                                this.load_home_catalogs(cx);
+                                let query = this.search_query.clone();
+                                this.load_tmdb_search(query, cx);
                             },
                             cx,
                         )),
