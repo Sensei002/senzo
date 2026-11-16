@@ -11,6 +11,8 @@ use zeroize::Zeroize;
 const SERVICE: &str = "SENZO";
 const OPENSUBTITLES_ACCOUNT: &str = "opensubtitles.com/api-key";
 const MAX_CREDENTIAL_BYTES: usize = 4096;
+// CredUI's documented maximum password field is 256 UTF-16 characters.
+const MAX_WINDOWS_CREDENTIAL_PASSWORD_CHARS: usize = 256;
 static CREDENTIAL_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -76,7 +78,7 @@ impl OpenSubtitlesCredentialStore {
                 .chain(std::iter::once(0))
                 .collect();
             let mut username = [0u16; 1];
-            let mut password = vec![0u16; MAX_CREDENTIAL_BYTES + 1];
+            let mut password = vec![0u16; MAX_WINDOWS_CREDENTIAL_PASSWORD_CHARS + 1];
             let flags = CREDUI_FLAGS_ALWAYS_SHOW_UI
                 | CREDUI_FLAGS_DO_NOT_PERSIST
                 | CREDUI_FLAGS_GENERIC_CREDENTIALS
