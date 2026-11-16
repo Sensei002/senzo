@@ -2104,9 +2104,9 @@ impl SenzoApp {
         self.tmdb_credential_task = Some(cx.spawn(async move |this, cx| {
             // CredUI is a blocking native modal dialog. Keep it off the GPUI UI thread.
             let result = cx
-                .background_spawn(async move {
-                    TmdbCredentialStore::prompt_and_save_access_token()
-                })
+                .background_spawn(
+                    async move { TmdbCredentialStore::prompt_and_save_access_token() },
+                )
                 .await;
 
             let _ = this.update(cx, |app, cx| {
