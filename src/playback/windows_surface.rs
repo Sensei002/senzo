@@ -145,6 +145,32 @@ impl WindowsVideoSurface {
         }
     }
 
+    /// Reassert the child surface's z-order without moving or resizing it.
+    ///
+    /// GPUI may repaint or reorder native siblings while the player is active.
+    /// Showing a window does not guarantee that it is above those siblings, so
+    /// the player viewport calls this during prepaint to keep MPV's surface visible.
+    pub fn raise(&self) -> anyhow::Result<()> {
+        // SAFETY: this object owns hwnd until Drop; flags preserve its geometry.
+        let ok = unsafe {
+            SetWindowPos(
+                self.hwnd as HWND,
+                HWND_TOP,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            )
+        };
+        if ok == 0 {
+            bail!("could not raise native video surface (Win32 error {})", unsafe {
+                GetLastError()
+            });
+        }
+        Ok(())
+    }
+
     pub fn set_bounds(&mut self, bounds: SurfaceBounds) -> anyhow::Result<()> {
         let bounds = bounds.validate()?;
         if self.bounds == bounds {
