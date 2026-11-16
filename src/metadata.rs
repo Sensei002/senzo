@@ -71,8 +71,8 @@ impl TmdbClient {
     /// Creates a client for a SENZO-compatible metadata API endpoint.
     pub fn new(base_url: impl Into<String>, language: impl Into<String>) -> Result<Self> {
         let base_url = base_url.into().trim().trim_end_matches('/').to_owned();
-        let parsed = url::Url::parse(&base_url)
-            .context("SENZO metadata API base URL is invalid")?;
+        let parsed =
+            url::Url::parse(&base_url).context("SENZO metadata API base URL is invalid")?;
         if parsed.scheme() != "https"
             || parsed.host_str().is_none()
             || !parsed.username().is_empty()
