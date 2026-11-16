@@ -11,6 +11,8 @@ const TMDB_IMAGE_BASE: &str = "https://image.tmdb.org/t/p";
 const TMDB_CREDENTIAL_SERVICE: &str = "SENZO";
 const TMDB_CREDENTIAL_ACCOUNT: &str = "themoviedb.org/read-access-token";
 const MAX_TMDB_TOKEN_BYTES: usize = 8192;
+// CredUI's documented maximum password field is 256 UTF-16 characters.
+const MAX_WINDOWS_CREDENTIAL_PASSWORD_CHARS: usize = 256;
 static TMDB_CREDENTIAL_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone, Deserialize)]
@@ -343,7 +345,7 @@ impl TmdbCredentialStore {
                 .chain(std::iter::once(0))
                 .collect();
             let mut username = [0u16; 1];
-            let mut password = vec![0u16; MAX_TMDB_TOKEN_BYTES + 1];
+            let mut password = vec![0u16; MAX_WINDOWS_CREDENTIAL_PASSWORD_CHARS + 1];
             let flags = CREDUI_FLAGS_ALWAYS_SHOW_UI
                 | CREDUI_FLAGS_DO_NOT_PERSIST
                 | CREDUI_FLAGS_GENERIC_CREDENTIALS
