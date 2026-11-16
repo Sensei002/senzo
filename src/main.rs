@@ -693,25 +693,52 @@ impl SenzoApp {
                                 (addon, media_type, catalog_id, shelf_name, metas)
                             }
                         });
-                        futures::future::join_all(requests).await.into_iter()
-                            .filter_map(|(addon, media_type, catalog_id, shelf_name, result)| {
-                                result.ok().filter(|metas| !metas.is_empty())
-                                    .map(|metas| (shelf_name, addon, media_type, catalog_id, metas))
-                            }).collect::<Vec<_>>()
+                        let mut shelves = Vec::new();
+                        let mut failed_requests = 0usize;
+                        for (addon, media_type, catalog_id, shelf_name, result) in
+                            futures::future::join_all(requests).await
+                        {
+                            match result {
+                                Ok(response) => {
+                                    let metas = response.metas.into_iter().filter_map(|mut meta| {
+                                        let object = meta.as_object_mut()?;
+                                        if !object.get("id").is_some_and(Value::is_string) {
+                                            return None;
+                                        }
+                                        object.entry("type").or_insert_with(|| Value::String(media_type.clone()));
+                                        Some(meta)
+                                    }).take(20).collect::<Vec<_>>();
+                                    if !metas.is_empty() {
+                                        shelves.push((shelf_name, addon, media_type, catalog_id, metas));
+                                    }
+                                }
+                                Err(_) => failed_requests += 1,
+                            }
+                        }
+                        (shelves, failed_requests)
                     };
 
-                    let (tmdb_result, addon_shelves) = futures::join!(tmdb_result, addon_result);
+                    let (tmdb_result, addon_result) = futures::join!(tmdb_result, addon_result);
                     let (tmdb_shelves, failures) = tmdb_result.unwrap_or_else(|_| (Vec::new(), vec!["TMDB"]));
+                    let (addon_shelves, addon_failures) = addon_result;
                     if tmdb_shelves.is_empty() && addon_shelves.is_empty() {
                         anyhow::bail!("Discovery is temporarily unavailable. Check your connection and try again.");
                     }
-                    Ok::<_, anyhow::Error>((tmdb_shelves, addon_shelves, failures))
+                    Ok::<_, anyhow::Error>((tmdb_shelves, addon_shelves, failures, addon_failures))
                 })
             }).await;
 
             let _ = this.update(cx, |app, cx| {
                 match result {
-                    Ok((tmdb_shelves, addon_shelves, failures)) => {
+                    Ok((mut tmdb_shelves, mut addon_shelves, failures, addon_failures)) => {
+                        // A provider outage must not erase the last successful shelves.
+                        // An empty result with no provider errors is a legitimate empty catalog.
+                        if tmdb_shelves.is_empty() && !failures.is_empty() {
+                            tmdb_shelves = app.home_catalogs.clone();
+                        }
+                        if addon_shelves.is_empty() && addon_failures > 0 {
+                            addon_shelves = app.home_addon_catalogs.clone();
+                        }
                         let tmdb_count = tmdb_shelves.len();
                         let addon_count = addon_shelves.len();
                         app.home_catalogs = tmdb_shelves;
@@ -724,7 +751,10 @@ impl SenzoApp {
                             notes.push(format!("{addon_count} add-on shelves"));
                         }
                         if !failures.is_empty() {
-                            notes.push("some recommendations could not load".into());
+                            notes.push(format!("TMDB unavailable: {}", failures.join(", ")));
+                        }
+                        if addon_failures > 0 {
+                            notes.push(format!("{addon_failures} add-on catalog request(s) failed"));
                         }
                         app.home_catalog_status = if notes.is_empty() {
                             "No discovery catalogs are available yet".into()
