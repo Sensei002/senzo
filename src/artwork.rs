@@ -55,6 +55,9 @@ impl HttpClient for TmdbArtworkHttpClient {
                 .context("TMDB artwork request failed")?;
             let status = StatusCode::from_u16(response.status().as_u16())
                 .context("TMDB artwork returned an invalid HTTP status")?;
+            if !status.is_success() {
+                bail!("TMDB artwork server returned HTTP {status}");
+            }
             if response
                 .content_length()
                 .is_some_and(|length| length > MAX_ARTWORK_BYTES as u64)
@@ -65,10 +68,18 @@ impl HttpClient for TmdbArtworkHttpClient {
                 .bytes()
                 .await
                 .context("could not read TMDB artwork")?;
-            if body.len() > MAX_ARTWORK_BYTES {
-                bail!("TMDB artwork exceeds the 8 MiB safety limit");
+            if body.is_empty() || body.len() > MAX_ARTWORK_BYTES {
+                bail!("TMDB artwork is empty or exceeds the 8 MiB safety limit");
             }
-            let _ = crate::cache::store_artwork_bytes(url.as_str(), &body);
+            // Cache only complete successful responses. A transient HTTP error
+            // must never poison the on-disk cache for a valid poster URL.
+            if let Err(error) = crate::cache::store_artwork_bytes(url.as_str(), &body) {
+                crate::diagnostics::record(
+                    crate::diagnostics::Level::Warn,
+                    "artwork",
+                    &format!("could not cache downloaded TMDB artwork: {error:#}"),
+                );
+            }
             Ok(HttpResponse {
                 status,
                 body: body.to_vec(),
