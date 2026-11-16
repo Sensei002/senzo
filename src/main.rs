@@ -100,6 +100,7 @@ struct SenzoApp {
     home_customize_open: bool,
     tmdb_details: Option<Value>,
     tmdb_task: Option<Task<()>>,
+    tmdb_credential_task: Option<Task<()>>,
     tv_seasons: Vec<(u32, String)>,
     tv_selected_season: Option<u32>,
     tv_episodes: Vec<TmdbEpisode>,
@@ -275,6 +276,7 @@ impl SenzoApp {
             home_customize_open: false,
             tmdb_details: None,
             tmdb_task: None,
+            tmdb_credential_task: None,
             tv_seasons: Vec::new(),
             tv_selected_season: None,
             tv_episodes: Vec::new(),
@@ -2093,35 +2095,61 @@ impl SenzoApp {
     }
 
     fn configure_tmdb_key(&mut self, cx: &mut Context<Self>) {
-        match TmdbCredentialStore::prompt_and_save_access_token() {
-            Ok(true) => {
-                self.tmdb_credentials_status =
-                    "TMDB Read Access Token saved in Windows Credential Manager".into();
-                diagnostics::record(
-                    diagnostics::Level::Audit,
-                    "metadata",
-                    "TMDB Read Access Token configured securely",
-                );
-                // A Home request may already have completed in the missing-credential
-                // state. Reset it and immediately retry with the newly saved token.
-                self.home_catalog_requested = false;
-                self.home_catalog_status = "TMDB configured · refreshing recommendations…".into();
-                if self.active_page == AppPage::Home {
-                    self.load_home_catalogs(cx);
+        self.tmdb_credentials_status = "Waiting for the secure Windows credential prompt…".into();
+        diagnostics::record(
+            diagnostics::Level::Info,
+            "metadata",
+            "TMDB credential prompt requested",
+        );
+        self.tmdb_credential_task = Some(cx.spawn(async move |this, cx| {
+            // CredUI is a blocking native modal dialog. Keep it off the GPUI UI thread.
+            let result = cx
+                .background_spawn(async move {
+                    TmdbCredentialStore::prompt_and_save_access_token()
+                })
+                .await;
+
+            let _ = this.update(cx, |app, cx| {
+                match result {
+                    Ok(true) => {
+                        app.tmdb_credentials_status =
+                            "TMDB Read Access Token saved in Windows Credential Manager".into();
+                        diagnostics::record(
+                            diagnostics::Level::Audit,
+                            "metadata",
+                            "TMDB Read Access Token configured securely",
+                        );
+                        // A Home request may already have completed in the missing-credential
+                        // state. Reset it and immediately retry with the newly saved token.
+                        app.home_catalog_requested = false;
+                        app.home_catalog_status =
+                            "TMDB configured · refreshing recommendations…".into();
+                        if app.active_page == AppPage::Home {
+                            app.load_home_catalogs(cx);
+                        }
+                    }
+                    Ok(false) => {
+                        app.tmdb_credentials_status =
+                            "TMDB token setup cancelled; no changes made".into();
+                        diagnostics::record(
+                            diagnostics::Level::Info,
+                            "metadata",
+                            "TMDB credential prompt cancelled",
+                        );
+                    }
+                    Err(error) => {
+                        app.tmdb_credentials_status =
+                            format!("Could not save TMDB token: {error:#}");
+                        diagnostics::record(
+                            diagnostics::Level::Warn,
+                            "metadata",
+                            "TMDB token configuration failed",
+                        );
+                    }
                 }
-            }
-            Ok(false) => {
-                self.tmdb_credentials_status = "TMDB token setup cancelled; no changes made".into()
-            }
-            Err(error) => {
-                self.tmdb_credentials_status = format!("Could not save TMDB token: {error:#}");
-                diagnostics::record(
-                    diagnostics::Level::Warn,
-                    "metadata",
-                    "TMDB token configuration failed",
-                );
-            }
-        }
+                cx.notify();
+            });
+        }));
         cx.notify();
     }
 
