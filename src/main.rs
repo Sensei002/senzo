@@ -330,6 +330,16 @@ impl SenzoApp {
             }
         };
 
+        if let Ok(surface_slot) = self.native_video_surface.lock() {
+            if let Some(surface) = surface_slot.as_ref() {
+                diagnostics::record(
+                    diagnostics::Level::Info,
+                    "playback",
+                    &surface.diagnostic_snapshot(),
+                );
+            }
+        }
+
         let mut config = build_mpv_config(
             &self.settings,
             &senzo::playback::mpv_config::MpvConfig::startup_capabilities(),
