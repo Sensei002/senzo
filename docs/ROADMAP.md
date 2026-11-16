@@ -239,7 +239,7 @@ Batch 8 turns the existing MPV worker integration into a dedicated, usable nativ
 
 ## Phase 9.4 — Hosted Metadata API & Zero-Configuration OOBE (Batch 8.4)
 
-**Status: Implementation pushed; API and Windows CI verification pending.** SENZO now uses the hosted SENZO API as its only TMDB metadata gateway. The TMDB Read Access Token stays in the Vercel server environment; ordinary desktop users do not need a TMDB account, API token, or setup step.
+**Status: Implementation pushed; Vercel deployment succeeded; latest API workflow and Windows CI verification pending.** SENZO now uses the hosted SENZO API as its only TMDB metadata gateway. The TMDB Read Access Token stays in the Vercel server environment; ordinary desktop users do not need a TMDB account, API token, or setup step.
 
 - [x] Add allowlisted SENZO API routes for trending, popular movies/TV, movie/TV search, enriched details, external IDs, TV seasons, and individual TV episodes.
 - [x] Route the native Rust metadata client through https://senzo-api.vercel.app/api/tmdb over HTTPS.
