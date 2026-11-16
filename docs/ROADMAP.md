@@ -28,7 +28,7 @@ Status definitions:
 The Settings experience will follow Nuvio's simple, user-friendly approach: clear everyday categories, plain-language labels, sensible defaults, and progressive disclosure for technical controls. TMDB and OpenSubtitles are built-in integrations in official builds; ordinary users must not need to supply API keys. Advanced diagnostics and technical playback controls stay out of the main settings flow.
 
 - [x] Build main SENZO navigation rail with compact fixed-height pills, cinematic hero carousel, and poster shelves.
-- [x] Build Home welcome and onboarding hero with direct TMDB configuration and add-on quick actions.
+- [x] Build Home welcome and onboarding hero with zero-credential SENZO metadata API discovery and add-on quick actions.
 - [ ] Add reusable poster, backdrop, title, and detail components.
 - [x] Build Home, Search, Library, Details, Player, Add-ons, and Settings screens with permanent sidebar access.
 - [ ] Add a Settings diagnostics section with a Copy Logs action.
@@ -38,7 +38,7 @@ The Settings experience will follow Nuvio's simple, user-friendly approach: clea
 
 ## Phase 4 — Metadata, discovery, and local library
 
-- [x] Add masked Windows Credential Manager storage and Settings controls for the TMDB Read Access Token; secrets are excluded from SQLite and logs. Official-build credential injection remains a distribution task.
+- [x] Replace the legacy desktop TMDB token prompt with the hosted SENZO metadata API; the desktop no longer stores or requests a TMDB token (Batch 8.4).
 - [x] Connect TMDB popular catalogues, clipboard-assisted movie/TV search, and title detail requests to GPUI screens.
 - [x] Add TMDB TV season/episode detail endpoints and typed response models (UI browsing remains pending).
 - [x] Add TMDB movie/TV external-ID lookup models and endpoints (source-provider integration remains pending).
@@ -189,21 +189,21 @@ Batch 8 turns the existing MPV worker integration into a dedicated, usable nativ
 
 ## Phase 9.1 — Experience and Discovery Remediation (Batch 8.1)
 
-**Status: In progress.** Windows user testing exposed gaps that were not covered by compile-time CI: the installed UI does not yet match the approved SENZO media-center design, Torrentio manifest preview failed, and Home discovery was empty when TMDB credentials were not configured.
+**Status: In progress.** Windows user testing exposed gaps that were not covered by compile-time CI: the installed UI did not yet match the approved SENZO media-center design, Torrentio manifest preview failed, and Home discovery had no zero-configuration metadata service. Batch 8.4 replaces the original per-user TMDB credential path with the hosted SENZO API.
 
 - [x] Add a direct Torrentio standard-manifest preview action, independent of clipboard behavior.
 - [x] Keep configured Torrentio URLs supported through the existing Paste manifest URL flow.
 - [x] Show the actual manifest request / validation error in the Add-ons screen while keeping user-supplied URLs out of diagnostic logs.
-- [x] Provide a direct Home empty-state path to securely configure the TMDB Read Access Token when it is missing.
+- [x] Provide a direct Home empty-state path for metadata discovery; the former credential prompt is superseded by the hosted SENZO API in Batch 8.4.
 - [x] Redesign the real GPUI Home and navigation UI to match the approved SENZO visual reference (media-center navigation rail, cinematic hero carousel with Play/More Info pills, dot/arrow controls, shelf headers with vertical cyan accent bars, View All routes, and 2:3 cinematic poster cards).
 - [x] Establish larger cinematic hero proportions, stronger title hierarchy, larger poster cards, and on-artwork rating badges in native GPUI shelves.
 - [x] Implement polished hero transitions, carousel motion, and shelf interaction animations.
 - [x] Improve Home discovery error recovery, preserve catalog state during transient refresh failures, and add media-center keyboard navigation (1-7, h, /).
 - [ ] Verify Torrentio installation and stream discovery on Windows with the standard and configured manifest URLs.
-- [ ] Verify Home recommendations after TMDB credential setup on Windows hardware.
+- [ ] Verify Home recommendations through the hosted SENZO API on Windows hardware.
 - [ ] Validate the complete experience on Windows before starting Batch 9.
 
-**Boundary:** This remediation does not bundle Torrentio or any other streaming provider. TMDB credentials remain user-configurable and stored in Windows Credential Manager. CI success alone does not mark these user-facing tasks complete.
+**Boundary:** This remediation does not bundle Torrentio or any other streaming provider. Its original user-supplied TMDB credential flow is superseded by Batch 8.4; the desktop now calls the hosted SENZO API. CI success alone does not mark these user-facing tasks complete.
 
 ## Phase 9.2 — TV Seasons, Episodes & Metadata Caching (Batch 8.2)
 
@@ -237,6 +237,24 @@ Batch 8 turns the existing MPV worker integration into a dedicated, usable nativ
 
 **Boundary:** The artwork client is restricted to HTTPS on image.tmdb.org; it does not fetch arbitrary user-supplied image URLs. Artwork is disposable cache data and does not contain personal watch history or credentials.
 
+## Phase 9.4 — Hosted Metadata API & Zero-Configuration OOBE (Batch 8.4)
+
+**Status: Implementation pushed; API and Windows CI verification pending.** SENZO now uses the hosted SENZO API as its only TMDB metadata gateway. The TMDB Read Access Token stays in the Vercel server environment; ordinary desktop users do not need a TMDB account, API token, or setup step.
+
+- [x] Add allowlisted SENZO API routes for trending, popular movies/TV, movie/TV search, enriched details, external IDs, TV seasons, and individual TV episodes.
+- [x] Route the native Rust metadata client through https://senzo-api.vercel.app/api/tmdb over HTTPS.
+- [x] Remove TMDB token storage and masked token prompts from the desktop Settings and discovery onboarding.
+- [x] Remove SENZO_TMDB_READ_ACCESS_TOKEN injection from the desktop Windows CI build.
+- [x] Add a zero-credential first-run experience and a metadata-service status/retry path.
+- [x] Keep TMDB artwork downloads on the official image.tmdb.org host through the existing secure GPUI artwork client.
+- [x] Add unit coverage requiring an HTTPS SENZO metadata API base URL.
+- [ ] Verify the expanded API routes and API repository CI after the latest route changes.
+- [ ] Verify desktop Windows CI, including formatting, compilation, tests, release build, and package assembly.
+- [ ] Validate first launch, Home recommendations, movie/TV search, title details, credits/videos, external IDs, TV seasons/episodes, artwork, and retry/offline behavior on Windows.
+- [ ] Remove the obsolete SENZO_TMDB_READ_ACCESS_TOKEN secret from the desktop repository after confirming no remaining workflow references it.
+- [ ] Add shared rate limiting and abuse monitoring to the public API before broad distribution; the current per-instance in-memory rate limiter/cache are best-effort only.
+
+**Boundary:** The desktop is a public client and contains no shared TMDB credential. The API exposes fixed read-only routes, not an arbitrary URL proxy. Its public URL is not authentication; CORS is not access control. Vercel deployment health and successful TMDB search have been manually verified, but the expanded endpoint set and desktop runtime behavior still require validation. TMDB attribution and terms review remain required before public distribution.
 ## Phase 10 — Additional sources and presence (Batch 9)
 
 - [x] Define a stable source-adapter interface and route the discovery UI through a provider registry; the Stremio adapter preserves the existing user-installed add-on behavior.
