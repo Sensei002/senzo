@@ -43,7 +43,10 @@ impl HttpClient for TmdbArtworkHttpClient {
 
         Box::pin(async move {
             if let Some(body) = crate::cache::load_artwork_bytes(url.as_str())? {
-                return Ok(HttpResponse { status: StatusCode::OK, body });
+                return Ok(HttpResponse {
+                    status: StatusCode::OK,
+                    body,
+                });
             }
             let response = client
                 .get(url.clone())

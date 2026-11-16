@@ -1001,57 +1001,114 @@ impl SenzoApp {
         });
         let metadata_language = self.metadata_language.clone();
         self.tmdb_task = Some(cx.spawn(async move |this, cx| {
-            let result = cx.background_spawn(async move {
-                let client = TmdbClient::from_credential_store(&metadata_language)?;
-                let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
-                    .context("could not initialize metadata and source runtime")?;
-                runtime.block_on(async {
-                    let detail_key = format!("tmdb:{media_type}:{tmdb_id}:details:{metadata_language}");
-                    let details = if let Some(cached) = senzo::cache::load_metadata(&detail_key, Duration::from_secs(7 * 24 * 60 * 60)).ok().flatten() {
-                        cached
-                    } else {
-                        let value = if media_type == "movie" { client.movie_details(tmdb_id).await? } else { client.tv_details(tmdb_id).await? };
-                        let _ = senzo::cache::store_metadata(&detail_key, &value);
-                        value
-                    };
-                    let ids_key = format!("tmdb:{media_type}:{tmdb_id}:external-ids");
-                    let external_ids_value = if let Some(cached) = senzo::cache::load_metadata(&ids_key, Duration::from_secs(30 * 24 * 60 * 60)).ok().flatten() {
-                        cached
-                    } else {
-                        let ids = if media_type == "movie" { client.movie_external_ids(tmdb_id).await? } else { client.tv_external_ids(tmdb_id).await? };
-                        let value = serde_json::to_value(ids).context("could not encode TMDB external IDs")?;
-                        let _ = senzo::cache::store_metadata(&ids_key, &value);
-                        value
-                    };
-                    let external_ids: senzo::metadata::TmdbExternalIds = serde_json::from_value(external_ids_value)
-                        .context("cached TMDB external IDs are invalid")?;
-                    let provider_id = external_ids.imdb_id.clone().unwrap_or_else(|| format!("tmdb:{tmdb_id}"));
-                    if media_type == "tv" {
-                        Ok::<_, anyhow::Error>((details, Vec::new(), provider_id))
-                    } else {
-                        let streams = SourceProviderRegistry::default().discover(&addons, "movie", &provider_id).await;
-                        Ok::<_, anyhow::Error>((details, streams, provider_id))
-                    }
+            let result = cx
+                .background_spawn(async move {
+                    let client = TmdbClient::from_credential_store(&metadata_language)?;
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .context("could not initialize metadata and source runtime")?;
+                    runtime.block_on(async {
+                        let detail_key =
+                            format!("tmdb:{media_type}:{tmdb_id}:details:{metadata_language}");
+                        let details = if let Some(cached) = senzo::cache::load_metadata(
+                            &detail_key,
+                            Duration::from_secs(7 * 24 * 60 * 60),
+                        )
+                        .ok()
+                        .flatten()
+                        {
+                            cached
+                        } else {
+                            let value = if media_type == "movie" {
+                                client.movie_details(tmdb_id).await?
+                            } else {
+                                client.tv_details(tmdb_id).await?
+                            };
+                            let _ = senzo::cache::store_metadata(&detail_key, &value);
+                            value
+                        };
+                        let ids_key = format!("tmdb:{media_type}:{tmdb_id}:external-ids");
+                        let external_ids_value = if let Some(cached) = senzo::cache::load_metadata(
+                            &ids_key,
+                            Duration::from_secs(30 * 24 * 60 * 60),
+                        )
+                        .ok()
+                        .flatten()
+                        {
+                            cached
+                        } else {
+                            let ids = if media_type == "movie" {
+                                client.movie_external_ids(tmdb_id).await?
+                            } else {
+                                client.tv_external_ids(tmdb_id).await?
+                            };
+                            let value = serde_json::to_value(ids)
+                                .context("could not encode TMDB external IDs")?;
+                            let _ = senzo::cache::store_metadata(&ids_key, &value);
+                            value
+                        };
+                        let external_ids: senzo::metadata::TmdbExternalIds =
+                            serde_json::from_value(external_ids_value)
+                                .context("cached TMDB external IDs are invalid")?;
+                        let provider_id = external_ids
+                            .imdb_id
+                            .clone()
+                            .unwrap_or_else(|| format!("tmdb:{tmdb_id}"));
+                        if media_type == "tv" {
+                            Ok::<_, anyhow::Error>((details, Vec::new(), provider_id))
+                        } else {
+                            let streams = SourceProviderRegistry::default()
+                                .discover(&addons, "movie", &provider_id)
+                                .await;
+                            Ok::<_, anyhow::Error>((details, streams, provider_id))
+                        }
+                    })
                 })
-            }).await;
+                .await;
             let _ = this.update(cx, |app, cx| {
                 match result {
                     Ok((details, streams, stream_id)) => {
-                        app.tv_seasons = details.get("seasons").and_then(Value::as_array).into_iter().flatten()
+                        app.tv_seasons = details
+                            .get("seasons")
+                            .and_then(Value::as_array)
+                            .into_iter()
+                            .flatten()
                             .filter_map(|season| {
-                                let number = season.get("season_number").and_then(Value::as_u64)? as u32;
-                                let name = season.get("name").and_then(Value::as_str).map(str::to_owned)
-                                    .unwrap_or_else(|| if number == 0 { "Specials".into() } else { format!("Season {number}") });
+                                let number =
+                                    season.get("season_number").and_then(Value::as_u64)? as u32;
+                                let name = season
+                                    .get("name")
+                                    .and_then(Value::as_str)
+                                    .map(str::to_owned)
+                                    .unwrap_or_else(|| {
+                                        if number == 0 {
+                                            "Specials".into()
+                                        } else {
+                                            format!("Season {number}")
+                                        }
+                                    });
                                 Some((number, name))
-                            }).collect();
-                        app.tv_seasons.sort_by_key(|(number, _)| if *number == 0 { u32::MAX } else { *number });
-                        let first_season = app.tv_seasons.iter().find(|(number, _)| *number > 0)
-                            .or_else(|| app.tv_seasons.first()).map(|(number, _)| *number);
+                            })
+                            .collect();
+                        app.tv_seasons.sort_by_key(
+                            |(number, _)| if *number == 0 { u32::MAX } else { *number },
+                        );
+                        let first_season = app
+                            .tv_seasons
+                            .iter()
+                            .find(|(number, _)| *number > 0)
+                            .or_else(|| app.tv_seasons.first())
+                            .map(|(number, _)| *number);
                         app.tmdb_details = Some(details);
                         app.addon_stream_results = streams;
                         app.tmdb_status = "TMDB details loaded".into();
-                        if let Some(season) = first_season { app.load_tmdb_season(season, cx); }
-                        app.stream_status = if stream_id.starts_with("tt") || stream_id.starts_with("tmdb:") && !app.tv_seasons.is_empty() {
+                        if let Some(season) = first_season {
+                            app.load_tmdb_season(season, cx);
+                        }
+                        app.stream_status = if stream_id.starts_with("tt")
+                            || stream_id.starts_with("tmdb:") && !app.tv_seasons.is_empty()
+                        {
                             "Choose a season and episode to discover its sources".into()
                         } else {
                             "Movie source discovery completed".into()
@@ -1069,40 +1126,68 @@ impl SenzoApp {
     }
 
     fn load_tmdb_season(&mut self, season_number: u32, cx: &mut Context<Self>) {
-        let Some(tmdb_id) = self.tmdb_details.as_ref().and_then(|details| details.get("id")).and_then(Value::as_u64) else {
+        let Some(tmdb_id) = self
+            .tmdb_details
+            .as_ref()
+            .and_then(|details| details.get("id"))
+            .and_then(Value::as_u64)
+        else {
             return;
         };
         self.tv_selected_season = Some(season_number);
         self.tv_episodes.clear();
         self.tv_selected_episode = None;
-        self.tv_episode_status = format!("Loading {}…", if season_number == 0 { "Specials".to_owned() } else { format!("Season {season_number}") });
+        self.tv_episode_status = format!(
+            "Loading {}…",
+            if season_number == 0 {
+                "Specials".to_owned()
+            } else {
+                format!("Season {season_number}")
+            }
+        );
         let language = self.metadata_language.clone();
         self.tmdb_task = Some(cx.spawn(async move |this, cx| {
-            let result = cx.background_spawn(async move {
-                let key = format!("tmdb:tv:{tmdb_id}:season:{season_number}:{language}");
-                if let Some(value) = senzo::cache::load_metadata(&key, Duration::from_secs(7 * 24 * 60 * 60)).ok().flatten() {
-                    return serde_json::from_value::<senzo::metadata::TmdbSeason>(value)
-                        .context("cached TMDB season data is invalid");
-                }
-                let client = TmdbClient::from_credential_store(&language)?;
-                let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
-                    .context("could not initialize the TV season runtime")?;
-                let season = runtime.block_on(async {
-                    let season = client.tv_season(tmdb_id, season_number).await?;
-                    let artwork_urls = season.episodes.iter().filter_map(|episode| {
-                        tmdb_artwork_url(episode.still_path.as_deref(), "w500")
-                    }).take(12).collect::<Vec<_>>();
-                    let _ = tokio::time::timeout(Duration::from_secs(2), async {
-                        let requests = artwork_urls.iter().map(|url| senzo::cache::cache_artwork(url));
-                        let _ = futures::future::join_all(requests).await;
-                    }).await;
+            let result = cx
+                .background_spawn(async move {
+                    let key = format!("tmdb:tv:{tmdb_id}:season:{season_number}:{language}");
+                    if let Some(value) =
+                        senzo::cache::load_metadata(&key, Duration::from_secs(7 * 24 * 60 * 60))
+                            .ok()
+                            .flatten()
+                    {
+                        return serde_json::from_value::<senzo::metadata::TmdbSeason>(value)
+                            .context("cached TMDB season data is invalid");
+                    }
+                    let client = TmdbClient::from_credential_store(&language)?;
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .context("could not initialize the TV season runtime")?;
+                    let season = runtime.block_on(async {
+                        let season = client.tv_season(tmdb_id, season_number).await?;
+                        let artwork_urls = season
+                            .episodes
+                            .iter()
+                            .filter_map(|episode| {
+                                tmdb_artwork_url(episode.still_path.as_deref(), "w500")
+                            })
+                            .take(12)
+                            .collect::<Vec<_>>();
+                        let _ = tokio::time::timeout(Duration::from_secs(2), async {
+                            let requests = artwork_urls
+                                .iter()
+                                .map(|url| senzo::cache::cache_artwork(url));
+                            let _ = futures::future::join_all(requests).await;
+                        })
+                        .await;
+                        Ok::<_, anyhow::Error>(season)
+                    })?;
+                    if let Ok(value) = serde_json::to_value(&season) {
+                        let _ = senzo::cache::store_metadata(&key, &value);
+                    }
                     Ok::<_, anyhow::Error>(season)
-                })?;
-                if let Ok(value) = serde_json::to_value(&season) {
-                    let _ = senzo::cache::store_metadata(&key, &value);
-                }
-                Ok::<_, anyhow::Error>(season)
-            }).await;
+                })
+                .await;
             let _ = this.update(cx, |app, cx| {
                 match result {
                     Ok(season) => {
@@ -1110,10 +1195,18 @@ impl SenzoApp {
                         app.tv_episode_status = if app.tv_episodes.is_empty() {
                             "No episodes are listed for this season".into()
                         } else {
-                            format!("{} episodes · {}", app.tv_episodes.len(), season.name.unwrap_or_else(|| format!("Season {season_number}")))
+                            format!(
+                                "{} episodes · {}",
+                                app.tv_episodes.len(),
+                                season
+                                    .name
+                                    .unwrap_or_else(|| format!("Season {season_number}"))
+                            )
                         };
                     }
-                    Err(error) => app.tv_episode_status = format!("Could not load season: {error:#}"),
+                    Err(error) => {
+                        app.tv_episode_status = format!("Could not load season: {error:#}")
+                    }
                 }
                 cx.notify();
             });
@@ -1122,44 +1215,80 @@ impl SenzoApp {
     }
 
     fn select_tmdb_episode(&mut self, episode: TmdbEpisode, cx: &mut Context<Self>) {
-        let Some(details) = self.tmdb_details.as_ref() else { return; };
-        let Some(tmdb_id) = details.get("id").and_then(Value::as_u64) else { return; };
-        let provider_id = details.get("external_ids")
+        let Some(details) = self.tmdb_details.as_ref() else {
+            return;
+        };
+        let Some(tmdb_id) = details.get("id").and_then(Value::as_u64) else {
+            return;
+        };
+        let provider_id = details
+            .get("external_ids")
             .and_then(|ids| ids.get("imdb_id"))
             .and_then(Value::as_str)
             .filter(|id| id.starts_with("tt"))
             .map(str::to_owned)
             .unwrap_or_else(|| format!("tmdb:{tmdb_id}"));
-        let stream_id = format!("{provider_id}:{}:{}", episode.season_number, episode.episode_number);
+        let stream_id = format!(
+            "{provider_id}:{}:{}",
+            episode.season_number, episode.episode_number
+        );
         let addons = self.database.installed_addons().unwrap_or_default();
-        let show_title = details.get("name").and_then(Value::as_str).unwrap_or("TV show").to_owned();
-        let episode_title = episode.name.clone().unwrap_or_else(|| format!("Episode {}", episode.episode_number));
-        let title = format!("{show_title} · S{:02}E{:02} · {episode_title}", episode.season_number, episode.episode_number);
+        let show_title = details
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("TV show")
+            .to_owned();
+        let episode_title = episode
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("Episode {}", episode.episode_number));
+        let title = format!(
+            "{show_title} · S{:02}E{:02} · {episode_title}",
+            episode.season_number, episode.episode_number
+        );
         let season_number = episode.season_number;
         let episode_number = episode.episode_number;
         self.selected_title = Some(title.clone());
-        self.active_media_id = Some(format!("tmdb:tv:{tmdb_id}:{season_number}:{episode_number}"));
+        self.active_media_id = Some(format!(
+            "tmdb:tv:{tmdb_id}:{season_number}:{episode_number}"
+        ));
         self.active_media_title = Some(title);
         self.active_media_type = Some("episode".into());
         self.tv_selected_episode = Some(episode);
         self.addon_stream_results.clear();
-        self.stream_status = format!("Finding sources for S{:02}E{:02}…", season_number, episode_number);
+        self.stream_status = format!(
+            "Finding sources for S{:02}E{:02}…",
+            season_number, episode_number
+        );
         let request_id = stream_id.clone();
         self.addon_task = Some(cx.spawn(async move |this, cx| {
-            let result = cx.background_spawn(async move {
-                let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
-                    .context("could not initialize episode source discovery")?;
-                let providers = runtime.block_on(SourceProviderRegistry::default().discover(&addons, "series", &request_id));
-                Ok::<_, anyhow::Error>(providers)
-            }).await;
+            let result = cx
+                .background_spawn(async move {
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .context("could not initialize episode source discovery")?;
+                    let providers = runtime.block_on(SourceProviderRegistry::default().discover(
+                        &addons,
+                        "series",
+                        &request_id,
+                    ));
+                    Ok::<_, anyhow::Error>(providers)
+                })
+                .await;
             let _ = this.update(cx, |app, cx| {
                 match result {
                     Ok(providers) => {
-                        let count = providers.iter().map(|provider| provider.streams.len()).sum::<usize>();
+                        let count = providers
+                            .iter()
+                            .map(|provider| provider.streams.len())
+                            .sum::<usize>();
                         app.addon_stream_results = providers;
                         app.stream_status = format!("{count} source(s) found for {stream_id}");
                     }
-                    Err(error) => app.stream_status = format!("Episode source discovery failed: {error:#}"),
+                    Err(error) => {
+                        app.stream_status = format!("Episode source discovery failed: {error:#}")
+                    }
                 }
                 cx.notify();
             });
@@ -6708,7 +6837,9 @@ fn render_discovery_page(
 
 fn cached_artwork_or_remote(url: Option<String>) -> Option<String> {
     let url = url?;
-    senzo::cache::cached_artwork_path(&url).ok().flatten()
+    senzo::cache::cached_artwork_path(&url)
+        .ok()
+        .flatten()
         .map(|path| path.to_string_lossy().into_owned())
         .or(Some(url))
 }

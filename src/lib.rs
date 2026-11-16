@@ -1,6 +1,6 @@
 pub mod addons;
-pub mod cache;
 pub mod artwork;
+pub mod cache;
 pub mod diagnostics;
 pub mod discord;
 pub mod metadata;
