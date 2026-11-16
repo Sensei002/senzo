@@ -255,6 +255,42 @@ Batch 8 turns the existing MPV worker integration into a dedicated, usable nativ
 - [ ] Add shared rate limiting and abuse monitoring to the public API before broad distribution; the current per-instance in-memory rate limiter/cache are best-effort only.
 
 **Boundary:** The desktop is a public client and contains no shared TMDB credential. The API exposes fixed read-only routes, not an arbitrary URL proxy. Its public URL is not authentication; CORS is not access control. Vercel deployment health and successful TMDB search have been manually verified, but the expanded endpoint set and desktop runtime behavior still require validation. TMDB attribution and terms review remain required before public distribution.
+## Phase 9.5 — Media Center Experience & Playback Remediation (Batch 8.5)
+
+**Status: In progress.** This remediation batch closes the user-facing and runtime gaps found during Windows acceptance of Batch 8. The work is split into independently buildable sub-batches.
+
+### Batch 8.5A — Home and artwork repair
+
+- [x] Prefer featured titles with usable TMDB backdrop or poster artwork.
+- [x] Fall back to a title poster when its backdrop is unavailable.
+- [x] Fall back to a title backdrop when a catalogue poster is unavailable.
+- [ ] Verify all Home hero images and poster cards render correctly on Windows.
+- [ ] Verify the hero panel is fully visible at supported window sizes and display scaling factors.
+
+### Batch 8.5B — Native player rendering
+
+- [ ] Diagnose and fix audio-only playback where MPV reports configured video output but the native video surface is not visibly presenting frames.
+- [ ] Validate Win32 child-surface geometry, z-order, clipping, resizing, and lifecycle against the GPUI viewport.
+- [ ] Verify visible video with direct HTTP(S) and user-installed Stremio/Torrentio sources.
+- [ ] Verify immersive playback, player controls, and Back navigation while preserving playback state.
+
+### Batch 8.5C — Fullscreen application shell
+
+- [ ] Launch the application in a maximized media-center window by default.
+- [ ] Add an intentional borderless/fullscreen presentation mode with a discoverable exit/restore action.
+- [ ] Verify navigation, Home, and playback layouts across common resolutions and DPI scales.
+
+### Batch 8.5D — Nuvio-style title details and source selection
+
+- [ ] Open a dedicated title-details destination when a movie or series poster is selected.
+- [ ] Present title artwork, synopsis, metadata, and actions in a left-side details column.
+- [ ] Present compatible available sources in a vertically arranged right-side list.
+- [ ] Display provider and stream properties only when supplied by the source, including quality, resolution, codec, size, and audio details.
+- [ ] Connect selected sources to native MPV playback.
+- [ ] Preserve TV season and episode selection before source discovery.
+
+**Acceptance boundary:** A green Windows CI run verifies compilation and automated checks, not visual or native video behavior. Each sub-batch requires Windows runtime acceptance before being marked complete. Batch 9 must not displace these playback and experience blockers.
+
 ## Phase 10 — Additional sources and presence (Batch 9)
 
 - [x] Define a stable source-adapter interface and route the discovery UI through a provider registry; the Stremio adapter preserves the existing user-installed add-on behavior.
