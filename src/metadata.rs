@@ -272,6 +272,14 @@ mod tests {
     }
 
     #[test]
+    fn metadata_client_requires_a_valid_https_service_url() {
+        assert!(TmdbClient::new("https://senzo-api.vercel.app/api/tmdb", "en-US").is_ok());
+        assert!(TmdbClient::new("http://senzo-api.vercel.app/api/tmdb", "en-US").is_err());
+        assert!(TmdbClient::new("https://user:pass@example.com/api/tmdb", "en-US").is_err());
+        assert!(TmdbClient::new("https://example.com/api/tmdb?token=secret", "en-US").is_err());
+    }
+
+    #[test]
     fn deserializes_tv_season_and_external_ids() {
         let season: TmdbSeason = serde_json::from_str(
             r#"{"id":10,"name":"Season 1","season_number":1,"episodes":[{"id":11,"season_number":1,"episode_number":1,"name":"Pilot"}]}"#,
