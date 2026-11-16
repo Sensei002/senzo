@@ -20,7 +20,7 @@ use senzo::{
     },
     artwork::TmdbArtworkHttpClient,
     diagnostics,
-    metadata::{TmdbClient, TmdbCredentialStore, TmdbEpisode, TmdbSearchResult},
+    metadata::{TmdbClient, TmdbEpisode, TmdbSearchResult},
     playback::{
         mpv_config::build_mpv_config,
         mpv_worker::{PlaybackEvent, PlaybackState, PlaybackWorker},
@@ -82,7 +82,7 @@ struct SenzoApp {
     addon_subtitle_status: String,
     subtitle_provider_status: String,
     subtitle_credentials_status: String,
-    tmdb_credentials_status: String,
+    tmdb_service_status: String,
     subtitle_task: Option<Task<()>>,
     addon_manifest_preview: Option<AddonManifestPreview>,
     addon_status: String,
@@ -101,7 +101,6 @@ struct SenzoApp {
     home_customize_open: bool,
     tmdb_details: Option<Value>,
     tmdb_task: Option<Task<()>>,
-    tmdb_credential_task: Option<Task<()>>,
     tv_seasons: Vec<(u32, String)>,
     tv_selected_season: Option<u32>,
     tv_episodes: Vec<TmdbEpisode>,
@@ -250,15 +249,7 @@ impl SenzoApp {
                 Ok(false) => "No API key saved in Windows Credential Manager".into(),
                 Err(_) => "Could not inspect Windows Credential Manager".into(),
             },
-            tmdb_credentials_status: match TmdbCredentialStore::has_access_token() {
-                Ok(true) => "TMDB Read Access Token saved in Windows Credential Manager".into(),
-                Ok(false) => {
-                    "TMDB is not configured; add a Read Access Token to enable discovery".into()
-                }
-                Err(_) => {
-                    "Could not inspect Windows Credential Manager for TMDB credentials".into()
-                }
-            },
+            tmdb_service_status: "Using SENZO metadata API · no TMDB key required".into(),
             subtitle_task: None,
             addon_manifest_preview: None,
             addon_status: "Copy a Stremio manifest URL, then choose Paste URL to preview it".into(),
@@ -277,7 +268,6 @@ impl SenzoApp {
             home_customize_open: false,
             tmdb_details: None,
             tmdb_task: None,
-            tmdb_credential_task: None,
             tv_seasons: Vec::new(),
             tv_selected_season: None,
             tv_episodes: Vec::new(),
@@ -670,7 +660,7 @@ impl SenzoApp {
 
                 runtime.block_on(async move {
                     let tmdb_result = async {
-                        let client = TmdbClient::from_credential_store(&metadata_language)?;
+                        let client = TmdbClient::from_service(&metadata_language)?;
                         let (trending, movies, shows) = futures::join!(
                             client.trending_all_week(1),
                             client.popular_movies(1),
@@ -854,7 +844,7 @@ impl SenzoApp {
         self.tmdb_task = Some(cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    let client = TmdbClient::from_credential_store(&metadata_language)?;
+                    let client = TmdbClient::from_service(&metadata_language)?;
                     let runtime = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
                         .build()
@@ -930,7 +920,7 @@ impl SenzoApp {
         self.tmdb_task = Some(cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    let client = TmdbClient::from_credential_store(&metadata_language)?;
+                    let client = TmdbClient::from_service(&metadata_language)?;
                     let runtime = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
                         .build()
@@ -1029,7 +1019,7 @@ impl SenzoApp {
         self.tmdb_task = Some(cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    let client = TmdbClient::from_credential_store(&metadata_language)?;
+                    let client = TmdbClient::from_service(&metadata_language)?;
                     let runtime = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
                         .build()
@@ -1184,7 +1174,7 @@ impl SenzoApp {
                         return serde_json::from_value::<senzo::metadata::TmdbSeason>(value)
                             .context("cached TMDB season data is invalid");
                     }
-                    let client = TmdbClient::from_credential_store(&language)?;
+                    let client = TmdbClient::from_service(&language)?;
                     let runtime = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
                         .build()
@@ -2112,88 +2102,6 @@ impl SenzoApp {
                     diagnostics::Level::Warn,
                     "subtitles",
                     "OpenSubtitles API key removal failed",
-                );
-            }
-        }
-        cx.notify();
-    }
-
-    fn configure_tmdb_key(&mut self, cx: &mut Context<Self>) {
-        self.tmdb_credentials_status = "Waiting for the secure Windows credential prompt…".into();
-        diagnostics::record(
-            diagnostics::Level::Info,
-            "metadata",
-            "TMDB credential prompt requested",
-        );
-        self.tmdb_credential_task = Some(cx.spawn(async move |this, cx| {
-            // CredUI is a blocking native modal dialog. Keep it off the GPUI UI thread.
-            let result = cx
-                .background_spawn(
-                    async move { TmdbCredentialStore::prompt_and_save_access_token() },
-                )
-                .await;
-
-            let _ = this.update(cx, |app, cx| {
-                match result {
-                    Ok(true) => {
-                        app.tmdb_credentials_status =
-                            "TMDB Read Access Token saved in Windows Credential Manager".into();
-                        diagnostics::record(
-                            diagnostics::Level::Audit,
-                            "metadata",
-                            "TMDB Read Access Token configured securely",
-                        );
-                        // A Home request may already have completed in the missing-credential
-                        // state. Reset it and immediately retry with the newly saved token.
-                        app.home_catalog_requested = false;
-                        app.home_catalog_status =
-                            "TMDB configured · refreshing recommendations…".into();
-                        if app.active_page == AppPage::Home {
-                            app.load_home_catalogs(cx);
-                        }
-                    }
-                    Ok(false) => {
-                        app.tmdb_credentials_status =
-                            "TMDB token setup cancelled; no changes made".into();
-                        diagnostics::record(
-                            diagnostics::Level::Info,
-                            "metadata",
-                            "TMDB credential prompt cancelled",
-                        );
-                    }
-                    Err(error) => {
-                        app.tmdb_credentials_status =
-                            format!("Could not save TMDB token: {error:#}");
-                        diagnostics::record(
-                            diagnostics::Level::Warn,
-                            "metadata",
-                            "TMDB token configuration failed",
-                        );
-                    }
-                }
-                cx.notify();
-            });
-        }));
-        cx.notify();
-    }
-
-    fn clear_tmdb_key(&mut self, cx: &mut Context<Self>) {
-        match TmdbCredentialStore::clear_access_token() {
-            Ok(()) => {
-                self.tmdb_credentials_status =
-                    "TMDB token removed from Windows Credential Manager".into();
-                diagnostics::record(
-                    diagnostics::Level::Audit,
-                    "metadata",
-                    "TMDB token removed from secure storage",
-                );
-            }
-            Err(error) => {
-                self.tmdb_credentials_status = format!("Could not remove TMDB token: {error:#}");
-                diagnostics::record(
-                    diagnostics::Level::Warn,
-                    "metadata",
-                    "TMDB token removal failed",
                 );
             }
         }
@@ -4353,16 +4261,18 @@ impl Render for SenzoApp {
                             )),
                     ))
                     .child(section(
-                        "TMDB metadata",
-                        "Configure the official TMDB Read Access Token. SENZO stores it only in Windows Credential Manager; it is never written to settings, SQLite, or logs.",
+                        "SENZO metadata service",
+                        "Movie and television discovery is provided through the SENZO API. No TMDB account, API key, or setup is required in the desktop app.",
                         div()
                             .flex()
                             .flex_col()
                             .gap_3()
-                            .child(div().text_sm().text_color(rgb(0xB7BEC6)).child(self.tmdb_credentials_status.clone()))
+                            .child(div().text_sm().text_color(rgb(0xB7BEC6)).child(self.tmdb_service_status.clone()))
                             .child(div().flex().flex_wrap().gap_2()
-                                .child(choice_chip("Set / replace TMDB token", false, |this, cx| this.configure_tmdb_key(cx), cx))
-                                .child(choice_chip("Remove TMDB token", false, |this, cx| this.clear_tmdb_key(cx), cx))),
+                                .child(choice_chip("Retry metadata service", false, |this, cx| {
+                                    this.home_catalog_requested = false;
+                                    this.load_home_catalogs(cx);
+                                }, cx))),
                     ))
                     .child(section(
                         "OpenSubtitles",
@@ -4711,7 +4621,7 @@ impl Render for SenzoApp {
                     self.addon_status.clone(),
                     self.tmdb_results.clone(),
                     self.tmdb_status.clone(),
-                    self.tmdb_credentials_status.starts_with("TMDB is not configured"),
+                    false,
                     self.home_catalogs.clone(),
                     self.home_addon_catalogs.clone(),
                     self.home_catalog_status.clone(),
@@ -5332,7 +5242,7 @@ fn render_discovery_page(
                                                 MouseButton::Left,
                                                 cx.listener(|this, _event, _window, cx| {
                                                     this.active_page = AppPage::Settings;
-                                                    this.configure_tmdb_key(cx);
+                                                    this.load_home_catalogs(cx);
                                                 }),
                                             ),
                                     ),
@@ -5432,7 +5342,7 @@ fn render_discovery_page(
                             true,
                             |this, cx| {
                                 this.active_page = AppPage::Settings;
-                                this.configure_tmdb_key(cx);
+                                this.load_home_catalogs(cx);
                             },
                             cx,
                         )),
@@ -5780,7 +5690,7 @@ fn render_discovery_page(
                                         div()
                                             .text_sm()
                                             .text_color(rgb(0x94A3B8))
-                                            .child("Connect TMDB in Settings to unlock trending movies and TV shows, or install Stremio add-ons like Torrentio to stream directly."),
+                                            .child("SENZO includes built-in movie and TV discovery. No TMDB account or API key is needed. Add your own compatible streaming providers whenever you are ready."),
                                     )
                                     .child(
                                         div()
@@ -5802,14 +5712,14 @@ fn render_discovery_page(
                                                     .flex()
                                                     .items_center()
                                                     .gap_2()
-                                                    .child("🔑")
-                                                    .child("Configure TMDB")
+                                                    .child("🎬")
+                                                    .child("Browse Movies")
                                                     .tab_index(0)
                                                     .on_mouse_down(
                                                         MouseButton::Left,
                                                         cx.listener(|this, _event, _window, cx| {
-                                                            this.active_page = AppPage::Settings;
-                                                            this.configure_tmdb_key(cx);
+                                                            this.active_page = AppPage::Movies;
+                                                            this.load_tmdb_catalog("movie", None, cx);
                                                         }),
                                                     ),
                                             )
@@ -5990,8 +5900,8 @@ fn render_discovery_page(
                                                     .flex_col()
                                                     .gap_1_5()
                                                     .child(div().text_xl().child("🔑"))
-                                                    .child(div().text_base().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xF8FAFC)).child("TMDB Metadata"))
-                                                    .child(div().text_xs().text_color(rgb(0x94A3B8)).child("Provide your free TMDB API Read Access Token in Settings to explore trending movies, series, and cast details."))
+                                                    .child(div().text_base().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xF8FAFC)).child("SENZO Metadata API"))
+                                                    .child(div().text_xs().text_color(rgb(0x94A3B8)).child("Built-in movie and TV discovery, powered by the SENZO hosted metadata service. No API key or account required."))
                                             )
                                             .child(
                                                 div()
@@ -6004,10 +5914,9 @@ fn render_discovery_page(
                                                     .font_weight(gpui::FontWeight::BOLD)
                                                     .cursor_pointer()
                                                     .hover(|s| s.bg(rgb(0x334155)))
-                                                    .child("Configure Token →")
+                                                    .child("Retry Metadata →")
                                                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _event, _window, cx| {
-                                                        this.active_page = AppPage::Settings;
-                                                        this.configure_tmdb_key(cx);
+                                                        this.load_home_catalogs(cx);
                                                     }))
                                             )
                                     )
