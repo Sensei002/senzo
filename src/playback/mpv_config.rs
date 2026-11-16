@@ -315,9 +315,18 @@ mod tests {
             config.options.get("wid").map(String::as_str),
             Some("305441741")
         );
-        assert_eq!(config.options.get("force-window").map(String::as_str), Some("yes"));
+        assert_eq!(
+            config.options.get("force-window").map(String::as_str),
+            Some("yes")
+        );
         assert_eq!(config.options.get("osc").map(String::as_str), Some("no"));
-        assert_eq!(config.options.get("input-default-bindings").map(String::as_str), Some("no"));
+        assert_eq!(
+            config
+                .options
+                .get("input-default-bindings")
+                .map(String::as_str),
+            Some("no")
+        );
     }
 
     #[test]

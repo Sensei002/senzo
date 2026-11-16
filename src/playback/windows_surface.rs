@@ -6,8 +6,8 @@ use std::ptr;
 use windows_sys::Win32::{
     Foundation::{GetLastError, HWND},
     UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, IsWindow, HWND_TOP, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_SHOWWINDOW,
-        SetWindowPos, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_VISIBLE,
+        CreateWindowExW, DestroyWindow, HWND_TOP, IsWindow, SWP_NOACTIVATE, SWP_NOOWNERZORDER,
+        SWP_SHOWWINDOW, SetWindowPos, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_VISIBLE,
     },
 };
 
