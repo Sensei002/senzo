@@ -759,6 +759,11 @@ impl SenzoApp {
                         let addon_count = addon_shelves.len();
                         app.home_catalogs = tmdb_shelves;
                         app.home_addon_catalogs = addon_shelves;
+                        app.tmdb_service_status = if tmdb_count > 0 {
+                            "Connected to SENZO metadata API".into()
+                        } else {
+                            "SENZO metadata API is unavailable · retry when your connection is restored".into()
+                        };
                         let mut notes = Vec::new();
                         if tmdb_count > 0 {
                             notes.push(format!("{tmdb_count} recommendations"));
@@ -779,6 +784,8 @@ impl SenzoApp {
                         };
                     }
                     Err(error) => {
+                        app.tmdb_service_status =
+                            format!("SENZO metadata API unavailable: {error:#}");
                         if app.home_catalogs.is_empty() && app.home_addon_catalogs.is_empty() {
                             app.home_catalog_status =
                                 format!("Recommendations are unavailable right now: {error:#}");
