@@ -20,10 +20,11 @@ This document describes requirements and planned controls. A control is not impl
 
 ## Secrets and credentials
 
-- Never commit TMDB tokens, provider credentials, signing keys, updater secrets, or Discord secrets.
+- Never commit TMDB tokens, provider credentials, signing keys, updater secrets, or Discord secrets. The TMDB Read Access Token is stored only as the `TMDB_READ_ACCESS_TOKEN` environment variable in the SENZO API hosting project; it must never be copied into the desktop repository, desktop CI secrets, binaries, or diagnostics.
 - Never log authorization headers, API tokens, passwords, private manifest URLs containing credentials, or sensitive query parameters.
-- Official build secrets must be injected through protected GitHub Actions configuration and must not be exposed in logs or public artifacts.
-- Do not assume a client-embedded API key is confidential; desktop binaries can be inspected. Use provider-approved restrictions and rotate compromised credentials.
+- The desktop app calls the public SENZO metadata API over HTTPS; it does not receive or embed the TMDB token. The API service reads `TMDB_READ_ACCESS_TOKEN` server-side and returns only validated TMDB responses.
+- The API currently uses bounded per-instance caching and best-effort per-instance IP rate limiting. Before broad public distribution, add shared rate limiting (for example, Vercel Firewall or a shared Redis/Upstash store), abuse monitoring, and usage limits; per-instance in-memory limits are not a global abuse-control boundary.
+- Do not assume a client-embedded API key is confidential; desktop binaries can be inspected. The hosted proxy avoids embedding the TMDB credential in the client. Keep its server environment restricted, rotate compromised credentials, and review TMDB terms before public distribution.
 - User-supplied OpenSubtitles API credentials are stored through the Windows Credential Manager adapter (`src/subtitles/credentials.rs`), not in SQLite, settings JSON, logs, or support bundles. The application UI for entering/removing the key is still pending. Other provider credentials must follow the same OS-backed approach.
 - Signing keys must be kept outside the repository and CI logs.
 
