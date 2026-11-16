@@ -14,11 +14,11 @@ use gpui_base::{Input as GpuiInput, InputBase};
 use serde_json::Value;
 
 use senzo::{
-    artwork::TmdbArtworkHttpClient,
     addons::{
         AddonCatalogExtra, AddonClient, AddonManifest, AddonManifestPreview, StremioStream,
         StremioSubtitle, first_series_episode_id,
     },
+    artwork::TmdbArtworkHttpClient,
     diagnostics,
     metadata::{TmdbClient, TmdbCredentialStore, TmdbEpisode, TmdbSearchResult},
     playback::{
