@@ -4625,10 +4625,27 @@ impl Render for SenzoApp {
                                                 if let Ok(mut error_slot) = native_surface_error.lock() { *error_slot = Some(format!("{error:#}")); }
                                             }
                                             surface.set_visible(true);
+                                            if let Err(error) = surface.raise() {
+                                                if let Ok(mut error_slot) = native_surface_error.lock() {
+                                                    *error_slot = Some(format!("could not raise native video surface: {error:#}"));
+                                                }
+                                                diagnostics::record(
+                                                    diagnostics::Level::Warn,
+                                                    "playback",
+                                                    &format!("could not raise native video surface: {error:#}"),
+                                                );
+                                            }
                                         } else if let Some(parent) = native_parent_hwnd {
                                             match WindowsVideoSurface::create(parent, measured) {
                                                 Ok(mut surface) => {
                                                     surface.set_visible(true);
+                                                    if let Err(error) = surface.raise() {
+                                                        diagnostics::record(
+                                                            diagnostics::Level::Warn,
+                                                            "playback",
+                                                            &format!("could not raise newly created native video surface: {error:#}"),
+                                                        );
+                                                    }
                                                     *slot = Some(surface);
                                                     if let Ok(mut error_slot) = native_surface_error.lock() { *error_slot = None; }
                                                 }
