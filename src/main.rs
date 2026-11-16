@@ -596,6 +596,11 @@ impl SenzoApp {
     }
 
     fn load_home_catalogs(&mut self, cx: &mut Context<Self>) {
+        diagnostics::record(
+            diagnostics::Level::Audit,
+            "metadata",
+            "Home catalogue discovery requested",
+        );
         if self.home_catalogs.is_empty() && self.home_addon_catalogs.is_empty() {
             self.home_catalog_status = "Finding something to watch…".into();
         } else {
@@ -660,7 +665,18 @@ impl SenzoApp {
 
                 runtime.block_on(async move {
                     let tmdb_result = async {
-                        let client = TmdbClient::from_service(&metadata_language)?;
+                        diagnostics::record(
+                            diagnostics::Level::Info,
+                            "metadata",
+                            "Initializing hosted metadata API client",
+                        );
+                        let client = TmdbClient::from_service(&metadata_language)
+                            .context("could not initialize hosted metadata API client")?;
+                        diagnostics::record(
+                            diagnostics::Level::Info,
+                            "metadata",
+                            "Requesting trending, popular movies and popular TV catalogues",
+                        );
                         let (trending, movies, shows) = futures::join!(
                             client.trending_all_week(1),
                             client.popular_movies(1),
@@ -670,6 +686,11 @@ impl SenzoApp {
                         let mut failures = Vec::new();
                         match trending {
                             Ok(page) => {
+                                diagnostics::record(
+                                    diagnostics::Level::Info,
+                                    "metadata",
+                                    &format!("Trending catalogue loaded: {} results", page.results.len()),
+                                );
                                 for item in page.results {
                                     let is_tv = item.media_type.as_deref() == Some("tv")
                                         || (item.title.is_none() && item.name.is_some());
@@ -682,20 +703,53 @@ impl SenzoApp {
                                     shelves.push(("Trending this week".to_owned(), kind, item));
                                 }
                             }
-                            Err(_) => failures.push("trending"),
+                            Err(error) => {
+                                diagnostics::record(
+                                    diagnostics::Level::Error,
+                                    "metadata",
+                                    &format!("Trending catalogue request failed: {error:#}"),
+                                );
+                                failures.push("trending");
+                            }
                         }
                         match movies {
                             Ok(page) => {
+                                diagnostics::record(
+                                    diagnostics::Level::Info,
+                                    "metadata",
+                                    &format!("Popular movies catalogue loaded: {} results", page.results.len()),
+                                );
                                 for item in page.results {
                                     shelves.push(("Popular Movies".to_owned(), "movie".to_owned(), item.clone()));
                                     shelves.push(("Popular movies".to_owned(), "movie".to_owned(), item));
                                 }
                             }
-                            Err(_) => failures.push("popular movies"),
+                            Err(error) => {
+                                diagnostics::record(
+                                    diagnostics::Level::Error,
+                                    "metadata",
+                                    &format!("Popular movies request failed: {error:#}"),
+                                );
+                                failures.push("popular movies");
+                            }
                         }
                         match shows {
-                            Ok(page) => shelves.extend(page.results.into_iter().map(|item| ("Popular TV".to_owned(), "tv".to_owned(), item))),
-                            Err(_) => failures.push("popular TV"),
+                            Ok(page) => {
+                                diagnostics::record(
+                                    diagnostics::Level::Info,
+                                    "metadata",
+                                    &format!("Popular TV catalogue loaded: {} results", page.results.len()),
+                                );
+                                shelves.extend(page.results.into_iter().map(|item| ("Popular TV".to_owned(), "tv".to_owned(), item)));
+                            }
+                            Err(error) => {
+                                diagnostics::record(
+                                    diagnostics::Level::Error,
+                                    "metadata",
+                                    &format!("Popular TV request failed: {error:#}"),
+                                );
+                                failures.push("popular TV");
+                            }
                         }
                         Ok::<_, anyhow::Error>((shelves, failures))
                     };
@@ -735,7 +789,17 @@ impl SenzoApp {
                     };
 
                     let (tmdb_result, addon_result) = futures::join!(tmdb_result, addon_result);
-                    let (tmdb_shelves, failures) = tmdb_result.unwrap_or_else(|_| (Vec::new(), vec!["TMDB"]));
+                    let (tmdb_shelves, failures) = match tmdb_result {
+                        Ok(value) => value,
+                        Err(error) => {
+                            diagnostics::record(
+                                diagnostics::Level::Error,
+                                "metadata",
+                                &format!("Hosted metadata discovery failed: {error:#}"),
+                            );
+                            return Err(error.context("SENZO hosted metadata discovery failed"));
+                        }
+                    };
                     let (addon_shelves, addon_failures) = addon_result;
                     if tmdb_shelves.is_empty() && addon_shelves.is_empty() {
                         anyhow::bail!("Discovery is temporarily unavailable. Check your connection and try again.");
@@ -745,8 +809,24 @@ impl SenzoApp {
             }).await;
 
             let _ = this.update(cx, |app, cx| {
+                if let Err(error) = &result {
+                    diagnostics::record(
+                        diagnostics::Level::Error,
+                        "metadata",
+                        &format!("Home discovery background task failed: {error:#}"),
+                    );
+                }
                 match result {
                     Ok((mut tmdb_shelves, mut addon_shelves, failures, addon_failures)) => {
+                        diagnostics::record(
+                            diagnostics::Level::Audit,
+                            "metadata",
+                            &format!(
+                                "Home discovery completed: {} metadata items, {} add-on shelves",
+                                tmdb_shelves.len(),
+                                addon_shelves.len()
+                            ),
+                        );
                         // A provider outage must not erase the last successful shelves.
                         // An empty result with no provider errors is a legitimate empty catalog.
                         if tmdb_shelves.is_empty() && !failures.is_empty() {
