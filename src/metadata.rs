@@ -1,19 +1,10 @@
 use anyhow::{Context, Result, bail};
-use keyring::Entry;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::Mutex;
-use zeroize::Zeroize;
 
-const TMDB_API_BASE: &str = "https://api.themoviedb.org/3";
+const SENZO_API_BASE: &str = "https://senzo-api.vercel.app/api/tmdb";
 const TMDB_IMAGE_BASE: &str = "https://image.tmdb.org/t/p";
-const TMDB_CREDENTIAL_SERVICE: &str = "SENZO";
-const TMDB_CREDENTIAL_ACCOUNT: &str = "themoviedb.org/read-access-token";
-const MAX_TMDB_TOKEN_BYTES: usize = 8192;
-// CredUI's documented maximum password field is 256 UTF-16 characters.
-const MAX_WINDOWS_CREDENTIAL_PASSWORD_CHARS: usize = 256;
-static TMDB_CREDENTIAL_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TmdbSearchPage {
@@ -58,93 +49,85 @@ impl TmdbSearchResult {
 #[derive(Clone)]
 pub struct TmdbClient {
     client: Client,
-    access_token: String,
+    base_url: String,
     language: String,
 }
 
 impl TmdbClient {
-    /// Loads the application-managed token for official builds, then falls back to an
-    /// optional developer override in the process environment or Windows Credential Manager.
-    /// Ordinary users never need to enter a provider token.
-    pub fn from_credential_store(language: impl Into<String>) -> Result<Self> {
-        let build_token = option_env!("SENZO_TMDB_READ_ACCESS_TOKEN")
-            .filter(|value| !value.trim().is_empty())
-            .map(str::to_owned);
-        let environment_token = std::env::var("SENZO_TMDB_READ_ACCESS_TOKEN")
+    /// Creates a client for the public SENZO metadata API. No TMDB credential is
+    /// distributed with or requested from the desktop application.
+    pub fn from_service(language: impl Into<String>) -> Result<Self> {
+        let base_url = std::env::var("SENZO_API_BASE_URL")
             .ok()
-            .filter(|value| !value.trim().is_empty());
-        let token = build_token
-            .or(environment_token)
-            .or(TmdbCredentialStore::load_access_token()?)
-            .ok_or_else(|| {
-                anyhow::anyhow!("TMDB metadata service is not configured in this build")
-            })?;
-        Self::new(token, language)
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| {
+                option_env!("SENZO_API_BASE_URL")
+                    .unwrap_or(SENZO_API_BASE)
+                    .to_owned()
+            });
+        Self::new(base_url, language)
     }
 
-    /// Fetches the combined trending movie and television catalogue for the current week.
-    pub async fn trending_all_week(&self, page: u32) -> Result<TmdbSearchPage> {
-        self.client
-            .get(format!("{TMDB_API_BASE}/trending/all/week"))
-            .bearer_auth(&self.access_token)
-            .query(&[
-                ("language", self.language.as_str()),
-                ("page", &page.max(1).to_string()),
-            ])
-            .send()
-            .await
-            .context("TMDB trending request failed")?
-            .error_for_status()
-            .context("TMDB rejected the trending request")?
-            .json::<TmdbSearchPage>()
-            .await
-            .context("TMDB returned an invalid trending response")
-    }
-
-    /// Fetches the currently popular movie catalogue page.
-    pub async fn popular_movies(&self, page: u32) -> Result<TmdbSearchPage> {
-        self.popular("movie", page).await
-    }
-
-    /// Fetches the currently popular television catalogue page.
-    pub async fn popular_tv(&self, page: u32) -> Result<TmdbSearchPage> {
-        self.popular("tv", page).await
-    }
-
-    async fn popular(&self, kind: &str, page: u32) -> Result<TmdbSearchPage> {
-        let url = format!("{TMDB_API_BASE}/{kind}/popular");
-        self.client
-            .get(url)
-            .bearer_auth(&self.access_token)
-            .query(&[
-                ("language", self.language.as_str()),
-                ("page", &page.max(1).to_string()),
-            ])
-            .send()
-            .await
-            .context("TMDB catalogue request failed")?
-            .error_for_status()
-            .context("TMDB rejected the catalogue request")?
-            .json::<TmdbSearchPage>()
-            .await
-            .context("TMDB returned an invalid catalogue response")
-    }
-    /// Creates a TMDB client using a TMDB API Read Access Token.
-    /// The token is never included in errors or application logs.
-    pub fn new(access_token: impl Into<String>, language: impl Into<String>) -> Result<Self> {
-        let access_token = access_token.into();
-        if access_token.trim().is_empty() {
-            bail!("TMDB API Read Access Token is not configured");
+    /// Creates a client for a SENZO-compatible metadata API endpoint.
+    pub fn new(base_url: impl Into<String>, language: impl Into<String>) -> Result<Self> {
+        let base_url = base_url.into().trim().trim_end_matches('/').to_owned();
+        let parsed = url::Url::parse(&base_url)
+            .context("SENZO metadata API base URL is invalid")?;
+        if parsed.scheme() != "https"
+            || parsed.host_str().is_none()
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
+        {
+            bail!("SENZO metadata API must use a valid HTTPS base URL");
         }
 
         Ok(Self {
             client: Client::builder()
                 .user_agent(concat!("SENZO/", env!("CARGO_PKG_VERSION")))
+                .timeout(std::time::Duration::from_secs(15))
                 .build()
-                .context("failed to initialize the TMDB HTTP client")?,
-            access_token,
+                .context("failed to initialize the SENZO metadata HTTP client")?,
+            base_url,
             language: language.into(),
         })
+    }
+
+    async fn get_json<T>(&self, path: &str, extra: &[(&str, String)]) -> Result<T>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let url = format!("{}/{}", self.base_url, path.trim_start_matches('/'));
+        let mut query = vec![("language", self.language.clone())];
+        query.extend(extra.iter().map(|(key, value)| (*key, value.clone())));
+        self.client
+            .get(url)
+            .query(&query)
+            .send()
+            .await
+            .context("SENZO metadata API request failed")?
+            .error_for_status()
+            .context("SENZO metadata API returned an error")?
+            .json::<T>()
+            .await
+            .context("SENZO metadata API returned an invalid response")
+    }
+
+    /// Fetches the combined trending movie and television catalogue for the current week.
+    pub async fn trending_all_week(&self, page: u32) -> Result<TmdbSearchPage> {
+        self.get_json("trending/all/week", &[("page", page.max(1).to_string())])
+            .await
+    }
+
+    pub async fn popular_movies(&self, page: u32) -> Result<TmdbSearchPage> {
+        self.get_json("movie/popular", &[("page", page.max(1).to_string())])
+            .await
+    }
+
+    pub async fn popular_tv(&self, page: u32) -> Result<TmdbSearchPage> {
+        self.get_json("tv/popular", &[("page", page.max(1).to_string())])
+            .await
     }
 
     pub async fn search_movies(&self, query: &str, page: u32) -> Result<TmdbSearchPage> {
@@ -156,73 +139,31 @@ impl TmdbClient {
     }
 
     async fn search(&self, kind: &str, query: &str, page: u32) -> Result<TmdbSearchPage> {
-        let url = format!("{TMDB_API_BASE}/search/{kind}");
-        let page = page.max(1).to_string();
-
-        self.client
-            .get(url)
-            .bearer_auth(&self.access_token)
-            .query(&[
-                ("query", query),
-                ("language", self.language.as_str()),
-                ("page", page.as_str()),
-                ("include_adult", "false"),
-            ])
-            .send()
-            .await
-            .context("TMDB search request failed")?
-            .error_for_status()
-            .context("TMDB rejected the search request")?
-            .json::<TmdbSearchPage>()
-            .await
-            .context("TMDB returned an invalid search response")
+        self.get_json(
+            "search",
+            &[
+                ("query", query.to_owned()),
+                ("type", kind.to_owned()),
+                ("page", page.max(1).to_string()),
+            ],
+        )
+        .await
     }
 
     pub async fn movie_details(&self, tmdb_id: u64) -> Result<Value> {
-        self.details(
-            &format!("{TMDB_API_BASE}/movie/{tmdb_id}"),
-            "credits,videos,images,external_ids",
-        )
-        .await
+        self.get_json(&format!("movie/{tmdb_id}"), &[]).await
     }
 
     pub async fn tv_details(&self, tmdb_id: u64) -> Result<Value> {
-        self.details(
-            &format!("{TMDB_API_BASE}/tv/{tmdb_id}"),
-            "aggregate_credits,videos,images,external_ids",
-        )
-        .await
+        self.get_json(&format!("tv/{tmdb_id}"), &[]).await
     }
 
-    async fn details(&self, url: &str, append: &str) -> Result<Value> {
-        self.client
-            .get(url)
-            .bearer_auth(&self.access_token)
-            .query(&[
-                ("language", self.language.as_str()),
-                ("append_to_response", append),
-            ])
-            .send()
-            .await
-            .context("TMDB details request failed")?
-            .error_for_status()
-            .context("TMDB rejected the details request")?
-            .json::<Value>()
-            .await
-            .context("TMDB returned an invalid details response")
-    }
-
-    /// Fetches a TV season, including its episode list.
-    /// Season zero is valid for TMDB specials.
     pub async fn tv_season(&self, tv_id: u64, season_number: u32) -> Result<TmdbSeason> {
-        self.get_json(&format!(
-            "{TMDB_API_BASE}/tv/{tv_id}/season/{season_number}"
-        ))
-        .await
-        .context("failed to fetch TMDB TV season")
+        self.get_json(&format!("tv/{tv_id}/season/{season_number}"), &[])
+            .await
+            .context("failed to fetch TV season from SENZO metadata API")
     }
 
-    /// Fetches an individual TV episode.
     pub async fn tv_episode(
         &self,
         tv_id: u64,
@@ -232,44 +173,24 @@ impl TmdbClient {
         if episode_number == 0 {
             bail!("TMDB episode numbers start at 1");
         }
-
-        self.get_json(&format!(
-            "{TMDB_API_BASE}/tv/{tv_id}/season/{season_number}/episode/{episode_number}"
-        ))
+        self.get_json(
+            &format!("tv/{tv_id}/season/{season_number}/episode/{episode_number}"),
+            &[],
+        )
         .await
-        .context("failed to fetch TMDB TV episode")
+        .context("failed to fetch TV episode from SENZO metadata API")
     }
 
-    /// Resolves provider identifiers for a movie.
     pub async fn movie_external_ids(&self, tmdb_id: u64) -> Result<TmdbExternalIds> {
-        self.get_json(&format!("{TMDB_API_BASE}/movie/{tmdb_id}/external_ids"))
+        self.get_json(&format!("movie/{tmdb_id}/external_ids"), &[])
             .await
-            .context("failed to fetch TMDB movie external identifiers")
+            .context("failed to fetch movie external identifiers")
     }
 
-    /// Resolves provider identifiers for a TV show.
     pub async fn tv_external_ids(&self, tmdb_id: u64) -> Result<TmdbExternalIds> {
-        self.get_json(&format!("{TMDB_API_BASE}/tv/{tmdb_id}/external_ids"))
+        self.get_json(&format!("tv/{tmdb_id}/external_ids"), &[])
             .await
-            .context("failed to fetch TMDB TV external identifiers")
-    }
-
-    async fn get_json<T>(&self, url: &str) -> Result<T>
-    where
-        T: serde::de::DeserializeOwned,
-    {
-        self.client
-            .get(url)
-            .bearer_auth(&self.access_token)
-            .query(&[("language", self.language.as_str())])
-            .send()
-            .await
-            .context("TMDB request failed")?
-            .error_for_status()
-            .context("TMDB rejected the request")?
-            .json::<T>()
-            .await
-            .context("TMDB returned an invalid response")
+            .context("failed to fetch TV external identifiers")
     }
 
     pub fn image_url(path: Option<&str>, size: ImageSize) -> Option<String> {
@@ -283,126 +204,6 @@ impl TmdbClient {
             path.trim_start_matches('/')
         ))
     }
-}
-
-/// Secure storage for the TMDB application Read Access Token.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct TmdbCredentialStore;
-
-impl TmdbCredentialStore {
-    fn entry() -> Result<Entry> {
-        Entry::new(TMDB_CREDENTIAL_SERVICE, TMDB_CREDENTIAL_ACCOUNT)
-            .context("could not access the TMDB credential entry")
-    }
-
-    pub fn save_access_token(token: &str) -> Result<()> {
-        let token = validate_tmdb_token(token)?;
-        let _guard = TMDB_CREDENTIAL_LOCK
-            .lock()
-            .map_err(|_| anyhow::anyhow!("credential store lock is unavailable"))?;
-        Self::entry()?
-            .set_password(token)
-            .context("could not save the TMDB token to Windows Credential Manager")
-    }
-
-    pub fn load_access_token() -> Result<Option<String>> {
-        let _guard = TMDB_CREDENTIAL_LOCK
-            .lock()
-            .map_err(|_| anyhow::anyhow!("credential store lock is unavailable"))?;
-        match Self::entry()?.get_password() {
-            Ok(value) => Ok(Some(value)),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(error) => Err(error).context("could not read Windows Credential Manager"),
-        }
-    }
-
-    pub fn clear_access_token() -> Result<()> {
-        let _guard = TMDB_CREDENTIAL_LOCK
-            .lock()
-            .map_err(|_| anyhow::anyhow!("credential store lock is unavailable"))?;
-        match Self::entry()?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(error) => Err(error)
-                .context("could not remove the TMDB token from Windows Credential Manager"),
-        }
-    }
-
-    pub fn has_access_token() -> Result<bool> {
-        Ok(Self::load_access_token()?.is_some())
-    }
-
-    /// Uses the native masked Windows credential prompt; the prompt itself never persists secrets.
-    pub fn prompt_and_save_access_token() -> Result<bool> {
-        #[cfg(windows)]
-        {
-            use windows_sys::Win32::Security::Credentials::{
-                CREDUI_FLAGS_ALWAYS_SHOW_UI, CREDUI_FLAGS_DO_NOT_PERSIST,
-                CREDUI_FLAGS_GENERIC_CREDENTIALS, CREDUI_FLAGS_PASSWORD_ONLY_OK,
-                CredUIPromptForCredentialsW,
-            };
-            let target: Vec<u16> = "TMDB Read Access Token - SENZO"
-                .encode_utf16()
-                .chain(std::iter::once(0))
-                .collect();
-            let mut username = [0u16; 1];
-            let mut password = vec![0u16; MAX_WINDOWS_CREDENTIAL_PASSWORD_CHARS + 1];
-            let flags = CREDUI_FLAGS_ALWAYS_SHOW_UI
-                | CREDUI_FLAGS_DO_NOT_PERSIST
-                | CREDUI_FLAGS_GENERIC_CREDENTIALS
-                | CREDUI_FLAGS_PASSWORD_ONLY_OK;
-            let result = unsafe {
-                CredUIPromptForCredentialsW(
-                    std::ptr::null(),
-                    target.as_ptr(),
-                    std::ptr::null(),
-                    0,
-                    username.as_mut_ptr(),
-                    username.len() as u32,
-                    password.as_mut_ptr(),
-                    password.len() as u32,
-                    std::ptr::null_mut(),
-                    flags,
-                )
-            };
-            if result == 1223 {
-                password.zeroize();
-                return Ok(false);
-            }
-            if result != 0 {
-                password.zeroize();
-                bail!("Windows secure credential prompt failed (error {result})");
-            }
-            let length = password
-                .iter()
-                .position(|unit| *unit == 0)
-                .unwrap_or(password.len());
-            let decoded = String::from_utf16(&password[..length]);
-            password.zeroize();
-            let mut token = decoded.context("the entered TMDB token contains invalid text")?;
-            let saved = Self::save_access_token(&token);
-            token.zeroize();
-            saved?;
-            Ok(true)
-        }
-        #[cfg(not(windows))]
-        {
-            bail!("secure TMDB token entry is currently supported on Windows only")
-        }
-    }
-}
-
-fn validate_tmdb_token(value: &str) -> Result<&str> {
-    let value = value.trim();
-    if value.is_empty() {
-        bail!("TMDB Read Access Token cannot be empty");
-    }
-    if value.len() > MAX_TMDB_TOKEN_BYTES {
-        bail!("TMDB Read Access Token exceeds the supported length");
-    }
-    if value.chars().any(char::is_control) {
-        bail!("TMDB Read Access Token contains unsupported control characters");
-    }
-    Ok(value)
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
