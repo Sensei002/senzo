@@ -8,7 +8,7 @@ use windows_sys::Win32::{
     UI::WindowsAndMessaging::{
         CreateWindowExW, DestroyWindow, GetClientRect, GetParent, HWND_TOP, IsWindow,
         IsWindowVisible, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_SHOWWINDOW,
-        SetWindowPos, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_VISIBLE,
+        SetWindowPos, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
     },
 };
 
@@ -106,7 +106,7 @@ impl WindowsVideoSurface {
                 0,
                 STATIC_CLASS.as_ptr(),
                 ptr::null(),
-                WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
+                WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
                 bounds.x,
                 bounds.y,
                 bounds.width,
@@ -209,9 +209,7 @@ impl WindowsVideoSurface {
 
     pub fn set_bounds(&mut self, bounds: SurfaceBounds) -> anyhow::Result<()> {
         let bounds = bounds.validate()?;
-        if self.bounds == bounds {
-            return Ok(());
-        }
+        // Always reapply geometry: MPV may already be bound to this hidden startup HWND.
         // SAFETY: this object owns hwnd until Drop.
         let ok = unsafe {
             SetWindowPos(
