@@ -1,3 +1,5 @@
+import { lookup } from "node:dns/promises";
+
 const configuredBase = process.env.SENZO_API_BASE_URL ?? "https://senzo-api.vercel.app";
 const base = new URL(configuredBase);
 
@@ -10,13 +12,53 @@ if (
 
 base.pathname = base.pathname.replace(/\/$/, "");
 
+console.log("Network diagnostics: NODE_USE_ENV_PROXY=" + (process.env.NODE_USE_ENV_PROXY ?? "unset"));
+for (const name of ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"]) {
+  const value = process.env[name];
+  if (!value) continue;
+  try {
+    console.log("Network diagnostics: " + name + " proxy host=" + new URL(value).hostname);
+  } catch {
+    console.log("Network diagnostics: " + name + " is set but is not a valid URL");
+  }
+}
+try {
+  const record = await lookup(base.hostname);
+  console.log("Network diagnostics: API hostname " + base.hostname + " resolves (IPv" + record.family + ").");
+} catch (error) {
+  console.log(
+    "Network diagnostics: API hostname " +
+      base.hostname +
+      " DNS failed (" +
+      (error.code ?? "unknown") +
+      "; resolver target " +
+      (error.hostname ?? "unknown") +
+      ").",
+  );
+}
+
 async function getJson(path) {
   const url = new URL(base.pathname + path, base.origin);
-  const response = await fetch(url, {
-    headers: { Accept: "application/json" },
-    redirect: "manual",
-    signal: AbortSignal.timeout(20_000),
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: { Accept: "application/json" },
+      redirect: "manual",
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch (error) {
+    const cause = error?.cause;
+    console.error(
+      "Fetch transport failure for " +
+        url.host +
+        " (" +
+        (cause?.code ?? error?.code ?? "unknown") +
+        "; resolver target " +
+        (cause?.hostname ?? "unknown") +
+        ").",
+    );
+    throw error;
+  }
   if (response.status >= 300 && response.status < 400) {
     throw new Error(
       path +
