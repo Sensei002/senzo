@@ -11,8 +11,8 @@ use url::{Host, Url};
 use crate::{
     cache::MetadataCache,
     models::{
-        ApiHealth, EpisodeDetails, ExternalIds, MediaListResponse, MovieDetails, Person, SearchType,
-        SeasonDetails, TvDetails,
+        ApiHealth, EpisodeDetails, ExternalIds, MediaListResponse, MovieDetails, Person,
+        SearchType, SeasonDetails, TvDetails,
     },
 };
 
@@ -661,7 +661,9 @@ mod tests {
         let request = server.await.unwrap();
 
         assert_eq!(person.name, "Brad Pitt");
-        let credits = person.combined_credits.expect("combined credits are present");
+        let credits = person
+            .combined_credits
+            .expect("combined credits are present");
         assert_eq!(credits.cast[0].display_title(), "Fight Club");
         assert_eq!(credits.cast[0].character.as_deref(), Some("Tyler Durden"));
         assert_eq!(credits.cast[0].release_year(), Some("1999"));

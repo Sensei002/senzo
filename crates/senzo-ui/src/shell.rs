@@ -15,11 +15,11 @@ use gpui::{
 use gpui_component::input::{Input, InputEvent, InputState};
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_domain::AppPage;
+#[cfg(test)]
+use senzo_metadata::PersonCredit;
 use senzo_metadata::{
     MediaType, MetadataClient, MetadataError, Person, SearchType, SeasonDetails, SeasonSummary,
 };
-#[cfg(test)]
-use senzo_metadata::PersonCredit;
 use tokio::{runtime::Handle, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 
@@ -278,10 +278,7 @@ fn metadata_error_message(error: &MetadataError) -> String {
     }
 }
 
-fn person_credit_candidates(
-    person: &Person,
-    media_type: MediaType,
-) -> Vec<PersonCreditCandidate> {
+fn person_credit_candidates(person: &Person, media_type: MediaType) -> Vec<PersonCreditCandidate> {
     let Some(credits) = person.combined_credits.as_ref() else {
         return Vec::new();
     };
@@ -321,15 +318,9 @@ fn person_credit_candidates(
                 MediaType::Person | MediaType::Other => continue,
             };
             let role = if is_crew {
-                credit
-                    .job
-                    .as_deref()
-                    .or(credit.department.as_deref())
+                credit.job.as_deref().or(credit.department.as_deref())
             } else {
-                credit
-                    .character
-                    .as_deref()
-                    .or(credit.job.as_deref())
+                credit.character.as_deref().or(credit.job.as_deref())
             };
             let mut details = vec![media_label.to_owned()];
             if let Some(year) = credit.release_year() {
@@ -1341,8 +1332,9 @@ impl SenzoShell {
                 .await
                 .map_err(|error| metadata_error_message(&error))?;
             if person.id != id {
-                return Err("The metadata service returned a different person than requested."
-                    .to_owned());
+                return Err(
+                    "The metadata service returned a different person than requested.".to_owned(),
+                );
             }
 
             let profile = match person.profile_path.as_deref() {
@@ -1638,9 +1630,7 @@ impl SenzoShell {
                     .child(img(profile).w_full().h_full()),
             );
         } else {
-            identity = identity.child(
-                poster_card(&person.name, "PERSON", None, false),
-            );
+            identity = identity.child(poster_card(&person.name, "PERSON", None, false));
         }
 
         let mut facts = Vec::new();
@@ -1661,17 +1651,14 @@ impl SenzoShell {
             .flex_col()
             .gap_3()
             .child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(Theme::ACCENT))
-                    .child(
-                        person
-                            .known_for_department
-                            .as_deref()
-                            .filter(|value| !value.trim().is_empty())
-                            .unwrap_or("PERSON")
-                            .to_uppercase(),
-                    ),
+                div().text_xs().text_color(rgb(Theme::ACCENT)).child(
+                    person
+                        .known_for_department
+                        .as_deref()
+                        .filter(|value| !value.trim().is_empty())
+                        .unwrap_or("PERSON")
+                        .to_uppercase(),
+                ),
             )
             .child(
                 div()
@@ -2226,13 +2213,13 @@ impl SenzoShell {
                                 .bg(rgb(Theme::ACCENT_DARK))
                                 .px_3()
                                 .py_2()
-                                .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                                .focus_visible(|style| {
+                                    style.border_1().border_color(rgb(Theme::ACCENT))
+                                })
                                 .aria_label(format!("View details for {}", card.title))
-                                .on_click(
-                                    cx.listener(move |this, _, _, cx| {
-                                        this.open_person_details(index, cx);
-                                    }),
-                                )
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.open_person_details(index, cx);
+                                }))
                                 .child(
                                     div()
                                         .text_sm()
@@ -2250,7 +2237,9 @@ impl SenzoShell {
                                 .bg(rgb(Theme::ACCENT_DARK))
                                 .px_3()
                                 .py_2()
-                                .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                                .focus_visible(|style| {
+                                    style.border_1().border_color(rgb(Theme::ACCENT))
+                                })
                                 .aria_label(format!("View details for {}", card.title))
                                 .on_click(
                                     cx.listener(move |this, _, _, cx| this.open_details(index, cx)),
