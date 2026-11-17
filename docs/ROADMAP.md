@@ -67,7 +67,7 @@ A phase is complete only when its documented deliverables, automated checks, and
 
 ## Phase 3 — Networking, metadata and artwork foundation
 
-<badge color="info">In progress — metadata, artwork, Home, Search, Movie/TV Details and recovery UX implemented; current cross-platform CI and runtime acceptance pending</badge>
+<badge color="info">In progress — metadata, artwork, Home, Search, Movie/TV/Person Details and recovery UX implemented; live API deployment and Windows/Linux runtime acceptance pending</badge>
 
 - [x] Implement typed SENZO API client for the existing hosted route contract.
 - [x] Implement search, trending, popular, movie/TV details, external-ID, season and episode request methods.
@@ -84,12 +84,13 @@ A phase is complete only when its documented deliverables, automated checks, and
 - [x] Keep metadata requests, artwork downloads and pixel conversion off the GPUI render thread.
 - [x] Add native hosted-metadata Search with All/Movies/TV filters, debounce, request cancellation, poster artwork and quick preview.
 - [x] Implement dedicated movie/TV Details workflows, including TV season and episode navigation.
-- [ ] Implement dedicated person Details workflow.
+- [x] Implement dedicated person Details workflow, including profile, biography, personal facts and movie/TV filmography.
 - [x] Implement explicit retry and offline/provider-outage UX across Home, Search and Details.
-- [ ] Verify live hosted Home, Search, details and artwork behavior on Windows and Linux.
+- [ ] Deploy the person profile and combined-credits route through SENZO API PR #1, then verify it on the hosted service.
+- [ ] Verify live hosted Home, Search, movie/TV/person details and artwork behavior on Windows and Linux.
 - [x] Preserve TMDB credentials exclusively on the hosted API.
 
-**Existing backend gate:** Metadata and artwork-service checks passed on Windows and Linux in [CI run #434](https://github.com/Sensei002/senzo/actions/runs/44103805561). The current `development` source also contains the native Home artwork and hosted Search integration. Those newer UI changes must be validated by the current Windows/Linux CI run and live hosted-service acceptance before being marked accepted. **Remaining phase gate:** Details, consistent offline/provider-error UX and end-to-end runtime acceptance must pass without a desktop TMDB secret.
+**Current implementation gate:** The native Home, Search, Movie/TV Details, Person Details and recovery workflows are implemented on `development`. Desktop CI run [#457](https://github.com/Sensei002/senzo/actions/runs/44151957020) passed on Windows and Linux. The person profile/combined-credits backend is implemented on SENZO API `development`; [API PR #1](https://github.com/Sensei002/senzo-api/pull/1) has passing CI but remains open, so the production hosted route is not yet available. **Remaining Phase 3 gate:** merge/deploy the API route, then perform live Home, Search, movie/TV/person Details, artwork, offline, HTTP 429 and provider 5xx recovery acceptance on both desktop platforms without a desktop TMDB secret.
 
 See docs/PHASE_3_IMPLEMENTATION.md.
 
@@ -296,4 +297,4 @@ See docs/PHASE_3_IMPLEMENTATION.md.
 
 **Gate:** Nuvio desktop parity inventory is closed or every remaining difference is explicitly documented and accepted.
 
-Phase 3 current acceptance: native Movie/TV Details and unified metadata recovery UX are implemented on `development`. Cross-platform CI and live hosted-service runtime validation on Windows and Linux must pass before Phase 3 can be closed.
+Phase 3 current acceptance: native Home, Search, Movie/TV/Person Details and unified metadata recovery UX are implemented on `development`. Desktop CI #457 passed on Windows and Linux. Person metadata endpoint implementation is on SENZO API `development` with passing CI #10; API PR #1 remains open and production deployment is pending. Live hosted-service and outage-recovery runtime validation on Windows and Linux must pass before Phase 3 can be closed.

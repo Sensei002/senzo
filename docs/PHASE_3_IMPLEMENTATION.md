@@ -1,6 +1,6 @@
 # Phase 3 — Networking, metadata and artwork foundation
 
-**Status:** In progress — metadata, artwork, native Home/Search, Movie/TV Details and unified retryable metadata-error UX are implemented on `development`. Current cross-platform CI and live hosted-service runtime acceptance remain.
+**Status:** In progress — metadata, artwork, native Home/Search, Movie/TV/Person Details and unified retryable metadata-error UX are implemented on `development`. Desktop CI #457 passed on Windows and Linux. Live hosted-service runtime acceptance remains; the Person endpoint is implemented on SENZO API `development` and awaits merge/deployment via [API PR #1](https://github.com/Sensei002/senzo-api/pull/1).
 
 ## Scope
 
@@ -27,8 +27,8 @@ The hosted API remains the only TMDB credential boundary. The desktop applicatio
 
 ## Not yet implemented
 
-- Dedicated person Details workflow.
-- Live hosted API health, Home, Search, Details and artwork acceptance on Windows and Linux.
+- Live hosted API health, Home, Search, Movie/TV/Person Details and artwork acceptance on Windows and Linux.
+- Merge/deploy SENZO API PR #1 before validating the new production person endpoint.
 - Runtime verification of connection loss, rate limiting and provider outages with recovery on both desktop platforms.
 - Full Nuvio Search parity: recent-search persistence, discover catalogues, pagination and add-on/server aggregation.
 
@@ -84,6 +84,21 @@ The native Search preview can open a dedicated GPUI Details page for movies and 
 - Details requests are cancellation-aware and stale results cannot replace a newer selection.
 - The Details retry action uses the page's own media identity, not the mutable Search result list.
 
+## Native Person Details
+
+The native Search workflow opens a dedicated GPUI Person Details page for person results:
+
+- Profile artwork, name, known-for department, biography, birthday/deathday and place of birth.
+- Movie and TV filmography shelves built from combined cast and crew credits.
+- Credit selection prefers crew for non-acting departments, cast for actors, and falls back to the other credit group when the preferred group is empty.
+- Credits are de-duplicated by TMDB media ID and ordered by popularity; entries without usable artwork are excluded from the visual shelves.
+- Credit artwork uses the bounded artwork service and is loaded off the GPUI render path.
+- Selecting a filmography item opens its native Movie/TV Details page.
+- Person requests and artwork jobs are cancellation-aware; stale responses cannot overwrite a newer page.
+- The Person Details page has loading, unavailable, empty-filmography and retry states.
+
+The desktop implementation and typed client are on `development` (native Person Details: [commit 8763055](https://github.com/Sensei002/senzo/commit/8763055e6054b702284cb192bc78da2e85ed70ff); metadata person client: [commit 4a520d4](https://github.com/Sensei002/senzo/commit/4a520d480c3cbe95497a3bf349b138e19f158b2d)). The backend route is implemented on SENZO API `development`; [API PR #1](https://github.com/Sensei002/senzo-api/pull/1) passed API CI #10 but has not been merged into `main`, so live production Person Details remains blocked on deployment.
+
 ## Consistent metadata failure and recovery UX
 
 - Home, Search, Movie/TV Details and TV season requests map typed metadata errors to consistent user-facing messages.
@@ -107,4 +122,4 @@ These checks validate the service foundation and native application build. They 
 
 ## Remaining Phase 3 acceptance
 
-Phase 3 is not complete until the native Home, Search, Movie/TV Details and artwork flows are verified against the live hosted API on Windows and Linux without a desktop TMDB secret. Runtime acceptance must also simulate offline connectivity, HTTP 429 and provider 5xx outages, verify that every Retry action recovers cleanly, and confirm that cancelled or superseded requests never restore stale data. The dedicated Person Details workflow remains future work.
+Phase 3 is not complete until the native Home, Search, Movie/TV/Person Details and artwork flows are verified against the live hosted API on Windows and Linux without a desktop TMDB secret. First merge/deploy SENZO API PR #1 so the hosted person profile/combined-credits route exists in production. Runtime acceptance must then simulate offline connectivity, HTTP 429 and provider 5xx outages, verify that every Retry action recovers cleanly, and confirm that cancelled or superseded requests never restore stale data. Desktop CI #457 and API CI #10 are green, but neither substitutes for this live runtime gate.
