@@ -67,7 +67,7 @@ A phase is complete only when its documented deliverables, automated checks, and
 
 ## Phase 3 — Networking, metadata and artwork foundation
 
-<badge color="info">In progress — hosted metadata client foundation</badge>
+<badge color="info">In progress — metadata client CI passed</badge>
 
 - [x] Implement typed SENZO API client for the existing hosted route contract.
 - [x] Implement search, trending, popular, movie/TV details, external-ID, season and episode request methods.
@@ -80,7 +80,7 @@ A phase is complete only when its documented deliverables, automated checks, and
 - [ ] Implement live Search/details workflows and offline/provider-error UI states.
 - [x] Preserve TMDB credentials exclusively on the hosted API.
 
-**First-slice automated gate:** Pending Windows/Linux CI. **Phase gate:** Search, details and artwork must work from the native app with no desktop TMDB secret.
+**First-slice automated gate:** Passed on Windows Server 2022 and Ubuntu 24.04 in [CI run #431](https://github.com/Sensei002/senzo/actions/runs/44098712863). Both jobs passed formatting, Clippy, workspace tests, native release builds and native GPUI startup/render/shutdown smoke tests. CI also resolved and committed Cargo.lock. **Remaining phase gate:** Artwork and metadata-backed Search/details must work from the native app with no desktop TMDB secret.
 
 See docs/PHASE_3_IMPLEMENTATION.md.
 

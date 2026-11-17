@@ -1,6 +1,6 @@
 # Phase 3 — Networking, metadata and artwork foundation
 
-**Status:** In progress — typed hosted-API client and metadata response cache implemented; artwork and native discovery workflows remain.
+**Status:** In progress — the typed metadata API client has passed cross-platform CI; artwork and native discovery workflows remain.
 
 ## Scope
 
@@ -34,6 +34,19 @@ The hosted API remains the only TMDB credential boundary. The desktop applicatio
 - Live hosted API health, search, details and artwork acceptance on Windows and Linux.
 - Provider outage and offline UX in the shell.
 
-## Acceptance status
+## First-slice automated acceptance
 
-Automated validation is pending the first Windows and Linux CI run for this commit. Phase 3 is not complete until Search, details and artwork work from the native app without a desktop TMDB secret and the documented runtime checks pass.
+The metadata-client foundation passed [CI run #431](https://github.com/Sensei002/senzo/actions/runs/44098712863) on commit 072ff362e84c37b6ca45f439cad39c8fe562ab73.
+
+- Windows Server 2022: formatting, Clippy, workspace tests, native release build and GPUI startup/render/shutdown smoke test passed.
+- Ubuntu 24.04: formatting, Clippy, workspace tests, native release build and GPUI startup/render/shutdown smoke test passed.
+- Both development binaries were uploaded:
+  - senzo-windows-x64-development-072ff362e84c37b6ca45f439cad39c8fe562ab73
+  - senzo-linux-x64-development-072ff362e84c37b6ca45f439cad39c8fe562ab73
+- CI regenerated and committed Cargo.lock in commit 66df5a3c75281fc65698e7f69a7fa94b19736cf8.
+
+These checks validate the service foundation and native application build. They do not claim that the hosted API was live-tested or that Search, details and artwork are already wired into the UI.
+
+## Remaining Phase 3 acceptance
+
+Phase 3 is not complete until artwork is downloaded, decoded and cached safely, and metadata-backed search/details workflows operate from the native app without a desktop TMDB secret. Offline and provider-error states also need runtime acceptance on Windows and Linux.

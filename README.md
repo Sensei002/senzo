@@ -24,7 +24,7 @@ All application screens and player controls will be native GPUI. The previous pr
 - **Phase 0 — Source audit and architecture reset:** complete.
 - **Phase 1 — Clean Rust workspace and technical foundation:** complete; Windows and Linux native builds, workspace checks and startup/render/shutdown smoke tests passed.
 - **Phase 2 — Native GPUI application shell and design system:** implementation and automated CI acceptance passed; manual visual acceptance is still pending.
-- **Phase 3 — Networking, metadata and artwork foundation:** in progress; the typed hosted-API client and request/cache foundation are now implemented on development.
+- **Phase 3 — Networking, metadata and artwork foundation:** in progress; the typed hosted-API client passed Windows and Linux CI in run #431. Artwork and native discovery screens remain.
 
 The Phase 3 metadata client targets the existing hosted SENZO API at senzo-api.vercel.app. It models search, trending, popular, movie and TV details, external IDs, credits, videos, images, seasons and episodes. The client validates inputs, coalesces duplicate requests, supports cancellation and bounded retries, caps response sizes, and applies a bounded in-memory response cache. It never sends a TMDB credential or Authorization header; TMDB authentication stays server-side.
 
