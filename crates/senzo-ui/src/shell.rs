@@ -38,6 +38,7 @@ enum DialogKind {
 pub(crate) struct SenzoShell {
     navigation: NavigationStack,
     navigation_focus: HashMap<AppPage, FocusHandle>,
+    dialog_focus: FocusHandle,
     tokio: Handle,
     logo: Arc<Image>,
     dialog: Option<DialogKind>,
@@ -55,10 +56,12 @@ impl SenzoShell {
             .enumerate()
             .map(|(index, page)| (*page, cx.focus_handle().tab_index(index as isize)))
             .collect();
+        let dialog_focus = cx.focus_handle().tab_index(60);
 
         Self {
             navigation: NavigationStack::new(),
             navigation_focus,
+            dialog_focus,
             tokio,
             logo: Arc::new(Image::from_bytes(
                 ImageFormat::Png,
@@ -89,17 +92,21 @@ impl SenzoShell {
 
     fn go_back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.dialog.take().is_some() {
+            let page = self.navigation.current();
+            self.focus_page(page, window, cx);
             cx.notify();
             return;
         }
         if self.menu_open {
             self.menu_open = false;
+            let page = self.navigation.current();
+            self.focus_page(page, window, cx);
             cx.notify();
             return;
         }
         if self.navigation.back() {
             let page = self.navigation.current();
-            self.focus_page(page, window);
+            self.focus_page(page, window, cx);
             cx.notify();
         }
     }
@@ -115,9 +122,10 @@ impl SenzoShell {
         }
     }
 
-    fn open_dialog(&mut self, kind: DialogKind, cx: &mut Context<Self>) {
+    fn open_dialog(&mut self, kind: DialogKind, window: &mut Window, cx: &mut Context<Self>) {
         self.menu_open = false;
         self.dialog = Some(kind);
+        window.focus(&self.dialog_focus, cx);
         cx.notify();
     }
 
@@ -736,28 +744,31 @@ impl SenzoShell {
             .border_color(rgb(Theme::BORDER_STRONG))
             .bg(rgb(Theme::SURFACE_RAISED))
             .p_2()
-            .child(self.menu_item("Keyboard shortcuts", cx.listener(|this, _event, _window, cx| {
-                this.open_dialog(DialogKind::Shortcuts, cx);
+            .aria_label("Application menu")
+            .child(self.menu_item("Keyboard shortcuts", 50, cx.listener(|this, _event, window, cx| {
+                this.open_dialog(DialogKind::Shortcuts, window, cx);
             })))
-            .child(self.menu_item("About SENZO", cx.listener(|this, _event, _window, cx| {
-                this.open_dialog(DialogKind::About, cx);
+            .child(self.menu_item("About SENZO", 51, cx.listener(|this, _event, window, cx| {
+                this.open_dialog(DialogKind::About, window, cx);
             })))
-            .child(self.menu_item("What's new", cx.listener(|this, _event, _window, cx| {
+            .child(self.menu_item("What's new", 52, cx.listener(|this, _event, _window, cx| {
                 this.menu_open = false;
                 this.notification = Some("Phase 2 brings SENZO's native navigation, design system and desktop shell.".to_owned());
                 cx.notify();
             })))
             .child(div().w_full().h(px(1.0)).bg(rgb(Theme::BORDER)))
-            .child(self.menu_item("Quit SENZO", cx.listener(|_, _event, _window, cx| cx.quit())))
+            .child(self.menu_item("Quit SENZO", 53, cx.listener(|_, _event, _window, cx| cx.quit())))
     }
 
     fn menu_item(
         &self,
         label: &'static str,
+        tab_index: isize,
         on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
     ) -> impl IntoElement {
         div()
             .id(format!("menu-item-{label}"))
+            .tab_index(tab_index)
             .w_full()
             .rounded_md()
             .px_3()
@@ -766,6 +777,7 @@ impl SenzoShell {
             .hover(|style| style.bg(rgb(Theme::SURFACE_HOVER)))
             .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
             .aria_label(label)
+            .aria_keyshortcuts("Enter")
             .on_click(on_click)
             .child(
                 div()
@@ -789,8 +801,9 @@ impl SenzoShell {
             ),
         };
 
-        let mut dialog = div()
+        let dialog = div()
             .id("dialog-overlay")
+            .aria_label("SENZO dialog")
             .absolute()
             .inset_0()
             .flex()
@@ -880,6 +893,7 @@ impl SenzoShell {
                     .child(
                         div()
                             .id("dialog-close")
+                            .track_focus(&self.dialog_focus)
                             .tab_index(60)
                             .rounded_md()
                             .bg(rgb(Theme::ACCENT))
@@ -929,6 +943,7 @@ impl SenzoShell {
             .child(
                 div()
                     .id("dismiss-notification")
+                    .tab_index(70)
                     .rounded_md()
                     .px_2()
                     .py_1()
@@ -992,11 +1007,11 @@ impl Render for SenzoShell {
             .on_action(|_: &FocusPrevious, window, cx| {
                 window.focus_prev();
             })
-            .on_action(cx.listener(|this, _: &ShowShortcuts, _window, cx| {
-                this.open_dialog(DialogKind::Shortcuts, cx);
+            .on_action(cx.listener(|this, _: &ShowShortcuts, window, cx| {
+                this.open_dialog(DialogKind::Shortcuts, window, cx);
             }))
-            .on_action(cx.listener(|this, _: &ShowAbout, _window, cx| {
-                this.open_dialog(DialogKind::About, cx);
+            .on_action(cx.listener(|this, _: &ShowAbout, window, cx| {
+                this.open_dialog(DialogKind::About, window, cx);
             }))
             .on_action(cx.listener(|this, _: &ShowWhatsNew, _window, cx| {
                 this.menu_open = false;
