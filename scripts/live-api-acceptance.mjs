@@ -1,16 +1,10 @@
 import { lookup } from "node:dns/promises";
 
+import { createApiUrlBuilder } from "./live-api-url.mjs";
+
 const configuredBase = process.env.SENZO_API_BASE_URL ?? "https://senzo-api.vercel.app";
 const base = new URL(configuredBase);
-
-if (
-  base.protocol !== "https:" &&
-  !(base.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(base.hostname))
-) {
-  throw new Error("SENZO_API_BASE_URL must use HTTPS (HTTP is allowed only for loopback testing).");
-}
-
-const basePath = base.pathname.replace(/\/+$/, "");
+const buildApiUrl = createApiUrlBuilder(configuredBase);
 
 console.log("Network diagnostics: NODE_USE_ENV_PROXY=" + (process.env.NODE_USE_ENV_PROXY ?? "unset"));
 for (const name of ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"]) {
@@ -44,10 +38,7 @@ if (vercelBypassSecret) {
 }
 
 async function getJson(path) {
-  const url = new URL(basePath + path, base.origin);
-  if (url.origin !== base.origin) {
-    throw new Error(path + " produced a cross-origin API URL; refusing to send the request.");
-  }
+  const url = buildApiUrl(path);
   let response;
   try {
     response = await fetch(url, {
