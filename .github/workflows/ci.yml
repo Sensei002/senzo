@@ -12,6 +12,11 @@ on:
         required: true
         default: false
         type: boolean
+      api_base_url:
+        description: "Hosted API base URL (production or a Vercel Preview deployment)"
+        required: false
+        default: "https://senzo-api.vercel.app"
+        type: string
 
 permissions:
   contents: write
@@ -115,7 +120,11 @@ jobs:
 
   live-api-acceptance:
     name: Live hosted API acceptance (${{ matrix.os }})
-    if: github.event_name == 'workflow_dispatch' && inputs.run_live_api_acceptance
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.run_live_api_acceptance) ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[live-api-acceptance]'))
+    env:
+      SENZO_API_BASE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.api_base_url != '' && inputs.api_base_url || 'https://senzo-api-git-development-stream-anything.vercel.app' }}
     strategy:
       fail-fast: false
       matrix:
