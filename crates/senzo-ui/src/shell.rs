@@ -117,7 +117,7 @@ impl SenzoShell {
         }
         if self.navigation.can_go_forward() && self.navigation.forward() {
             let page = self.navigation.current();
-            self.focus_page(page, window);
+            self.focus_page(page, window, cx);
             cx.notify();
         }
     }
