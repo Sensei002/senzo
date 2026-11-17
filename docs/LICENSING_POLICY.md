@@ -1,30 +1,29 @@
 # SENZO licensing
 
-SENZO is licensed under the **GNU General Public License, version 3.0**.
+SENZO is licensed under the **GNU General Public License, version 3.0 only**. The SPDX identifier is `GPL-3.0-only`. The root `LICENSE` file is authoritative.
 
-The complete license text is in the repository-root `LICENSE` file. The SPDX identifier is `GPL-3.0-only`.
+## Nuvio source relationship
 
-## What this means
+The audited Nuvio Desktop repository is also licensed under GNU GPL version 3.0. SENZO's root license text is byte-identical to the upstream GPLv3 license text. Where SENZO adapts or derives code from Nuvio, preserve applicable upstream copyright and license notices, provide the required license text and corresponding source when distributing covered binaries, and comply with GPLv3 obligations.
 
-- You may use, study, modify, and redistribute SENZO under the license terms.
-- If you distribute copies or modified versions, you must comply with the source, notice, and same-license requirements in the AGPL.
-- GPL-3.0 does not impose a special source-offer obligation solely because users interact with a modified version over a network; its source and licensing obligations apply when covered copies are conveyed or distributed.
-- The license includes express patent terms and warranty/liability disclaimers.
-- Commercial use is permitted. AGPL-3.0 does not prohibit selling copies, paid support, or commercial deployment, provided the license terms are followed.
-- The license does not grant rights to third-party media, metadata, trademarks, services, or add-ons.
+Do not copy Nuvio logos, artwork, product identity, or unrelated third-party assets. Feature behavior and architecture can be reimplemented in Rust, but source-derived code must be handled under the applicable license terms. This policy is an engineering summary, not legal advice.
 
-## Important limitation
+## Dependency notices
 
-GPL-3.0 is a strong copyleft free-software license, not an ethical-use or anti-piracy license. It cannot be used to prohibit lawful commercial use or restrict use based on a field of activity. It also does not guarantee that people will not misuse the software. The license enforces sharing obligations for covered code; it does not determine whether a particular media source or use is lawful.
+Every dependency and bundled runtime must be reviewed before distribution. Include required license texts, attribution and source offers/notices as required by each license. The current repository includes an Apache-2.0 notice for `librqbit`; the MPV runtime is distributed under its applicable LGPL terms. These dependency licenses do not replace SENZO's GPLv3 license.
 
-## Third-party components
+## What GPL-3.0-only means
 
-SENZO includes or plans to integrate third-party libraries and services with their own licenses and terms. AGPL-3.0 applies to SENZO's covered code; it does not replace the licenses of dependencies or the terms of TMDB, Discord, MPV, or independently installed add-ons. Before distributing builds, audit dependency compatibility and include required third-party notices.
+- Use, study, modification and redistribution are permitted under GPLv3 terms.
+- Distribution of covered modified versions requires compliance with GPLv3 source, notice and same-license requirements.
+- Commercial distribution is permitted when license obligations are followed.
+- GPLv3 does not impose the AGPL network-interaction source-disclosure condition.
+- The license does not grant rights to third-party media, metadata, trademarks, services or independently installed add-ons.
 
-## Contributor note
+## Contributor policy
 
-Contributions intended for inclusion in SENZO are submitted under the repository's AGPL-3.0-only licensing terms, subject to applicable copyright ownership and contribution policies. A separate Contributor License Agreement has not been adopted.
+Contributions intended for inclusion in SENZO are accepted under GPL-3.0-only, subject to applicable copyright ownership and contribution policies. No separate Contributor License Agreement is currently adopted.
 
 ## Legal note
 
-This document is an explanatory summary, not legal advice. The root `LICENSE` file is the authoritative license text. See the [Free Software Foundation's official GPL-3.0 text](https://www.gnu.org/licenses/gpl-3.0.html).
+This document is an explanatory summary, not legal advice. Consult the root `LICENSE` and the [official GPLv3 text](https://www.gnu.org/licenses/gpl-3.0.html).

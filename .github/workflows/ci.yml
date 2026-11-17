@@ -72,7 +72,7 @@ jobs:
 
           $licenses = Join-Path $stage "licenses"
           New-Item -ItemType Directory -Path $licenses -Force | Out-Null
-          Copy-Item -LiteralPath "LICENSE" -Destination (Join-Path $licenses "SENZO-AGPL-3.0-only.txt")
+          Copy-Item -LiteralPath "LICENSE" -Destination (Join-Path $licenses "SENZO-GPL-3.0-only.txt")
           Copy-Item -LiteralPath "licenses\Apache-2.0.txt" -Destination $licenses
           Copy-Item -LiteralPath "licenses\librqbit-NOTICE.md" -Destination $licenses
           Copy-Item -LiteralPath "README.md" -Destination $stage

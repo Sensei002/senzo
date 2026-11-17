@@ -4,211 +4,65 @@
   <img src="assets/branding/senzo-logo.png" width="420" alt="Official SENZO logo" />
 </p>
 
-<p align="center"><strong>A native, accountless desktop media center.</strong></p>
-<p align="center"><em>Discover. Organize. Watch. — Your media experience, stored locally.</em></p>
+<p align="center"><strong>A native Rust desktop media center.</strong></p>
+<p align="center"><em>Nuvio's desktop experience, re-engineered for Rust and GPUI CE.</em></p>
 
-SENZO is a desktop media center in development, designed to bring movie and television discovery, personal watch history, optional streaming sources, and playback into one focused application. It is being built in **Rust + GPUI** for a cinematic, responsive native desktop experience.
+SENZO is being rebuilt as a native desktop application that ports the **desktop features and workflows of Nuvio** into Rust under the SENZO name. The goal is product and feature parity—not a loosely similar media player.
 
-SENZO is an independent project with its own architecture and product decisions. Its central idea is simple: **no SENZO account, no mandatory cloud profile, and no streaming provider silently installed for the user.**
+## Non-negotiable technology boundary
 
-> [!IMPORTANT]
-> **Early development:** The current implementation phase targets **Windows only**. The interface and several planned features are not complete. Linux is a later target; Android and iOS are not targets. This repository describes both the current implementation and the intended product—planned features are clearly labelled as such.
+- **Language:** Rust.
+- **UI:** GPUI CE.
+- **Playback:** MPV / libmpv behind a SENZO-owned Rust interface.
+- **Native UI and controls:** GPUI; no browser-based player controls.
+- **Platforms:** Windows first, Linux as the second desktop target. The architecture must remain portable; macOS is not part of the initial release commitment.
+- **Not used:** WebView2, Electron, Tauri, egui, or an embedded browser UI.
+- **Builds and validation:** GitHub Actions.
 
-## Project at a glance
+MPV is the playback engine, not the application UI. The player surface and every control belong to SENZO's native Rust application.
 
-- **Application:** Native desktop media center.
-- **Language and UI:** Rust + GPUI.
-- **Current platform:** Windows (MSVC).
-- **Planned Windows installation:** Per-machine installation in `C:\\Program Files\\SENZO`; user data remains in `%LOCALAPPDATA%\\SENZO`.
-- **Playback runtime:** Windows x64 `libmpv-2.dll` from the upstream LGPL release, packaged with its runtime dependencies and licence notices as a GitHub Actions artifact; the CI package includes the runtime; actual playback and deployment validation remain pending.
-- **Planned installer branding:** Official transparent SENZO logo; intended verified Windows publisher name: `Sensei.STGR` (requires a trusted Authenticode certificate).
-- **Later platform:** Linux, after the Windows application is established.
-- **Metadata:** TMDB is the primary metadata provider, accessed through the hosted SENZO API (`https://senzo-api.vercel.app`). The TMDB Read Access Token stays server-side; the desktop app contains no TMDB credential and requires no user setup.
-- **Sources:** Optional, user-installed add-ons using the Stremio HTTP add-on protocol, routed through a provider-neutral source adapter registry. The Stremio adapter is the first registered adapter; additional authorized providers can be added without coupling them to metadata or MPV. SENZO validates manifest resource types and ID prefixes, browses compatible catalogs, resolves metadata, and discovers streams concurrently. Configured manifest paths are preserved, so users can install their own configured Torrentio URL; separate configurations of the same provider remain separate local installs. Provider refresh and persistent ordering are available. Catalog filters are edited natively: declared options are selectable, free-text values can be pasted from the clipboard, required fields are enforced, and catalog results support 100-item Stremio pagination. Add-on subtitle resources are exposed as native MPV subtitle tracks after a catalog title is selected.
-- **Torrent transport:** Batch 5 connects user-selected Stremio BitTorrent v1 streams to MPV through a token-protected loopback HTTP Range server. The embedded `librqbit` 9.1.0 engine is statically linked with upload/seeding support compiled out; torrent payloads are temporary and playback progress remains in SQLite. Windows CI builds a downloadable x64 application package with the MPV runtime and direct engine license notices. Real-world peer discovery, buffering, seeking, and playback still need manual Windows validation.
-- **Playback:** MPV through a dynamically loaded libmpv C API adapter. The dedicated native Player view includes a Win32 video viewport, transport/seek/volume/mute/fullscreen controls, audio/subtitle track selection, subtitle loading/search, keyboard shortcuts, and live decoder/output diagnostics. The pinned MPV runtime is included in the CI artifact; actual Windows video presentation and hardware compatibility still require runtime validation.
-- **Discord Rich Presence:** Optional Windows Discord IPC integration with live playback-state updates. It is off by default; media titles remain private unless title sharing is explicitly enabled. The build must be configured with a SENZO Discord application ID.
-- **Diagnostics:** Settings includes bounded Copy Logs export and Open Log Folder; support reports exclude the local database and personal watch history.
-- **Personal data:** Local SQLite database under the SENZO app-data directory.
-- **Third-party engine notice:** The embedded torrent engine's Apache-2.0 license and attribution are included in [licenses/librqbit-NOTICE.md](licenses/librqbit-NOTICE.md).
-- **Accounts:** No SENZO sign-up, login, or cloud account.
-- **Builds and tests:** GitHub Actions; no local build is required for the project's CI workflow.
+## Rewrite status
 
-## What SENZO is being built to do
+**Phase 0 — Source audit and architecture reset: complete.** The Nuvio Desktop source baseline has been pinned and audited, the Nuvio-to-SENZO feature map is documented, and the new Rust architecture and phase roadmap are published.
 
-### Discover movies and television
+The current source tree is the earlier SENZO prototype. It is retained in Git history as a reference, but it is **not** the architecture baseline for the rewrite. Its current playback implementation has not passed Windows visual-video acceptance. Phase 1 will establish the clean Rust workspace and the new implementation foundation; no Phase 1 application code is claimed complete yet.
 
-SENZO will use **The Movie Database (TMDB)** as its primary metadata provider. The discovery foundation includes TMDB popular movie/TV catalogues, clipboard-assisted title search, cached title details, IMDb external-ID mapping, and native TV season/episode browsing. TV source discovery is tied to the episode the user selects rather than a hard-coded S01E01 request. The broader artwork-led discovery experience follows a console-first, Nuvio-inspired layout and includes:
+## Nuvio reference
 
-- Search for movies or TV series.
-- Browse artwork-led home and discovery shelves.
-- Use a console-style Home screen with a cinematic featured title and horizontally scrolling, data-driven movie/TV category shelves. The detailed implementation brief is in [docs/UI_DESIGN_SPEC.md](docs/UI_DESIGN_SPEC.md); the initial Home and discovery implementation is delivered in Batch 6.
-- View posters, backdrops, overviews, release dates, genres, ratings, and runtime.
-- Explore cast, crew, trailers, and videos when available.
-- Browse every TMDB-listed TV season, including Specials, with episode-specific descriptions, air dates, runtimes, ratings, and still artwork.
-- Keep stable TMDB IDs and map external IDs such as IMDb IDs when a source provider requires them.
+- Upstream: https://github.com/NuvioMedia/NuvioDesktop
+- Audited branch: `Dev`
+- Audited commit: `65061186dde35fc0a0f90b05d380f2318133f227`
+- The upstream project is GPL-3.0. SENZO remains GPL-3.0-only; see the licensing policy and source audit.
 
-TMDB supplies metadata and artwork; it is not a streaming source. The desktop app calls the hosted SENZO API, which keeps the TMDB Read Access Token in Vercel environment variables and exposes only validated, allowlisted metadata routes. No TMDB token is embedded in SENZO or requested from users. SENZO will display the required TMDB attribution. See [TMDB attribution](#tmdb-attribution).
-
-### Choose your own streaming sources
-
-SENZO uses a user-managed add-on list. The **Add-ons** screen lets users paste a compatible HTTPS manifest URL from the clipboard, inspect its identity and declared resources, explicitly confirm installation, browse declared catalogs, enable, disable, refresh, reorder, or remove installed providers. Manifest capability checks honor both global and resource-specific media types and ID prefixes. Configured manifest URL paths are retained, which is important for providers such as Torrentio whose settings are encoded in the URL path. Different configured URLs for the same provider are stored as independent installations.
-
-- No streaming add-on is bundled or preinstalled.
-- **Torrentio is not integrated into SENZO's default source list.**
-- SENZO will not silently install, select, or query a streaming provider.
-- A user who deliberately chooses to use Torrentio may manually add their own configured manifest URL, just like any other compatible add-on.
-- Only add-ons that the user has installed and enabled should be queried.
-
-Initial compatibility targets the Stremio add-on HTTP protocol. Enabled providers can supply catalog entries and title metadata; movie/episode source discovery runs compatible providers concurrently, isolates provider failures, and presents direct HTTP(S), torrent-info-hash, and external-link results. TV series are browsed by season; selecting an episode requests sources using that episode's provider ID and season/episode numbering, including season-zero specials. Required catalog extra fields are detected and never silently filled with guessed values. The native UI includes a catalog-filter editor and pagination controls. Direct HTTP(S) sources can be handed to MPV after URL and DNS destination validation. Torrent v1 results can be inspected, video files selected, and selected files streamed to MPV through a loopback-only byte-range endpoint. Torrent upload/seeding and persistent engine state are disabled; normal shutdown removes temporary payloads and startup recovery removes abandoned sessions. BitTorrent v2-only hashes are not yet supported. Real-world peer availability, buffering, and seek behavior still require runtime validation. Compatibility with every Stremio add-on and provider-specific extension is not guaranteed.
-
-### Keep personal data on your device
-
-SENZO is **accountless and local-first**. The application will not require a SENZO account or a SENZO cloud service for personal viewing data.
-
-The current SQLite database is created at:
-
-`%LOCALAPPDATA%\SENZO\senzo.db`
-
-The initial schema includes local settings, playback progress, watch history, and installed add-on records. A bounded on-device metadata cache (500 entries, TTL-based) and artwork cache (8 MiB per image, 128 MiB total) are implemented. Cache entries are disposable and separate from settings, playback progress, and watch history. Favorites and a fuller local library experience remain planned. Database upgrades must preserve personal history and settings.
-
-### Watch with a dedicated player
-
-MPV is the planned playback engine. Target player capabilities include:
-
-- Play, pause, seek, and resume.
-- Subtitle selection.
-- Audio-track selection.
-- Playback speed.
-- Fullscreen.
-- Hardware decoding with supported Windows decoder preferences.
-- Renderer selection, scaling algorithms, HDR handling, and optional image processing.
-- Buffer and memory controls, subtitle appearance, and playback diagnostics.
-
-These controls will be capability-aware: SENZO will only apply options supported by the active playback backend, GPU, and display. Defaults will favor automatic hardware selection and balanced quality with low resource use. The Settings experience will be simple and consumer-friendly: everyday categories and plain-language controls first, with technical options in Advanced. TMDB and OpenSubtitles are intended to work by default in official builds without user credential setup. The exact native video-surface integration will be validated during implementation. The current GPUI bridge exposes local-file selection, pause/resume, stop, 10-second seek steps, mute, fullscreen, and 5% volume-step controls through the dedicated worker. Resume progress is periodically saved and force-flushed before an explicit stop or media switch. The runtime and worker layers also support speed and explicit audio/subtitle track selection/disable, while publishing non-blocking playback state snapshots. Audio/subtitle track selection, subtitle-off, local external subtitle loading, subtitle synchronization (±10 seconds), and live font-size adjustment are now wired through the playback worker. Subtitle timing preferences persist locally. The UI-independent OpenSubtitles.com API v1 client supports explicit title/IMDb/TMDB searches, language filtering, typed results, safe download-link validation, and bounded subtitle downloads. Official builds are intended to enable OpenSubtitles through application-managed integration configuration, so ordinary users do not need to obtain or enter an API key. Downloaded subtitle files can now be saved in a collision-safe local SENZO subtitle cache after extension and size validation; existing files are never overwritten. The playback screen now offers an explicit OpenSubtitles search using the current media title (English and Bangla results), with user-selected downloads saved to the local cache and queued into MPV. The intended official-build experience removes API-key setup from ordinary Settings; app-managed release configuration and provider-term review are required before public distribution. `OPENSUBTITLES_API_KEY` remains available as a development-only fallback. A seek bar, native video presentation, and trusted Windows MPV runtime packaging also remain incomplete. This is an early integration milestone, not yet a complete end-user player.
-
-### Additional planned capabilities
-
-- **Continue watching and history:** Resume media from locally saved progress.
-- **Discord Rich Presence:** Show the current title and playback state, with privacy controls.
-- **More source integrations:** Add future providers behind a stable source-adapter interface.
-- **Update channels:** Windows Stable and Development channels, with integrity verification and rollback-safe installation.
-- **Cinematic interface:** Dark, media-focused presentation, poster and backdrop artwork, and restrained transitions.
-
-## Diagnostics and support
-
-SENZO now has an initial local diagnostics service. It records operational audit, information, warning, and error events to:
-
-`%LOCALAPPDATA%\SENZO\logs\senzo.log`
-
-The active log rotates at 2 MiB. The support-bundle API is designed to collect recent events (up to 72 hours, capped at 1 MiB) without exporting the SQLite database or watch history. Credential redaction is best-effort, so secrets must never be sent to the logger. The current Settings screen includes a user-facing **Copy Logs** clipboard action; the final design will move diagnostics into a separate, low-prominence support area.
-
-## How SENZO is intended to work
-
-1. **Discover:** The GPUI interface requests movie and series data from the hosted SENZO metadata API, which securely proxies approved TMDB endpoints.
-2. **Enrich:** SENZO retrieves details, credits, images, videos, external IDs, and TV season/episode data.
-3. **Find sources:** When the user asks for available sources, SENZO queries only installed and enabled add-ons that support the relevant resource.
-4. **Select:** The user chooses a source. SENZO does not silently pick or install one.
-5. **Play:** The selected playable result is handed to the playback layer, planned around MPV. Any transport required by a selected source remains behind a separate abstraction.
-6. **Remember locally:** Playback progress and viewing history are written to the local SQLite database.
-
-Metadata, add-ons, transport, playback, persistence, and UI are separate components so that future providers can be added without rewriting the rest of the application.
-
-## Current implementation status
-
-The repository currently contains early service and persistence foundations. It is not yet a complete, user-ready media center.
-
-| Area | Status |
-|---|---|
-| Rust + GPUI application shell | Initial scaffold |
-| Windows CI | Configured; formatting, compilation, and tests run in GitHub Actions |
-| Local SQLite storage | Initial settings, progress, history, and add-on tables |
-| Local diagnostics service | Initial bounded event logging and recent-log export API; Settings/clipboard UI pending |
-| Typed playback preferences | Persisted settings model and initial GPUI controls; settings persist locally |
-| MPV configuration adapter | Pure MPV option mapping with capability-aware fallbacks and unit tests |\n| MPV runtime and worker | Dynamic libmpv loader, dedicated worker, bounded commands and playback-state polling; GPUI can open a local file and issue basic transport, seek, mute, fullscreen and volume-step commands when a trusted runtime is supplied; local-file resume positions are saved to SQLite and restored when the same file is opened again. Runtime is not yet packaged and no native video surface exists |
-| SENZO metadata API | Hosted Vercel proxy for search, trending/popular catalogues, details, external IDs, TV seasons/episodes; TMDB token remains server-side |
-| Add-on service | Stremio manifest preview/validation, local registry, catalog/meta/stream/subtitle request services, DNS-pinned HTTPS requests, and direct stream URL validation; native manager supports enable/disable/remove. Clipboard-assisted manifest URL preview and explicit install confirmation are implemented; catalog browsing and end-to-end source selection remain in progress |
-| GPUI media-center screens | Native Home/Discovery, Details, Add-ons, and Settings surfaces are connected; broader Library and player UX remains in progress |
-| Metadata-driven Home and catalog shelves | Trending, Popular Movies, Popular TV, Continue Watching, and enabled user-installed add-on shelves; hero auto-rotates every 8 seconds with pause/resume |
-| Home navigation and customization | Shelf visibility/order persistence, built-in/add-on View All routes, keyboard tab stops, hero arrow navigation, and Escape back behavior |
-| Home loading and recovery | Partial-provider status, empty-state messaging, and retry action |
-| User-facing add-on manager | Initial installed-provider list and enable/disable/remove controls; URL entry and install confirmation remain in progress |
-| Stremio catalog/meta/stream/subtitle routing | Service layer implemented; browsing and source-selection UI remain in progress |
-| End-user MPV playback | Early integration only: local-file selection and command controls are wired; actual video presentation and packaged runtime remain planned |
-| Torrent transport | Integrated for BitTorrent v1 info hashes; runtime validation pending |
-| Discord Rich Presence | Planned |
-| Windows installer and updater | Planned |
-
-Batch 6 delivers the first complete Home/Discovery and Settings UX milestone. It does not make SENZO production-ready: full directional focus navigation, game-controller support, hover previews, cache/lazy-loading work, broader Library features, complete streaming playback validation, and Windows visual QA remain outstanding. A feature is not considered complete merely because a service module exists; it must be connected, tested, and verified by Windows CI. See the [Roadmap](docs/ROADMAP.md) for phase-by-phase status.
-
-## Technology
-
-- **Rust, Edition 2024** — application and service implementation.
-- **GPUI** — native desktop interface.
-- **Tokio** — asynchronous runtime.
-- **Reqwest + Rustls** — HTTP requests.
-- **Serde / Serde JSON** — structured data and protocol parsing.
-- **SQLite / rusqlite** — local persistence.
-- **Windows Credential Manager** — secure storage for optional user-supplied provider credentials such as OpenSubtitles; TMDB credentials remain server-side in the SENZO API.
-- **SENZO API (Vercel / Next.js)** — server-side gateway for TMDB movie and television metadata.
-- **Stremio-compatible HTTP add-ons** — optional external sources.
-- **MPV / libmpv** — playback engine and C API.
-- **GitHub Actions** — Windows formatting, compilation, tests, and future release builds.
-
-Dependencies and integration choices may change when implementation, CI, security review, or license compatibility requires it.
-
-## Platform and branch policy
-
-- **Windows:** The only active implementation and CI target at this stage.
-- **Linux:** A later target. Do not add Linux build jobs until Linux implementation begins.
-- **Android and iOS:** Out of scope.
-- **`development`:** Active development and development builds.
-- **`main`:** Stable releases only.
-
-All builds and tests are intended to run through GitHub Actions. Keep implementation work on `development`; do not place unfinished feature work directly on `main`.
-
-## Privacy and security principles
-
-- No SENZO user account or mandatory cloud watch-history service.
-- Personal history, progress, settings, and add-on configuration are stored locally.
-- No bundled or automatically installed streaming add-ons.
-- Add-on manifests, responses, redirects, and stream URLs are untrusted input and must be validated.
-- API tokens and provider credentials must never be committed or written to logs.
-- External providers are independent services with their own availability, privacy policies, account requirements, and terms.
-- Cache cleanup must not silently delete personal history or settings.
-
-See [Security](docs/SECURITY.md) for the threat model and implementation requirements.
+SENZO ports desktop behavior and architectural concepts. It does not reuse Nuvio branding or artwork. The canonical SENZO logo in `assets/branding/senzo-logo.png` remains unchanged.
 
 ## Documentation
 
-- [Product specification](docs/PRODUCT_SPEC.md) — product vision, scope, and non-negotiable decisions.
-- [Architecture](docs/ARCHITECTURE.md) — system boundaries, components, data flow, and technical decisions.
-- [Roadmap](docs/ROADMAP.md) — implementation phases and completion status.
-- [Security](docs/SECURITY.md) — trust boundaries, local data, credentials, and network safety.
-- [Development guide](docs/DEVELOPMENT.md) — branch rules, CI workflow, code organization, and contribution expectations.
-- [Licensing policy](docs/LICENSING_POLICY.md) — license decision and restrictions under consideration.
+- [Phase 0 completion](docs/PHASE_0_COMPLETION.md)
+- [Nuvio source audit](docs/NUVIO_SOURCE_AUDIT.md)
+- [Nuvio-to-SENZO feature mapping](docs/NUVIO_TO_SENZO_MAPPING.md)
+- [Rewrite architecture](docs/ARCHITECTURE.md)
+- [Product specification](docs/PRODUCT_SPEC.md)
+- [Full roadmap](docs/ROADMAP.md)
+- [Development workflow](docs/DEVELOPMENT.md)
+- [Licensing policy](docs/LICENSING_POLICY.md)
+- [Security policy](docs/SECURITY.md)
 
-These documents are living project documentation. Update them whenever implementation, scope, or technical decisions change. Keep the README detailed enough to explain the project to a new visitor, while clearly distinguishing shipped behavior from plans.
+## Repositories
 
-## TMDB attribution
+- Desktop: https://github.com/Sensei002/senzo
+- Metadata API: https://github.com/Sensei002/senzo-api
+- Hosted metadata API: https://senzo-api.vercel.app
 
-This product uses the TMDB API but is not endorsed or certified by TMDB.
+The existing SENZO API is a small Next.js service that exposes validated TMDB routes and keeps the TMDB Read Access Token server-side. Phase 0 does not change or redeploy that service.
 
-TMDB provides metadata and images under its applicable API terms and attribution requirements. SENZO will include the required TMDB branding and attribution in its About/Credits area. Commercial use may require separate permission or licensing from TMDB.
+## Branches
 
-## License
+- `main` — stable releases.
+- `development` — active rewrite and integration work.
 
-SENZO is licensed under the **GNU General Public License v3.0 only (GPL-3.0-only)**.
+## Important source policy
 
-- The complete license text is provided in the repository-root [`LICENSE`](LICENSE) file.
-- Cargo package metadata declares `GPL-3.0-only`.
-- You may use, study, modify, and redistribute SENZO under the terms and conditions of AGPL-3.0.
-- Modified versions that are distributed must comply with the GPL's source and corresponding-license requirements. GPL-3.0 does not add the AGPL's network-interaction source-offer requirement.
-- Commercial use is permitted when the license terms are followed. GPL-3.0 does not prohibit commercial use or impose field-of-use restrictions.
-- Third-party services, metadata, media, trademarks, add-ons, and dependencies remain subject to their own terms and licenses.
+All streaming add-ons are explicitly user-installed. Torrentio is never bundled, silently installed, or enabled by default. Add-on manifests and returned resources are untrusted network input and must pass the SENZO validation and network-safety boundaries.
 
-See the [Licensing Policy](docs/LICENSING_POLICY.md) for a practical explanation. This project uses the SPDX identifier `AGPL-3.0-only`, not `UNLICENSED`.
-
-## Project status
-
-SENZO is under active development. Product scope, UI, technical choices, and implementation details may evolve. This README will be updated as real features land; the Architecture and Roadmap documents will track deeper implementation details and outstanding work.
+SENZO is an independent project. Third-party providers, metadata services, add-ons, trademarks, and media remain subject to their own rights and terms.

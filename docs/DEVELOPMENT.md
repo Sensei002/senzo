@@ -1,69 +1,38 @@
-# SENZO development guide
+# SENZO development workflow
 
-## Project stage
+## Branches
 
-SENZO is in early development. The current focus is Windows only. Linux work is intentionally deferred; Android and iOS are out of scope.
+- `main`: stable releases only.
+- `development`: active Rust rewrite and integration work.
 
-## Branch strategy
+Do not push rewrite work directly to `main`.
 
-- `development` is the active integration branch for all ongoing implementation.
-- `main` is reserved for stable releases.
-- Do not commit unfinished feature work directly to `main`.
-- Keep changes focused and update relevant documentation in the same change.
+## Reference and architecture
 
-## CI-first workflow
+Before implementing a Nuvio feature, consult:
+- [Pinned Nuvio source audit](NUVIO_SOURCE_AUDIT.md)
+- [Feature mapping](NUVIO_TO_SENZO_MAPPING.md)
+- [Rewrite architecture](ARCHITECTURE.md)
+- [Product specification](PRODUCT_SPEC.md)
+- [Roadmap](ROADMAP.md)
 
-GitHub Actions is the project's build and verification environment. Do not rely on local compilation as the project's acceptance criterion.
+Port the desktop behavior and contracts, not Kotlin/Compose code or Nuvio branding. Keep Stremio add-ons, plugin scrapers, debrid providers, media servers, torrent transport and MPV playback behind independent service boundaries.
 
-For each implementation change:
+## Build and validation policy
 
-1. Work on `development`.
-2. Keep the change focused and document behavior or architecture changes.
-3. Run formatting, compilation, and tests in Windows CI.
-4. Inspect the actual workflow result and logs.
-5. Fix failures rather than disabling meaningful checks.
-6. Mark a feature verified only after a successful run for the relevant commit.
+GitHub Actions is the authoritative build and test environment for this project. Use CI to run formatting, lint, unit/integration tests and platform builds. Do not report a feature as complete merely because its source was committed or CI compiled it.
 
-Rapid pushes may cancel or queue earlier workflow runs depending on workflow concurrency. A pending or cancelled run is not evidence that the code failed to compile. A green formatting step alone is not proof that the application builds and tests pass.
+Runtime acceptance is separate from CI. Native video must be visibly rendered and audio audible on the target OS. Stop, source replacement, navigation, repeated sessions and shutdown must be tested.
 
-## Current code organization
+## Implementation rules
 
-- `src/main.rs` — application entry point and startup initialization.
-- `src/lib.rs` — library module exports.
-- `src/storage.rs` — SQLite persistence and local application data.
-- `src/metadata.rs` — TMDB API client and metadata models.
-- `src/addons.rs` — Stremio manifest handling and protocol requests.
-- `src/sources.rs` — provider-neutral source adapter contract and registry.
-- `src/discord.rs` — optional local Discord IPC presence worker.
-
-As the application grows, keep UI, metadata, persistence, source adapters, playback, and platform-specific code separated.
-
-## Discord Rich Presence build configuration
-
-Discord Rich Presence is disabled by default and requires a Discord application ID owned by SENZO. Set the public (non-secret) `SENZO_DISCORD_CLIENT_ID` environment variable in the build environment before compiling. For GitHub Actions, configure it as a repository Actions variable and expose it to the build step; do not copy an ID from Nuvio or another application. If the variable is absent, the UI explains that the feature is unavailable in that build. Media-title sharing is a separate local preference and remains off by default.
-
-## Engineering rules
-
-- Use Rust + GPUI for the native interface. Do not introduce Electron, Tauri, WebView2, or egui.
-- Keep platform scope Windows-only until Linux work is explicitly started.
-- Use stable internal media identifiers and explicit external-ID mapping.
-- Treat remote manifests, JSON, URLs, and media metadata as untrusted input.
-- Keep secrets out of source control, logs, and artifacts.
-- Track the SQLite schema with `PRAGMA user_version`; implement schema changes as ordered, transactional migrations and test both repeat opens and unsupported future versions.
-- Add tests for parsing, persistence, URL validation, and error handling.
-- Do not bundle or automatically install streaming add-ons.
-- Do not integrate Torrentio as a default source.
-- Avoid claiming a protocol or provider is compatible until tested.
-- Keep the exact official SENZO logo artwork; do not redraw or substitute it.
-- Update README, Product Specification, Architecture, Security, and Roadmap when the relevant scope or decisions change.
-
-## Feature completion criteria
-
-A feature is considered complete only when:
-
-- Its intended behavior is implemented.
-- It is connected to the UI or application flow where applicable.
-- Errors and unavailable external services are handled.
-- Relevant tests exist and pass.
-- Windows CI passes for the change.
-- Documentation accurately describes the shipped behavior.
+- Keep GPUI event/render work non-blocking.
+- Keep MPV calls off the UI thread and give the runtime one lifecycle owner.
+- Use bounded channels and explicit cancellation/teardown.
+- Use typed models and provider-neutral interfaces.
+- Validate all external manifests, plugin data, URLs and responses.
+- Never log credentials or private source URLs.
+- Preserve user data through migrations and updates.
+- Keep all player controls native GPUI; never add a browser UI.
+- Keep Torrentio optional and user-installed.
+- Add tests for protocol parsing, state transitions, storage migrations and lifecycle behavior.

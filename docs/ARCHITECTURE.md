@@ -1,210 +1,131 @@
-# SENZO architecture
+# SENZO rewrite architecture
 
-## 1. Product boundary
+## 1. Product and platform boundary
 
-SENZO is a native desktop media center built with Rust + GPUI. Windows is the only active implementation and CI target. Linux is deliberately deferred until the Windows application is established. Android and iOS are out of scope. SENZO is not an Electron, Tauri, WebView2, or egui application.
+SENZO is a native desktop rewrite of Nuvio Desktop in Rust. GPUI CE is the only selected UI framework. The initial desktop targets are Windows and Linux; macOS remains a future portability target, not a release commitment. Android and iOS are out of scope.
 
-SENZO is **accountless by design**. There is no SENZO sign-up, login, cloud profile, or required remote watch-history service. User settings, installed add-ons, watch history, and resume positions are stored in the local SENZO application-data directory.
+SENZO does not use WebView2, Electron, Tauri, egui, or browser-hosted UI. Every application screen and player control is rendered by GPUI. MPV/libmpv is a media engine only.
 
-### Windows installation and writable data
+The audited Nuvio source snapshot is pinned in [NUVIO_SOURCE_AUDIT.md](NUVIO_SOURCE_AUDIT.md). The full feature mapping is in [NUVIO_TO_SENZO_MAPPING.md](NUVIO_TO_SENZO_MAPPING.md).
 
-The Windows distribution is a **per-machine system installation** under `%ProgramFiles%\\SENZO` (normally `C:\\Program Files\\SENZO`). The installer requests elevation through Windows UAC. Application binaries, bundled resources, and the trusted MPV runtime belong in the installation directory; the running application must never write mutable user data there. The installer UI must use the canonical transparent SENZO logo at `assets/branding/senzo-logo.png` for its branding (including the installer icon and appropriate welcome/header artwork); preserve the supplied artwork and do not substitute or recreate the logo. The installer must be Authenticode-signed with a publicly trusted code-signing certificate so Windows UAC does not show `Unknown publisher`. The intended publisher display name is **`Sensei.STGR`**; obtain a certificate whose validated subject/publisher identity can display that exact name, subject to the certificate authority's identity-verification rules. Sign the installer and distributed executable binaries, use SHA-256 and a trusted timestamp, and keep signing credentials/private keys out of the repository and build logs. Per-user writable data remains separate under `%LOCALAPPDATA%\\SENZO` (database, settings, logs, and disposable caches). Optional user-supplied provider credentials remain in Windows Credential Manager; the TMDB token is held only by the hosted SENZO API. The installer should create Start Menu shortcuts and register a normal Windows uninstall entry. Uninstall must offer a clear choice about retaining or removing user data; updates must preserve it. Do not install the application itself under AppData or use a per-user-only installation by default.
+## 2. Rewrite boundary
 
-### SENZO owns
+The current `src/main.rs`-centered SENZO implementation is a legacy prototype. It remains in repository history and may be consulted for isolated, reviewed behavior or tests, but it is not the architecture baseline. Phase 1 establishes a clean Rust workspace. No legacy module is reused without review against the contracts in this document.
 
-- Native desktop interface, navigation, and application state.
-- TMDB-backed movie and television discovery and metadata presentation.
-- User-managed registry of compatible add-ons.
-- Source selection and handoff to playback.
-- Local settings, watch history, and resume progress.
-- Playback controls and optional Discord Rich Presence.
-- Local diagnostic event logging and user-initiated support-bundle export.
+The rewrite preserves Nuvio desktop behavior and feature boundaries, not Kotlin syntax or platform-specific implementation accidents. The Windows Nuvio player bridge contains WebView2 code and is explicitly excluded.
 
-### SENZO does not promise
+## 3. Proposed Rust workspace
 
-- That any third-party source is available or lawful in every region.
-- That every third-party add-on or provider-specific extension is compatible.
-- A SENZO-hosted account, cloud sync, or remote history service.
-- A built-in catalog of torrent sources or preinstalled Torrentio integration.
+Phase 1 should create a Cargo workspace with a small number of cohesive crates. Split only where ownership, platform boundaries, or independent tests justify it; avoid one crate per screen.
 
-## 2. Metadata and discovery
+| Crate | Responsibility |
+|---|---|
+| `senzo-app` | Binary entry point, application lifecycle, dependency composition and startup/shutdown. |
+| `senzo-ui` | GPUI application shell, routes, views, design system, focus/navigation and player controls. |
+| `senzo-domain` | Stable media, source, profile, playback, library and settings domain types/use cases. |
+| `senzo-platform` | Native windowing, OS integration, input, filesystem locations, keyring and platform capabilities. |
+| `senzo-network` | Shared HTTP policy, timeouts, redirect policy, URL validation, response limits and safe request execution. |
+| `senzo-metadata` | SENZO API/TMDB client, typed metadata models, external-ID mapping and catalogue metadata. |
+| `senzo-artwork` | Image URL resolution, secure image fetching, cache, decoding and GPUI image integration. |
+| `senzo-addons` | Stremio manifest/resource protocol, installed add-on registry and add-on transport. |
+| `senzo-plugins` | Separate Nuvio-compatible plugin/scraper repository and sandboxed QuickJS-compatible runtime. |
+| `senzo-sources` | Provider-neutral source contracts, stream aggregation, filtering, sorting, selection and fallback. |
+| `senzo-debrid` | Debrid provider auth, API clients, cache checks and URL resolution. |
+| `senzo-torrent` | P2P/torrent transport, selected-file streaming, local range server and session lifecycle. |
+| `senzo-playback` | MPV/libmpv adapter, worker, playback state, tracks, subtitles, chapters and lifecycle. |
+| `senzo-library` | Local library, collections, watch history, watched state, resume progress and profiles. |
+| `senzo-integrations` | Accounts, sync, media servers, Trakt, Simkl, MDBList, Discord and external service adapters. |
+| `senzo-party` | Watch-party protocol, presence, chat and playback synchronization. |
+| `senzo-storage` | SQLite schema/migrations, repositories, cache metadata and secure credential references. |
+| `senzo-settings` | Typed settings, defaults, validation, migrations and capability-aware preferences. |
+| `senzo-diagnostics` | Structured logs, crash context, redaction and user-initiated support export. |
+| `senzo-update` | Update metadata, channel selection, integrity verification and safe update workflow. |
 
-- **Primary provider:** The Movie Database (TMDB) for movie and television metadata.
-- **Search:** Search movies or TV shows and retain the TMDB ID as stable internal identity.
-- **TV navigation:** Fetch typed season responses (including episode lists) and individual episode details. Season zero is supported for specials; episode numbers must be positive.
-- **External IDs:** Resolve movie and TV external identifiers, including IMDb and TVDB IDs, through dedicated TMDB endpoints for source-provider mapping.
-- **Enrichment:** Retrieve details, credits, videos, images, and external IDs with `append_to_response` where supported. TV season and episode information uses the relevant season/episode endpoints.
-- **Artwork:** Convert TMDB poster, backdrop, logo, and episode-still paths into image CDN URLs. Cache artwork locally with bounded storage and eviction.
-- **Source identifiers:** Map TMDB IDs to IMDb or other identifiers when an add-on requires them. Never assume every provider accepts TMDB IDs.
-- **Attribution:** Include the TMDB logo and the required notice in About/Credits: "This product uses the TMDB API but is not endorsed or certified by TMDB."
-- **Credential model:** The desktop calls the hosted SENZO metadata API over HTTPS. The TMDB Read Access Token is stored only in the API host's server-side `TMDB_READ_ACCESS_TOKEN` environment variable; it is not embedded in the desktop binary, passed through desktop GitHub Actions, stored in Windows Credential Manager, or requested from users. The API exposes fixed, validated TMDB routes rather than an arbitrary proxy. Its current in-memory cache and per-instance rate limit are best-effort only; shared rate limiting and abuse monitoring are required before broad public distribution.
+A crate may be merged with a closely related crate if the actual implementation proves a separate boundary unnecessary. The public contracts between UI, services, storage and playback must remain explicit.
 
-## 2.1 Console-first Home and discovery UI
+## 4. Dependency and runtime policy
 
-The primary application experience is a cinematic, console-like media home, not a technical dashboard. Home is the default landing page and is composed from data-backed sections:
+- **UI:** GPUI CE, pinned to a tested version.
+- **Async:** Tokio; never block the GPUI event/render thread.
+- **HTTP:** Reqwest with Rustls and a shared network policy.
+- **Serialization:** Serde / Serde JSON.
+- **Persistence:** SQLite with ordered, transactional migrations.
+- **Secrets:** OS credential storage where supported; never plaintext secrets in logs or repository files.
+- **Playback:** MPV/libmpv through a narrow Rust-owned interface.
+- **Torrent:** Evaluate Nuvio P2P behavior against Rust transport options; keep transport behind a trait and validate licenses.
+- **Plugin runtime:** Evaluate a Rust QuickJS binding for Nuvio-compatible plugin behavior; sandbox network, filesystem, CPU, memory and execution time.
+- **Build:** Cargo and GitHub Actions. Windows and Linux CI must be separate explicit targets.
 
-- A featured hero area with backdrop artwork, title, useful metadata, and Play / Details actions.
-- Continue Watching when local playback progress exists.
-- TMDB discovery shelves such as Trending, Popular Movies, and Popular TV.
-- Additional catalog shelves generated dynamically from catalogs exposed by enabled, user-installed Stremio add-ons.
-- Optional user-curated collections and genre shelves when their data is available.
+The UI must not call provider APIs, MPV, SQLite, or torrent internals directly. It sends typed commands to services and renders state/events.
 
-The Home data layer owns catalog definitions, refresh/caching, stable section identity, ordering, and loading/error states. UI components remain reusable and separate: hero, shelf heading, horizontal poster rail, poster card, loading skeleton, and empty/error state. Fetch only the data needed for visible/near-visible sections; lazy-load artwork and use bounded caches.
+## 5. Native playback architecture — critical gate
 
-The navigation model is designed for a 10-foot/console-style experience on a desktop display: large artwork and readable controls, directional focus movement, clear focused/selected states, predictable Back/Escape behavior, and keyboard operation without requiring a mouse. Add game-controller navigation when supported by the GPUI/native input layer. Pointer hover previews are an enhancement, not the primary interaction.
+Playback is a first-class subsystem, not a child window added after the UI is complete.
 
-Preserve focus and scroll position when moving between Home, details, catalogs, and playback. Hero and poster activation must route into real TMDB details, TV season/episode browsing, source selection, and MPV playback. Keep Settings, diagnostics, and provider management available through navigation, but do not let them dominate the Home screen.
+### Required ownership model
 
-**Architecture reference:** Study the upstream `NuvioMedia/NuvioDesktop` Home implementation (`HomeScreen.kt`, `HomeRepository.kt`, `HomeCatalogDefinitions.kt`, `HomeHeroSection.kt`, `HomeCatalogSection.kt`, `HomePosterCard.kt`, and `HomeSectionLayout.kt`) before implementing or revising this experience. Adapt concepts to Rust + GPUI; do not copy Kotlin/Compose source code, assets, or branding. SENZO keeps its own identity.
-## 3. Add-ons and streaming sources
+1. The GPUI layer creates a playback session request with media identity, resolved source, headers, subtitles and preferences.
+2. The playback service validates the request and creates one session owner.
+3. A dedicated worker owns the MPV handle and all MPV calls.
+4. A bounded command channel carries load, pause, seek, volume, track, subtitle, speed and stop commands.
+5. A non-blocking event/state channel returns playback status, position, duration, buffering, tracks, errors and renderer diagnostics.
+6. The UI observes state and renders all controls in GPUI.
+7. Stop, source replacement, route navigation and application shutdown share one serialized teardown path. The MPV handle is destroyed exactly once after worker shutdown is acknowledged.
+8. Torrent sessions own their local HTTP server and temporary files; they are shut down only after MPV no longer references their stream.
 
-SENZO uses a user-managed registry for add-ons that implement the supported Stremio HTTP protocol.
+### Video presentation proof-of-concept
 
-### Installation and management
+Before building the full player, Phase 1 must prove actual visible video in a GPUI window on Windows. It must compare:
+- MPV's render API / `mpv_render_context` integration with GPUI's rendering/compositing path.
+- A native OS video surface integrated into the GPUI layout, only if the first approach is unsuitable.
 
-- The Add-ons screen accepts a manifest URL copied to the clipboard, previews and validates it, and requires explicit confirmation before saving.
-- SENZO fetches and validates the add-on manifest and records its identity, version, capabilities, URL, and manifest data locally.
-- The UI supports enable, disable, and remove. Reordering is deferred until a persistent ordering field is introduced.
-- Requests are sent only to add-ons explicitly installed and enabled by the user.
-- No streaming add-on is bundled or preinstalled. **Torrentio is not integrated into the default source list.** Users may manually add their own configured Torrentio manifest URL or another compatible provider.
-- External add-ons may have their own configuration, accounts, privacy policies, availability, and terms. They do not create a SENZO account.
+Do not assume a valid HWND, configured VO, decoded frames, or zero dropped frames means that the user can see video. Acceptance requires visible frames on screen, audible audio, seek, pause/resume, resize/fullscreen, repeated sessions, and clean stop/shutdown. The previous child-HWND implementation is not accepted as proven.
 
-### Protocol boundary
-
-Initial compatibility targets the Stremio HTTP add-on protocol:
-
-- Manifest discovery.
-- Catalog resources.
-- Metadata resources.
-- Stream resources.
-- Subtitle resources, where supported.
-
-Catalog, metadata, stream, and subtitle request services are implemented. The native UI can browse declared catalogs, configure required and optional catalog extras using declared options or clipboard-backed free text, and page through results with Stremio's skip parameter. It can inspect returned title metadata, discover streams, hand validated direct HTTP(S) streams to MPV, and route selected BitTorrent v1 info-hash results into the torrent transport. Add-on subtitle descriptors are validated, downloaded over bounded HTTPS requests into the local subtitle cache, and attached through MPV's native external-subtitle command. Fixture tests cover Torrentio-style manifest and stream response shapes. This does not imply support for unrelated local plugin runtimes or every provider-specific extension.
-
-### Trust and network safety
-
-Manifests and responses are untrusted remote input. Validate URL schemes, response sizes, JSON shapes, declared capabilities, redirects, and returned stream URLs. Production fetching must account for localhost/private-network destinations, DNS rebinding, redirect chains, and other SSRF-style risks. Do not query an add-on unless the user installed and enabled it. See [Security](SECURITY.md).
-
-## 4. Planned high-level components
-
-- **Desktop shell:** GPUI views, navigation, application state, keyboard interaction, and theming.
-- **Diagnostics:** bounded local event log, severity levels (audit/info/warn/error), credential redaction, and a user-initiated recent-log export. Diagnostic exports intentionally exclude SQLite watch history and database contents.
-- **Metadata service:** The desktop metadata client calls the hosted SENZO API for TMDB search, trending/popular catalogues, details, seasons/episodes, and external-ID mapping. The API holds the TMDB credential server-side. Artwork images continue to load directly from the official TMDB image CDN through the secure GPUI artwork client.
-- **Artwork/cache service:** Bounded local image and metadata cache with eviction and failure handling.
-- **Source adapters:** `src/sources.rs` defines a provider-neutral `SourceAdapter` contract and `SourceProviderRegistry`; the current registered adapter wraps user-installed Stremio add-ons and maps results into a provider-neutral shape. Adapters are queried concurrently and provider failures are isolated. New authorized providers can be added without coupling UI code to metadata or MPV. Do not add default/bundled add-ons; Torrentio remains manual-install only, and the separate Direct Sources provider system is deferred. Manifest resource eligibility is evaluated using resource-level types and ID prefixes with manifest-level fallbacks. Configured provider URLs are preserved as installation identity so one provider can have multiple user configurations. Manifest refresh preserves enabled state and installation ordering; provider failures are isolated during concurrent stream discovery. Catalog extra values are bounded and validated at the service boundary; the GPUI filter editor enforces required values, option limits, and supports custom clipboard values. Add-on subtitle URLs are restricted to HTTPS public hosts, downloaded with a 20 MiB cap, and handed to MPV as local subtitle files. Future source types should not be coupled to UI code.
-- **Discord presence:** Optional Windows Discord IPC integration runs on a dedicated worker thread and makes no outbound network requests. It is disabled by default. Presence reports browsing or playback state; media titles are hidden by default and are only included when the separate title-sharing preference is enabled. The Discord application ID is supplied at build time through the public `SENZO_DISCORD_CLIENT_ID` environment variable; do not reuse another application's ID.
-- **Playback:** MPV behind an internal playback interface. The pure configuration adapter translates persisted preferences into MPV options and records capability fallbacks. The dynamic runtime loader owns the libmpv DLL and exposes a narrow command/property API; it does not expose MPV pointers to GPUI. The playback worker creates and owns the runtime on a dedicated thread, accepts commands through a bounded queue, and returns non-blocking command and state events. It polls a compact state snapshot (position, duration, pause, cache-wait, media title, volume, mute, fullscreen, video codec/decoder, active hardware decoder, video output, output dimensions, estimated frame rate, and dropped-frame count) every 500 ms and emits only changes. The GPUI playback panel exposes these live diagnostics so decoder and renderer behavior can be verified on real Windows hardware. Its command boundary covers local-file load, pause/resume, seek, speed, stop, volume, mute, fullscreen, audio-track selection, and subtitle-track selection/disable. The playback snapshot also reads MPV's live `speed` property, and GPUI exposes selectable 0.5×, 0.75×, 1.0×, 1.25×, 1.5×, and 2.0× speed presets. Volume and track IDs are validated before commands enter the queue. The GPUI bridge stores local-file progress in SQLite at a bounded interval, force-flushes the latest known position before stop or media switch, and queues a resume seek after reopening the same canonical file path. MPV calls never run on the UI thread. Audio/subtitle track enumeration is read from MPV's track-list properties and surfaced in GPUI, with selection controls. The GPUI bridge also provides a native video viewport backed by a child Win32 HWND passed to MPV as `wid`; actual rendering and lifecycle behavior still require runtime validation. The player UI includes pointer-driven seek and volume controls. Renderer, hardware-decoder, image-processing, HDR, and buffer preferences are supplied to MPV at session initialization; subtitle typography and timing controls are applied live. Local-file playback position is persisted periodically and restored on reopen. GPUI is connected to the worker for local-file selection and basic transport, seek, mute, fullscreen, and volume-step commands. Hardware decoding, renderer selection, scaling, HDR handling, subtitles/audio selection, buffering, seeking, speed, and fullscreen belong to this layer.
-- **Torrent transport:** `src/torrent_engine.rs` embeds pinned `librqbit` with upload/seeding disabled, no persistence/fast-resume, and no local service discovery. User-selected Stremio v1 info hashes and optional tracker sources are resolved into video-file metadata; `fileIdx` is honored when present, otherwise the user selects a video file. Only the selected file is added for download. An authenticated tokenized HTTP endpoint binds to `127.0.0.1` on an ephemeral port and supports single byte ranges, suffix ranges, and HEAD requests for MPV. The MPV worker permits this loopback URL only through a separate validator; general provider URLs remain blocked from private/local destinations. Orderly stop cancels the HTTP server, removes the torrent from the engine, cancels the session, drops the session-owned runtime, and deletes the temporary directory. Startup recovery removes abandoned `session-*` directories after crashes. Current support is BitTorrent v1 (40-character hashes); v2-only hashes are not yet supported. Peer discovery, buffering, seek latency, and Windows hardware playback still require runtime validation.
-- **Local persistence:** SQLite stores settings, add-on registry, playback progress, watch history, and future library state. Current Windows database path: `%LOCALAPPDATA%\SENZO\senzo.db`.
-- **Networking:** Tokio, Reqwest, and Serde.
-- **Presence:** Discord Rich Presence through Discord IPC, with privacy settings and explicit playback-state mapping.
-- **Updater:** Windows Stable and Development channels with signed update metadata, integrity verification, staged installation, and rollback strategy.
-
-## 5. Local data model and lifecycle
-
-The initial SQLite schema contains:
-
-- `settings`: key/value application settings, including a typed JSON playback-preferences record.
-- `playback_progress`: latest resume position and optional duration per media ID.
-- `watch_history`: watched media identity, title, media type, and timestamp.
-- `addons`: add-on identity, version, manifest URL, enabled state, manifest JSON, and installation timestamp.
-
-The database is created under the user's local application-data directory and initialized during application startup. SQLite `PRAGMA user_version` tracks schema version 1. Schema creation runs transactionally; future schema changes must add ordered migrations and must not discard history or settings. A build refuses to open a database whose schema version is newer than it supports.
-
-The diagnostic log is stored separately under `%LOCALAPPDATA%\SENZO\logs\senzo.log`. The current logger rotates the active file at 2 MiB and exports up to 1 MiB of events from the previous 72 hours. It records operational events, not watch history. Redaction is best-effort; callers must never pass credentials, private URLs, or personal media activity to the logger. Settings exposes user-initiated Copy Logs and Open Log Folder actions; clipboard export excludes watch history and database contents.
-
-Planned additions include metadata cache entries, artwork cache indexing, favorites/library state, and migration metadata. Cache data is bounded and disposable; personal history and settings are not disposable cache.
+Linux playback must receive its own native presentation proof before the Linux UI is declared supported. Avoid designing the core player around Win32-only handles.
 
 ## 6. Application data flow
 
-1. GPUI sends a search request to the metadata service.
-2. The desktop metadata client calls the hosted SENZO API, which requests TMDB results and returns stable TMDB IDs.
-3. A selected title is enriched with details, credits, images, videos, and external IDs.
-4. When the user requests sources, SENZO checks only installed and enabled add-ons that declare support for the relevant resource.
-5. The user selects a playable result; it is handed to the playback service.
-6. Playback progress and viewing events are persisted locally.
-7. Operational events are written to the diagnostic log; the user may later export recent logs explicitly.
+### Discovery
+GPUI view → catalog/search use case → metadata API client → typed metadata → artwork service/cache → GPUI image components.
 
-## 7. Architectural rules
+### Source discovery
+Details/episode identity → source coordinator → enabled user-installed Stremio add-ons, plugin scrapers, configured debrid services and media servers → provider-neutral stream results → source selection UI.
 
-1. UI code must not own torrent, HTTP, metadata, or MPV implementation details.
-2. External providers and add-ons are untrusted input; validate manifests, URLs, and responses.
-3. Keep secrets out of source control, logs, and artifacts.
-4. Basic SENZO use must never require a SENZO account or cloud service.
-5. Watch progress and history must persist locally.
-6. No add-on may be installed or queried without explicit user action.
-7. Torrentio must not be bundled, preinstalled, or automatically queried.
-8. Keep platform-specific behavior behind small adapters; Linux is not part of current CI.
-9. Pin and verify dependencies before adopting them in release builds.
-10. Do not claim protocol compatibility until the relevant resources and runtime requirements are tested.
-11. Treat cache eviction separately from deletion of personal history and settings.
-12. Do not ship secrets in source control, logs, or unprotected build artifacts.
-13. Diagnostics must be local-first, bounded, redacted, and explicitly exported by the user. Do not log watch history or media titles by default.
-14. Do not describe planned functionality as implemented.
+### Playback
+Selected source → source resolver:
+- Direct HTTP(S): validated URL + headers → MPV.
+- Torrent info hash: torrent session → selected file → authenticated loopback HTTP Range endpoint → MPV.
+- External provider: provider-specific resolver → validated playable target → MPV or explicitly supported external destination.
 
-## 8. Current implementation snapshot
+Subtitles are resolved and validated independently, then attached through MPV's track/subtitle interface.
 
-Initial foundations exist in the repository. Windows CI is the source of truth for formatting, compilation, and tests.
+### Personal data
+Feature use cases → repositories → SQLite/local files/OS credential store. Optional account-backed sync is an integration with explicit reconciliation and offline behavior; local storage remains authoritative for local-only data.
 
-- `src/storage.rs`: SQLite initialization, local settings, playback progress, watch history, and installed add-on registry.
-- `src/diagnostics.rs`: local diagnostic event logging, bounded log rotation, recent-event collection, and basic credential redaction.
-- `src/metadata.rs`: HTTPS client for the hosted SENZO metadata API, including movie/TV search, detail enrichment, seasons/episodes, external-ID lookup, and TMDB image URL construction.
-- `src/settings.rs`: typed playback preferences, conservative defaults, and resource-limit normalization.
-- `src/playback/mpv_config.rs`: pure mapping from user preferences to MPV option values, runtime-capability-aware fallback reporting, and unit tests.
-- `src/playback/mpv_runtime.rs`: dynamic libmpv loading, pre-initialization option application, local-file loading, pause, seek, speed, stop, and string-property access. The Windows CI packaging workflow separately produces a pinned LGPL runtime artifact; app-side runtime installation and playback validation remain outstanding.
-- `src/playback/mpv_worker.rs`: dedicated playback thread, bounded command queue, non-blocking command/state event receiver, 500 ms change-only playback-state polling, orderly shutdown, and graceful runtime-load failure reporting. GPUI queues file-load, transport, seek, mute, and fullscreen commands through this boundary.
-- `src/addons.rs`: Stremio manifest URL normalization/validation, explicit installation, local registry persistence, and an initial stream request method.
-- `src/main.rs`: initializes diagnostics and SQLite, loads persisted playback preferences, and renders the initial GPUI Settings screen with local persistence and Copy Logs.
+## 7. Data and security boundaries
 
-Not yet connected or implemented:
+- Treat add-on manifests, plugin repositories, scraper code, stream responses, subtitle URLs, media-server responses and metadata as untrusted input.
+- Validate schemes, redirects, DNS resolution, private/reserved destinations, response sizes, JSON shape, content type and timeouts.
+- Prevent SSRF and DNS-rebinding bypasses. Do not allow arbitrary local-network destinations except narrowly scoped, user-configured server integrations.
+- Torrent loopback endpoints must bind only to loopback, use unguessable session tokens, enforce Range semantics and close before temporary data deletion.
+- Plugin execution must have explicit permissions, resource limits, cancellation and a narrow host API.
+- Secrets must be stored in OS credential facilities where possible, redacted from logs, and never committed.
+- The TMDB Read Access Token remains only in the hosted SENZO API environment. The desktop binary receives no shared TMDB secret.
+- Keep provider failures isolated; one failed add-on must not block other sources or the UI.
 
-- Remaining GPUI screens and navigation beyond the initial Settings experience.
-- TMDB-powered Home/Search/Details, season/episode browsing, and ID mapping.
-- Persistent metadata/artwork cache.
-- User-facing add-on manager and complete catalog/meta/stream/subtitle routing.
-- Runtime validation of native video presentation, child-window alignment/lifetime, and GPU/decoder behavior on Windows hardware.
-- Integrating the packaged MPV runtime into the final installer and validating playback on Windows hardware.
-- Runtime GPU/decoder/HDR capability detection.
-- Runtime verification of native MPV video rendering, child-window alignment/lifetime, and GPU/decoder behavior.
-- BitTorrent v1 torrent transport is implemented; real-world playback and Windows runtime validation remain outstanding.
-- Discord Rich Presence.
-- Windows installers and updater.
+## 8. Persistence model
 
-## 9. Implementation sequence
+Use SQLite with versioned migrations and repository boundaries for:
+- Application and playback settings.
+- Profiles and profile-scoped preferences.
+- Installed add-ons and plugin repositories.
+- Watch history, watched state and playback progress.
+- Library, favorites, collections and user-defined ordering.
+- Download metadata and task state.
+- Cached metadata/artwork indexes where useful.
 
-1. Verify service and persistence foundations in Windows CI.
-2. Build GPUI navigation and Home, Search, Library, Details, Settings, Add-ons, Player, and About/Credits screens.
-3. Connect the hosted SENZO metadata API for TMDB search, details, seasons/episodes, external IDs, artwork paths, and local cache.
-4. Build the user-managed Add-ons UI and source-selection flow.
-5. Implement and test Stremio catalog, metadata, stream, and subtitle routing.
-6. Complete Windows MPV runtime deployment and validate native video rendering, lifecycle, GPU/decoder behavior, and seek-bar interaction.
-7. Implement the optional torrent transport behind the source-selection and playback boundaries; validate real-world peer discovery, buffering, seek behavior, and orderly shutdown on Windows.
-8. Add Discord Rich Presence and privacy controls.
-9. Add signed Windows Stable/Development update channels and installer packaging.
+Large media, transient torrent payloads, logs and disposable image caches are stored outside SQLite. Secrets are stored separately. Migrations must preserve user data and reject unsupported future schema versions safely.
 
-## GPUI playback bridge
+## 9. Licensing
 
-The GPUI application owns the playback worker handle behind a shared mutex. The mutex protects only short, non-blocking queue operations and event reads; all libmpv calls remain on the dedicated playback thread. A cancellable GPUI task checks for worker events every 200 ms using background executor work, then applies snapshots and status changes to the UI entity. A dedicated Player destination owns the native video viewport and exposes Open Media, pause/resume, stop, mute, seek, volume, fullscreen, audio/subtitle track selection, subtitle loading/search, and live diagnostics. Keyboard controls map Space to play/pause, Left/Right to 10-second seek, Up/Down to volume, M to mute, F to fullscreen, and Escape to leave the player or exit fullscreen. Resume seeking is deferred until MPV reports the newly loaded path and a valid duration, with a bounded timeout and end-of-file clamping. Subtitle font size, vertical margin, and bold preferences can be changed during playback. SENZO loads `runtime/libmpv-2.dll` beside the executable; the separate Windows CI packaging workflow produces the pinned LGPL runtime artifact and preserves its notices. The native child HWND is created/resized from the GPUI viewport callback and passed to MPV before initialization. This is CI-verified integration only; actual video rendering, coordinate alignment, window lifetime/teardown, and GPU behavior still require runtime testing.
-
-### Native Windows video presentation boundary
-
-The Windows presentation path uses a caller-owned native child HWND as MPV's `wid` target. `MpvConfig::set_native_window_id` validates the non-zero 32-bit Win32 handle and passes it to libmpv before initialization. The owner must keep that child window alive until the MPV instance is destroyed. GPUI-to-HWND acquisition, DPI-aware viewport geometry, child-surface creation/resizing, and MPV `wid` wiring are implemented. Actual video rendering, client-coordinate alignment, z-order, and lifecycle behavior remain to be verified in a running Windows app.
-
-### Native Windows child-surface primitive
-
-`src/playback/windows_surface.rs` provides a Windows-only RAII wrapper around a child `STATIC` HWND. It validates the parent HWND and positive pixel dimensions, exposes the child handle as the documented non-zero 32-bit MPV `wid` value, supports explicit resize/show operations without activation or z-order changes, and destroys the child HWND on drop. All surface operations must run on the owning UI thread. The GPUI Settings playback panel now includes a dedicated video viewport. Its child-prepaint callback captures the viewport bounds and converts logical pixels to physical pixels on each layout pass. The callback creates the child surface on first layout and updates its bounds on later layouts; the surface is retained in application state and its HWND is supplied to MPV before initialization. Actual alignment, z-order, teardown ordering, and rendered output remain to be validated in a running Windows application.
-
-## GPUI native window handle
-
-SENZO obtains its Windows parent HWND through GPUI's public `HasWindowHandle` implementation and the `raw-window-handle` 0.6 `RawWindowHandle::Win32` variant. The value is retained in application state and used as the parent for the native video child surface.
-
-## Torrent temporary-storage boundary
-
-Torrent payloads use a dedicated per-user directory at `%LOCALAPPDATA%\\SENZO\\torrent-temp`, separate from SQLite, metadata, artwork, and subtitle caches. Each playback session receives a unique `session-*` child directory. The application removes that directory after the torrent engine and MPV have stopped; startup recovery removes leftover session directories after crashes or forced termination. Cleanup only enumerates direct child directories with the SENZO session prefix and does not follow symlinks. Playback progress and watch history remain in SQLite and are never stored in, or removed with, the torrent session.
-
-
-## User-facing Settings and built-in integrations
-
-The Settings screen follows a simple consumer-facing information architecture inspired by Nuvio Desktop: clear categories, plain-language labels, short descriptions, and safe defaults. Everyday settings are visible first; advanced decoder, renderer, cache, diagnostics, and provider implementation details are progressively disclosed in clearly labelled Advanced areas. Do not make the user understand internal technology to configure the application.
-
-TMDB discovery is provided through the hosted SENZO API; its token stays in server-side hosting configuration and the desktop requires no TMDB setup. OpenSubtitles remains a separate integration with its own optional credential flow. Never commit provider credentials or log them. Review each provider's terms and rate-limit/abuse controls before public distribution.
+Nuvio Desktop is GPL-3.0 and SENZO is GPL-3.0-only. Preserve upstream notices when adapting covered source. Audit each native/runtime dependency and ship required notices. See [LICENSING_POLICY.md](LICENSING_POLICY.md).
