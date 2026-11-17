@@ -59,29 +59,73 @@ pub struct MediaReference {
     pub title: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AppPage {
     Home,
+    Movies,
+    TvShows,
+    Search,
     Library,
+    Addons,
     Settings,
 }
 
 impl AppPage {
+    pub const ALL: [Self; 7] = [
+        Self::Home,
+        Self::Movies,
+        Self::TvShows,
+        Self::Search,
+        Self::Library,
+        Self::Addons,
+        Self::Settings,
+    ];
+
     pub const fn title(self) -> &'static str {
         match self {
             Self::Home => "Home",
+            Self::Movies => "Movies",
+            Self::TvShows => "TV Shows",
+            Self::Search => "Search",
             Self::Library => "Library",
+            Self::Addons => "Add-ons",
             Self::Settings => "Settings",
+        }
+    }
+
+    pub const fn short_label(self) -> &'static str {
+        match self {
+            Self::Home => "HM",
+            Self::Movies => "MV",
+            Self::TvShows => "TV",
+            Self::Search => "SR",
+            Self::Library => "LB",
+            Self::Addons => "AD",
+            Self::Settings => "ST",
         }
     }
 
     pub const fn description(self) -> &'static str {
         match self {
-            Self::Home => "The native SENZO application foundation is ready.",
-            Self::Library => "Your local library will live here in a later phase.",
-            Self::Settings => {
-                "Application preferences and provider settings will be added in later phases."
-            }
+            Self::Home => "Your entertainment, brought together.",
+            Self::Movies => "Explore movie discovery and curated collections.",
+            Self::TvShows => "Browse series, seasons and episodes.",
+            Self::Search => "Find movies and television across your providers.",
+            Self::Library => "Your saved titles and personal collections.",
+            Self::Addons => "Manage the providers you choose to install.",
+            Self::Settings => "Make SENZO feel right for you.",
+        }
+    }
+
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Home => "home",
+            Self::Movies => "movies",
+            Self::TvShows => "tv-shows",
+            Self::Search => "search",
+            Self::Library => "library",
+            Self::Addons => "addons",
+            Self::Settings => "settings",
         }
     }
 }
@@ -136,5 +180,13 @@ mod tests {
     fn media_ids_reject_control_characters() {
         assert!(MediaId::new("tmdb:123").is_ok());
         assert!(MediaId::new("bad\nvalue").is_err());
+    }
+
+    #[test]
+    fn primary_pages_have_stable_titles_and_keys() {
+        assert_eq!(AppPage::ALL.len(), 7);
+        assert_eq!(AppPage::TvShows.title(), "TV Shows");
+        assert_eq!(AppPage::Addons.key(), "addons");
+        assert_eq!(AppPage::Settings.short_label(), "ST");
     }
 }
