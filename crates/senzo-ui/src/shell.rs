@@ -2897,7 +2897,7 @@ impl SenzoShell {
         let featured_title = self
             .home_featured_title
             .as_deref()
-            .or_else(|| self.home_cards.first().map(|card| card.title.as_str()))
+            .or_else(|| self.home_trending.cards.first().map(|card| card.title.as_str()))
             .unwrap_or("Your entertainment. Your space.");
         let featured_eyebrow = if self.home_catalogue_status == HomeCatalogueStatus::Loaded {
             "TRENDING THIS WEEK"
@@ -3461,7 +3461,6 @@ impl Render for SenzoShell {
         if !self.smoke_test
             && self.navigation.current() == AppPage::Home
             && self.home_catalogue_status == HomeCatalogueStatus::NotRequested
-            && self.home_catalogue_error.is_none()
         {
             self.load_home_catalogue(cx);
         }
