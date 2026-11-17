@@ -694,6 +694,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reports_offline_connection_failures_as_network_errors() {
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+
+        let client = MetadataClient::new(
+            HttpClient::new(Default::default()).unwrap(),
+            MetadataClientConfig {
+                base_url: format!("http://{address}"),
+                max_retries: 0,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let error = client
+            .trending(1, "en-US", &CancellationToken::new())
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, MetadataError::Network(_)));
+    }
+
+    #[tokio::test]
     async fn cancels_a_request_while_waiting_for_the_server() {
         use tokio::io::AsyncReadExt;
         use tokio::net::TcpListener;
