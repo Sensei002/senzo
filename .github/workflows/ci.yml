@@ -73,7 +73,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Resolve workspace lockfile
         run: cargo generate-lockfile
-      - name: Check formatting
+      - name: Format Rust sources
+        run: cargo fmt --all
+      - name: Verify formatting
         run: cargo fmt --all -- --check
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
