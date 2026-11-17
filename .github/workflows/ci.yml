@@ -100,6 +100,19 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  automation-scripts:
+    name: Validate repository automation scripts
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check live API acceptance script syntax
+        run: node --check scripts/live-api-acceptance.mjs
+
   live-api-acceptance:
     name: Live hosted API acceptance (${{ matrix.os }})
     if: github.event_name == 'workflow_dispatch' && inputs.run_live_api_acceptance

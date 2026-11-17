@@ -120,6 +120,10 @@ The metadata-client foundation passed [CI run #431](https://github.com/Sensei002
 
 These checks validate the service foundation and native application build. They do not claim that the hosted API was live-tested or that Search, details and artwork are already wired into the UI.
 
+## Opt-in live hosted API acceptance
+
+An opt-in live API acceptance workflow is available through Actions → SENZO Desktop CI → Run workflow → enable `run_live_api_acceptance`. It checks API health, Search, trending, movie details/credits, TV details/seasons, person details/combined credits and a TMDB artwork CDN response from both Windows and Linux runners. Keep it disabled during normal CI to avoid making every commit depend on external services.
+
 ## Remaining Phase 3 acceptance
 
-Phase 3 is not complete until the native Home, Search, Movie/TV/Person Details and artwork flows are verified against the live hosted API on Windows and Linux without a desktop TMDB secret. First merge/deploy SENZO API PR #1 so the hosted person profile/combined-credits route exists in production. Runtime acceptance must then simulate offline connectivity, HTTP 429 and provider 5xx outages, verify that every Retry action recovers cleanly, and confirm that cancelled or superseded requests never restore stale data. Desktop CI #457 and API CI #10 are green, but neither substitutes for this live runtime gate.
+Phase 3 is not complete until the native Home, Search, Movie/TV/Person Details and artwork flows are verified against the live hosted API on Windows and Linux without a desktop TMDB secret. First merge/deploy SENZO API PR #1 so the hosted person profile/combined-credits route exists in production. Run the opt-in live API acceptance workflow after deployment. Runtime acceptance must also simulate offline connectivity, HTTP 429 and provider 5xx outages, verify that every Retry action recovers cleanly, and confirm that cancelled or superseded requests never restore stale data. Desktop CI #457 and API CI #10 are green, but neither substitutes for this live runtime gate.
