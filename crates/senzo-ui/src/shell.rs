@@ -11,9 +11,7 @@ use gpui::{
 use gpui_component::input::{Input, InputEvent, InputState};
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_domain::AppPage;
-use senzo_metadata::{
-    MediaType, MetadataClient, MovieDetails, SearchType, SeasonDetails, SeasonSummary, TvDetails,
-};
+use senzo_metadata::{MediaType, MetadataClient, SearchType, SeasonDetails, SeasonSummary};
 use tokio::{runtime::Handle, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 
@@ -1466,10 +1464,8 @@ impl SenzoShell {
                 }
                 page = page.child(results);
 
-                if let Some(card) = self
-                    .selected_search_result
-                    .and_then(|index| self.search_results.get(index))
-                {
+                if let Some(index) = self.selected_search_result {
+                    if let Some(card) = self.search_results.get(index) {
                     let synopsis = card
                         .overview
                         .as_deref()
@@ -1540,6 +1536,7 @@ impl SenzoShell {
                         );
                     }
                     page = page.child(preview);
+                    }
                 }
 
                 if self.search_artwork_loading {
