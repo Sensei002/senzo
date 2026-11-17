@@ -809,14 +809,14 @@ mod tests {
     async fn serve_once(status: &str, content_type: &str, body: Vec<u8>) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
+        let header = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
         tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.unwrap();
             let mut request = [0_u8; 2048];
             let _ = socket.read(&mut request).await;
-            let header = format!(
-                "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                body.len()
-            );
             socket.write_all(header.as_bytes()).await.unwrap();
             socket.write_all(&body).await.unwrap();
         });
