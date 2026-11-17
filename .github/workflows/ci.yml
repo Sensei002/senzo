@@ -1,4 +1,4 @@
-name: Windows CI
+name: SENZO Foundation CI
 
 on:
   push:
@@ -11,111 +11,106 @@ permissions:
   contents: write
 
 concurrency:
-  group: senzo-windows-ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: senzo-foundation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   windows:
-    name: Windows (MSVC)
+    name: Windows native foundation
     runs-on: windows-2022
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Install stable Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust 1.95
+        uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: rustfmt, clippy
-
-      - name: Format Rust sources
-        run: cargo fmt --all
-
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Resolve workspace lockfile
+        run: cargo generate-lockfile
       - name: Check formatting
         run: cargo fmt --all -- --check
-
-      - name: Generate Cargo.lock when absent
-        if: ${{ hashFiles('Cargo.lock') == '' }}
-        run: cargo generate-lockfile
-
-      - name: Generate Cargo.lock when the GPUI input dependency is missing
-        shell: pwsh
-        run: |
-          $lock = Get-Content -LiteralPath "Cargo.lock" -Raw
-          if (-not $lock.Contains('name = "gpui_ce_components_base"')) {
-            cargo generate-lockfile
-          }
-
-      - name: Check compilation
-        run: cargo check --all-targets --locked
-
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Run tests
-        run: cargo test --all-targets --locked
-
-      - name: Build Windows x64 release executable
-        env:
-          SENZO_OPENSUBTITLES_API_KEY: ${{ secrets.SENZO_OPENSUBTITLES_API_KEY }}
-          SENZO_DISCORD_CLIENT_ID: ${{ vars.SENZO_DISCORD_CLIENT_ID }}
-        run: cargo build --release --locked --bin senzo
-
-      - name: Package upstream LGPL MPV runtime
-        shell: pwsh
-        run: ./scripts/package-mpv-runtime.ps1
-
-      - name: Assemble Windows x64 package
-        shell: pwsh
-        run: |
-          $stage = Join-Path $env:GITHUB_WORKSPACE "dist\SENZO"
-          New-Item -ItemType Directory -Path $stage -Force | Out-Null
-          Copy-Item -LiteralPath "target\release\senzo.exe" -Destination $stage
-          Copy-Item -LiteralPath "runtime" -Destination (Join-Path $stage "runtime") -Recurse
-
-          $licenses = Join-Path $stage "licenses"
-          New-Item -ItemType Directory -Path $licenses -Force | Out-Null
-          Copy-Item -LiteralPath "LICENSE" -Destination (Join-Path $licenses "SENZO-GPL-3.0-only.txt")
-          Copy-Item -LiteralPath "licenses\Apache-2.0.txt" -Destination $licenses
-          Copy-Item -LiteralPath "licenses\librqbit-NOTICE.md" -Destination $licenses
-          Copy-Item -LiteralPath "README.md" -Destination $stage
-
-          $branding = Join-Path $stage "assets\branding"
-          New-Item -ItemType Directory -Path $branding -Force | Out-Null
-          Copy-Item -LiteralPath "assets\branding\senzo-logo.png" -Destination $branding
-
-          $cargo = Get-Content -LiteralPath "Cargo.toml" -Raw
-          $versionMatch = [regex]::Match($cargo, '(?m)^version\s*=\s*"([^"]+)"')
-          if (-not $versionMatch.Success) {
-            throw "Could not read the SENZO package version"
-          }
-          $manifest = [ordered]@{
-            application = "SENZO"
-            version = $versionMatch.Groups[1].Value
-            commit = $env:GITHUB_SHA
-            target = "x86_64-pc-windows-msvc"
-            torrent_engine = "librqbit 9.1.0 (statically linked)"
-            torrent_upload_seeding_support = "compiled out"
-            torrent_session_storage = "%LOCALAPPDATA%\SENZO\torrent-temp"
-            mpv_runtime = "mpv 0.42.0 LGPL x64"
-          }
-          $manifest | ConvertTo-Json -Depth 4 |
-            Set-Content -LiteralPath (Join-Path $stage "package-manifest.json") -Encoding utf8
-
-      - name: Upload Windows x64 package
+        run: cargo test --workspace --all-targets --locked
+      - name: Build native Windows application
+        run: cargo build --release --locked -p senzo-app
+      - name: Smoke-test native window startup and shutdown
+        run: cargo run --release --locked -p senzo-app -- --smoke-test
+        timeout-minutes: 3
+      - name: Upload Windows foundation binary
         uses: actions/upload-artifact@v4
         with:
-          name: senzo-windows-x64-${{ github.sha }}
-          path: dist/SENZO/
+          name: senzo-windows-x64-foundation-${{ github.sha }}
+          path: target/release/senzo.exe
           if-no-files-found: error
           retention-days: 14
 
-      - name: Commit generated formatting and Cargo.lock on development
-        if: github.event_name == 'push' && github.ref == 'refs/heads/development'
-        shell: pwsh
+  linux:
+    name: Linux native foundation
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install GPUI and credential-store build dependencies
         run: |
-          git add Cargo.lock src/
-          git diff --cached --quiet
-          if ($LASTEXITCODE -ne 0) {
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential pkg-config libdbus-1-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev libxcb-randr0-dev libxcb-xinput-dev \
+            libegl1-mesa-dev libgles2-mesa-dev libglib2.0-dev libfontconfig-dev \
+            libgl1-mesa-dri mesa-vulkan-drivers xvfb xauth
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust 1.95
+        uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: rustfmt, clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Resolve workspace lockfile
+        run: cargo generate-lockfile
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Run tests
+        run: cargo test --workspace --all-targets --locked
+      - name: Build native Linux application
+        run: cargo build --release --locked -p senzo-app
+      - name: Smoke-test native window startup and shutdown
+        run: xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 cargo run --release --locked -p senzo-app -- --smoke-test
+        timeout-minutes: 3
+      - name: Upload Linux foundation binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: senzo-linux-x64-foundation-${{ github.sha }}
+          path: target/release/senzo
+          if-no-files-found: error
+          retention-days: 14
+
+  lockfile:
+    name: Commit resolved Cargo.lock
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+    needs: [windows, linux]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout latest development
+        uses: actions/checkout@v4
+        with:
+          ref: development
+      - name: Install Rust 1.95
+        uses: dtolnay/rust-toolchain@1.95.0
+      - name: Generate and commit lockfile
+        run: |
+          cargo generate-lockfile
+          git add Cargo.lock
+          if git diff --cached --quiet; then
+            echo "Cargo.lock is already current."
+          else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -m "Format Rust sources and update Cargo.lock"
-            git push origin "HEAD:development"
-          }
+            git commit -m "build: lock Phase 1 workspace dependencies"
+            git push origin HEAD:development
+          fi

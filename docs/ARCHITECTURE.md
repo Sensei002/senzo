@@ -6,55 +6,41 @@ SENZO is a native desktop rewrite of Nuvio Desktop in Rust. GPUI CE is the only 
 
 SENZO does not use WebView2, Electron, Tauri, egui, or browser-hosted UI. Every application screen and player control is rendered by GPUI. MPV/libmpv is a media engine only.
 
-The audited Nuvio source snapshot is pinned in [NUVIO_SOURCE_AUDIT.md](NUVIO_SOURCE_AUDIT.md). The full feature mapping is in [NUVIO_TO_SENZO_MAPPING.md](NUVIO_TO_SENZO_MAPPING.md).
+The audited Nuvio source snapshot is pinned in NUVIO_SOURCE_AUDIT.md. The full feature mapping is in NUVIO_TO_SENZO_MAPPING.md.
 
 ## 2. Rewrite boundary
 
-The current `src/main.rs`-centered SENZO implementation is a legacy prototype. It remains in repository history and may be consulted for isolated, reviewed behavior or tests, but it is not the architecture baseline. Phase 1 establishes a clean Rust workspace. No legacy module is reused without review against the contracts in this document.
+The former root src/main.rs implementation was a legacy prototype. It has been removed from the active branch; Git history preserves it for reference. It is not the architecture baseline. No legacy module is reused without review against the contracts in this document.
 
 The rewrite preserves Nuvio desktop behavior and feature boundaries, not Kotlin syntax or platform-specific implementation accidents. The Windows Nuvio player bridge contains WebView2 code and is explicitly excluded.
 
-## 3. Proposed Rust workspace
+## 3. Phase 1 workspace foundation
 
-Phase 1 should create a Cargo workspace with a small number of cohesive crates. Split only where ownership, platform boundaries, or independent tests justify it; avoid one crate per screen.
+The initial Cargo workspace is split by ownership and platform boundaries:
 
 | Crate | Responsibility |
 |---|---|
-| `senzo-app` | Binary entry point, application lifecycle, dependency composition and startup/shutdown. |
-| `senzo-ui` | GPUI application shell, routes, views, design system, focus/navigation and player controls. |
-| `senzo-domain` | Stable media, source, profile, playback, library and settings domain types/use cases. |
-| `senzo-platform` | Native windowing, OS integration, input, filesystem locations, keyring and platform capabilities. |
-| `senzo-network` | Shared HTTP policy, timeouts, redirect policy, URL validation, response limits and safe request execution. |
-| `senzo-metadata` | SENZO API/TMDB client, typed metadata models, external-ID mapping and catalogue metadata. |
-| `senzo-artwork` | Image URL resolution, secure image fetching, cache, decoding and GPUI image integration. |
-| `senzo-addons` | Stremio manifest/resource protocol, installed add-on registry and add-on transport. |
-| `senzo-plugins` | Separate Nuvio-compatible plugin/scraper repository and sandboxed QuickJS-compatible runtime. |
-| `senzo-sources` | Provider-neutral source contracts, stream aggregation, filtering, sorting, selection and fallback. |
-| `senzo-debrid` | Debrid provider auth, API clients, cache checks and URL resolution. |
-| `senzo-torrent` | P2P/torrent transport, selected-file streaming, local range server and session lifecycle. |
-| `senzo-playback` | MPV/libmpv adapter, worker, playback state, tracks, subtitles, chapters and lifecycle. |
-| `senzo-library` | Local library, collections, watch history, watched state, resume progress and profiles. |
-| `senzo-integrations` | Accounts, sync, media servers, Trakt, Simkl, MDBList, Discord and external service adapters. |
-| `senzo-party` | Watch-party protocol, presence, chat and playback synchronization. |
-| `senzo-storage` | SQLite schema/migrations, repositories, cache metadata and secure credential references. |
-| `senzo-settings` | Typed settings, defaults, validation, migrations and capability-aware preferences. |
-| `senzo-diagnostics` | Structured logs, crash context, redaction and user-initiated support export. |
-| `senzo-update` | Update metadata, channel selection, integrity verification and safe update workflow. |
+| senzo-app | Binary entry point, dependency composition, application lifecycle and Tokio runtime ownership. |
+| senzo-ui | GPUI application shell, routes and GPUI-safe async state updates. |
+| senzo-domain | Typed media/settings/profile models and repository contracts. |
+| senzo-storage | SQLite connection ownership, repositories and ordered transactional migrations. |
+| senzo-platform | OS data/config/cache directories and native credential storage. |
+| senzo-network | Shared HTTP client policy, timeouts, redirect limits and URL validation. |
+| senzo-diagnostics | Structured tracing and redaction helpers for secrets, URLs and bearer tokens. |
 
-A crate may be merged with a closely related crate if the actual implementation proves a separate boundary unnecessary. The public contracts between UI, services, storage and playback must remain explicit.
+Feature-specific crates are introduced when their phase begins. Avoid one crate per screen and avoid premature splitting of tightly coupled code.
 
 ## 4. Dependency and runtime policy
 
-- **UI:** GPUI CE, pinned to a tested version.
-- **Async:** Tokio; never block the GPUI event/render thread.
-- **HTTP:** Reqwest with Rustls and a shared network policy.
-- **Serialization:** Serde / Serde JSON.
-- **Persistence:** SQLite with ordered, transactional migrations.
-- **Secrets:** OS credential storage where supported; never plaintext secrets in logs or repository files.
-- **Playback:** MPV/libmpv through a narrow Rust-owned interface.
-- **Torrent:** Evaluate Nuvio P2P behavior against Rust transport options; keep transport behind a trait and validate licenses.
-- **Plugin runtime:** Evaluate a Rust QuickJS binding for Nuvio-compatible plugin behavior; sandbox network, filesystem, CPU, memory and execution time.
-- **Build:** Cargo and GitHub Actions. Windows and Linux CI must be separate explicit targets.
+- UI: GPUI CE 0.2.2 with gpui_ce_platform 0.1.0; both are pinned.
+- Toolchain: Rust 1.95.0, edition 2024.
+- Async: One application-owned Tokio runtime; the UI receives a cloneable handle. Never block the GPUI event/render thread.
+- HTTP: Reqwest with Rustls, shared timeouts, limited redirects and validated HTTP(S) URLs.
+- Serialization: Serde.
+- Persistence: SQLite with versioned, ordered, transactional migrations.
+- Secrets: Windows Credential Manager and Linux Secret Service/keyutils through keyring; never plaintext secrets in SQLite or logs.
+- Playback: MPV/libmpv through a narrow Rust-owned interface, introduced in the playback phase.
+- Build: Cargo and GitHub Actions. Windows and Linux CI are separate explicit jobs.
 
 The UI must not call provider APIs, MPV, SQLite, or torrent internals directly. It sends typed commands to services and renders state/events.
 
@@ -75,8 +61,8 @@ Playback is a first-class subsystem, not a child window added after the UI is co
 
 ### Video presentation proof-of-concept
 
-Before building the full player, Phase 1 must prove actual visible video in a GPUI window on Windows. It must compare:
-- MPV's render API / `mpv_render_context` integration with GPUI's rendering/compositing path.
+Before building the full player, the playback phase must prove actual visible video in a GPUI window on Windows. It must compare:
+- MPV render API / mpv_render_context integration with GPUI's rendering/compositing path.
 - A native OS video surface integrated into the GPUI layout, only if the first approach is unsuitable.
 
 Do not assume a valid HWND, configured VO, decoded frames, or zero dropped frames means that the user can see video. Acceptance requires visible frames on screen, audible audio, seek, pause/resume, resize/fullscreen, repeated sessions, and clean stop/shutdown. The previous child-HWND implementation is not accepted as proven.
@@ -128,4 +114,4 @@ Large media, transient torrent payloads, logs and disposable image caches are st
 
 ## 9. Licensing
 
-Nuvio Desktop is GPL-3.0 and SENZO is GPL-3.0-only. Preserve upstream notices when adapting covered source. Audit each native/runtime dependency and ship required notices. See [LICENSING_POLICY.md](LICENSING_POLICY.md).
+Nuvio Desktop is GPL-3.0 and SENZO is GPL-3.0-only. Preserve upstream notices when adapting covered source. Audit each native/runtime dependency and ship required notices. See LICENSING_POLICY.md.
