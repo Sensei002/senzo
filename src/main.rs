@@ -4744,6 +4744,8 @@ impl Render for SenzoApp {
                 root.child(render_discovery_page(
                     self.active_page,
                     self.selected_title.clone(),
+                    self.selected_poster_path.clone(),
+                    self.selected_backdrop_path.clone(),
                     self.search_query.clone(),
                     self.search_input.clone(),
                     self.database.installed_addons().unwrap_or_default(),
@@ -4816,6 +4818,8 @@ impl Drop for SenzoApp {
 fn render_discovery_page(
     page: AppPage,
     selected_title: Option<String>,
+    selected_poster_path: Option<String>,
+    selected_backdrop_path: Option<String>,
     search_query: String,
     search_input: Option<Entity<InputState>>,
     installed_addons: Vec<StoredAddon>,
