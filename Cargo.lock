@@ -5292,6 +5292,7 @@ name = "senzo-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "senzo-artwork",
  "senzo-diagnostics",
  "senzo-domain",
  "senzo-metadata",
@@ -5301,6 +5302,21 @@ dependencies = [
  "senzo-ui",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "senzo-artwork"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "reqwest",
+ "senzo-network",
+ "sha2",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "url",
+ "uuid",
 ]
 
 [[package]]

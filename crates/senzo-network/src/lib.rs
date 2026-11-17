@@ -64,7 +64,10 @@ impl HttpClient {
     pub fn new(policy: HttpPolicy) -> Result<Self, NetworkError> {
         let client = build_client(&policy, Policy::limited(policy.max_redirects))?;
         let no_redirect_client = build_client(&policy, Policy::none())?;
-        Ok(Self { client, no_redirect_client })
+        Ok(Self {
+            client,
+            no_redirect_client,
+        })
     }
 
     pub async fn get(&self, url: &ValidatedHttpUrl) -> Result<Response, NetworkError> {

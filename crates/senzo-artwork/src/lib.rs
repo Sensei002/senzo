@@ -91,12 +91,17 @@ impl ArtworkUrl {
             return Err(ArtworkError::UnsupportedUrl);
         }
 
-        let segments: Vec<_> = url.path_segments().ok_or(ArtworkError::UnsupportedUrl)?.collect();
+        let segments: Vec<_> = url
+            .path_segments()
+            .ok_or(ArtworkError::UnsupportedUrl)?
+            .collect();
         if segments.len() < 4
             || segments[0] != "t"
             || segments[1] != "p"
             || ArtworkSize::parse(segments[2]).is_none()
-            || segments[3..].iter().any(|segment| !safe_path_segment(segment))
+            || segments[3..]
+                .iter()
+                .any(|segment| !safe_path_segment(segment))
         {
             return Err(ArtworkError::UnsupportedUrl);
         }
@@ -467,9 +472,7 @@ impl ArtworkCache {
             .map_err(|_| ArtworkError::CachePoisoned)?
             .insert(key.to_owned(), Arc::clone(&image), self.max_memory_bytes);
 
-        if self.max_disk_bytes == 0
-            || image.encoded.len() as u64 > self.max_disk_bytes
-        {
+        if self.max_disk_bytes == 0 || image.encoded.len() as u64 > self.max_disk_bytes {
             return Ok(());
         }
 
@@ -521,7 +524,11 @@ impl ArtworkCache {
                 continue;
             }
             total = total.saturating_add(metadata.len());
-            files.push((path, metadata.len(), metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH)));
+            files.push((
+                path,
+                metadata.len(),
+                metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+            ));
         }
         files.sort_by_key(|(_, _, modified)| *modified);
         for (path, size, _) in files {
@@ -628,7 +635,9 @@ impl ArtworkService {
                         .and_then(|value| value.parse::<u64>().ok())
                         .filter(|seconds| *seconds <= 3);
                     self.wait_for(
-                        retry_after.map(Duration::from_secs).unwrap_or_else(|| retry_delay(attempt)),
+                        retry_after
+                            .map(Duration::from_secs)
+                            .unwrap_or_else(|| retry_delay(attempt)),
                         cancellation,
                     )
                     .await?;
@@ -641,7 +650,14 @@ impl ArtworkService {
                 .headers()
                 .get(header::CONTENT_TYPE)
                 .and_then(|value| value.to_str().ok())
-                .map(|value| value.split(';').next().unwrap_or_default().trim().to_ascii_lowercase())
+                .map(|value| {
+                    value
+                        .split(';')
+                        .next()
+                        .unwrap_or_default()
+                        .trim()
+                        .to_ascii_lowercase()
+                })
                 .ok_or(ArtworkError::InvalidContentType)?;
 
             if response
@@ -651,12 +667,8 @@ impl ArtworkService {
                 return Err(ArtworkError::ResponseTooLarge);
             }
 
-            let bytes = read_limited(
-                &mut response,
-                self.config.max_download_bytes,
-                cancellation,
-            )
-            .await?;
+            let bytes =
+                read_limited(&mut response, self.config.max_download_bytes, cancellation).await?;
             let image = decode_image(
                 &bytes,
                 Some(&content_type),
@@ -856,12 +868,16 @@ mod tests {
 
     #[test]
     fn rejects_path_traversal_arbitrary_hosts_and_unsupported_sizes() {
-        assert!(ArtworkUrlResolver
-            .resolve_tmdb_path("/../secret.jpg", ArtworkSize::W500)
-            .is_err());
-        assert!(ArtworkUrlResolver
-            .resolve_tmdb_path("//evil.test/file.jpg", ArtworkSize::W500)
-            .is_err());
+        assert!(
+            ArtworkUrlResolver
+                .resolve_tmdb_path("/../secret.jpg", ArtworkSize::W500)
+                .is_err()
+        );
+        assert!(
+            ArtworkUrlResolver
+                .resolve_tmdb_path("//evil.test/file.jpg", ArtworkSize::W500)
+                .is_err()
+        );
         assert!(ArtworkUrl::parse("https://evil.test/t/p/w500/image.jpg").is_err());
         assert!(ArtworkUrl::parse("https://image.tmdb.org/t/p/bad/image.jpg").is_err());
         assert!(ArtworkUrl::parse("https://image.tmdb.org/t/p/w500/image.jpg?x=1").is_err());
@@ -914,13 +930,17 @@ mod tests {
         let artwork_service = service(&directory, ArtworkConfig::default());
         let cancellation = CancellationToken::new();
         assert!(matches!(
-            artwork_service.load(&test_url(&mismatch), &cancellation).await,
+            artwork_service
+                .load(&test_url(&mismatch), &cancellation)
+                .await,
             Err(ArtworkError::InvalidContentType)
         ));
 
         let redirect = serve_once("302 Found", "text/plain", Vec::new()).await;
         assert!(matches!(
-            artwork_service.load(&test_url(&redirect), &cancellation).await,
+            artwork_service
+                .load(&test_url(&redirect), &cancellation)
+                .await,
             Err(ArtworkError::HttpStatus(302))
         ));
         let _ = fs::remove_dir_all(directory);
