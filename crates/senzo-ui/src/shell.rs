@@ -31,7 +31,7 @@ actions!(senzo, [
     Quit
 ]);
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DialogKind {
     About,
     Shortcuts,
@@ -1210,7 +1210,7 @@ mod tests {
         }));
 
         window_cx.simulate_keystrokes("escape");
-        assert_eq!(shell.read(window_cx).navigation.current(), AppPage::Home);
+        assert_eq!(shell.read_with(window_cx, |shell, _| shell.navigation.current()), AppPage::Home);
         window_cx.simulate_keystrokes("alt-right");
         assert_eq!(shell.read(window_cx).navigation.current(), AppPage::Movies);
 
@@ -1220,7 +1220,7 @@ mod tests {
             Some(DialogKind::Shortcuts)
         );
         window_cx.simulate_keystrokes("escape");
-        assert_eq!(shell.read(window_cx).dialog, None);
+        assert_eq!(shell.read_with(window_cx, |shell, _| shell.dialog), None);
         assert!(window_cx.update(|window, app| {
             shell
                 .read(app)
