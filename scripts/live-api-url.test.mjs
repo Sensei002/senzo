@@ -51,10 +51,7 @@ test("rejects host-relative and non-absolute API paths", () => {
   }
 });
 
-test("never permits path resolution to escape the configured origin", () => {
+test("keeps unusual slash and backslash paths on the configured origin", () => {
   const build = createApiUrlBuilder("https://example.test/base");
-  assert.throws(
-    () => build("/\\\\attacker.test/api"),
-    /escaped the configured API origin/,
-  );
+  assert.equal(build("/\\\\attacker.test/api").origin, "https://example.test");
 });
