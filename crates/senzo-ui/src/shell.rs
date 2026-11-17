@@ -173,7 +173,7 @@ impl SenzoShell {
         .detach();
     }
 
-    fn nav_item(&self, page: AppPage, cx: &mut Context<Self>) -> impl IntoElement {
+    fn nav_item(&self, page: AppPage, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let active = self.navigation.current() == page;
         let focus = self
             .navigation_focus
@@ -264,7 +264,7 @@ impl SenzoShell {
             })
     }
 
-    fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         div()
             .id("senzo-sidebar")
             .key_context("SENZO_NAVIGATION")
@@ -749,7 +749,7 @@ impl SenzoShell {
         }
     }
 
-    fn render_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_menu(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         div()
             .id("application-menu")
             .absolute()
@@ -780,12 +780,15 @@ impl SenzoShell {
             .child(self.menu_item("Quit SENZO", 53, cx.listener(|_, _event, _window, cx| cx.quit())))
     }
 
-    fn menu_item(
+    fn menu_item<F>(
         &self,
         label: &'static str,
         tab_index: isize,
-        on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> impl IntoElement {
+        on_click: F,
+    ) -> impl IntoElement + use<F>
+    where
+        F: Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    {
         div()
             .id(format!("menu-item-{label}"))
             .tab_index(tab_index)
@@ -807,7 +810,7 @@ impl SenzoShell {
             )
     }
 
-    fn render_dialog(&self, kind: DialogKind, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_dialog(&self, kind: DialogKind, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let (eyebrow, title, description) = match kind {
             DialogKind::About => (
                 "ABOUT",
@@ -937,7 +940,7 @@ impl SenzoShell {
             )
     }
 
-    fn render_notification(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_notification(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let message = self.notification.clone().unwrap_or_default();
         div()
             .id("notification-toast")
