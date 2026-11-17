@@ -14,8 +14,19 @@ async function getJson(path) {
   const url = new URL(base.pathname + path, base.origin);
   const response = await fetch(url, {
     headers: { Accept: "application/json" },
+    redirect: "manual",
     signal: AbortSignal.timeout(20_000),
   });
+  if (response.status >= 300 && response.status < 400) {
+    throw new Error(
+      path +
+        " redirected (HTTP " +
+        response.status +
+        ") to " +
+        (response.headers.get("location") ?? "<missing Location header>") +
+        ". The live acceptance runner does not follow cross-origin redirects.",
+    );
+  }
   if (!response.ok) {
     const body = (await response.text()).slice(0, 300);
     throw new Error(path + " returned HTTP " + response.status + ": " + body);
