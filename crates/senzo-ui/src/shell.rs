@@ -1027,6 +1027,12 @@ impl Render for SenzoShell {
             .on_action(|_: &FocusPrevious, window, cx| {
                 window.focus_prev(cx);
             })
+            .on_action(cx.listener(|this, _: &MoveNavigationUp, window, cx| {
+                this.move_nav_focus(-1, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &MoveNavigationDown, window, cx| {
+                this.move_nav_focus(1, window, cx);
+            }))
             .on_action(cx.listener(|this, _: &ShowShortcuts, window, cx| {
                 this.open_dialog(DialogKind::Shortcuts, window, cx);
             }))
