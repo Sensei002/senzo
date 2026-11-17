@@ -193,6 +193,61 @@ pub struct Person {
     pub place_of_birth: Option<String>,
     pub profile_path: Option<String>,
     pub known_for_department: Option<String>,
+    pub also_known_as: Option<Vec<String>>,
+    pub gender: Option<u8>,
+    pub homepage: Option<String>,
+    pub imdb_id: Option<String>,
+    pub popularity: Option<f64>,
+    pub combined_credits: Option<PersonCredits>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PersonCredits {
+    #[serde(default)]
+    pub cast: Vec<PersonCredit>,
+    #[serde(default)]
+    pub crew: Vec<PersonCredit>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PersonCredit {
+    pub id: u64,
+    pub media_type: Option<MediaType>,
+    pub title: Option<String>,
+    pub name: Option<String>,
+    pub original_title: Option<String>,
+    pub original_name: Option<String>,
+    pub overview: Option<String>,
+    pub poster_path: Option<String>,
+    pub backdrop_path: Option<String>,
+    pub release_date: Option<String>,
+    pub first_air_date: Option<String>,
+    pub vote_average: Option<f64>,
+    pub vote_count: Option<u64>,
+    pub popularity: Option<f64>,
+    pub character: Option<String>,
+    pub job: Option<String>,
+    pub department: Option<String>,
+    pub episode_count: Option<u32>,
+}
+
+impl PersonCredit {
+    pub fn display_title(&self) -> &str {
+        self.title
+            .as_deref()
+            .or(self.name.as_deref())
+            .unwrap_or("Untitled")
+    }
+
+    pub fn release_date(&self) -> Option<&str> {
+        self.release_date
+            .as_deref()
+            .or(self.first_air_date.as_deref())
+    }
+
+    pub fn release_year(&self) -> Option<&str> {
+        self.release_date().and_then(|date| date.get(..4))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
