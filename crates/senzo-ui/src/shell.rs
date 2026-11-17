@@ -11,7 +11,7 @@ use gpui::{
 use gpui_component::input::{Input, InputEvent, InputState};
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_domain::AppPage;
-use senzo_metadata::{MediaType, MetadataClient, SearchType, SeasonDetails, SeasonSummary};
+use senzo_metadata::{MediaType, MetadataClient, MetadataError, SearchType, SeasonDetails, SeasonSummary};
 use tokio::{runtime::Handle, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 
@@ -142,6 +142,8 @@ struct DetailsPage {
     selected_season: Option<SeasonDetails>,
     selected_season_number: Option<u32>,
     season_loading: bool,
+    season_error: Option<String>,
+    season_cancellation: CancellationToken,
     poster: Option<Arc<RenderImage>>,
     backdrop: Option<Arc<RenderImage>>,
     loading: bool,
@@ -182,6 +184,55 @@ pub(crate) struct SenzoShell {
     runtime_status: String,
     smoke_test: bool,
     smoke_test_scheduled: bool,
+}
+
+fn metadata_error_message(error: &MetadataError) -> String {
+    match error {
+        MetadataError::InvalidBaseUrl => {
+            "SENZO cannot reach the configured metadata service address. Check SENZO_API_BASE_URL."
+                .to_owned()
+        }
+        MetadataError::InvalidInput(_) => {
+            "SENZO could not send this request because its input is invalid. Review the selected title or search query."
+                .to_owned()
+        }
+        MetadataError::Cancelled => "This request was cancelled.".to_owned(),
+        MetadataError::ResponseTooLarge => {
+            "The metadata service returned a response that exceeded SENZO's safety limit. Try again later."
+                .to_owned()
+        }
+        MetadataError::Api { status: 401 | 403, .. } => {
+            "The metadata service rejected the request. Its server-side configuration may need attention."
+                .to_owned()
+        }
+        MetadataError::Api { status: 404, .. } => {
+            "That title or catalogue entry could not be found. It may have been removed or may no longer be available."
+                .to_owned()
+        }
+        MetadataError::Api { status: 429, .. } => {
+            "The metadata service is receiving too many requests. Wait a moment, then retry."
+                .to_owned()
+        }
+        MetadataError::Api { status, .. } if (500..=599).contains(status) => {
+            "The metadata provider is temporarily unavailable. Check your connection and retry shortly."
+                .to_owned()
+        }
+        MetadataError::Api { status, .. } => {
+            format!("The metadata service returned HTTP {status}. Retry the request.")
+        }
+        MetadataError::Network(_) => {
+            "SENZO could not connect to its metadata service. Check your internet connection, then retry."
+                .to_owned()
+        }
+        MetadataError::Decode(_) => {
+            "The metadata service returned data SENZO could not read. Retry later."
+                .to_owned()
+        }
+        MetadataError::CachePoisoned => {
+            "SENZO's metadata cache is unavailable. Restart the app, then retry."
+                .to_owned()
+        }
+    }
 }
 
 impl SenzoShell {
@@ -360,10 +411,7 @@ impl SenzoShell {
             let response = metadata
                 .trending(1, "en-US", &cancellation)
                 .await
-                .map_err(|_| {
-                    "The trending catalogue is unavailable. Check your connection and try again."
-                        .to_owned()
-                })?;
+                .map_err(|error| metadata_error_message(&error))?;
 
             let candidates: Vec<HomeMediaCandidate> = response
                 .results
@@ -512,6 +560,8 @@ impl SenzoShell {
             selected_season: None,
             selected_season_number: None,
             season_loading: false,
+            season_error: None,
+            season_cancellation: CancellationToken::new(),
             poster: None,
             backdrop: None,
             loading: true,
@@ -527,7 +577,7 @@ impl SenzoShell {
                     let m = metadata
                         .movie(id, &cancellation)
                         .await
-                        .map_err(|e| e.to_string())?;
+                        .map_err(|error| metadata_error_message(&error))?;
                     let cast = m
                         .credits
                         .as_ref()
@@ -563,7 +613,7 @@ impl SenzoShell {
                     let t = metadata
                         .tv(id, &cancellation)
                         .await
-                        .map_err(|e| e.to_string())?;
+                        .map_err(|error| metadata_error_message(&error))?;
                     let cast = t
                         .credits
                         .as_ref()
@@ -646,9 +696,10 @@ impl SenzoShell {
             ))
         });
         cx.spawn(async move |this, cx| {
-            let result = task
-                .await
-                .unwrap_or_else(|e| Err(format!("Details task failed: {e}")));
+            let result = task.await.unwrap_or_else(|_| {
+                Err("The details request stopped unexpectedly. Check your connection and retry."
+                    .to_owned())
+            });
             let _ = this.update(cx, |this, cx| {
                 if cancellation.is_cancelled() {
                     return;
@@ -723,45 +774,61 @@ impl SenzoShell {
     }
 
     fn load_detail_season(&mut self, number: u32, cx: &mut Context<Self>) {
-        let Some(d) = self.details.as_mut() else {
+        let Some(current) = self.details.as_ref() else {
             return;
         };
-        if d.media_type != MediaType::Tv
-            || d.loading
-            || d.selected_season_number == Some(number) && d.selected_season.is_some()
+        if current.media_type != MediaType::Tv
+            || current.loading
+            || current.selected_season_number == Some(number)
+                && current.selected_season.is_some()
         {
             return;
         }
-        d.selected_season_number = Some(number);
-        d.selected_season = None;
-        d.season_loading = true;
-        let id = d.id;
-        let token = self.details_cancellation.child_token();
-        let task_token = token.clone();
+
+        let id = current.id;
+        let cancellation = self.details_cancellation.child_token();
+        if let Some(details) = self.details.as_mut() {
+            details.season_cancellation.cancel();
+            details.season_cancellation = cancellation.clone();
+            details.selected_season_number = Some(number);
+            details.selected_season = None;
+            details.season_loading = true;
+            details.season_error = None;
+        }
+
+        let task_token = cancellation.clone();
         let metadata = self.metadata.clone();
         let task = self.tokio.spawn(async move {
             metadata
                 .season(id, number, &task_token)
                 .await
-                .map_err(|e| e.to_string())
+                .map_err(|error| metadata_error_message(&error))
         });
         cx.spawn(async move |this, cx| {
-            let result = task
-                .await
-                .unwrap_or_else(|e| Err(format!("Season task failed: {e}")));
+            let result = task.await.unwrap_or_else(|_| {
+                Err("The season request stopped unexpectedly. Check your connection and retry."
+                    .to_owned())
+            });
             let _ = this.update(cx, |this, cx| {
-                if token.is_cancelled() {
+                if cancellation.is_cancelled() {
                     return;
                 }
-                if let Some(d) = this
+                if let Some(details) = this
                     .details
                     .as_mut()
-                    .filter(|d| d.id == id && d.selected_season_number == Some(number))
+                    .filter(|details| {
+                        details.id == id && details.selected_season_number == Some(number)
+                    })
                 {
-                    d.season_loading = false;
+                    details.season_loading = false;
                     match result {
-                        Ok(season) => d.selected_season = Some(season),
-                        Err(error) => d.error = Some(error),
+                        Ok(season) => {
+                            details.selected_season = Some(season);
+                            details.season_error = None;
+                        }
+                        Err(error) => {
+                            details.season_error = Some(error);
+                        }
                     }
                     cx.notify();
                 }
@@ -1010,6 +1077,34 @@ impl SenzoShell {
                     "Loading episodes",
                     "Fetching the selected season.",
                 ));
+            } else if let Some(error) = &d.season_error {
+                section = section.child(status_panel(
+                    StatusTone::Error,
+                    "SEASON UNAVAILABLE",
+                    "Could not load these episodes",
+                    error,
+                ));
+                section = section.child(
+                    div()
+                        .id("retry-detail-season")
+                        .tab_index(50)
+                        .rounded_md()
+                        .bg(rgb(Theme::ACCENT_DARK))
+                        .px_3()
+                        .py_2()
+                        .cursor_pointer()
+                        .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                        .aria_label("Retry loading this season")
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.load_detail_season(number, cx);
+                        }))
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(rgb(Theme::ACCENT))
+                                .child("Retry season"),
+                        ),
+                );
             } else if let Some(season) = &d.selected_season {
                 let mut episodes = div().w_full().flex().flex_col().gap_2();
                 for episode in &season.episodes {
@@ -1125,7 +1220,7 @@ impl SenzoShell {
             let response = match response {
                 Ok(Ok(response)) => response,
                 Ok(Err(error)) => {
-                    let message = error.to_string();
+                    let message = metadata_error_message(&error);
                     let _ = this.update(cx, |this, cx| {
                         if this.search_generation == generation && !cancellation.is_cancelled() {
                             this.search_status = SearchStatus::Failed;
@@ -1137,7 +1232,7 @@ impl SenzoShell {
                     return;
                 }
                 Err(error) => {
-                    let message = format!("The metadata request stopped unexpectedly: {error}");
+                    let message = "The search request stopped before a response was received. Check your connection and retry.".to_owned();
                     let _ = this.update(cx, |this, cx| {
                         if this.search_generation == generation && !cancellation.is_cancelled() {
                             this.search_status = SearchStatus::Failed;
@@ -2699,6 +2794,27 @@ mod tests {
         assert_eq!(SearchFilter::All.search_type(), SearchType::Multi);
         assert_eq!(SearchFilter::Movies.search_type(), SearchType::Movie);
         assert_eq!(SearchFilter::TvShows.search_type(), SearchType::Tv);
+    }
+
+    #[test]
+    fn metadata_failures_have_actionable_user_messages() {
+        assert!(metadata_error_message(&MetadataError::Network("timeout".to_owned()))
+            .contains("internet connection"));
+        assert!(metadata_error_message(&MetadataError::Api {
+            status: 429,
+            message: "rate limited".to_owned(),
+        })
+        .contains("Wait a moment"));
+        assert!(metadata_error_message(&MetadataError::Api {
+            status: 503,
+            message: "upstream unavailable".to_owned(),
+        })
+        .contains("temporarily unavailable"));
+        assert!(metadata_error_message(&MetadataError::Api {
+            status: 404,
+            message: "not found".to_owned(),
+        })
+        .contains("could not be found"));
     }
 
     #[gpui::test]
