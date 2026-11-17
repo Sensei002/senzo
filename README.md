@@ -24,8 +24,11 @@ All application screens and player controls will be native GPUI. The previous pr
 - **Phase 0 — Source audit and architecture reset:** complete.
 - **Phase 1 — Clean Rust workspace and technical foundation:** complete; Windows and Linux native builds, workspace checks and startup/render/shutdown smoke tests passed.
 - **Phase 2 — Native GPUI application shell and design system:** implementation and automated CI acceptance passed; manual visual acceptance is still pending.
+- **Phase 3 — Networking, metadata and artwork foundation:** in progress; the typed hosted-API client and request/cache foundation are now implemented on development.
 
-The current shell provides seven native destinations, keyboard route navigation, Back/Forward history, focus restoration, fullscreen controls, menus, dialogs, notifications and the canonical SENZO logo. It remains a shell: real metadata, catalogues, add-ons and playback are later phases.
+The Phase 3 metadata client targets the existing hosted SENZO API at senzo-api.vercel.app. It models search, trending, popular, movie and TV details, external IDs, credits, videos, images, seasons and episodes. The client validates inputs, coalesces duplicate requests, supports cancellation and bounded retries, caps response sizes, and applies a bounded in-memory response cache. It never sends a TMDB credential or Authorization header; TMDB authentication stays server-side.
+
+Artwork download/decode and disk caching, plus native GPUI discovery/search screens, are still Phase 3 work. The current shell does not yet present live catalogue results.
 
 The previous monolithic prototype has been removed from the active source tree. Its history remains available in Git; it is not the architecture baseline for the rewrite.
 
@@ -36,9 +39,10 @@ The previous monolithic prototype has been removed from the active source tree. 
 | senzo-app | Process entry point, service composition and Tokio runtime ownership. |
 | senzo-ui | Native GPUI application shell, design system, route navigation and GPUI-safe async updates. |
 | senzo-domain | Typed domain models and repository contracts. |
+| senzo-metadata | Typed SENZO API client, TMDB-shaped response models, request coalescing and metadata response cache. |
+| senzo-network | Shared HTTP client policy and URL validation. |
 | senzo-storage | SQLite repositories and transactional migrations. |
 | senzo-platform | OS paths and native credential storage. |
-| senzo-network | Shared HTTP client policy and URL validation. |
 | senzo-diagnostics | Structured logging and credential-redaction helpers. |
 
 The workspace will gain focused feature crates as later roadmap phases require them; it will not create a separate crate for every screen.
@@ -59,6 +63,7 @@ Linux builds need the GPUI development libraries listed in Development. GitHub A
 - Phase 0 completion: docs/PHASE_0_COMPLETION.md
 - Phase 1 implementation and acceptance record: docs/PHASE_1_COMPLETION.md
 - Phase 2 shell implementation and acceptance record: docs/PHASE_2_IMPLEMENTATION.md
+- Phase 3 implementation record: docs/PHASE_3_IMPLEMENTATION.md
 - Nuvio source audit: docs/NUVIO_SOURCE_AUDIT.md
 - Nuvio-to-SENZO feature mapping: docs/NUVIO_TO_SENZO_MAPPING.md
 - Rewrite architecture: docs/ARCHITECTURE.md

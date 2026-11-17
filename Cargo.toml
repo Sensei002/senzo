@@ -1,5 +1,14 @@
 [workspace]
-members = ["crates/senzo-app", "crates/senzo-diagnostics", "crates/senzo-domain", "crates/senzo-network", "crates/senzo-platform", "crates/senzo-storage", "crates/senzo-ui"]
+members = [
+    "crates/senzo-app",
+    "crates/senzo-diagnostics",
+    "crates/senzo-domain",
+    "crates/senzo-metadata",
+    "crates/senzo-network",
+    "crates/senzo-platform",
+    "crates/senzo-storage",
+    "crates/senzo-ui",
+]
 default-members = ["crates/senzo-app"]
 resolver = "2"
 
@@ -19,8 +28,10 @@ keyring = { version = "=3.6.3", default-features = false, features = ["windows-n
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 thiserror = "2"
-tokio = { version = "1", features = ["rt-multi-thread", "time", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros", "net", "io-util"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 url = "2"

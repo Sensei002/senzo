@@ -4,7 +4,7 @@
 
 **Platform target:** Windows first, Linux second. macOS is a future portability target. Android and iOS are excluded.
 
-**Branch strategy:** `main` = stable releases; `development` = active rewrite.
+**Branch strategy:** main = stable releases; development = active rewrite.
 
 A phase is complete only when its documented deliverables, automated checks, and relevant runtime acceptance criteria pass. CI success verifies the checks actually run; it does not prove native video presentation or end-to-end user workflows.
 
@@ -26,27 +26,27 @@ A phase is complete only when its documented deliverables, automated checks, and
 - [x] Replace the old implementation roadmap with the full rewrite roadmap.
 - [x] Publish Phase 0 completion record.
 
-**Deliverables:** [Source audit](NUVIO_SOURCE_AUDIT.md), [feature mapping](NUVIO_TO_SENZO_MAPPING.md), [architecture](ARCHITECTURE.md), [product specification](PRODUCT_SPEC.md), [Phase 0 record](PHASE_0_COMPLETION.md).
+**Deliverables:** Source audit, feature mapping, architecture, product specification and Phase 0 record.
 
 ## Phase 1 — Clean Rust workspace and technical foundation
 
 <badge>Complete</badge>
 
 - [x] Establish a clean Cargo workspace and crate boundaries.
-- [x] Retire the legacy monolithic `src/main.rs` from the active application path; preserve Git history.
+- [x] Retire the legacy monolithic src/main.rs from the active application path; preserve Git history.
 - [x] Pin GPUI CE and validate the native Windows and Linux startup paths.
 - [x] Establish typed domain models, service interfaces and dependency composition.
 - [x] Establish Tokio task ownership and GPUI-safe async state updates.
 - [x] Establish structured errors, logging, diagnostics and credential redaction.
-- [x] Establish SQLite repositories and transactional ordered migrations.
+- [x] Establish SQLite repositories and transactional migrations.
 - [x] Establish secure credential storage per platform.
 - [x] Establish shared HTTP policy and URL validation.
 - [x] Establish CI for format, lint, test, Windows build and Linux build.
 - [x] Create a minimal native shell that opens, navigates and shuts down cleanly.
 
-**Gate:** Passed on Windows Server 2022 and Ubuntu 24.04 in [CI run #411](https://github.com/Sensei002/senzo/actions/runs/44081493351). Both native release builds, workspace checks and startup/render/shutdown smoke tests succeeded. Windows and Linux foundation artifacts were uploaded. The basic Home/Library/Settings navigation is implemented; automated smoke tests validate window startup/render/shutdown, while interactive route behavior will receive broader acceptance coverage in Phase 2.
+**Gate:** Passed on Windows Server 2022 and Ubuntu 24.04 in CI run #411. Both native release builds, workspace checks and startup/render/shutdown smoke tests succeeded. The Home, Library and Settings shell paths are implemented.
 
-**Completion record:** [Phase 1 completion](PHASE_1_COMPLETION.md).
+**Completion record:** docs/PHASE_1_COMPLETION.md.
 
 ## Phase 2 — Native GPUI application shell and design system
 
@@ -61,22 +61,28 @@ A phase is complete only when its documented deliverables, automated checks, and
 - [x] Implement accessibility and directional focus behavior.
 - [ ] Establish screenshot/visual regression fixtures where practical.
 
-**Automated gate:** The GPUI interaction test exercises all seven destinations, directional wraparound, Back/Forward, Escape, dialog dismissal and focus restoration. Windows and Linux CI builds and native startup/render/shutdown smoke tests pass in [CI run #44088401293](https://github.com/Sensei002/senzo/actions/runs/44088401293).
+**Automated gate:** The GPUI interaction test exercises all seven destinations, directional wraparound, Back/Forward, Escape, dialog dismissal and focus restoration. Windows and Linux CI and native startup/render/shutdown smoke tests passed in CI run #44088401293.
 
-**Remaining acceptance:** Manual mouse side-button and visual review on Windows and Linux. Pixel screenshot baselines have not yet been added; see the [Phase 2 implementation record](PHASE_2_IMPLEMENTATION.md).
+**Remaining acceptance:** Manual mouse side-button and visual review on Windows and Linux. Pixel screenshot baselines have not yet been added. See docs/PHASE_2_IMPLEMENTATION.md.
 
 ## Phase 3 — Networking, metadata and artwork foundation
 
-- [ ] Implement typed SENZO API client.
-- [ ] Implement TMDB search, trending, popular, movie/TV details, external IDs, seasons and episodes.
-- [ ] Implement credits, videos, images and enrichment data supported by the API.
-- [ ] Implement artwork URL resolution, image decoding and GPUI image integration.
-- [ ] Implement memory/disk caches with bounds and eviction.
-- [ ] Implement request coalescing, cancellation, retry and timeout handling.
-- [ ] Implement offline and provider-error states.
-- [ ] Preserve TMDB credentials exclusively on the hosted API.
+<badge color="info">In progress — hosted metadata client foundation</badge>
 
-**Gate:** Search/details/artwork work from the native app with no desktop TMDB secret.
+- [x] Implement typed SENZO API client for the existing hosted route contract.
+- [x] Implement search, trending, popular, movie/TV details, external-ID, season and episode request methods.
+- [x] Add typed credits, videos, images and enrichment response models.
+- [x] Implement request coalescing, cancellation, bounded JSON responses, retry and timeout handling.
+- [x] Implement bounded metadata response caching with TTL and LRU eviction.
+- [ ] Implement artwork URL resolution, image download limits and decoding.
+- [ ] Implement bounded memory/disk artwork caches with eviction.
+- [ ] Implement GPUI image integration.
+- [ ] Implement live Search/details workflows and offline/provider-error UI states.
+- [x] Preserve TMDB credentials exclusively on the hosted API.
+
+**First-slice automated gate:** Pending Windows/Linux CI. **Phase gate:** Search, details and artwork must work from the native app with no desktop TMDB secret.
+
+See docs/PHASE_3_IMPLEMENTATION.md.
 
 ## Phase 4 — Home, catalogues and discovery
 

@@ -16,6 +16,7 @@ tokio.workspace = true
 tracing.workspace = true
 senzo-diagnostics = { path = "../senzo-diagnostics" }
 senzo-domain = { path = "../senzo-domain" }
+senzo-metadata = { path = "../senzo-metadata" }
 senzo-network = { path = "../senzo-network" }
 senzo-platform = { path = "../senzo-platform" }
 senzo-storage = { path = "../senzo-storage" }

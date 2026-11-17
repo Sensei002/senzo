@@ -45,24 +45,25 @@ Before implementing a Nuvio feature, consult:
 - Feature mapping (NUVIO_TO_SENZO_MAPPING.md)
 - Rewrite architecture (ARCHITECTURE.md)
 - Product specification (PRODUCT_SPEC.md)
-- Roadmap (ROADMAP.md)
+- Phase implementation record and roadmap
 
 Port desktop behavior and contracts, not Kotlin/Compose code or Nuvio branding. Keep Stremio add-ons, plugin scrapers, debrid providers, media servers, torrent transport and MPV playback behind independent service boundaries.
 
 ## Implementation rules
 
 - Keep GPUI event/render work non-blocking.
-- The application crate owns one Tokio runtime for the process lifetime; UI code receives a handle and updates GPUI entities only through GPUI's async entity context.
+- The application crate owns one Tokio runtime for the process lifetime; UI code receives a handle and updates GPUI entities only through the GPUI async entity context.
 - Keep MPV calls off the UI thread and give the runtime one lifecycle owner.
 - Use bounded channels and explicit cancellation for long-running services.
 - Use typed models and provider-neutral interfaces.
-- Validate external manifests, plugin data, URLs and responses.
+- Validate external manifests, plugin repositories, URLs and responses.
 - Never log credentials, authorization headers or private source URLs.
 - Store secrets in OS credential facilities; do not write them to SQLite or logs.
 - Preserve user data through ordered, transactional migrations.
 - Keep all player controls native GPUI; never add a browser UI.
 - Keep Torrentio optional and user-installed.
-- Add tests for protocol parsing, state transitions, storage migrations and lifecycle behavior.
+- Use the hosted SENZO metadata API for TMDB access; never place a TMDB credential in the desktop process.
+- Add tests for route contracts, malformed JSON, caching, cancellation, retry and storage migrations.
 
 ## Phase acceptance
 

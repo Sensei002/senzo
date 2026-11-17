@@ -14,15 +14,14 @@ The former root src/main.rs implementation was a legacy prototype. It has been r
 
 The rewrite preserves Nuvio desktop behavior and feature boundaries, not Kotlin syntax or platform-specific implementation accidents. The Windows Nuvio player bridge contains WebView2 code and is explicitly excluded.
 
-## 3. Phase 1 workspace foundation
-
-The initial Cargo workspace is split by ownership and platform boundaries:
+## 3. Workspace ownership
 
 | Crate | Responsibility |
 |---|---|
 | senzo-app | Binary entry point, dependency composition, application lifecycle and Tokio runtime ownership. |
 | senzo-ui | GPUI application shell, routes and GPUI-safe async state updates. |
 | senzo-domain | Typed media/settings/profile models and repository contracts. |
+| senzo-metadata | Typed SENZO API client, TMDB-shaped response models, request coalescing and metadata response cache. |
 | senzo-storage | SQLite connection ownership, repositories and ordered transactional migrations. |
 | senzo-platform | OS data/config/cache directories and native credential storage. |
 | senzo-network | Shared HTTP client policy, timeouts, redirect limits and URL validation. |
@@ -36,7 +35,7 @@ Feature-specific crates are introduced when their phase begins. Avoid one crate 
 - Toolchain: Rust 1.95.0, edition 2024.
 - Async: One application-owned Tokio runtime; the UI receives a cloneable handle. Never block the GPUI event/render thread.
 - HTTP: Reqwest with Rustls, shared timeouts, limited redirects and validated HTTP(S) URLs.
-- Serialization: Serde.
+- Serialization: Serde and serde_json.
 - Persistence: SQLite with versioned, ordered, transactional migrations.
 - Secrets: Windows Credential Manager and Linux Secret Service/keyutils through keyring; never plaintext secrets in SQLite or logs.
 - Playback: MPV/libmpv through a narrow Rust-owned interface, introduced in the playback phase.
@@ -44,7 +43,15 @@ Feature-specific crates are introduced when their phase begins. Avoid one crate 
 
 The UI must not call provider APIs, MPV, SQLite, or torrent internals directly. It sends typed commands to services and renders state/events.
 
-## 5. Native playback architecture — critical gate
+## 5. Discovery data flow
+
+GPUI view → typed catalog/search use case → senzo-metadata → hosted SENZO API → TMDB.
+
+The metadata client uses fixed API routes and typed request methods. It validates search terms, media identifiers, page numbers and language tags before transport. Responses are size-limited and decoded into typed domain-facing models. Identical concurrent requests are coalesced, successful responses are cached with per-resource TTLs and a bounded LRU policy, and retry waits and response reads can be cancelled.
+
+The hosted API remains the TMDB credential boundary. Remote API origins must use HTTPS; HTTP is accepted only for loopback development/test servers. The desktop client never sends a TMDB Authorization header. Artwork paths are intended to pass through a separate bounded artwork service before GPUI image presentation; raw provider paths must not be treated as arbitrary image URLs.
+
+## 6. Native playback architecture — critical gate
 
 Playback is a first-class subsystem, not a child window added after the UI is complete.
 
@@ -69,34 +76,15 @@ Do not assume a valid HWND, configured VO, decoded frames, or zero dropped frame
 
 Linux playback must receive its own native presentation proof before the Linux UI is declared supported. Avoid designing the core player around Win32-only handles.
 
-## 6. Application data flow
-
-### Discovery
-GPUI view → catalog/search use case → metadata API client → typed metadata → artwork service/cache → GPUI image components.
-
-### Source discovery
-Details/episode identity → source coordinator → enabled user-installed Stremio add-ons, plugin scrapers, configured debrid services and media servers → provider-neutral stream results → source selection UI.
-
-### Playback
-Selected source → source resolver:
-- Direct HTTP(S): validated URL + headers → MPV.
-- Torrent info hash: torrent session → selected file → authenticated loopback HTTP Range endpoint → MPV.
-- External provider: provider-specific resolver → validated playable target → MPV or explicitly supported external destination.
-
-Subtitles are resolved and validated independently, then attached through MPV's track/subtitle interface.
-
-### Personal data
-Feature use cases → repositories → SQLite/local files/OS credential store. Optional account-backed sync is an integration with explicit reconciliation and offline behavior; local storage remains authoritative for local-only data.
-
 ## 7. Data and security boundaries
 
 - Treat add-on manifests, plugin repositories, scraper code, stream responses, subtitle URLs, media-server responses and metadata as untrusted input.
-- Validate schemes, redirects, DNS resolution, private/reserved destinations, response sizes, JSON shape, content type and timeouts.
+- Validate schemes, redirects, DNS resolution, private/reserved destinations, response sizes, content type and timeouts.
 - Prevent SSRF and DNS-rebinding bypasses. Do not allow arbitrary local-network destinations except narrowly scoped, user-configured server integrations.
 - Torrent loopback endpoints must bind only to loopback, use unguessable session tokens, enforce Range semantics and close before temporary data deletion.
 - Plugin execution must have explicit permissions, resource limits, cancellation and a narrow host API.
 - Secrets must be stored in OS credential facilities where possible, redacted from logs, and never committed.
-- The TMDB Read Access Token remains only in the hosted SENZO API environment. The desktop binary receives no shared TMDB secret.
+- The TMDB Read Access Token remains only in the hosted API environment. The desktop binary receives no shared TMDB secret.
 - Keep provider failures isolated; one failed add-on must not block other sources or the UI.
 
 ## 8. Persistence model
@@ -107,11 +95,10 @@ Use SQLite with versioned migrations and repository boundaries for:
 - Installed add-ons and plugin repositories.
 - Watch history, watched state and playback progress.
 - Library, favorites, collections and user-defined ordering.
-- Download metadata and task state.
 - Cached metadata/artwork indexes where useful.
 
 Large media, transient torrent payloads, logs and disposable image caches are stored outside SQLite. Secrets are stored separately. Migrations must preserve user data and reject unsupported future schema versions safely.
 
 ## 9. Licensing
 
-Nuvio Desktop is GPL-3.0 and SENZO is GPL-3.0-only. Preserve upstream notices when adapting covered source. Audit each native/runtime dependency and ship required notices. See LICENSING_POLICY.md.
+Nuvio Desktop is GPL-3.0 and SENZO is GPL-3.0-only. Preserve upstream notices when adapting covered source. See LICENSING_POLICY.md.

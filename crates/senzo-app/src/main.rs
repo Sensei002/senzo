@@ -2,6 +2,7 @@ use std::{env, sync::Arc};
 
 use anyhow::Context;
 use senzo_domain::{ProfileRepository, SettingsRepository};
+use senzo_metadata::{DEFAULT_API_BASE_URL, MetadataClient, MetadataClientConfig};
 use senzo_network::{HttpClient, HttpPolicy};
 use senzo_platform::{AppDirectories, CredentialStore, KeyringCredentialStore};
 use senzo_storage::SqliteDatabase;
@@ -10,7 +11,7 @@ use tokio::runtime::{Builder, Runtime};
 struct AppServices {
     _settings: Arc<dyn SettingsRepository>,
     _profiles: Arc<dyn ProfileRepository>,
-    _http: HttpClient,
+    _metadata: MetadataClient,
     _credentials: Arc<dyn CredentialStore>,
 }
 
@@ -30,12 +31,23 @@ fn run() -> anyhow::Result<()> {
         SqliteDatabase::open(directories.database_file())
             .context("open the local SENZO database and apply migrations")?,
     );
+    let http = HttpClient::new(HttpPolicy::default())
+        .context("initialize the shared HTTP client")?;
+    let api_base_url =
+        env::var("SENZO_API_BASE_URL").unwrap_or_else(|_| DEFAULT_API_BASE_URL.to_owned());
+    let metadata = MetadataClient::new(
+        http,
+        MetadataClientConfig {
+            base_url: api_base_url,
+            ..Default::default()
+        },
+    )
+    .context("configure the hosted SENZO metadata API client")?;
 
     let services = AppServices {
         _settings: database.clone(),
         _profiles: database.clone(),
-        _http: HttpClient::new(HttpPolicy::default())
-            .context("initialize the shared HTTP client")?,
+        _metadata: metadata,
         _credentials: Arc::new(KeyringCredentialStore::new("SENZO Desktop")),
     };
 
@@ -45,6 +57,7 @@ fn run() -> anyhow::Result<()> {
     tracing::info!(
         schema_version,
         data_directory = %directories.data_dir().display(),
+        api_base = %DEFAULT_API_BASE_URL,
         "SENZO foundation initialized"
     );
 
