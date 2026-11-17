@@ -1,6 +1,6 @@
 # Phase 3 — Networking, metadata and artwork foundation
 
-**Status:** In progress — the typed metadata API client has passed cross-platform CI; artwork and native discovery workflows remain.
+**Status:** In progress — the metadata API client passed cross-platform CI; the native artwork service is implemented and awaiting cross-platform CI acceptance. GPUI image presentation and discovery workflows remain.
 
 ## Scope
 
@@ -27,12 +27,25 @@ The hosted API remains the only TMDB credential boundary. The desktop applicatio
 
 ## Not yet implemented
 
-- Artwork URL resolution, download limits, content-type and format validation, and image decoding.
-- Bounded memory and disk artwork caches with eviction.
 - GPUI image-cache integration and image presentation in Home, Search and Details.
 - Search input, result navigation and movie/TV details screens.
 - Live hosted API health, search, details and artwork acceptance on Windows and Linux.
 - Provider outage and offline UX in the shell.
+
+## Artwork pipeline implementation
+
+The new `senzo-artwork` crate implements the second Phase 3 slice:
+
+- Resolves TMDB file paths to the fixed image CDN with typed size variants (w92 through w1280 and original); rejects arbitrary hosts, malformed paths, traversal, credentials, query strings and fragments.
+- Downloads through the shared HTTP client with redirects disabled, preventing image requests from escaping the allowed origin.
+- Bounds concurrent downloads, request time, compressed response bytes, decoded dimensions, total pixel count and decoder allocation.
+- Requires an allowed image MIME type and independently verifies the image signature; supports JPEG, PNG and WebP only.
+- Decodes validated images to RGBA8 for the native GPUI image adapter while retaining validated encoded bytes.
+- Adds an LRU in-memory cache with a 64 MiB default budget and a persistent disk cache with a 512 MiB default budget and oldest-entry eviction.
+- Supports cancellation, bounded transient retries, corrupt disk-entry cleanup and cache directory isolation.
+- Exposes cache statistics and composes the service into the application-owned service graph. GPUI image rendering remains the next integration slice.
+
+The artwork cache lives below the OS cache directory in `SENZO/artwork`; it is disposable and contains no credentials or database records.
 
 ## First-slice automated acceptance
 

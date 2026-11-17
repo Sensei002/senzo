@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+senzo-artwork = { path = "../senzo-artwork" }
 tokio.workspace = true
 tracing.workspace = true
 senzo-diagnostics = { path = "../senzo-diagnostics" }

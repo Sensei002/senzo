@@ -1,6 +1,7 @@
 use std::{env, sync::Arc};
 
 use anyhow::Context;
+use senzo_artwork::{ArtworkConfig, ArtworkService};
 use senzo_domain::{ProfileRepository, SettingsRepository};
 use senzo_metadata::{DEFAULT_API_BASE_URL, MetadataClient, MetadataClientConfig};
 use senzo_network::{HttpClient, HttpPolicy};
@@ -12,6 +13,7 @@ struct AppServices {
     _settings: Arc<dyn SettingsRepository>,
     _profiles: Arc<dyn ProfileRepository>,
     _metadata: MetadataClient,
+    _artwork: ArtworkService,
     _credentials: Arc<dyn CredentialStore>,
 }
 
@@ -36,18 +38,25 @@ fn run() -> anyhow::Result<()> {
     let api_base_url =
         env::var("SENZO_API_BASE_URL").unwrap_or_else(|_| DEFAULT_API_BASE_URL.to_owned());
     let metadata = MetadataClient::new(
-        http,
+        http.clone(),
         MetadataClientConfig {
             base_url: api_base_url,
             ..Default::default()
         },
     )
     .context("configure the hosted SENZO metadata API client")?;
+    let artwork = ArtworkService::new(
+        http,
+        directories.artwork_cache_dir(),
+        ArtworkConfig::default(),
+    )
+    .context("initialize the bounded native artwork cache")?;
 
     let services = AppServices {
         _settings: database.clone(),
         _profiles: database.clone(),
         _metadata: metadata,
+        _artwork: artwork,
         _credentials: Arc::new(KeyringCredentialStore::new("SENZO Desktop")),
     };
 

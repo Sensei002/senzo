@@ -74,13 +74,16 @@ A phase is complete only when its documented deliverables, automated checks, and
 - [x] Add typed credits, videos, images and enrichment response models.
 - [x] Implement request coalescing, cancellation, bounded JSON responses, retry and timeout handling.
 - [x] Implement bounded metadata response caching with TTL and LRU eviction.
-- [ ] Implement artwork URL resolution, image download limits and decoding.
-- [ ] Implement bounded memory/disk artwork caches with eviction.
+- [x] Implement TMDB artwork URL resolution with fixed size variants and strict host/path validation.
+- [x] Implement bounded, cancellation-aware image downloads with redirects disabled.
+- [x] Validate MIME type and image signatures; decode JPEG/PNG/WebP under dimension, pixel and allocation caps.
+- [x] Implement bounded in-memory LRU and persistent disk cache with oldest-entry eviction.
+- [ ] Wire decoded artwork into native GPUI image components and loading/error placeholders.
 - [ ] Implement GPUI image integration.
 - [ ] Implement live Search/details workflows and offline/provider-error UI states.
 - [x] Preserve TMDB credentials exclusively on the hosted API.
 
-**First-slice automated gate:** Passed on Windows Server 2022 and Ubuntu 24.04 in [CI run #431](https://github.com/Sensei002/senzo/actions/runs/44098712863). Both jobs passed formatting, Clippy, workspace tests, native release builds and native GPUI startup/render/shutdown smoke tests. CI also resolved and committed Cargo.lock. **Remaining phase gate:** Artwork and metadata-backed Search/details must work from the native app with no desktop TMDB secret.
+**First-slice automated gate:** Passed on Windows Server 2022 and Ubuntu 24.04 in [CI run #431](https://github.com/Sensei002/senzo/actions/runs/44098712863). The artwork pipeline is implemented on `development`; its automated acceptance is pending. **Remaining phase gate:** Native GPUI artwork presentation and metadata-backed Search/details must work from the app with no desktop TMDB secret.
 
 See docs/PHASE_3_IMPLEMENTATION.md.
 

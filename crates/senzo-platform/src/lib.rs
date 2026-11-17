@@ -57,6 +57,9 @@ impl AppDirectories {
     pub fn cache_dir(&self) -> &std::path::Path {
         &self.cache
     }
+    pub fn artwork_cache_dir(&self) -> PathBuf {
+        self.cache.join("artwork")
+    }
 }
 
 #[derive(Debug, Error)]

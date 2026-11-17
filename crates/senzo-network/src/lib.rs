@@ -57,18 +57,14 @@ pub enum NetworkError {
 #[derive(Clone)]
 pub struct HttpClient {
     client: Client,
+    no_redirect_client: Client,
 }
 
 impl HttpClient {
     pub fn new(policy: HttpPolicy) -> Result<Self, NetworkError> {
-        let client = Client::builder()
-            .timeout(policy.request_timeout)
-            .connect_timeout(policy.connect_timeout)
-            .redirect(Policy::limited(policy.max_redirects))
-            .user_agent(concat!("SENZO/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .map_err(|error| NetworkError::ClientConfiguration(error.without_url().to_string()))?;
-        Ok(Self { client })
+        let client = build_client(&policy, Policy::limited(policy.max_redirects))?;
+        let no_redirect_client = build_client(&policy, Policy::none())?;
+        Ok(Self { client, no_redirect_client })
     }
 
     pub async fn get(&self, url: &ValidatedHttpUrl) -> Result<Response, NetworkError> {
@@ -78,6 +74,29 @@ impl HttpClient {
             .await
             .map_err(|error| NetworkError::Transport(error.without_url().to_string()))
     }
+
+    /// Sends a GET without following redirects. Use for allow-listed resources,
+    /// such as artwork, to prevent redirect-based SSRF.
+    pub async fn get_without_redirects(
+        &self,
+        url: &ValidatedHttpUrl,
+    ) -> Result<Response, NetworkError> {
+        self.no_redirect_client
+            .get(url.as_url().clone())
+            .send()
+            .await
+            .map_err(|error| NetworkError::Transport(error.without_url().to_string()))
+    }
+}
+
+fn build_client(policy: &HttpPolicy, redirect: Policy) -> Result<Client, NetworkError> {
+    Client::builder()
+        .timeout(policy.request_timeout)
+        .connect_timeout(policy.connect_timeout)
+        .redirect(redirect)
+        .user_agent(concat!("SENZO/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|error| NetworkError::ClientConfiguration(error.without_url().to_string()))
 }
 
 #[cfg(test)]
