@@ -22,7 +22,7 @@ fn main() {
 }
 
 fn run() -> anyhow::Result<()> {
-    senzo_diagnostics::init().context("initialize structured diagnostics")?;
+    senzo_diagnostics::init().map_err(|error| anyhow::anyhow!("initialize structured diagnostics: {error}"))?;
     let directories = AppDirectories::discover().context("resolve native application directories")?;
     let database = Arc::new(
         SqliteDatabase::open(directories.database_file())
