@@ -1,11 +1,11 @@
 # Phase 1 — Clean Rust workspace and technical foundation
 
-**Status:** Implementation committed; automated and native runtime validation pending.
+**Status: Complete.** Phase 1 implementation, automated checks, native Windows/Linux builds, startup/shutdown smoke tests and dependency-lockfile commit have passed.
 
 ## Implemented in this phase
 
 - Replaced the root single-package prototype with a seven-crate Cargo workspace.
-- Removed the old monolithic src/main.rs and prototype modules from the active source tree. Their history remains available in Git.
+- Retired the old monolithic `src/main.rs` and prototype modules from the active source tree. Their history remains available in Git.
 - Pinned GPUI CE 0.2.2, gpui_ce_platform 0.1.0 and Rust 1.95.0.
 - Added typed domain identifiers, media types, route state and repository contracts.
 - Added one application-owned Tokio runtime. The GPUI shell uses its handle for background work and applies results through GPUI entity updates.
@@ -18,16 +18,26 @@
 
 ## Acceptance record
 
-The following items remain pending until the Phase 1 workflow reports success:
+**Successful CI:** [SENZO Foundation CI run #411](https://github.com/Sensei002/senzo/actions/runs/44081493351)
 
-- [ ] Rust formatting, Clippy and all workspace tests pass.
-- [ ] Windows release build succeeds.
-- [ ] Windows GPUI window opens, renders and exits through the smoke-test path.
-- [ ] Linux release build succeeds.
-- [ ] Linux GPUI window opens, renders and exits under Xvfb.
-- [ ] Resolved Cargo.lock is committed to development.
+**Build commit:** `3aa376ac28d89f26f9e3e034eafa92b60f6a6147`  
+**Dependency lockfile commit:** [`a29354627e26d11b5189125c25eec0b86b4cafe6`](https://github.com/Sensei002/senzo/commit/a29354627e26d11b5189125c25eec0b86b4cafe6)  
+**Branch:** `development`
 
-The workflow must be green before Phase 1 is marked complete. A compile-only result is not a native startup acceptance result.
+- [x] Rust formatting, Clippy and all workspace tests pass on Windows and Linux.
+- [x] Windows x64 native release build succeeds.
+- [x] Windows GPUI window opens, renders and exits through the smoke-test path.
+- [x] Linux x64 native release build succeeds on Ubuntu 24.04.
+- [x] Linux GPUI window opens, renders and exits under Xvfb.
+- [x] Resolved Cargo.lock is committed to `development`.
+
+**Artifacts uploaded by CI:**
+- `senzo-windows-x64-foundation-3aa376ac28d89f26f9e3e034eafa92b60f6a6147`
+- `senzo-linux-x64-foundation-3aa376ac28d89f26f9e3e034eafa92b60f6a6147`
+
+The artifacts are available from the [Actions run](https://github.com/Sensei002/senzo/actions/runs/44081493351) and are retained by GitHub Actions until 2026-12-01.
+
+The Home/Library/Settings navigation handlers are implemented. The automated smoke test verifies native window startup, rendering and shutdown; it does not simulate mouse clicks or verify the complete interactive route/focus experience. That broader navigation acceptance belongs to Phase 2.
 
 ## Explicitly not part of Phase 1
 
