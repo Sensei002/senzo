@@ -11,7 +11,9 @@ use gpui::{
 use gpui_component::input::{Input, InputEvent, InputState};
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_domain::AppPage;
-use senzo_metadata::{MediaType, MetadataClient, MovieDetails, SearchType, SeasonDetails, SeasonSummary, TvDetails};
+use senzo_metadata::{
+    MediaType, MetadataClient, MovieDetails, SearchType, SeasonDetails, SeasonSummary, TvDetails,
+};
 use tokio::{runtime::Handle, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 
@@ -483,10 +485,13 @@ impl SenzoShell {
         .detach();
     }
 
-
     fn open_details(&mut self, index: usize, cx: &mut Context<Self>) {
-        let Some(card) = self.search_results.get(index) else { return; };
-        if !matches!(card.media_type, MediaType::Movie | MediaType::Tv) { return; }
+        let Some(card) = self.search_results.get(index) else {
+            return;
+        };
+        if !matches!(card.media_type, MediaType::Movie | MediaType::Tv) {
+            return;
+        }
         let id = card.id;
         let media_type = card.media_type;
         let initial_title = card.title.clone();
@@ -494,11 +499,25 @@ impl SenzoShell {
         let cancellation = CancellationToken::new();
         self.details_cancellation = cancellation.clone();
         self.details = Some(DetailsPage {
-            id, media_type, title: initial_title, overview: None, tagline: None,
-            release_date: None, runtime: None, status: None, rating: None,
-            genres: Vec::new(), cast: Vec::new(), seasons: Vec::new(),
-            selected_season: None, selected_season_number: None, season_loading: false,
-            poster: None, backdrop: None, loading: true, error: None,
+            id,
+            media_type,
+            title: initial_title,
+            overview: None,
+            tagline: None,
+            release_date: None,
+            runtime: None,
+            status: None,
+            rating: None,
+            genres: Vec::new(),
+            cast: Vec::new(),
+            seasons: Vec::new(),
+            selected_season: None,
+            selected_season_number: None,
+            season_loading: false,
+            poster: None,
+            backdrop: None,
+            loading: true,
+            error: None,
         });
         let metadata = self.metadata.clone();
         let artwork = self.artwork.clone();
@@ -507,55 +526,195 @@ impl SenzoShell {
             let cancellation = task_cancellation;
             let data = match media_type {
                 MediaType::Movie => {
-                    let m = metadata.movie(id, &cancellation).await.map_err(|e| e.to_string())?;
-                    let cast = m.credits.as_ref().map(|c| c.cast.iter().take(12).map(|p| (p.name.clone(), p.character.clone().unwrap_or_else(|| "Cast".into()))).collect()).unwrap_or_default();
-                    (m.title, m.overview, m.tagline, m.release_date, m.runtime, m.status, m.vote_average,
-                     m.genres.into_iter().map(|g| g.name).collect(), cast, Vec::new(), m.poster_path, m.backdrop_path)
+                    let m = metadata
+                        .movie(id, &cancellation)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    let cast = m
+                        .credits
+                        .as_ref()
+                        .map(|c| {
+                            c.cast
+                                .iter()
+                                .take(12)
+                                .map(|p| {
+                                    (
+                                        p.name.clone(),
+                                        p.character.clone().unwrap_or_else(|| "Cast".into()),
+                                    )
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    (
+                        m.title,
+                        m.overview,
+                        m.tagline,
+                        m.release_date,
+                        m.runtime,
+                        m.status,
+                        m.vote_average,
+                        m.genres.into_iter().map(|g| g.name).collect(),
+                        cast,
+                        Vec::new(),
+                        m.poster_path,
+                        m.backdrop_path,
+                    )
                 }
                 MediaType::Tv => {
-                    let t = metadata.tv(id, &cancellation).await.map_err(|e| e.to_string())?;
-                    let cast = t.credits.as_ref().or(t.aggregate_credits.as_ref()).map(|c| c.cast.iter().take(12).map(|p| (p.name.clone(), p.character.clone().unwrap_or_else(|| "Cast".into()))).collect()).unwrap_or_default();
+                    let t = metadata
+                        .tv(id, &cancellation)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    let cast = t
+                        .credits
+                        .as_ref()
+                        .or(t.aggregate_credits.as_ref())
+                        .map(|c| {
+                            c.cast
+                                .iter()
+                                .take(12)
+                                .map(|p| {
+                                    (
+                                        p.name.clone(),
+                                        p.character.clone().unwrap_or_else(|| "Cast".into()),
+                                    )
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
                     let runtime = t.episode_run_time.as_ref().and_then(|v| v.first()).copied();
-                    (t.name, t.overview, t.tagline, t.first_air_date, runtime, t.status, t.vote_average,
-                     t.genres.into_iter().map(|g| g.name).collect(), cast, t.seasons, t.poster_path, t.backdrop_path)
+                    (
+                        t.name,
+                        t.overview,
+                        t.tagline,
+                        t.first_air_date,
+                        runtime,
+                        t.status,
+                        t.vote_average,
+                        t.genres.into_iter().map(|g| g.name).collect(),
+                        cast,
+                        t.seasons,
+                        t.poster_path,
+                        t.backdrop_path,
+                    )
                 }
                 _ => return Err("Unsupported media type".to_owned()),
             };
-            let (title, overview, tagline, date, runtime, status, rating, genres, cast, seasons, poster_path, backdrop_path) = data;
+            let (
+                title,
+                overview,
+                tagline,
+                date,
+                runtime,
+                status,
+                rating,
+                genres,
+                cast,
+                seasons,
+                poster_path,
+                backdrop_path,
+            ) = data;
             let poster = match poster_path {
-                Some(path) => load_gpui_artwork(artwork.clone(), path, ArtworkSize::W500, cancellation.child_token()).await,
+                Some(path) => {
+                    load_gpui_artwork(
+                        artwork.clone(),
+                        path,
+                        ArtworkSize::W500,
+                        cancellation.child_token(),
+                    )
+                    .await
+                }
                 None => None,
             };
             let backdrop = match backdrop_path {
-                Some(path) => load_gpui_artwork(artwork, path, ArtworkSize::W1280, cancellation.child_token()).await,
+                Some(path) => {
+                    load_gpui_artwork(
+                        artwork,
+                        path,
+                        ArtworkSize::W1280,
+                        cancellation.child_token(),
+                    )
+                    .await
+                }
                 None => None,
             };
-            if cancellation.is_cancelled() { return Err("Cancelled".to_owned()); }
-            Ok::<_, String>((title, overview, tagline, date, runtime, status, rating, genres, cast, seasons, poster, backdrop))
+            if cancellation.is_cancelled() {
+                return Err("Cancelled".to_owned());
+            }
+            Ok::<_, String>((
+                title, overview, tagline, date, runtime, status, rating, genres, cast, seasons,
+                poster, backdrop,
+            ))
         });
         cx.spawn(async move |this, cx| {
-            let result = task.await.unwrap_or_else(|e| Err(format!("Details task failed: {e}")));
+            let result = task
+                .await
+                .unwrap_or_else(|e| Err(format!("Details task failed: {e}")));
             let _ = this.update(cx, |this, cx| {
-                if cancellation.is_cancelled() { return; }
-                let Some(d) = this.details.as_mut().filter(|d| d.id == id && d.media_type == media_type) else { return; };
+                if cancellation.is_cancelled() {
+                    return;
+                }
+                let Some(d) = this
+                    .details
+                    .as_mut()
+                    .filter(|d| d.id == id && d.media_type == media_type)
+                else {
+                    return;
+                };
                 match result {
-                    Ok((title, overview, tagline, date, runtime, status, rating, genres, cast, seasons, poster, backdrop)) => {
-                        d.title = title; d.overview = overview; d.tagline = tagline; d.release_date = date;
-                        d.runtime = runtime; d.status = status; d.rating = rating; d.genres = genres;
-                        d.cast = cast; d.seasons = seasons; d.poster = poster; d.backdrop = backdrop;
-                        d.loading = false; d.error = None;
+                    Ok((
+                        title,
+                        overview,
+                        tagline,
+                        date,
+                        runtime,
+                        status,
+                        rating,
+                        genres,
+                        cast,
+                        seasons,
+                        poster,
+                        backdrop,
+                    )) => {
+                        d.title = title;
+                        d.overview = overview;
+                        d.tagline = tagline;
+                        d.release_date = date;
+                        d.runtime = runtime;
+                        d.status = status;
+                        d.rating = rating;
+                        d.genres = genres;
+                        d.cast = cast;
+                        d.seasons = seasons;
+                        d.poster = poster;
+                        d.backdrop = backdrop;
+                        d.loading = false;
+                        d.error = None;
                     }
-                    Err(error) => { d.loading = false; d.error = Some(error); }
+                    Err(error) => {
+                        d.loading = false;
+                        d.error = Some(error);
+                    }
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
         cx.notify();
     }
 
     fn retry_details(&mut self, cx: &mut Context<Self>) {
-        let Some(d) = &self.details else { return; };
-        let Some(index) = self.search_results.iter().position(|c| c.id == d.id && c.media_type == d.media_type) else { return; };
+        let Some(d) = &self.details else {
+            return;
+        };
+        let Some(index) = self
+            .search_results
+            .iter()
+            .position(|c| c.id == d.id && c.media_type == d.media_type)
+        else {
+            return;
+        };
         self.open_details(index, cx);
     }
 
@@ -566,8 +725,15 @@ impl SenzoShell {
     }
 
     fn load_detail_season(&mut self, number: u32, cx: &mut Context<Self>) {
-        let Some(d) = self.details.as_mut() else { return; };
-        if d.media_type != MediaType::Tv || d.loading || d.selected_season_number == Some(number) && d.selected_season.is_some() { return; }
+        let Some(d) = self.details.as_mut() else {
+            return;
+        };
+        if d.media_type != MediaType::Tv
+            || d.loading
+            || d.selected_season_number == Some(number) && d.selected_season.is_some()
+        {
+            return;
+        }
         d.selected_season_number = Some(number);
         d.selected_season = None;
         d.season_loading = true;
@@ -575,91 +741,308 @@ impl SenzoShell {
         let token = self.details_cancellation.child_token();
         let task_token = token.clone();
         let metadata = self.metadata.clone();
-        let task = self.tokio.spawn(async move { metadata.season(id, number, &task_token).await.map_err(|e| e.to_string()) });
+        let task = self.tokio.spawn(async move {
+            metadata
+                .season(id, number, &task_token)
+                .await
+                .map_err(|e| e.to_string())
+        });
         cx.spawn(async move |this, cx| {
-            let result = task.await.unwrap_or_else(|e| Err(format!("Season task failed: {e}")));
+            let result = task
+                .await
+                .unwrap_or_else(|e| Err(format!("Season task failed: {e}")));
             let _ = this.update(cx, |this, cx| {
-                if token.is_cancelled() { return; }
-                if let Some(d) = this.details.as_mut().filter(|d| d.id == id && d.selected_season_number == Some(number)) {
+                if token.is_cancelled() {
+                    return;
+                }
+                if let Some(d) = this
+                    .details
+                    .as_mut()
+                    .filter(|d| d.id == id && d.selected_season_number == Some(number))
+                {
                     d.season_loading = false;
-                    match result { Ok(season) => d.selected_season = Some(season), Err(error) => d.error = Some(error) }
+                    match result {
+                        Ok(season) => d.selected_season = Some(season),
+                        Err(error) => d.error = Some(error),
+                    }
                     cx.notify();
                 }
             });
-        }).detach();
+        })
+        .detach();
         cx.notify();
     }
 
     fn render_details(&self, cx: &mut Context<Self>) -> gpui::Div {
-        let Some(d) = &self.details else { return div(); };
-        let mut page = div().w_full().flex().flex_col().gap_5()
-            .child(div().id("details-back").tab_index(20).cursor_pointer().rounded_md().bg(rgb(Theme::SURFACE)).px_3().py_2()
+        let Some(d) = &self.details else {
+            return div();
+        };
+        let mut page = div().w_full().flex().flex_col().gap_5().child(
+            div()
+                .id("details-back")
+                .tab_index(20)
+                .cursor_pointer()
+                .rounded_md()
+                .bg(rgb(Theme::SURFACE))
+                .px_3()
+                .py_2()
                 .on_click(cx.listener(|this, _, _, cx| this.close_details(cx)))
-                .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child("← Back to results")));
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(Theme::ACCENT))
+                        .child("← Back to results"),
+                ),
+        );
         if d.loading {
-            return page.child(backdrop_surface(None, 260.0, true))
-                .child(status_panel(StatusTone::Loading, "LOADING DETAILS", "Fetching title information", "Retrieving full metadata and artwork."));
+            return page
+                .child(backdrop_surface(None, 260.0, true))
+                .child(status_panel(
+                    StatusTone::Loading,
+                    "LOADING DETAILS",
+                    "Fetching title information",
+                    "Retrieving full metadata and artwork.",
+                ));
         }
         if let Some(error) = &d.error {
-            page = page.child(status_panel(StatusTone::Error, "DETAILS UNAVAILABLE", "Could not load this title", error));
-            return page.child(div().id("retry-details").cursor_pointer().rounded_md().bg(rgb(Theme::ACCENT_DARK)).px_3().py_2()
-                .on_click(cx.listener(|this, _, _, cx| this.retry_details(cx)))
-                .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child("Retry")));
+            page = page.child(status_panel(
+                StatusTone::Error,
+                "DETAILS UNAVAILABLE",
+                "Could not load this title",
+                error,
+            ));
+            return page.child(
+                div()
+                    .id("retry-details")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(Theme::ACCENT_DARK))
+                    .px_3()
+                    .py_2()
+                    .on_click(cx.listener(|this, _, _, cx| this.retry_details(cx)))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::ACCENT))
+                            .child("Retry"),
+                    ),
+            );
         }
         page = page.child(backdrop_surface(d.backdrop.clone(), 260.0, false));
         let mut hero = div().w_full().flex().items_start().gap_5();
         if let Some(poster) = d.poster.clone() {
-            hero = hero.child(div().w(px(164.0)).h(px(246.0)).rounded_lg().overflow_hidden().child(img(poster).w_full().h_full()));
+            hero = hero.child(
+                div()
+                    .w(px(164.0))
+                    .h(px(246.0))
+                    .rounded_lg()
+                    .overflow_hidden()
+                    .child(img(poster).w_full().h_full()),
+            );
         }
-        let label = if d.media_type == MediaType::Movie { "MOVIE" } else { "TV SERIES" };
-        let mut info = div().flex_1().flex().flex_col().gap_3()
+        let label = if d.media_type == MediaType::Movie {
+            "MOVIE"
+        } else {
+            "TV SERIES"
+        };
+        let mut info = div()
+            .flex_1()
+            .flex()
+            .flex_col()
+            .gap_3()
             .child(div().text_xs().text_color(rgb(Theme::ACCENT)).child(label))
-            .child(div().text_2xl().text_color(rgb(Theme::TEXT_PRIMARY)).child(d.title.clone()));
-        if let Some(tagline) = &d.tagline { info = info.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(tagline.clone())); }
+            .child(
+                div()
+                    .text_2xl()
+                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                    .child(d.title.clone()),
+            );
+        if let Some(tagline) = &d.tagline {
+            info = info.child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(Theme::TEXT_SECONDARY))
+                    .child(tagline.clone()),
+            );
+        }
         let mut facts = Vec::new();
-        if let Some(date) = &d.release_date { facts.push(date.clone()); }
-        if let Some(runtime) = d.runtime { facts.push(format!("{runtime} min")); }
-        if let Some(status) = &d.status { facts.push(status.clone()); }
-        if let Some(rating) = d.rating { facts.push(format!("★ {rating:.1}/10")); }
-        if !facts.is_empty() { info = info.child(div().text_sm().text_color(rgb(Theme::TEXT_MUTED)).child(facts.join(" · "))); }
-        if !d.genres.is_empty() { info = info.child(div().text_sm().text_color(rgb(Theme::ACCENT)).child(d.genres.join(" · "))); }
+        if let Some(date) = &d.release_date {
+            facts.push(date.clone());
+        }
+        if let Some(runtime) = d.runtime {
+            facts.push(format!("{runtime} min"));
+        }
+        if let Some(status) = &d.status {
+            facts.push(status.clone());
+        }
+        if let Some(rating) = d.rating {
+            facts.push(format!("★ {rating:.1}/10"));
+        }
+        if !facts.is_empty() {
+            info = info.child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(Theme::TEXT_MUTED))
+                    .child(facts.join(" · ")),
+            );
+        }
+        if !d.genres.is_empty() {
+            info = info.child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(Theme::ACCENT))
+                    .child(d.genres.join(" · ")),
+            );
+        }
         page = page.child(hero.child(info));
-        page = page.child(div().w_full().flex().flex_col().gap_2()
-            .child(div().text_lg().text_color(rgb(Theme::TEXT_PRIMARY)).child("Overview"))
-            .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(d.overview.as_deref().filter(|v| !v.trim().is_empty()).unwrap_or("No synopsis is available.").to_owned())));
+        page = page.child(
+            div()
+                .w_full()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    div()
+                        .text_lg()
+                        .text_color(rgb(Theme::TEXT_PRIMARY))
+                        .child("Overview"),
+                )
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(Theme::TEXT_SECONDARY))
+                        .child(
+                            d.overview
+                                .as_deref()
+                                .filter(|v| !v.trim().is_empty())
+                                .unwrap_or("No synopsis is available.")
+                                .to_owned(),
+                        ),
+                ),
+        );
         if !d.cast.is_empty() {
             let mut row = div().w_full().flex().flex_wrap().gap_3();
             for (name, role) in d.cast.iter().take(12) {
-                row = row.child(div().rounded_md().bg(rgb(Theme::SURFACE)).p_3().min_w(px(140.0))
-                    .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(name.clone()))
-                    .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(role.clone())));
+                row = row.child(
+                    div()
+                        .rounded_md()
+                        .bg(rgb(Theme::SURFACE))
+                        .p_3()
+                        .min_w(px(140.0))
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(rgb(Theme::TEXT_PRIMARY))
+                                .child(name.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(Theme::TEXT_MUTED))
+                                .child(role.clone()),
+                        ),
+                );
             }
-            page = page.child(div().w_full().flex().flex_col().gap_2()
-                .child(div().text_lg().text_color(rgb(Theme::TEXT_PRIMARY)).child("Cast")).child(row));
+            page = page.child(
+                div()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_lg()
+                            .text_color(rgb(Theme::TEXT_PRIMARY))
+                            .child("Cast"),
+                    )
+                    .child(row),
+            );
         }
         if d.media_type == MediaType::Tv && !d.seasons.is_empty() {
             let mut selector = div().flex().flex_wrap().gap_2();
             for season in &d.seasons {
                 let number = season.season_number;
                 let selected = d.selected_season_number == Some(number);
-                selector = selector.child(div().id(format!("season-{number}")).tab_index(30 + number as isize).cursor_pointer()
-                    .rounded_md().border_1().border_color(rgb(if selected { Theme::ACCENT } else { Theme::BORDER }))
-                    .bg(rgb(Theme::SURFACE)).px_3().py_2()
-                    .on_click(cx.listener(move |this, _, _, cx| this.load_detail_season(number, cx)))
-                    .child(div().text_sm().text_color(rgb(if selected { Theme::ACCENT } else { Theme::TEXT_PRIMARY })).child(season.name.clone())));
+                selector = selector.child(
+                    div()
+                        .id(format!("season-{number}"))
+                        .tab_index(30 + number as isize)
+                        .cursor_pointer()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(rgb(if selected {
+                            Theme::ACCENT
+                        } else {
+                            Theme::BORDER
+                        }))
+                        .bg(rgb(Theme::SURFACE))
+                        .px_3()
+                        .py_2()
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.load_detail_season(number, cx)),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(rgb(if selected {
+                                    Theme::ACCENT
+                                } else {
+                                    Theme::TEXT_PRIMARY
+                                }))
+                                .child(season.name.clone()),
+                        ),
+                );
             }
-            let mut section = div().w_full().flex().flex_col().gap_3()
-                .child(div().text_lg().text_color(rgb(Theme::TEXT_PRIMARY)).child("Seasons")).child(selector);
+            let mut section = div()
+                .w_full()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(
+                    div()
+                        .text_lg()
+                        .text_color(rgb(Theme::TEXT_PRIMARY))
+                        .child("Seasons"),
+                )
+                .child(selector);
             if d.season_loading {
-                section = section.child(status_panel(StatusTone::Loading, "SEASON", "Loading episodes", "Fetching the selected season."));
+                section = section.child(status_panel(
+                    StatusTone::Loading,
+                    "SEASON",
+                    "Loading episodes",
+                    "Fetching the selected season.",
+                ));
             } else if let Some(season) = &d.selected_season {
                 let mut episodes = div().w_full().flex().flex_col().gap_2();
                 for episode in &season.episodes {
-                    let mut heading = format!("S{:02} E{:02} · {}", episode.season_number, episode.episode_number, episode.name);
-                    if let Some(minutes) = episode.runtime { heading.push_str(&format!(" · {minutes} min")); }
-                    episodes = episodes.child(div().rounded_md().bg(rgb(Theme::SURFACE)).p_3()
-                        .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(heading))
-                        .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(episode.overview.as_deref().unwrap_or("No episode synopsis available.").to_owned())));
+                    let mut heading = format!(
+                        "S{:02} E{:02} · {}",
+                        episode.season_number, episode.episode_number, episode.name
+                    );
+                    if let Some(minutes) = episode.runtime {
+                        heading.push_str(&format!(" · {minutes} min"));
+                    }
+                    episodes = episodes.child(
+                        div()
+                            .rounded_md()
+                            .bg(rgb(Theme::SURFACE))
+                            .p_3()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                                    .child(heading),
+                            )
+                            .child(
+                                div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
+                                    episode
+                                        .overview
+                                        .as_deref()
+                                        .unwrap_or("No episode synopsis available.")
+                                        .to_owned(),
+                                ),
+                            ),
+                    );
                 }
                 section = section.child(episodes);
             }
@@ -1136,10 +1519,25 @@ impl SenzoShell {
                         );
                     }
                     if matches!(card.media_type, MediaType::Movie | MediaType::Tv) {
-                        preview = preview.child(div().id("open-title-details").tab_index(60).cursor_pointer()
-                            .rounded_md().bg(rgb(Theme::ACCENT_DARK)).px_3().py_2()
-                            .on_click(cx.listener(move |this, _, _, cx| this.open_details(index, cx)))
-                            .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child("View full details")));
+                        preview = preview.child(
+                            div()
+                                .id("open-title-details")
+                                .tab_index(60)
+                                .cursor_pointer()
+                                .rounded_md()
+                                .bg(rgb(Theme::ACCENT_DARK))
+                                .px_3()
+                                .py_2()
+                                .on_click(
+                                    cx.listener(move |this, _, _, cx| this.open_details(index, cx)),
+                                )
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(rgb(Theme::ACCENT))
+                                        .child("View full details"),
+                                ),
+                        );
                     }
                     page = page.child(preview);
                 }
@@ -1765,7 +2163,9 @@ impl SenzoShell {
     }
 
     fn render_page(&self, cx: &mut Context<Self>) -> gpui::Div {
-        if self.details.is_some() { return self.render_details(cx); }
+        if self.details.is_some() {
+            return self.render_details(cx);
+        }
         match self.navigation.current() {
             AppPage::Home => self.render_home(cx),
             AppPage::Movies => div()
