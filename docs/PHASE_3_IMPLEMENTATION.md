@@ -1,6 +1,6 @@
 # Phase 3 — Networking, metadata and artwork foundation
 
-**Status:** In progress — metadata and artwork-service CI passed on Windows and Linux. Native GPUI Home artwork and a hosted-metadata Search integration are implemented on development; this application integration is awaiting Windows/Linux CI and live hosted-service acceptance. Dedicated Details and offline/provider-error workflows remain.
+**Status:** In progress — metadata, artwork, native Home/Search, Movie/TV Details and unified retryable metadata-error UX are implemented on `development`. Current cross-platform CI and live hosted-service runtime acceptance remain.
 
 ## Scope
 
@@ -27,9 +27,9 @@ The hosted API remains the only TMDB credential boundary. The desktop applicatio
 
 ## Not yet implemented
 
-- Dedicated movie and TV Details screens, including metadata enrichment and season/episode navigation.
-- Live hosted API health, Search and Details acceptance on Windows and Linux.
-- Provider outage and offline UX in the shell.
+- Dedicated person Details workflow.
+- Live hosted API health, Home, Search, Details and artwork acceptance on Windows and Linux.
+- Runtime verification of connection loss, rate limiting and provider outages with recovery on both desktop platforms.
 - Full Nuvio Search parity: recent-search persistence, discover catalogues, pagination and add-on/server aggregation.
 
 
@@ -74,6 +74,24 @@ The Search route now exercises the metadata and artwork foundation through a nat
 
 This is an initial hosted-API integration, not full Nuvio Search parity. Recent-search persistence, discover catalogues, pagination, add-on/server aggregation and navigation to full movie/TV Details remain future work. The desktop still contains no TMDB credential.
 
+## Native Movie and TV Details
+
+The native Search preview can open a dedicated GPUI Details page for movies and TV series:
+
+- Movie and TV details are loaded through the typed hosted metadata client.
+- The page presents overview, genres, release information, runtime, status, rating and available cast credits.
+- TV series expose season selection and episode metadata browsing. This does not initiate playback.
+- Details requests are cancellation-aware and stale results cannot replace a newer selection.
+- The Details retry action uses the page's own media identity, not the mutable Search result list.
+
+## Consistent metadata failure and recovery UX
+
+- Home, Search, Movie/TV Details and TV season requests map typed metadata errors to consistent user-facing messages.
+- Connection failures, provider 5xx outages, 429 rate limits, missing titles, invalid responses and local configuration/cache failures receive distinct guidance.
+- Home, Search and Details retain explicit Retry actions; individual TV season requests also provide a dedicated retry action.
+- Selecting another TV season cancels the previous request so a late response cannot overwrite the currently selected season.
+- API diagnostics and raw upstream response text are not exposed as the primary UI message. The desktop still contains no TMDB credential.
+
 ## First-slice automated acceptance
 
 The metadata-client foundation passed [CI run #431](https://github.com/Sensei002/senzo/actions/runs/44098712863) on commit 072ff362e84c37b6ca45f439cad39c8fe562ab73.
@@ -89,4 +107,4 @@ These checks validate the service foundation and native application build. They 
 
 ## Remaining Phase 3 acceptance
 
-Phase 3 is not complete until artwork is downloaded, decoded and cached safely, and metadata-backed search/details workflows operate from the native app without a desktop TMDB secret. Offline and provider-error states also need runtime acceptance on Windows and Linux.
+Phase 3 is not complete until the native Home, Search, Movie/TV Details and artwork flows are verified against the live hosted API on Windows and Linux without a desktop TMDB secret. Runtime acceptance must also simulate offline connectivity, HTTP 429 and provider 5xx outages, verify that every Retry action recovers cleanly, and confirm that cancelled or superseded requests never restore stale data. The dedicated Person Details workflow remains future work.

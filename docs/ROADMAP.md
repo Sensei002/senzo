@@ -67,7 +67,7 @@ A phase is complete only when its documented deliverables, automated checks, and
 
 ## Phase 3 — Networking, metadata and artwork foundation
 
-<badge color="info">In progress — metadata, artwork, Home and Search implemented; current integration CI and runtime acceptance pending</badge>
+<badge color="info">In progress — metadata, artwork, Home, Search, Movie/TV Details and recovery UX implemented; current cross-platform CI and runtime acceptance pending</badge>
 
 - [x] Implement typed SENZO API client for the existing hosted route contract.
 - [x] Implement search, trending, popular, movie/TV details, external-ID, season and episode request methods.
@@ -83,8 +83,9 @@ A phase is complete only when its documented deliverables, automated checks, and
 - [x] Connect the Home trending shelf to real hosted metadata and the bounded artwork service.
 - [x] Keep metadata requests, artwork downloads and pixel conversion off the GPUI render thread.
 - [x] Add native hosted-metadata Search with All/Movies/TV filters, debounce, request cancellation, poster artwork and quick preview.
-- [ ] Implement dedicated movie/TV/person Details workflows, including TV season and episode navigation.
-- [ ] Implement explicit retry and offline/provider-outage UX across Home, Search and Details.
+- [x] Implement dedicated movie/TV Details workflows, including TV season and episode navigation.
+- [ ] Implement dedicated person Details workflow.
+- [x] Implement explicit retry and offline/provider-outage UX across Home, Search and Details.
 - [ ] Verify live hosted Home, Search, details and artwork behavior on Windows and Linux.
 - [x] Preserve TMDB credentials exclusively on the hosted API.
 
@@ -295,4 +296,4 @@ See docs/PHASE_3_IMPLEMENTATION.md.
 
 **Gate:** Nuvio desktop parity inventory is closed or every remaining difference is explicitly documented and accepted.
 
-Phase 3 Details CI follow-up: the native movie/TV Details implementation is on `development`; Clippy requires the selected-result guard to use a collapsed let-chain. Cross-platform CI is pending for the latest source commit.
+Phase 3 current acceptance: native Movie/TV Details and unified metadata recovery UX are implemented on `development`. Cross-platform CI and live hosted-service runtime validation on Windows and Linux must pass before Phase 3 can be closed.
