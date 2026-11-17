@@ -930,8 +930,10 @@ mod tests {
     async fn enforces_download_and_dimension_limits_and_honors_cancellation() {
         let url = serve_once("200 OK", "image/png", png_image()).await;
         let directory = temp_directory();
-        let mut config = ArtworkConfig::default();
-        config.max_download_bytes = 8;
+        let config = ArtworkConfig {
+            max_download_bytes: 8,
+            ..ArtworkConfig::default()
+        };
         let artwork_service = service(&directory, config);
         let cancellation = CancellationToken::new();
         assert!(matches!(
