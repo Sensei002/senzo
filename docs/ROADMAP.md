@@ -271,6 +271,8 @@ Batch 8 turns the existing MPV worker integration into a dedicated, usable nativ
 
 ### Batch 8.5B — Native player rendering
 
+**Latest implementation note (2026-11-17):** The user confirms audio is audible while video remains invisible. The Stop action previously queued a normal MPV stop and then, for torrent sessions, immediately started cleanup whose worker also sends an acknowledged stop. The UI now routes Stop through one method so torrent cleanup owns its single acknowledged stop; non-torrent playback retains the normal stop command. MPV state diagnostics now include active audio output and selected track properties to distinguish audio/video stream selection from native presentation. These changes are not a claim that the crash or video rendering issue is fixed; Windows runtime verification is still required.
+
 **Status: In progress.** The latest remediation removes the 1×1 visible startup target. SENZO now creates a full-client-sized native child HWND hidden, allowing MPV to bind to a correctly sized target before playback. The Player viewport then reapplies its measured geometry and shows/raises the child. Post-layout diagnostics record the actual HWND visibility and client dimensions. This is a lifecycle correction, not yet proof of visible video.
 
 - [x] Reassert native video child-window z-order while the Player viewport is active, even when its geometry has not changed.
@@ -279,6 +281,9 @@ Batch 8 turns the existing MPV worker integration into a dedicated, usable nativ
 - [x] Always reapply measured Player viewport geometry and show the existing MPV child HWND during Player prepaint.
 - [x] Record a post-layout native-surface diagnostic snapshot.
 - [ ] Diagnose and fix audio-only playback where MPV reports configured video output but the native video surface is not visibly presenting frames.
+- [x] Remove the duplicate fire-and-forget MPV stop command before torrent cleanup's acknowledged stop; route both Stop controls through one application stop entry point.
+- [x] Extend MPV diagnostics to capture active audio output/codec/format/rate/channels and selected audio/video track IDs.
+- [ ] Reproduce and resolve the reported Stop-triggered application crash on Windows; the existing diagnostics do not contain a crash dump or faulting stack.
 - [ ] Validate Win32 child-surface geometry, z-order, clipping, resizing, and lifecycle against the GPUI viewport.
 - [ ] Verify visible video with direct HTTP(S) and user-installed Stremio/Torrentio sources.
 - [ ] Verify immersive playback, player controls, and Back navigation while preserving playback state.
