@@ -4640,6 +4640,11 @@ impl Render for SenzoApp {
                                                     &format!("could not raise native video surface: {error:#}"),
                                                 );
                                             }
+                                            diagnostics::record(
+                                                diagnostics::Level::Info,
+                                                "playback",
+                                                &format!("player viewport ready; {}", surface.diagnostic_snapshot()),
+                                            );
                                         } else if let Some(parent) = native_parent_hwnd {
                                             match WindowsVideoSurface::create(parent, measured) {
                                                 Ok(mut surface) => {
@@ -4651,6 +4656,11 @@ impl Render for SenzoApp {
                                                             &format!("could not raise newly created native video surface: {error:#}"),
                                                         );
                                                     }
+                                                    diagnostics::record(
+                                                        diagnostics::Level::Info,
+                                                        "playback",
+                                                        &format!("created player viewport; {}", surface.diagnostic_snapshot()),
+                                                    );
                                                     *slot = Some(surface);
                                                     if let Ok(mut error_slot) = native_surface_error.lock() { *error_slot = None; }
                                                 }
