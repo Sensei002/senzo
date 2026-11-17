@@ -50,16 +50,20 @@ A phase is complete only when its documented deliverables, automated checks, and
 
 ## Phase 2 — Native GPUI application shell and design system
 
-- [ ] Implement native window lifecycle, windowed/fullscreen modes and close controls.
-- [ ] Implement persistent navigation, route stack, Back/Escape and focus restoration.
-- [ ] Implement keyboard, pointer and supported mouse side-button navigation.
-- [ ] Implement SENZO theme, typography, spacing, icons and reusable components.
-- [ ] Implement dialogs, menus, notifications, loading, empty and error states.
-- [ ] Integrate the canonical SENZO logo without altering the artwork.
-- [ ] Implement accessibility and directional focus behavior.
+<badge color="info">In progress — implementation and automated CI passed</badge>
+
+- [x] Implement native window lifecycle, windowed/fullscreen modes and close controls.
+- [x] Implement persistent navigation, route stack, Back/Escape and focus restoration.
+- [x] Implement keyboard, pointer and supported mouse side-button navigation.
+- [x] Implement SENZO theme, typography, spacing, icons and reusable components.
+- [x] Implement dialogs, menus, notifications, loading, empty and error states.
+- [x] Integrate the canonical SENZO logo without altering the artwork.
+- [x] Implement accessibility and directional focus behavior.
 - [ ] Establish screenshot/visual regression fixtures where practical.
 
-**Gate:** Every primary route can be navigated without dead ends or loss of focus state.
+**Automated gate:** The GPUI interaction test exercises all seven destinations, directional wraparound, Back/Forward, Escape, dialog dismissal and focus restoration. Windows and Linux CI builds and native startup/render/shutdown smoke tests pass in [CI run #44088401293](https://github.com/Sensei002/senzo/actions/runs/44088401293).
+
+**Remaining acceptance:** Manual mouse side-button and visual review on Windows and Linux. Pixel screenshot baselines have not yet been added; see the [Phase 2 implementation record](PHASE_2_IMPLEMENTATION.md).
 
 ## Phase 3 — Networking, metadata and artwork foundation
 

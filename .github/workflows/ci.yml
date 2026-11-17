@@ -1,4 +1,4 @@
-name: SENZO Foundation CI
+name: SENZO Desktop CI
 
 on:
   push:
@@ -11,12 +11,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: senzo-foundation-${{ github.workflow }}-${{ github.ref }}
+  group: senzo-desktop-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   windows:
-    name: Windows native foundation
+    name: Windows native desktop
     runs-on: windows-2022
     steps:
       - name: Checkout
@@ -45,13 +45,13 @@ jobs:
       - name: Upload Windows foundation binary
         uses: actions/upload-artifact@v4
         with:
-          name: senzo-windows-x64-foundation-${{ github.sha }}
+          name: senzo-windows-x64-development-${{ github.sha }}
           path: target/release/senzo.exe
           if-no-files-found: error
           retention-days: 14
 
   linux:
-    name: Linux native foundation
+    name: Linux native desktop
     runs-on: ubuntu-24.04
     steps:
       - name: Install GPUI and credential-store build dependencies
@@ -89,7 +89,7 @@ jobs:
       - name: Upload Linux foundation binary
         uses: actions/upload-artifact@v4
         with:
-          name: senzo-linux-x64-foundation-${{ github.sha }}
+          name: senzo-linux-x64-development-${{ github.sha }}
           path: target/release/senzo
           if-no-files-found: error
           retention-days: 14
@@ -118,6 +118,6 @@ jobs:
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -m "build: lock Phase 1 workspace dependencies"
+            git commit -m "build: lock SENZO workspace dependencies"
             git push origin HEAD:development
           fi

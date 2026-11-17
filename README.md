@@ -22,8 +22,10 @@ All application screens and player controls will be native GPUI. The previous pr
 ## Rewrite status
 
 - **Phase 0 — Source audit and architecture reset:** complete.
-- **Phase 1 — Clean Rust workspace and technical foundation:** implementation is on development; Windows/Linux CI and native startup smoke tests are the acceptance gate.
-- Later product features are intentionally not included in this foundation shell.
+- **Phase 1 — Clean Rust workspace and technical foundation:** complete; Windows and Linux native builds, workspace checks and startup/render/shutdown smoke tests passed.
+- **Phase 2 — Native GPUI application shell and design system:** implementation and automated CI acceptance passed; manual visual acceptance is still pending.
+
+The current shell provides seven native destinations, keyboard route navigation, Back/Forward history, focus restoration, fullscreen controls, menus, dialogs, notifications and the canonical SENZO logo. It remains a shell: real metadata, catalogues, add-ons and playback are later phases.
 
 The previous monolithic prototype has been removed from the active source tree. Its history remains available in Git; it is not the architecture baseline for the rewrite.
 
@@ -32,7 +34,7 @@ The previous monolithic prototype has been removed from the active source tree. 
 | Crate | Responsibility |
 |---|---|
 | senzo-app | Process entry point, service composition and Tokio runtime ownership. |
-| senzo-ui | Minimal native GPUI shell and GPUI-safe async updates. |
+| senzo-ui | Native GPUI application shell, design system, route navigation and GPUI-safe async updates. |
 | senzo-domain | Typed domain models and repository contracts. |
 | senzo-storage | SQLite repositories and transactional migrations. |
 | senzo-platform | OS paths and native credential storage. |
@@ -56,6 +58,7 @@ Linux builds need the GPUI development libraries listed in Development. GitHub A
 
 - Phase 0 completion: docs/PHASE_0_COMPLETION.md
 - Phase 1 implementation and acceptance record: docs/PHASE_1_COMPLETION.md
+- Phase 2 shell implementation and acceptance record: docs/PHASE_2_IMPLEMENTATION.md
 - Nuvio source audit: docs/NUVIO_SOURCE_AUDIT.md
 - Nuvio-to-SENZO feature mapping: docs/NUVIO_TO_SENZO_MAPPING.md
 - Rewrite architecture: docs/ARCHITECTURE.md
