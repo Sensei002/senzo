@@ -67,7 +67,7 @@ A phase is complete only when its documented deliverables, automated checks, and
 
 ## Phase 3 — Networking, metadata and artwork foundation
 
-<badge color="info">In progress — metadata client CI passed</badge>
+<badge color="info">In progress — metadata, artwork, Home and Search implemented; current integration CI and runtime acceptance pending</badge>
 
 - [x] Implement typed SENZO API client for the existing hosted route contract.
 - [x] Implement search, trending, popular, movie/TV details, external-ID, season and episode request methods.
@@ -83,11 +83,12 @@ A phase is complete only when its documented deliverables, automated checks, and
 - [x] Connect the Home trending shelf to real hosted metadata and the bounded artwork service.
 - [x] Keep metadata requests, artwork downloads and pixel conversion off the GPUI render thread.
 - [x] Add native hosted-metadata Search with All/Movies/TV filters, debounce, request cancellation, poster artwork and quick preview.
-- [ ] Implement dedicated movie/TV Details workflows and offline/provider-error UI states.
-- [ ] Verify live hosted Home, Search and artwork behavior on Windows and Linux.
+- [ ] Implement dedicated movie/TV/person Details workflows, including TV season and episode navigation.
+- [ ] Implement explicit retry and offline/provider-outage UX across Home, Search and Details.
+- [ ] Verify live hosted Home, Search, details and artwork behavior on Windows and Linux.
 - [x] Preserve TMDB credentials exclusively on the hosted API.
 
-**Metadata and artwork-service gates:** Passed on Windows and Linux in [CI run #434](https://github.com/Sensei002/senzo/actions/runs/44103805561). Native image presentation is implemented on `development`; this batch's cross-platform CI and live hosted-catalogue acceptance are pending. **Remaining phase gate:** Metadata-backed Search/details and offline/provider-error UX must work from the native app with no desktop TMDB secret.
+**Existing backend gate:** Metadata and artwork-service checks passed on Windows and Linux in [CI run #434](https://github.com/Sensei002/senzo/actions/runs/44103805561). The current `development` source also contains the native Home artwork and hosted Search integration. Those newer UI changes must be validated by the current Windows/Linux CI run and live hosted-service acceptance before being marked accepted. **Remaining phase gate:** Details, consistent offline/provider-error UX and end-to-end runtime acceptance must pass without a desktop TMDB secret.
 
 See docs/PHASE_3_IMPLEMENTATION.md.
 
