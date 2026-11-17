@@ -1,13 +1,12 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createServer } from "node:http";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { Readable } from "node:stream";
 
 import { createApiUrlBuilder } from "./live-api-url.mjs";
 
 const configuredBase = process.env.SENZO_API_BASE_URL ?? "https://senzo-api.vercel.app";
-const upstreamBase = new URL(configuredBase);
 const buildUpstreamUrl = createApiUrlBuilder(configuredBase);
 const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
 
@@ -90,7 +89,6 @@ if (!address || typeof address === "string") {
 const localBase = "http://127.0.0.1:" + address.port + "/";
 
 const childEnvironment = { ...process.env, SENZO_API_BASE_URL: localBase };
-delete childEnvironment.VERCEL_AUTOMATION_BYPASS_SECRET;
 delete childEnvironment.VERCEL_AUTOMATION_BYPASS_SECRET;
 
 console.log("Running the native Rust metadata and artwork smoke test on " + process.platform + ".");
