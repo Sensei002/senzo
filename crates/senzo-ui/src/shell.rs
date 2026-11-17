@@ -3,8 +3,8 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use gpui::{
-    App, ColorExt, Context, FocusHandle, Image, ImageFormat, KeyBinding, Menu, MenuItem, MouseButton,
-    NavigationDirection, QuitMode, Render, SharedString, TitlebarOptions, Window, WindowOptions,
+    App, Bounds, ColorExt, Context, FocusHandle, Image, ImageFormat, KeyBinding, Menu, MenuItem, MouseButton,
+    NavigationDirection, QuitMode, Render, SharedString, TitlebarOptions, Window, WindowBounds, WindowOptions,
     actions, div, img, prelude::*, px, rgb, size,
 };
 use senzo_domain::AppPage;
@@ -23,6 +23,8 @@ actions!(senzo, [
     FocusNext,
     FocusPrevious,
     ActivateNavigation,
+    MoveNavigationUp,
+    MoveNavigationDown,
     ShowShortcuts,
     ShowAbout,
     ShowWhatsNew,
@@ -88,6 +90,24 @@ impl SenzoShell {
             self.focus_page(page, window, cx);
             cx.notify();
         }
+    }
+
+    fn move_nav_focus(&self, direction: isize, window: &mut Window, cx: &mut Context<Self>) {
+        let current = AppPage::ALL
+            .iter()
+            .position(|page| {
+                self.navigation_focus
+                    .get(page)
+                    .is_some_and(|handle| handle.is_focused(window))
+            })
+            .unwrap_or_else(|| {
+                AppPage::ALL
+                    .iter()
+                    .position(|page| *page == self.navigation.current())
+                    .unwrap_or(0)
+            });
+        let next = (current as isize + direction).rem_euclid(AppPage::ALL.len() as isize) as usize;
+        self.focus_page(AppPage::ALL[next], window, cx);
     }
 
     fn go_back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1071,8 +1091,8 @@ pub(crate) fn run(tokio: Handle, smoke_test: bool) {
                 KeyBinding::new("alt-enter", ToggleFullscreen, Some("SENZO_ROOT")),
                 KeyBinding::new("tab", FocusNext, Some("SENZO_ROOT")),
                 KeyBinding::new("shift-tab", FocusPrevious, Some("SENZO_ROOT")),
-                KeyBinding::new("up", FocusPrevious, Some("SENZO_NAVIGATION")),
-                KeyBinding::new("down", FocusNext, Some("SENZO_NAVIGATION")),
+                KeyBinding::new("up", MoveNavigationUp, Some("SENZO_NAVIGATION")),
+                KeyBinding::new("down", MoveNavigationDown, Some("SENZO_NAVIGATION")),
                 KeyBinding::new("enter", ActivateNavigation, Some("SENZO_NAVIGATION")),
                 KeyBinding::new("space", ActivateNavigation, Some("SENZO_NAVIGATION")),
                 KeyBinding::new("cmd-q", Quit, None),
@@ -1106,6 +1126,11 @@ pub(crate) fn run(tokio: Handle, smoke_test: bool) {
             ]);
 
             let options = WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    None,
+                    size(px(1280.0), px(720.0)),
+                    cx,
+                ))),
                 titlebar: Some(TitlebarOptions {
                     title: Some(SharedString::from("SENZO")),
                     ..Default::default()
