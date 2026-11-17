@@ -1085,7 +1085,9 @@ impl SenzoShell {
                     "Loading episodes",
                     "Fetching the selected season.",
                 ));
-            } else if let Some(error) = &d.season_error {
+            } else if let (Some(error), Some(number)) =
+                (&d.season_error, d.selected_season_number)
+            {
                 section = section.child(status_panel(
                     StatusTone::Error,
                     "SEASON UNAVAILABLE",
@@ -1239,7 +1241,7 @@ impl SenzoShell {
                     });
                     return;
                 }
-                Err(error) => {
+                Err(_) => {
                     let message = concat!(
                         "The search request stopped before a response was received. ",
                         "Check your connection and retry.",
