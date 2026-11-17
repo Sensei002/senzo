@@ -18,7 +18,8 @@ use senzo_domain::AppPage;
 #[cfg(test)]
 use senzo_metadata::PersonCredit;
 use senzo_metadata::{
-    MediaType, MetadataClient, MetadataError, Person, SearchType, SeasonDetails, SeasonSummary,
+    MediaItem, MediaType, MetadataClient, MetadataError, Person, SearchType, SeasonDetails,
+    SeasonSummary,
 };
 use tokio::{runtime::Handle, task::JoinSet};
 use tokio_util::sync::CancellationToken;
@@ -61,8 +62,26 @@ enum HomeCatalogueStatus {
     Loaded,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HomeShelfKey {
+    Trending,
+    PopularMovies,
+    PopularTv,
+}
+
+impl HomeShelfKey {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Trending => "trending",
+            Self::PopularMovies => "popular-movies",
+            Self::PopularTv => "popular-tv",
+        }
+    }
+}
+
 struct HomeMediaCandidate {
+    id: u64,
+    media_type: MediaType,
     title: String,
     detail: String,
     poster_path: String,
@@ -70,15 +89,102 @@ struct HomeMediaCandidate {
 }
 
 struct HomeMediaCard {
+    id: u64,
+    media_type: MediaType,
     title: String,
     detail: String,
     poster: Option<Arc<RenderImage>>,
 }
 
-struct HomeCatalogueData {
+struct HomeShelfState {
+    status: HomeCatalogueStatus,
+    error: Option<String>,
     cards: Vec<HomeMediaCard>,
+}
+
+impl Default for HomeShelfState {
+    fn default() -> Self {
+        Self {
+            status: HomeCatalogueStatus::NotRequested,
+            error: None,
+            cards: Vec::new(),
+        }
+    }
+}
+
+struct HomeShelfLoadData {
+    candidates: Vec<HomeMediaCandidate>,
+    cards: Vec<HomeMediaCard>,
+    error: Option<String>,
+}
+
+struct HomeCatalogueData {
+    trending: HomeShelfLoadData,
+    popular_movies: HomeShelfLoadData,
+    popular_tv: HomeShelfLoadData,
     featured_backdrop: Option<Arc<RenderImage>>,
     featured_title: Option<String>,
+}
+
+fn home_media_candidates(
+    items: Vec<MediaItem>,
+    fallback_type: Option<MediaType>,
+) -> Vec<HomeMediaCandidate> {
+    items
+        .into_iter()
+        .filter_map(|media| {
+            let media_type = media.media_type.or(fallback_type)?;
+            let poster_path = match media_type {
+                MediaType::Movie | MediaType::Tv => media.poster_path.clone()?,
+                MediaType::Person => media.profile_path.clone()?,
+                MediaType::Other => return None,
+            };
+            let title = media.display_title().trim();
+            if title.is_empty() || title == "Untitled" {
+                return None;
+            }
+            let category = match media_type {
+                MediaType::Movie => "MOVIE",
+                MediaType::Tv => "SERIES",
+                MediaType::Person => "PERSON",
+                MediaType::Other => return None,
+            };
+            let detail = media
+                .release_year()
+                .map(|year| format!("{category} · {year}"))
+                .unwrap_or_else(|| category.to_owned());
+            Some(HomeMediaCandidate {
+                id: media.id,
+                media_type,
+                title: title.to_owned(),
+                detail,
+                poster_path,
+                backdrop_path: media.backdrop_path,
+            })
+        })
+        .take(12)
+        .collect()
+}
+
+fn home_shelf_load_data(
+    candidates: Vec<HomeMediaCandidate>,
+    error: Option<String>,
+) -> HomeShelfLoadData {
+    let cards = candidates
+        .iter()
+        .map(|candidate| HomeMediaCard {
+            id: candidate.id,
+            media_type: candidate.media_type,
+            title: candidate.title.clone(),
+            detail: candidate.detail.clone(),
+            poster: None,
+        })
+        .collect();
+    HomeShelfLoadData {
+        candidates,
+        cards,
+        error,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,8 +306,9 @@ pub(crate) struct SenzoShell {
     artwork: ArtworkService,
     home_cancellation: CancellationToken,
     home_catalogue_status: HomeCatalogueStatus,
-    home_catalogue_error: Option<String>,
-    home_cards: Vec<HomeMediaCard>,
+    home_trending: HomeShelfState,
+    home_popular_movies: HomeShelfState,
+    home_popular_tv: HomeShelfState,
     home_featured_backdrop: Option<Arc<RenderImage>>,
     home_featured_title: Option<String>,
     search_input: Entity<InputState>,
@@ -393,8 +500,9 @@ impl SenzoShell {
             artwork,
             home_cancellation: CancellationToken::new(),
             home_catalogue_status: HomeCatalogueStatus::NotRequested,
-            home_catalogue_error: None,
-            home_cards: Vec::new(),
+            home_trending: HomeShelfState::default(),
+            home_popular_movies: HomeShelfState::default(),
+            home_popular_tv: HomeShelfState::default(),
             home_featured_backdrop: None,
             home_featured_title: None,
             search_input,
@@ -530,140 +638,217 @@ impl SenzoShell {
     }
 
     fn load_home_catalogue(&mut self, cx: &mut Context<Self>) {
+        let all_shelves_recovered = [
+            &self.home_trending,
+            &self.home_popular_movies,
+            &self.home_popular_tv,
+        ]
+        .iter()
+        .all(|shelf| shelf.error.is_none());
         if self.home_catalogue_status == HomeCatalogueStatus::Loading
-            || self.home_catalogue_status == HomeCatalogueStatus::Loaded
+            || (self.home_catalogue_status == HomeCatalogueStatus::Loaded && all_shelves_recovered)
         {
             return;
         }
 
         self.home_catalogue_status = HomeCatalogueStatus::Loading;
-        self.home_catalogue_error = None;
+        for shelf in [
+            &mut self.home_trending,
+            &mut self.home_popular_movies,
+            &mut self.home_popular_tv,
+        ] {
+            shelf.status = HomeCatalogueStatus::Loading;
+            shelf.error = None;
+        }
 
         let metadata = self.metadata.clone();
         let artwork = self.artwork.clone();
         let cancellation = self.home_cancellation.child_token();
         let task = self.tokio.spawn(async move {
-            let response = metadata
-                .trending(1, "en-US", &cancellation)
-                .await
-                .map_err(|error| metadata_error_message(&error))?;
+            let (trending_response, movie_response, tv_response) = tokio::join!(
+                metadata.trending(1, "en-US", &cancellation),
+                metadata.popular_movies(1, "en-US", &cancellation),
+                metadata.popular_tv(1, "en-US", &cancellation),
+            );
 
-            let candidates: Vec<HomeMediaCandidate> = response
-                .results
-                .into_iter()
-                .filter_map(|media| {
-                    let poster_path = media.poster_path.clone()?;
-                    let category = match media.media_type.unwrap_or(MediaType::Other) {
-                        MediaType::Movie => "MOVIE",
-                        MediaType::Tv => "SERIES",
-                        MediaType::Person => "PERSON",
-                        MediaType::Other => "TRENDING",
-                    };
-                    let detail = media
-                        .release_year()
-                        .map(|year| format!("{category} · {year}"))
-                        .unwrap_or_else(|| category.to_owned());
-                    Some(HomeMediaCandidate {
-                        title: media.display_title().to_owned(),
-                        detail,
-                        poster_path,
-                        backdrop_path: media.backdrop_path,
-                    })
-                })
-                .take(8)
-                .collect();
+            let mut trending = match trending_response {
+                Ok(response) => home_shelf_load_data(
+                    home_media_candidates(response.results, None),
+                    None,
+                ),
+                Err(error) => home_shelf_load_data(
+                    Vec::new(),
+                    Some(metadata_error_message(&error)),
+                ),
+            };
+            let mut popular_movies = match movie_response {
+                Ok(response) => home_shelf_load_data(
+                    home_media_candidates(response.results, Some(MediaType::Movie)),
+                    None,
+                ),
+                Err(error) => home_shelf_load_data(
+                    Vec::new(),
+                    Some(metadata_error_message(&error)),
+                ),
+            };
+            let mut popular_tv = match tv_response {
+                Ok(response) => home_shelf_load_data(
+                    home_media_candidates(response.results, Some(MediaType::Tv)),
+                    None,
+                ),
+                Err(error) => home_shelf_load_data(
+                    Vec::new(),
+                    Some(metadata_error_message(&error)),
+                ),
+            };
 
-            let featured_index = candidates
+            let featured_index = trending
+                .candidates
                 .iter()
                 .position(|candidate| candidate.backdrop_path.is_some());
-            let mut cards: Vec<HomeMediaCard> = candidates
-                .iter()
-                .map(|candidate| HomeMediaCard {
-                    title: candidate.title.clone(),
-                    detail: candidate.detail.clone(),
-                    poster: None,
-                })
-                .collect();
-
             let mut jobs = JoinSet::new();
-            for (index, candidate) in candidates.into_iter().enumerate() {
-                let artwork = artwork.clone();
-                let cancellation = cancellation.child_token();
-                jobs.spawn(async move {
-                    let poster = load_gpui_artwork(
-                        artwork.clone(),
-                        candidate.poster_path,
-                        ArtworkSize::W342,
-                        cancellation.child_token(),
-                    )
-                    .await;
-                    let backdrop = if Some(index) == featured_index {
-                        match candidate.backdrop_path {
-                            Some(path) => {
-                                load_gpui_artwork(artwork, path, ArtworkSize::W1280, cancellation)
-                                    .await
-                            }
-                            None => None,
-                        }
+            for (key, candidates) in [
+                (HomeShelfKey::Trending, &trending.candidates),
+                (HomeShelfKey::PopularMovies, &popular_movies.candidates),
+                (HomeShelfKey::PopularTv, &popular_tv.candidates),
+            ] {
+                for (index, candidate) in candidates.iter().enumerate() {
+                    let service = artwork.clone();
+                    let task_token = cancellation.child_token();
+                    let poster_path = candidate.poster_path.clone();
+                    let backdrop_path = if key == HomeShelfKey::Trending
+                        && Some(index) == featured_index
+                    {
+                        candidate.backdrop_path.clone()
                     } else {
                         None
                     };
-                    (index, poster, backdrop)
-                });
+                    jobs.spawn(async move {
+                        let poster = load_gpui_artwork(
+                            service.clone(),
+                            poster_path,
+                            ArtworkSize::W342,
+                            task_token.child_token(),
+                        )
+                        .await;
+                        let backdrop = match backdrop_path {
+                            Some(path) => {
+                                load_gpui_artwork(
+                                    service,
+                                    path,
+                                    ArtworkSize::W1280,
+                                    task_token.child_token(),
+                                )
+                                .await
+                            }
+                            None => None,
+                        };
+                        (key, index, poster, backdrop)
+                    });
+                }
             }
 
             let mut featured_backdrop = None;
             while let Some(result) = jobs.join_next().await {
-                if let Ok((index, poster, backdrop)) = result {
-                    if let Some(card) = cards.get_mut(index) {
+                if cancellation.is_cancelled() {
+                    return Err("Cancelled".to_owned());
+                }
+                if let Ok((key, index, poster, backdrop)) = result {
+                    let shelf = match key {
+                        HomeShelfKey::Trending => &mut trending,
+                        HomeShelfKey::PopularMovies => &mut popular_movies,
+                        HomeShelfKey::PopularTv => &mut popular_tv,
+                    };
+                    if let Some(card) = shelf.cards.get_mut(index) {
                         card.poster = poster;
                     }
-                    if Some(index) == featured_index {
+                    if key == HomeShelfKey::Trending && Some(index) == featured_index {
                         featured_backdrop = backdrop;
                     }
                 }
             }
 
+            if cancellation.is_cancelled() {
+                return Err("Cancelled".to_owned());
+            }
+
             let featured_title = featured_index
-                .and_then(|index| cards.get(index).map(|card| card.title.clone()))
-                .or_else(|| cards.first().map(|card| card.title.clone()));
+                .and_then(|index| trending.cards.get(index).map(|card| card.title.clone()))
+                .or_else(|| trending.cards.first().map(|card| card.title.clone()));
 
             Ok::<_, String>(HomeCatalogueData {
-                cards,
+                trending,
+                popular_movies,
+                popular_tv,
                 featured_backdrop,
                 featured_title,
             })
         });
 
         cx.spawn(async move |this, cx| {
-            let result = match task.await {
-                Ok(result) => result,
-                Err(_) => Err("The catalogue task stopped unexpectedly.".to_owned()),
-            };
+            let result = task.await.unwrap_or_else(|_| {
+                Err("The Home catalogue request stopped unexpectedly. Check your connection and retry."
+                    .to_owned())
+            });
             let _ = this.update(cx, |this, cx| {
                 if this.home_cancellation.is_cancelled() {
                     return;
                 }
                 match result {
                     Ok(data) => {
-                        this.home_cards = data.cards;
+                        this.home_trending = HomeShelfState {
+                            status: HomeCatalogueStatus::Loaded,
+                            error: data.trending.error,
+                            cards: data.trending.cards,
+                        };
+                        this.home_popular_movies = HomeShelfState {
+                            status: HomeCatalogueStatus::Loaded,
+                            error: data.popular_movies.error,
+                            cards: data.popular_movies.cards,
+                        };
+                        this.home_popular_tv = HomeShelfState {
+                            status: HomeCatalogueStatus::Loaded,
+                            error: data.popular_tv.error,
+                            cards: data.popular_tv.cards,
+                        };
                         this.home_featured_backdrop = data.featured_backdrop;
                         this.home_featured_title = data.featured_title;
                         this.home_catalogue_status = HomeCatalogueStatus::Loaded;
-                        this.home_catalogue_error = None;
                     }
                     Err(message) => {
-                        this.home_cards.clear();
+                        for shelf in [
+                            &mut this.home_trending,
+                            &mut this.home_popular_movies,
+                            &mut this.home_popular_tv,
+                        ] {
+                            shelf.status = HomeCatalogueStatus::Loaded;
+                            shelf.error = Some(message.clone());
+                            shelf.cards.clear();
+                        }
                         this.home_featured_backdrop = None;
                         this.home_featured_title = None;
-                        this.home_catalogue_status = HomeCatalogueStatus::NotRequested;
-                        this.home_catalogue_error = Some(message);
+                        this.home_catalogue_status = HomeCatalogueStatus::Loaded;
                     }
                 }
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    fn open_home_card(
+        &mut self,
+        id: u64,
+        media_type: MediaType,
+        title: String,
+        poster: Option<Arc<RenderImage>>,
+        cx: &mut Context<Self>,
+    ) {
+        match media_type {
+            MediaType::Person => self.load_person_details(id, title, poster, cx),
+            MediaType::Movie | MediaType::Tv => self.load_details(id, media_type, title, cx),
+            MediaType::Other => {}
+        }
     }
 
     fn open_details(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -2269,46 +2454,69 @@ impl SenzoShell {
         page
     }
 
-    fn render_home_artwork(&self, cx: &mut Context<Self>) -> gpui::Div {
-        let heading = div()
-            .text_lg()
-            .text_color(rgb(Theme::TEXT_PRIMARY))
-            .child("Trending this week");
-
-        let content = match self.home_catalogue_status {
-            HomeCatalogueStatus::Loading | HomeCatalogueStatus::NotRequested => {
-                let mut row = div().flex().gap_4();
-                for _ in 0..7 {
-                    row = row.child(poster_card(" ", " ", None, true));
-                }
-                row
+    fn render_home_shelf(
+        &self,
+        key: HomeShelfKey,
+        title: &str,
+        shelf: &HomeShelfState,
+        tab_start: isize,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let content = if shelf.cards.is_empty()
+            && matches!(
+                shelf.status,
+                HomeCatalogueStatus::NotRequested | HomeCatalogueStatus::Loading
+            )
+        {
+            let mut row = div().flex().gap_4();
+            for _ in 0..7 {
+                row = row.child(poster_card(" ", " ", None, true));
             }
-            HomeCatalogueStatus::Loaded if self.home_cards.is_empty() => {
-                return div()
-                    .w_full()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .child(heading)
-                    .child(status_panel(
-                        StatusTone::Empty,
-                        "NO ARTWORK AVAILABLE",
-                        "Nothing to show yet",
-                        "The metadata catalogue did not return titles with poster artwork.",
-                    ));
+            row
+        } else if shelf.cards.is_empty() {
+            div()
+                .w_full()
+                .child(status_panel(
+                    StatusTone::Empty,
+                    "NO TITLES AVAILABLE",
+                    "Nothing to show yet",
+                    "This catalogue did not return titles with usable poster artwork.",
+                ))
+        } else {
+            let mut row = div().flex().gap_4();
+            for (index, card) in shelf.cards.iter().enumerate() {
+                let id = card.id;
+                let media_type = card.media_type;
+                let media_title = card.title.clone();
+                let poster = card.poster.clone();
+                row = row.child(
+                    div()
+                        .id(format!("home-{}-{}-{index}", key.as_str(), card.id))
+                        .tab_index(tab_start + index as isize)
+                        .cursor_pointer()
+                        .rounded_lg()
+                        .focus_visible(|style| {
+                            style.border_1().border_color(rgb(Theme::ACCENT))
+                        })
+                        .aria_label(format!("Open {}", card.title))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.open_home_card(
+                                id,
+                                media_type,
+                                media_title.clone(),
+                                poster.clone(),
+                                cx,
+                            );
+                        }))
+                        .child(poster_card(
+                            &card.title,
+                            &card.detail,
+                            card.poster.clone(),
+                            false,
+                        )),
+                );
             }
-            HomeCatalogueStatus::Loaded => {
-                let mut row = div().flex().gap_4();
-                for card in &self.home_cards {
-                    row = row.child(poster_card(
-                        &card.title,
-                        &card.detail,
-                        card.poster.clone(),
-                        false,
-                    ));
-                }
-                row
-            }
+            row
         };
 
         let mut section = div()
@@ -2316,34 +2524,41 @@ impl SenzoShell {
             .flex()
             .flex_col()
             .gap_3()
-            .child(heading)
             .child(
                 div()
-                    .id("trending-shelf-scroll")
+                    .text_lg()
+                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                    .child(title.to_owned()),
+            )
+            .child(
+                div()
+                    .id(format!("home-{}-shelf-scroll", key.as_str()))
                     .w_full()
                     .overflow_x_scroll()
                     .child(content),
             );
 
-        if let Some(error) = &self.home_catalogue_error {
+        if let Some(error) = &shelf.error {
             section = section.child(status_panel(
                 StatusTone::Error,
                 "CATALOGUE UNAVAILABLE",
-                "Trending titles could not be loaded",
+                "This shelf could not be loaded",
                 error,
             ));
             section = section.child(
                 div()
-                    .id("retry-trending-catalogue")
-                    .tab_index(34)
+                    .id(format!("retry-home-{}", key.as_str()))
+                    .tab_index(tab_start + 40)
                     .rounded_md()
                     .bg(rgb(Theme::ACCENT_DARK))
                     .px_3()
                     .py_2()
                     .cursor_pointer()
-                    .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
-                    .aria_label("Retry trending artwork")
-                    .on_click(cx.listener(|this, _event, _window, cx| {
+                    .focus_visible(|style| {
+                        style.border_1().border_color(rgb(Theme::ACCENT))
+                    })
+                    .aria_label(format!("Retry {title} catalogue"))
+                    .on_click(cx.listener(|this, _, _, cx| {
                         this.load_home_catalogue(cx);
                         cx.notify();
                     }))
@@ -2357,6 +2572,35 @@ impl SenzoShell {
         }
 
         section
+    }
+
+    fn render_home_artwork(&self, cx: &mut Context<Self>) -> gpui::Div {
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_6()
+            .child(self.render_home_shelf(
+                HomeShelfKey::Trending,
+                "Trending this week",
+                &self.home_trending,
+                100,
+                cx,
+            ))
+            .child(self.render_home_shelf(
+                HomeShelfKey::PopularMovies,
+                "Popular movies",
+                &self.home_popular_movies,
+                150,
+                cx,
+            ))
+            .child(self.render_home_shelf(
+                HomeShelfKey::PopularTv,
+                "Popular TV shows",
+                &self.home_popular_tv,
+                200,
+                cx,
+            ))
     }
 
     fn nav_item(&self, page: AppPage, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -3551,6 +3795,59 @@ mod tests {
         let credits = person_credit_candidates(&person, MediaType::Movie);
         assert_eq!(credits.len(), 1);
         assert_eq!(credits[0].title, "Popular Film");
+    }
+
+    #[test]
+    fn home_catalogue_candidates_support_movies_tv_and_people() {
+        let candidates = home_media_candidates(
+            vec![
+                MediaItem {
+                    id: 1,
+                    media_type: None,
+                    title: Some("Popular film".to_owned()),
+                    name: None,
+                    original_title: None,
+                    original_name: None,
+                    overview: None,
+                    poster_path: Some("/film.jpg".to_owned()),
+                    backdrop_path: None,
+                    profile_path: None,
+                    release_date: Some("2024-01-01".to_owned()),
+                    first_air_date: None,
+                    vote_average: None,
+                    vote_count: None,
+                    popularity: None,
+                    adult: None,
+                    original_language: None,
+                },
+                MediaItem {
+                    id: 2,
+                    media_type: Some(MediaType::Person),
+                    title: None,
+                    name: Some("Featured person".to_owned()),
+                    original_title: None,
+                    original_name: None,
+                    overview: None,
+                    poster_path: None,
+                    backdrop_path: None,
+                    profile_path: Some("/person.jpg".to_owned()),
+                    release_date: None,
+                    first_air_date: None,
+                    vote_average: None,
+                    vote_count: None,
+                    popularity: None,
+                    adult: None,
+                    original_language: None,
+                },
+            ],
+            Some(MediaType::Movie),
+        );
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].media_type, MediaType::Movie);
+        assert_eq!(candidates[0].detail, "MOVIE · 2024");
+        assert_eq!(candidates[1].media_type, MediaType::Person);
+        assert_eq!(candidates[1].poster_path, "/person.jpg");
     }
 
     #[test]
