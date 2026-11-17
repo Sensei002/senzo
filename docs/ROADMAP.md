@@ -78,14 +78,12 @@ A phase is complete only when its documented deliverables, automated checks, and
 - [x] Implement bounded, cancellation-aware image downloads with redirects disabled.
 - [x] Validate MIME type and image signatures; decode JPEG/PNG/WebP under dimension, pixel and allocation caps.
 - [x] Implement bounded in-memory LRU and persistent disk cache with oldest-entry eviction.
-- [x] Render decoded RGBA artwork as native GPUI BGRA RenderImage frames.
-- [x] Add reusable native poster and backdrop components with loading/unavailable placeholders.
-- [x] Connect the Home trending shelf to real hosted metadata and the bounded artwork service.
-- [x] Keep metadata requests, artwork downloads and pixel conversion off the GPUI render thread.
+- [ ] Wire decoded artwork into native GPUI image components and loading/error placeholders.
+- [ ] Implement GPUI image integration.
 - [ ] Implement live Search/details workflows and offline/provider-error UI states.
 - [x] Preserve TMDB credentials exclusively on the hosted API.
 
-**Metadata and artwork-service gates:** Passed on Windows and Linux in [CI run #434](https://github.com/Sensei002/senzo/actions/runs/44103805561). Native image presentation is implemented on `development`; this batch's cross-platform CI and live hosted-catalogue acceptance are pending. **Remaining phase gate:** Metadata-backed Search/details and offline/provider-error UX must work from the native app with no desktop TMDB secret.
+**First-slice automated gate:** Passed on Windows Server 2022 and Ubuntu 24.04 in [CI run #431](https://github.com/Sensei002/senzo/actions/runs/44098712863). The artwork pipeline is implemented on `development`; its automated acceptance is pending. **Remaining phase gate:** Native GPUI artwork presentation and metadata-backed Search/details must work from the app with no desktop TMDB secret.
 
 See docs/PHASE_3_IMPLEMENTATION.md.
 

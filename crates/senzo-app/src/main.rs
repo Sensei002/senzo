@@ -55,8 +55,8 @@ fn run() -> anyhow::Result<()> {
     let services = AppServices {
         _settings: database.clone(),
         _profiles: database.clone(),
-        _metadata: metadata.clone(),
-        _artwork: artwork.clone(),
+        _metadata: metadata,
+        _artwork: artwork,
         _credentials: Arc::new(KeyringCredentialStore::new("SENZO Desktop")),
     };
 
@@ -72,7 +72,7 @@ fn run() -> anyhow::Result<()> {
 
     let runtime = create_runtime().context("create application-owned Tokio runtime")?;
     let smoke_test = env::args().any(|argument| argument == "--smoke-test");
-    senzo_ui::run(runtime.handle().clone(), smoke_test, metadata, artwork);
+    senzo_ui::run(runtime.handle().clone(), smoke_test);
 
     drop(services);
     drop(runtime);

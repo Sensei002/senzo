@@ -3,13 +3,15 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use gpui::{
-    App, Bounds, ColorExt, Context, FocusHandle, Image, ImageFormat, KeyBinding, Menu, MenuItem,
-    MouseButton, NavigationDirection, QuitMode, Render, RenderImage, SharedString, TitlebarOptions,
-    Window, WindowBounds, WindowOptions, actions, div, img, prelude::*, px, rgb, size,
+    App, Bounds, ColorExt, Context, Entity, FocusHandle, Image, ImageFormat, KeyBinding, Menu,
+    MenuItem, MouseButton, NavigationDirection, QuitMode, Render, RenderImage, SharedString,
+    Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div, img,
+    prelude::*, px, rgb, size,
 };
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_domain::AppPage;
-use senzo_metadata::{MediaType, MetadataClient};
+use senzo_metadata::{MediaType, MetadataClient, SearchType};
+use gpui_component::input::{InputEvent, InputState, TextInput};
 use tokio::{runtime::Handle, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 
@@ -71,6 +73,59 @@ struct HomeCatalogueData {
     featured_title: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SearchFilter {
+    All,
+    Movies,
+    TvShows,
+}
+
+impl SearchFilter {
+    const fn search_type(self) -> SearchType {
+        match self {
+            Self::All => SearchType::Multi,
+            Self::Movies => SearchType::Movie,
+            Self::TvShows => SearchType::Tv,
+        }
+    }
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::Movies => "Movies",
+            Self::TvShows => "TV Shows",
+        }
+    }
+
+    const fn key(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Movies => "movies",
+            Self::TvShows => "tv-shows",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SearchStatus {
+    Idle,
+    Debouncing,
+    Loading,
+    Results,
+    Empty,
+    Failed,
+}
+
+struct SearchMediaCard {
+    id: u64,
+    media_type: MediaType,
+    title: String,
+    detail: String,
+    overview: Option<String>,
+    vote_average: Option<f64>,
+    poster: Option<Arc<RenderImage>>,
+}
+
 pub(crate) struct SenzoShell {
     navigation: NavigationStack,
     navigation_focus: HashMap<AppPage, FocusHandle>,
@@ -84,6 +139,18 @@ pub(crate) struct SenzoShell {
     home_cards: Vec<HomeMediaCard>,
     home_featured_backdrop: Option<Arc<RenderImage>>,
     home_featured_title: Option<String>,
+    search_input: Entity<InputState>,
+    _search_input_subscription: Subscription,
+    search_filter: SearchFilter,
+    search_query: String,
+    search_status: SearchStatus,
+    search_error: Option<String>,
+    search_results: Vec<SearchMediaCard>,
+    search_total_results: Option<u32>,
+    selected_search_result: Option<usize>,
+    search_artwork_loading: bool,
+    search_cancellation: CancellationToken,
+    search_generation: u64,
     logo: Arc<Image>,
     dialog: Option<DialogKind>,
     menu_open: bool,
@@ -99,6 +166,7 @@ impl SenzoShell {
         smoke_test: bool,
         metadata: MetadataClient,
         artwork: ArtworkService,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let navigation_focus = AppPage::ALL
@@ -107,6 +175,17 @@ impl SenzoShell {
             .map(|(index, page)| (*page, cx.focus_handle().tab_index(index as isize)))
             .collect();
         let dialog_focus = cx.focus_handle().tab_index(60);
+        let search_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Search movies, TV shows, and people")
+        });
+        let search_input_subscription = cx.subscribe(
+            &search_input,
+            |this, input, event, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.update_search_query(input.read(cx).value().to_string(), cx);
+                }
+            },
+        );
 
         Self {
             navigation: NavigationStack::new(),
@@ -121,6 +200,18 @@ impl SenzoShell {
             home_cards: Vec::new(),
             home_featured_backdrop: None,
             home_featured_title: None,
+            search_input,
+            _search_input_subscription: search_input_subscription,
+            search_filter: SearchFilter::All,
+            search_query: String::new(),
+            search_status: SearchStatus::Idle,
+            search_error: None,
+            search_results: Vec::new(),
+            search_total_results: None,
+            selected_search_result: None,
+            search_artwork_loading: false,
+            search_cancellation: CancellationToken::new(),
+            search_generation: 0,
             logo: Arc::new(Image::from_bytes(
                 ImageFormat::Png,
                 include_bytes!("../../../assets/branding/senzo-logo.png").to_vec(),
@@ -367,6 +458,483 @@ impl SenzoShell {
             });
         })
         .detach();
+    }
+
+    fn update_search_query(&mut self, query: String, cx: &mut Context<Self>) {
+        if self.search_query == query {
+            return;
+        }
+        self.search_query = query;
+        self.schedule_search(cx);
+    }
+
+    fn set_search_filter(&mut self, filter: SearchFilter, cx: &mut Context<Self>) {
+        if self.search_filter == filter {
+            return;
+        }
+        self.search_filter = filter;
+        self.schedule_search(cx);
+    }
+
+    /// Debounce hosted search and cancel superseded metadata/artwork requests.
+    fn schedule_search(&mut self, cx: &mut Context<Self>) {
+        self.search_cancellation.cancel();
+        self.search_generation = self.search_generation.wrapping_add(1);
+        let generation = self.search_generation;
+        let query = self.search_query.trim().to_owned();
+        self.search_results.clear();
+        self.search_total_results = None;
+        self.selected_search_result = None;
+        self.search_error = None;
+        self.search_artwork_loading = false;
+
+        if query.is_empty() {
+            self.search_status = SearchStatus::Idle;
+            self.search_cancellation = CancellationToken::new();
+            cx.notify();
+            return;
+        }
+
+        let cancellation = CancellationToken::new();
+        self.search_cancellation = cancellation.clone();
+        self.search_status = SearchStatus::Debouncing;
+        let runtime = self.tokio.clone();
+        let metadata = self.metadata.clone();
+        let artwork = self.artwork.clone();
+        let search_type = self.search_filter.search_type();
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(350))
+                .await;
+
+            if cancellation.is_cancelled() {
+                return;
+            }
+
+            let _ = this.update(cx, |this, cx| {
+                if this.search_generation == generation {
+                    this.search_status = SearchStatus::Loading;
+                    cx.notify();
+                }
+            });
+
+            let request_token = cancellation.clone();
+            let response = runtime
+                .spawn(async move {
+                    metadata
+                        .search(&query, search_type, 1, "en-US", &request_token)
+                        .await
+                })
+                .await;
+
+            if cancellation.is_cancelled() {
+                return;
+            }
+
+            let response = match response {
+                Ok(Ok(response)) => response,
+                Ok(Err(error)) => {
+                    let message = error.to_string();
+                    let _ = this.update(cx, |this, cx| {
+                        if this.search_generation == generation
+                            && !cancellation.is_cancelled()
+                        {
+                            this.search_status = SearchStatus::Failed;
+                            this.search_error = Some(message);
+                            this.search_artwork_loading = false;
+                            cx.notify();
+                        }
+                    });
+                    return;
+                }
+                Err(error) => {
+                    let message = format!("The metadata request stopped unexpectedly: {error}");
+                    let _ = this.update(cx, |this, cx| {
+                        if this.search_generation == generation
+                            && !cancellation.is_cancelled()
+                        {
+                            this.search_status = SearchStatus::Failed;
+                            this.search_error = Some(message);
+                            this.search_artwork_loading = false;
+                            cx.notify();
+                        }
+                    });
+                    return;
+                }
+            };
+
+            let total_results = response.total_results;
+            let mut cards = Vec::new();
+            let mut image_requests = Vec::new();
+
+            for media in response.results.into_iter().take(24) {
+                let media_type = media.media_type.unwrap_or(match search_type {
+                    SearchType::Movie => MediaType::Movie,
+                    SearchType::Tv => MediaType::Tv,
+                    SearchType::Multi => MediaType::Other,
+                });
+                let is_person = media_type == MediaType::Person;
+                let poster_path = if is_person {
+                    media.profile_path.clone().or(media.poster_path.clone())
+                } else {
+                    media.poster_path.clone().or(media.profile_path.clone())
+                };
+                let image_size = if is_person {
+                    ArtworkSize::W185
+                } else {
+                    ArtworkSize::W342
+                };
+                if let Some(path) = poster_path {
+                    image_requests.push((cards.len(), path, image_size));
+                }
+
+                let category = match media_type {
+                    MediaType::Movie => "MOVIE",
+                    MediaType::Tv => "TV SERIES",
+                    MediaType::Person => "PERSON",
+                    MediaType::Other => "TITLE",
+                };
+                let detail = media
+                    .release_year()
+                    .map(|year| format!("{category} · {year}"))
+                    .unwrap_or_else(|| category.to_owned());
+
+                cards.push(SearchMediaCard {
+                    id: media.id,
+                    media_type,
+                    title: media.display_title().to_owned(),
+                    detail,
+                    overview: media.overview,
+                    vote_average: media.vote_average,
+                    poster: None,
+                });
+            }
+
+            let is_empty = cards.is_empty();
+            let has_images = !image_requests.is_empty();
+            let _ = this.update(cx, |this, cx| {
+                if this.search_generation != generation || cancellation.is_cancelled() {
+                    return;
+                }
+                this.search_results = cards;
+                this.search_total_results = total_results;
+                this.search_status = if is_empty {
+                    SearchStatus::Empty
+                } else {
+                    SearchStatus::Results
+                };
+                this.search_artwork_loading = has_images;
+                cx.notify();
+            });
+
+            if !has_images || cancellation.is_cancelled() {
+                return;
+            }
+
+            let artwork_token = cancellation.clone();
+            let image_results = runtime
+                .spawn(async move {
+                    let mut jobs = JoinSet::new();
+                    for (index, path, size) in image_requests {
+                        let service = artwork.clone();
+                        let token = artwork_token.child_token();
+                        jobs.spawn(async move {
+                            let image = load_gpui_artwork(service, path, size, token).await;
+                            (index, image)
+                        });
+                    }
+
+                    let mut images = Vec::new();
+                    while let Some(result) = jobs.join_next().await {
+                        if let Ok((index, Some(image))) = result {
+                            images.push((index, image));
+                        }
+                    }
+                    images
+                })
+                .await;
+
+            if cancellation.is_cancelled() {
+                return;
+            }
+
+            let images = image_results.unwrap_or_default();
+            let _ = this.update(cx, |this, cx| {
+                if this.search_generation != generation || cancellation.is_cancelled() {
+                    return;
+                }
+                for (index, image) in images {
+                    if let Some(card) = this.search_results.get_mut(index) {
+                        card.poster = Some(image);
+                    }
+                }
+                this.search_artwork_loading = false;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn search_filter_button(
+        &self,
+        filter: SearchFilter,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let active = self.search_filter == filter;
+        let tab_index = match filter {
+            SearchFilter::All => 26,
+            SearchFilter::Movies => 27,
+            SearchFilter::TvShows => 28,
+        };
+
+        div()
+            .id(format!("search-filter-{}", filter.key()))
+            .tab_index(tab_index)
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(if active { Theme::ACCENT } else { Theme::BORDER }))
+            .bg(rgb(if active { Theme::ACCENT_DARK } else { Theme::SURFACE }))
+            .px_4()
+            .py_2()
+            .cursor_pointer()
+            .hover(|style| style.bg(rgb(Theme::SURFACE_HOVER)))
+            .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+            .aria_label(format!("Search {}", filter.label()))
+            .on_click(cx.listener(move |this, _event, _window, cx| {
+                this.set_search_filter(filter, cx);
+            }))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(if active { Theme::ACCENT } else { Theme::TEXT_SECONDARY }))
+                    .child(filter.label()),
+            )
+    }
+
+    fn render_search(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let input = TextInput::new(&self.search_input)
+            .tab_index(25)
+            .cleanable()
+            .w_full()
+            .bg(rgb(Theme::SURFACE))
+            .border_1()
+            .border_color(rgb(Theme::BORDER))
+            .rounded_lg()
+            .px_4()
+            .py_3();
+
+        let filters = div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(self.search_filter_button(SearchFilter::All, cx))
+            .child(self.search_filter_button(SearchFilter::Movies, cx))
+            .child(self.search_filter_button(SearchFilter::TvShows, cx));
+
+        let mut page = div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_5()
+            .child(page_intro(
+                "FIND SOMETHING",
+                "Search",
+                "Search the SENZO metadata catalogue for movies, TV shows, and people.",
+            ))
+            .child(input)
+            .child(filters);
+
+        if self.search_query.trim().is_empty() {
+            return page.child(status_panel(
+                StatusTone::Info,
+                "READY WHEN YOU ARE",
+                "Find something to watch",
+                "Enter a title, series, or person's name. Search uses SENZO's hosted metadata service; no TMDB credential is stored in this app.",
+            ));
+        }
+
+        match self.search_status {
+            SearchStatus::Idle => {
+                page = page.child(status_panel(
+                    StatusTone::Info,
+                    "SEARCH",
+                    "Enter a search query",
+                    "Search across movies, TV shows, and people.",
+                ));
+            }
+            SearchStatus::Debouncing | SearchStatus::Loading => {
+                let mut skeletons = div().w_full().flex().flex_wrap().gap_4();
+                for _ in 0..6 {
+                    skeletons = skeletons.child(poster_card(" ", " ", None, true));
+                }
+                page = page
+                    .child(status_panel(
+                        StatusTone::Loading,
+                        "SEARCHING",
+                        "Looking through the catalogue",
+                        "Your latest query is being sent to the hosted metadata service.",
+                    ))
+                    .child(skeletons);
+            }
+            SearchStatus::Failed => {
+                page = page.child(status_panel(
+                    StatusTone::Error,
+                    "SEARCH UNAVAILABLE",
+                    "The catalogue could not be searched",
+                    self.search_error
+                        .as_deref()
+                        .unwrap_or("Check your connection and try again."),
+                ));
+                page = page.child(
+                    div()
+                        .id("retry-metadata-search")
+                        .tab_index(29)
+                        .rounded_md()
+                        .bg(rgb(Theme::ACCENT_DARK))
+                        .px_3()
+                        .py_2()
+                        .cursor_pointer()
+                        .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                        .aria_label("Retry search")
+                        .on_click(cx.listener(|this, _event, _window, cx| {
+                            this.schedule_search(cx);
+                        }))
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(rgb(Theme::ACCENT))
+                                .child("Retry"),
+                        ),
+                );
+            }
+            SearchStatus::Empty => {
+                page = page.child(status_panel(
+                    StatusTone::Empty,
+                    "NO RESULTS",
+                    "Nothing matched that search",
+                    "Try another title or switch between All, Movies, and TV Shows.",
+                ));
+            }
+            SearchStatus::Results => {
+                let total = self
+                    .search_total_results
+                    .unwrap_or(self.search_results.len() as u32);
+                page = page.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(
+                            div()
+                                .text_lg()
+                                .text_color(rgb(Theme::TEXT_PRIMARY))
+                                .child("Search results"),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(Theme::TEXT_MUTED))
+                                .child(format!("Showing {} of {total}", self.search_results.len())),
+                        ),
+                );
+
+                let mut results = div().w_full().flex().flex_wrap().gap_4();
+                for (index, card) in self.search_results.iter().enumerate() {
+                    let selected = self.selected_search_result == Some(index);
+                    let tile = div()
+                        .id(format!("search-result-{}-{index}", card.id))
+                        .tab_index(40 + index as isize)
+                        .rounded_lg()
+                        .border_1()
+                        .border_color(rgb(if selected { Theme::ACCENT } else { Theme::BORDER }))
+                        .p_1()
+                        .cursor_pointer()
+                        .hover(|style| style.border_color(rgb(Theme::ACCENT_DARK)))
+                        .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                        .aria_label(format!("Preview {}", card.title))
+                        .on_click(cx.listener(move |this, _event, _window, cx| {
+                            this.selected_search_result = Some(index);
+                            cx.notify();
+                        }))
+                        .child(poster_card(
+                            &card.title,
+                            &card.detail,
+                            card.poster.clone(),
+                            self.search_artwork_loading,
+                        ));
+                    results = results.child(tile);
+                }
+                page = page.child(results);
+
+                if let Some(card) = self
+                    .selected_search_result
+                    .and_then(|index| self.search_results.get(index))
+                {
+                    let synopsis = card
+                        .overview
+                        .as_deref()
+                        .filter(|overview| !overview.trim().is_empty())
+                        .unwrap_or("No synopsis is available for this title.");
+                    let media_label = match card.media_type {
+                        MediaType::Movie => "MOVIE",
+                        MediaType::Tv => "TV SERIES",
+                        MediaType::Person => "PERSON",
+                        MediaType::Other => "TITLE",
+                    };
+                    let mut preview = div()
+                        .w_full()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .rounded_lg()
+                        .border_1()
+                        .border_color(rgb(Theme::BORDER))
+                        .bg(rgb(Theme::SURFACE))
+                        .p_5()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(Theme::ACCENT))
+                                .child(format!("QUICK PREVIEW · {media_label}")),
+                        )
+                        .child(
+                            div()
+                                .text_xl()
+                                .text_color(rgb(Theme::TEXT_PRIMARY))
+                                .child(card.title.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(rgb(Theme::TEXT_SECONDARY))
+                                .child(synopsis.to_owned()),
+                        );
+
+                    if let Some(rating) = card.vote_average {
+                        preview = preview.child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(Theme::TEXT_MUTED))
+                                .child(format!("TMDB rating · {rating:.1}/10")),
+                        );
+                    }
+                    page = page.child(preview);
+                }
+
+                if self.search_artwork_loading {
+                    page = page.child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(Theme::TEXT_MUTED))
+                            .child("Loading validated artwork…"),
+                    );
+                }
+            }
+        }
+
+        page
     }
 
     fn render_home_artwork(&self, cx: &mut Context<Self>) -> gpui::Div {
@@ -1010,22 +1578,7 @@ impl SenzoShell {
                     "TV discovery is being connected",
                     "Series metadata, season and episode details will populate this route when the native API client is implemented.",
                 )),
-            AppPage::Search => div()
-                .w_full()
-                .flex()
-                .flex_col()
-                .gap_5()
-                .child(page_intro(
-                    "FIND SOMETHING",
-                    "Search",
-                    "Search across built-in metadata and enabled providers.",
-                ))
-                .child(status_panel(
-                    StatusTone::Info,
-                    "SEARCH FOUNDATION",
-                    "Search is not connected yet",
-                    "Search input, query state and provider aggregation will arrive with the networking and metadata phases.",
-                )),
+            AppPage::Search => self.render_search(cx),
             AppPage::Library => div()
                 .w_full()
                 .flex()
@@ -1315,6 +1868,7 @@ async fn load_gpui_artwork(
 impl Drop for SenzoShell {
     fn drop(&mut self) {
         self.home_cancellation.cancel();
+        self.search_cancellation.cancel();
     }
 }
 
@@ -1453,6 +2007,7 @@ pub fn run(tokio: Handle, smoke_test: bool, metadata: MetadataClient, artwork: A
     gpui_platform::application()
         .with_quit_mode(QuitMode::LastWindowClosed)
         .run(move |cx: &mut App| {
+            gpui_component::init(cx);
             bind_shell_keys(cx);
 
             cx.set_menus(vec![
@@ -1499,7 +2054,9 @@ pub fn run(tokio: Handle, smoke_test: bool, metadata: MetadataClient, artwork: A
             };
 
             cx.open_window(options, move |window, cx| {
-                let shell = cx.new(|cx| SenzoShell::new(tokio, smoke_test, metadata, artwork, cx));
+                let shell = cx.new(|cx| {
+                    SenzoShell::new(tokio, smoke_test, metadata, artwork, window, cx)
+                });
                 let initial_focus = shell
                     .read(cx)
                     .navigation_focus
@@ -1518,8 +2075,17 @@ pub fn run(tokio: Handle, smoke_test: bool, metadata: MetadataClient, artwork: A
 mod tests {
     use super::*;
 
+    #[test]
+    fn search_filters_map_to_the_hosted_metadata_contract() {
+        assert_eq!(SearchFilter::All.search_type(), SearchType::Multi);
+        assert_eq!(SearchFilter::Movies.search_type(), SearchType::Movie);
+        assert_eq!(SearchFilter::TvShows.search_type(), SearchType::Tv);
+    }
+
     #[gpui::test]
     async fn keyboard_navigation_back_forward_and_focus_restoration(cx: &mut gpui::TestAppContext) {
+        cx.update(|app| gpui_component::init(app));
+
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -1537,7 +2103,8 @@ mod tests {
         .expect("test artwork cache should initialize");
 
         let (shell, window_cx) = cx.add_window_view(|window, cx| {
-            let mut shell = SenzoShell::new(runtime.handle().clone(), false, metadata, artwork, cx);
+            let mut shell =
+                SenzoShell::new(runtime.handle().clone(), false, metadata, artwork, window, cx);
             shell.home_catalogue_status = HomeCatalogueStatus::Loaded;
             let home_focus = shell
                 .navigation_focus
