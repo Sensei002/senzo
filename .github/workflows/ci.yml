@@ -149,6 +149,7 @@ jobs:
         run: |
           node --check scripts/live-api-acceptance.mjs
           node --check scripts/live-api-url.mjs
+          node --check scripts/native-metadata-smoke.mjs
           node --test scripts/live-api-url.test.mjs
 
   live-api-acceptance:
