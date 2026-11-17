@@ -841,9 +841,7 @@ mod tests {
         )
         .unwrap();
 
-        let first = client
-            .trending(1, "en-US", &CancellationToken::new())
-            .await;
+        let first = client.trending(1, "en-US", &CancellationToken::new()).await;
         assert!(matches!(first, Err(MetadataError::Api { status: 503, .. })));
 
         let second = client
@@ -923,11 +921,8 @@ mod tests {
         .unwrap();
         let cancellation = CancellationToken::new();
         let task_cancellation = cancellation.clone();
-        let request = tokio::spawn(async move {
-            client
-                .trending(1, "en-US", &task_cancellation)
-                .await
-        });
+        let request =
+            tokio::spawn(async move { client.trending(1, "en-US", &task_cancellation).await });
 
         response_received.await.unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1001,5 +996,4 @@ mod tests {
 
         (format!("http://{address}"), task)
     }
-
 }
