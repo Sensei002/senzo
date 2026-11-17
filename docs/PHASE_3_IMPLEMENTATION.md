@@ -65,7 +65,7 @@ The initial Home rail is intentionally limited to eight current trending items a
 
 The Search route now exercises the metadata and artwork foundation through a native GPUI workflow:
 
-- Uses the GPUI CE native input state and TextInput component from the GPUI CE companion package compatible with the pinned GPUI CE 0.2.2 runtime. No WebView or browser input is used.
+- Uses the GPUI CE native Input component and InputState from the companion package compatible with the pinned GPUI CE 0.2.2 runtime. No WebView or browser input is used.
 - Normalizes the query and debounces typing by 350 ms; a new query or filter cancels the previous metadata request and outstanding artwork downloads.
 - Supports All (multi-search), Movies and TV Shows through the existing hosted metadata API contract.
 - Renders up to 24 actual API results with title, media type, release year, rating and validated poster/profile artwork. Results remain usable when artwork is unavailable.
