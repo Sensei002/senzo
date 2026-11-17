@@ -25,7 +25,7 @@ use senzo::{
     playback::{
         mpv_config::build_mpv_config,
         mpv_worker::{PlaybackEvent, PlaybackState, PlaybackWorker},
-        windows_surface::{SurfaceBounds, WindowsVideoSurface, gpui_parent_hwnd},
+        windows_surface::{SurfaceBounds, WindowsVideoSurface, gpui_parent_hwnd, request_parent_close},
     },
     settings::{
         DecoderPreference, HardwareDecoding, HdrMode, PlaybackSettings, RendererPreference,
@@ -4629,7 +4629,8 @@ impl Render for SenzoApp {
                                 .child(div().text_sm().text_color(rgb(0x9299A1)).child(self.playback_status.clone())))
                             .child(div().flex().items_center().gap_2()
                                 .child(choice_chip("Back", false, |this, cx| { this.active_page = if this.selected_title.is_some() { AppPage::Details } else { AppPage::Home }; cx.notify(); }, cx))
-                                .child(choice_chip("Open media", false, |this, cx| this.open_media(cx), cx))))
+                                .child(choice_chip("Open media", false, |this, cx| this.open_media(cx), cx))
+                                .child(choice_chip("Exit SENZO", false, |this, _cx| { if let Some(hwnd) = this.native_parent_hwnd { if let Err(error) = request_parent_close(hwnd) { diagnostics::record(diagnostics::Level::Warn, "application", &format!("could not close SENZO window: {error:#}")); } } }, cx))))
                         .child(div().w_full().flex_1().min_h(px(0.)).flex().on_children_prepainted(move |children, window, _cx| {
                             if let Some(bounds) = children.first() {
                                 if let Ok(measured) = SurfaceBounds::from_logical_pixels(f32::from(bounds.origin.x), f32::from(bounds.origin.y), f32::from(bounds.size.width), f32::from(bounds.size.height), window.scale_factor()) {
@@ -5263,16 +5264,18 @@ fn render_discovery_page(
                                 .child("🕒")
                                 .child(current_time_string()),
                         )
-                        .child(
-                            div()
-                                .px_2()
-                                .py_1()
-                                .rounded_md()
-                                .bg(rgb(0x181F26))
-                                .text_xs()
-                                .text_color(rgb(0xE2E8F0))
-                                .child("🗖"),
-                        ),
+                        .child(dynamic_choice_chip(
+                            "Exit SENZO".into(),
+                            false,
+                            |this, _cx| {
+                                if let Some(hwnd) = this.native_parent_hwnd {
+                                    if let Err(error) = request_parent_close(hwnd) {
+                                        diagnostics::record(diagnostics::Level::Warn, "application", &format!("could not close SENZO window: {error:#}"));
+                                    }
+                                }
+                            },
+                            cx,
+                        )),
                 ),
         )
         .when(
