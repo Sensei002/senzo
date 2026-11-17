@@ -125,6 +125,7 @@ jobs:
       (github.event_name == 'push' && contains(github.event.head_commit.message, '[live-api-acceptance]'))
     env:
       SENZO_API_BASE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.api_base_url != '' && inputs.api_base_url || 'https://senzo-api-git-development-stream-anything.vercel.app' }}
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
     strategy:
       fail-fast: false
       matrix:
