@@ -125,7 +125,7 @@ The live API acceptance job checks API health and server-side TMDB configuration
 
 SENZO API PR #1 currently has a ready Vercel Preview deployment at `https://senzo-api-git-development-stream-anything.vercel.app`. This allows the new Person route and the rest of the API contract to be tested before merging the PR. The preview does not change the production API or the desktop's default production base URL.
 
-The first Preview acceptance attempt on both Windows and Linux was redirected to an unresolved hostname (`api`) before an API response was received. The live script now stops at redirects and reports the exact `Location` header, so the Preview URL can be corrected without weakening the route assertions. An explicit offline connection-failure test has also been added to the metadata client.
+The first Preview acceptance attempt exposed a URL-joining bug in the test harness: assigning an empty pathname to a root `URL` normalizes it back to `/`, so concatenating an absolute API path produced `https://api/...` instead of the configured Preview origin. The harness now keeps the base path separately and rejects any cross-origin result. This had not been a Vercel deployment failure; the live service still needs to pass the corrected end-to-end check. An explicit offline connection-failure test has also been added to the metadata client.
 
 ## Remaining Phase 3 acceptance
 
