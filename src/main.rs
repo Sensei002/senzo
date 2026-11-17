@@ -6536,7 +6536,7 @@ fn render_discovery_page(
                                                 .object_fit(ObjectFit::Cover),
                                         )
                                     })
-                                    .when(details.get("poster_path").is_none() && details.get("poster").is_none(), |panel| {
+                                    .when(details.get("poster_path").is_none() && details.get("poster").is_none() && selected_poster_path.is_none(), |panel| {
                                         panel.flex().items_center().justify_center()
                                             .child(div().text_xs().text_color(rgb(0x858C94)).child("POSTER"))
                                     }),
