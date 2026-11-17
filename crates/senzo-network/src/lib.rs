@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use reqwest::{Client, Policy, Response};
+use reqwest::{Client, Response, redirect::Policy};
 use thiserror::Error;
 use url::Url;
 

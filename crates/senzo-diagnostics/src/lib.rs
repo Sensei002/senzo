@@ -67,11 +67,11 @@ pub fn redact_text(value: &str) -> String {
             redact_next = true;
             continue;
         }
-        if let Some((key, _)) = part.split_once('=') {
-            if is_sensitive_name(key.trim_end_matches(':')) {
-                output.push(format!("{key}=[REDACTED]"));
-                continue;
-            }
+        if let Some((key, _)) = part.split_once('=')
+            && is_sensitive_name(key.trim_end_matches(':'))
+        {
+            output.push(format!("{key}=[REDACTED]"));
+            continue;
         }
         output.push(part.to_owned());
     }
