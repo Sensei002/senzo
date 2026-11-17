@@ -6,8 +6,9 @@ use std::{
 
 use anyhow::Context as _;
 use gpui::{
-    Animation, AnimationExt, App, ClipboardItem, Context, Entity, MouseButton, ObjectFit, QuitMode, WindowBounds,
-    Render, Subscription, Task, Window, WindowOptions, div, ease_in_out, img, prelude::*, px, rgb,
+    Animation, AnimationExt, App, ClipboardItem, Context, Entity, MouseButton, ObjectFit, QuitMode,
+    Render, Subscription, Task, Window, WindowBounds, WindowOptions, div, ease_in_out, img,
+    prelude::*, px, rgb,
 };
 use gpui_base::input::{InputEvent, InputState};
 use gpui_base::{Input as GpuiInput, InputBase};
@@ -130,7 +131,11 @@ struct SenzoApp {
 }
 
 impl SenzoApp {
-    fn new(database: LocalDatabase, native_parent_hwnd: Option<usize>, initial_surface_bounds: SurfaceBounds) -> Self {
+    fn new(
+        database: LocalDatabase,
+        native_parent_hwnd: Option<usize>,
+        initial_surface_bounds: SurfaceBounds,
+    ) -> Self {
         let settings = match database.playback_settings() {
             Ok(settings) => settings,
             Err(error) => {
@@ -185,10 +190,7 @@ impl SenzoApp {
             .collect();
 
         let (native_video_surface, native_surface_error) = match native_parent_hwnd {
-            Some(parent) => match WindowsVideoSurface::create(
-                parent,
-                initial_surface_bounds,
-            ) {
+            Some(parent) => match WindowsVideoSurface::create(parent, initial_surface_bounds) {
                 Ok(surface) => (Some(surface), None),
                 Err(error) => (None, Some(format!("{error:#}"))),
             },
@@ -7053,13 +7055,16 @@ fn main() {
                     ),
                 }
                 let database = database.take().expect("SENZO window initialized once");
-                let window_options = cx.primary_display().map(|display| WindowOptions {
-                    window_bounds: Some(WindowBounds::Fullscreen(display.bounds())),
-                    titlebar: None,
-                    is_movable: false,
-                    is_resizable: false,
-                    ..Default::default()
-                }).unwrap_or_default();
+                let window_options = cx
+                    .primary_display()
+                    .map(|display| WindowOptions {
+                        window_bounds: Some(WindowBounds::Fullscreen(display.bounds())),
+                        titlebar: None,
+                        is_movable: false,
+                        is_resizable: false,
+                        ..Default::default()
+                    })
+                    .unwrap_or_default();
                 cx.open_window(window_options, move |window, cx| {
                     let viewport = window.viewport_size();
                     let initial_surface_bounds = SurfaceBounds::from_logical_pixels(
@@ -7068,7 +7073,13 @@ fn main() {
                         f32::from(viewport.width),
                         f32::from(viewport.height),
                         window.scale_factor(),
-                    ).unwrap_or(SurfaceBounds { x: 0, y: 0, width: 1280, height: 720 });
+                    )
+                    .unwrap_or(SurfaceBounds {
+                        x: 0,
+                        y: 0,
+                        width: 1280,
+                        height: 720,
+                    });
                     let native_parent_hwnd = match gpui_parent_hwnd(window) {
                         Ok(hwnd) => {
                             diagnostics::record(
@@ -7087,7 +7098,9 @@ fn main() {
                             None
                         }
                     };
-                    cx.new(move |_cx| SenzoApp::new(database, native_parent_hwnd, initial_surface_bounds))
+                    cx.new(move |_cx| {
+                        SenzoApp::new(database, native_parent_hwnd, initial_surface_bounds)
+                    })
                 })
                 .expect("failed to open SENZO window");
 
