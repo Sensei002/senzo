@@ -440,7 +440,7 @@ impl SenzoApp {
                                             diagnostics::Level::Info,
                                             "playback",
                                             &format!(
-                                                "MPV video output state: codec={}; format={}; decoder={}; hwdec={}; vo={}; vo_configured={}; dimensions={}x{}; container_fps={}; output_fps={}; dropped_frames={}; decoder_dropped_frames={}; mistimed_frames={}",
+                                                "MPV output state: video_codec={}; video_format={}; video_decoder={}; hwdec={}; vo={}; vo_configured={}; dimensions={}x{}; container_fps={}; output_fps={}; dropped_frames={}; decoder_dropped_frames={}; mistimed_frames={}; audio_output={}; audio_codec={}; audio_format={}; audio_rate={}; audio_channels={}; vid={}; aid={}",
                                                 video.video_codec.as_deref().unwrap_or("unknown"),
                                                 video.video_format.as_deref().unwrap_or("unknown"),
                                                 video.video_decoder.as_deref().unwrap_or("unknown"),
@@ -454,6 +454,13 @@ impl SenzoApp {
                                                 video.dropped_frames.map(|value| value.to_string()).unwrap_or_else(|| "?".into()),
                                                 video.decoder_dropped_frames.map(|value| value.to_string()).unwrap_or_else(|| "?".into()),
                                                 video.mistimed_frames.map(|value| value.to_string()).unwrap_or_else(|| "?".into()),
+                                                video.audio_output.as_deref().unwrap_or("unknown"),
+                                                video.audio_codec.as_deref().unwrap_or("unknown"),
+                                                video.audio_format.as_deref().unwrap_or("unknown"),
+                                                video.audio_sample_rate.as_deref().unwrap_or("unknown"),
+                                                video.audio_channels.as_deref().unwrap_or("unknown"),
+                                                video.selected_video_track.as_deref().unwrap_or("unknown"),
+                                                video.selected_audio_track.as_deref().unwrap_or("unknown"),
                                             ),
                                         );
                                     }
