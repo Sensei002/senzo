@@ -1199,7 +1199,7 @@ mod tests {
 
         window_cx.update(|_, app| bind_shell_keys(app));
         window_cx.simulate_keystrokes("down enter");
-        assert_eq!(shell.read(window_cx).navigation.current(), AppPage::Movies);
+        assert_eq!(shell.read_with(window_cx, |shell, _| shell.navigation.current()), AppPage::Movies);
         assert!(window_cx.update(|window, app| {
             shell
                 .read(app)
@@ -1216,7 +1216,7 @@ mod tests {
 
         window_cx.dispatch_action(ShowShortcuts);
         assert_eq!(
-            shell.read(window_cx).dialog,
+            shell.read_with(window_cx, |shell, _| shell.dialog),
             Some(DialogKind::Shortcuts)
         );
         window_cx.simulate_keystrokes("escape");
