@@ -8,10 +8,10 @@ use gpui::{
     Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div, img,
     prelude::*, px, rgb, size,
 };
+use gpui_component::input::{Input, InputEvent, InputState};
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_domain::AppPage;
 use senzo_metadata::{MediaType, MetadataClient, SearchType};
-use gpui_component::input::{Input, InputEvent, InputState};
 use tokio::{runtime::Handle, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 
@@ -178,14 +178,11 @@ impl SenzoShell {
         let search_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search movies, TV shows, and people")
         });
-        let search_input_subscription = cx.subscribe(
-            &search_input,
-            |this, input, event, cx| {
-                if matches!(event, InputEvent::Change) {
-                    this.update_search_query(input.read(cx).value().to_string(), cx);
-                }
-            },
-        );
+        let search_input_subscription = cx.subscribe(&search_input, |this, input, event, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.update_search_query(input.read(cx).value().to_string(), cx);
+            }
+        });
 
         Self {
             navigation: NavigationStack::new(),
@@ -538,9 +535,7 @@ impl SenzoShell {
                 Ok(Err(error)) => {
                     let message = error.to_string();
                     let _ = this.update(cx, |this, cx| {
-                        if this.search_generation == generation
-                            && !cancellation.is_cancelled()
-                        {
+                        if this.search_generation == generation && !cancellation.is_cancelled() {
                             this.search_status = SearchStatus::Failed;
                             this.search_error = Some(message);
                             this.search_artwork_loading = false;
@@ -552,9 +547,7 @@ impl SenzoShell {
                 Err(error) => {
                     let message = format!("The metadata request stopped unexpectedly: {error}");
                     let _ = this.update(cx, |this, cx| {
-                        if this.search_generation == generation
-                            && !cancellation.is_cancelled()
-                        {
+                        if this.search_generation == generation && !cancellation.is_cancelled() {
                             this.search_status = SearchStatus::Failed;
                             this.search_error = Some(message);
                             this.search_artwork_loading = false;
@@ -695,7 +688,11 @@ impl SenzoShell {
             .rounded_md()
             .border_1()
             .border_color(rgb(if active { Theme::ACCENT } else { Theme::BORDER }))
-            .bg(rgb(if active { Theme::ACCENT_DARK } else { Theme::SURFACE }))
+            .bg(rgb(if active {
+                Theme::ACCENT_DARK
+            } else {
+                Theme::SURFACE
+            }))
             .px_4()
             .py_2()
             .cursor_pointer()
@@ -708,7 +705,11 @@ impl SenzoShell {
             .child(
                 div()
                     .text_sm()
-                    .text_color(rgb(if active { Theme::ACCENT } else { Theme::TEXT_SECONDARY }))
+                    .text_color(rgb(if active {
+                        Theme::ACCENT
+                    } else {
+                        Theme::TEXT_SECONDARY
+                    }))
                     .child(filter.label()),
             )
     }
@@ -822,24 +823,22 @@ impl SenzoShell {
                 let total = self
                     .search_total_results
                     .unwrap_or(self.search_results.len() as u32);
-                page = page.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .child(
-                            div()
-                                .text_lg()
-                                .text_color(rgb(Theme::TEXT_PRIMARY))
-                                .child("Search results"),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(Theme::TEXT_MUTED))
-                                .child(format!("Showing {} of {total}", self.search_results.len())),
-                        ),
-                );
+                page =
+                    page.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .text_lg()
+                                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                                    .child("Search results"),
+                            )
+                            .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
+                                format!("Showing {} of {total}", self.search_results.len()),
+                            )),
+                    );
 
                 let mut results = div().w_full().flex().flex_wrap().gap_4();
                 for (index, card) in self.search_results.iter().enumerate() {
@@ -849,7 +848,11 @@ impl SenzoShell {
                         .tab_index(40 + index as isize)
                         .rounded_lg()
                         .border_1()
-                        .border_color(rgb(if selected { Theme::ACCENT } else { Theme::BORDER }))
+                        .border_color(rgb(if selected {
+                            Theme::ACCENT
+                        } else {
+                            Theme::BORDER
+                        }))
                         .p_1()
                         .cursor_pointer()
                         .hover(|style| style.border_color(rgb(Theme::ACCENT_DARK)))
@@ -2055,9 +2058,8 @@ pub fn run(tokio: Handle, smoke_test: bool, metadata: MetadataClient, artwork: A
             };
 
             cx.open_window(options, move |window, cx| {
-                let shell = cx.new(|cx| {
-                    SenzoShell::new(tokio, smoke_test, metadata, artwork, window, cx)
-                });
+                let shell =
+                    cx.new(|cx| SenzoShell::new(tokio, smoke_test, metadata, artwork, window, cx));
                 let initial_focus = shell
                     .read(cx)
                     .navigation_focus
@@ -2104,8 +2106,14 @@ mod tests {
         .expect("test artwork cache should initialize");
 
         let (shell, window_cx) = cx.add_window_view(|window, cx| {
-            let mut shell =
-                SenzoShell::new(runtime.handle().clone(), false, metadata, artwork, window, cx);
+            let mut shell = SenzoShell::new(
+                runtime.handle().clone(),
+                false,
+                metadata,
+                artwork,
+                window,
+                cx,
+            );
             shell.home_catalogue_status = HomeCatalogueStatus::Loaded;
             let home_focus = shell
                 .navigation_focus
