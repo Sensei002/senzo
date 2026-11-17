@@ -294,3 +294,5 @@ See docs/PHASE_3_IMPLEMENTATION.md.
 - [ ] Publish SENZO 1.0 release notes and source.
 
 **Gate:** Nuvio desktop parity inventory is closed or every remaining difference is explicitly documented and accepted.
+
+Phase 3 Details CI follow-up: the native movie/TV Details implementation is on `development`; Clippy requires the selected-result guard to use a collapsed let-chain. Cross-platform CI is pending for the latest source commit.
