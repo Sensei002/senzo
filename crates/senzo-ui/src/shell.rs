@@ -1022,10 +1022,10 @@ impl Render for SenzoShell {
                 window.toggle_fullscreen();
             })
             .on_action(|_: &FocusNext, window, cx| {
-                window.focus_next();
+                window.focus_next(cx);
             })
             .on_action(|_: &FocusPrevious, window, cx| {
-                window.focus_prev();
+                window.focus_prev(cx);
             })
             .on_action(cx.listener(|this, _: &ShowShortcuts, window, cx| {
                 this.open_dialog(DialogKind::Shortcuts, window, cx);
@@ -1079,7 +1079,7 @@ impl Render for SenzoShell {
     }
 }
 
-pub(crate) fn run(tokio: Handle, smoke_test: bool) {
+pub fn run(tokio: Handle, smoke_test: bool) {
     gpui_platform::application()
         .with_quit_mode(QuitMode::LastWindowClosed)
         .run(move |cx: &mut App| {
