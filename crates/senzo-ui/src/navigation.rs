@@ -23,7 +23,10 @@ impl NavigationStack {
     }
 
     pub(crate) fn current(&self) -> AppPage {
-        *self.back.last().expect("navigation always has a root route")
+        *self
+            .back
+            .last()
+            .expect("navigation always has a root route")
     }
 
     pub(crate) fn can_go_back(&self) -> bool {

@@ -23,7 +23,6 @@ impl Theme {
     pub const HEADER_HEIGHT: f32 = 84.0;
     pub const MIN_WINDOW_WIDTH: f32 = 1024.0;
     pub const MIN_WINDOW_HEIGHT: f32 = 680.0;
-
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 //! Reusable GPUI primitives for SENZO's shell and future feature screens.
 
-use gpui::{div, rgb, prelude::*, Div};
+use gpui::{Div, div, prelude::*, rgb};
 
 use crate::theme::Theme;
 
@@ -37,12 +37,7 @@ pub(crate) fn page_intro(eyebrow: &str, title: &str, description: &str) -> Div {
         )
 }
 
-pub(crate) fn status_panel(
-    tone: StatusTone,
-    eyebrow: &str,
-    title: &str,
-    description: &str,
-) -> Div {
+pub(crate) fn status_panel(tone: StatusTone, eyebrow: &str, title: &str, description: &str) -> Div {
     let (accent, marker) = match tone {
         StatusTone::Info => (Theme::INFO, "i"),
         StatusTone::Empty => (Theme::ACCENT, "—"),

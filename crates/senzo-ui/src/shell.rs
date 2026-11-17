@@ -3,33 +3,36 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use gpui::{
-    App, Bounds, ColorExt, Context, FocusHandle, Image, ImageFormat, KeyBinding, Menu, MenuItem, MouseButton,
-    NavigationDirection, QuitMode, Render, SharedString, TitlebarOptions, Window, WindowBounds, WindowOptions,
-    actions, div, img, prelude::*, px, rgb, size,
+    App, Bounds, ColorExt, Context, FocusHandle, Image, ImageFormat, KeyBinding, Menu, MenuItem,
+    MouseButton, NavigationDirection, QuitMode, Render, SharedString, TitlebarOptions, Window,
+    WindowBounds, WindowOptions, actions, div, img, prelude::*, px, rgb, size,
 };
 use senzo_domain::AppPage;
 use tokio::runtime::Handle;
 
 use crate::{
-    components::{divider, feature_tile, page_intro, status_panel, StatusTone},
+    components::{StatusTone, divider, feature_tile, page_intro, status_panel},
     navigation::NavigationStack,
     theme::Theme,
 };
 
-actions!(senzo, [
-    GoBack,
-    GoForward,
-    ToggleFullscreen,
-    FocusNext,
-    FocusPrevious,
-    ActivateNavigation,
-    MoveNavigationUp,
-    MoveNavigationDown,
-    ShowShortcuts,
-    ShowAbout,
-    ShowWhatsNew,
-    Quit
-]);
+actions!(
+    senzo,
+    [
+        GoBack,
+        GoForward,
+        ToggleFullscreen,
+        FocusNext,
+        FocusPrevious,
+        ActivateNavigation,
+        MoveNavigationUp,
+        MoveNavigationDown,
+        ShowShortcuts,
+        ShowAbout,
+        ShowWhatsNew,
+        Quit
+    ]
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DialogKind {
@@ -184,7 +187,12 @@ impl SenzoShell {
         div()
             .id(format!("navigation-{}", page.key()))
             .track_focus(&focus)
-            .tab_index(AppPage::ALL.iter().position(|item| *item == page).unwrap_or(0) as isize)
+            .tab_index(
+                AppPage::ALL
+                    .iter()
+                    .position(|item| *item == page)
+                    .unwrap_or(0) as isize,
+            )
             .key_context("SENZO_NAVIGATION")
             .w_full()
             .flex()
@@ -218,9 +226,11 @@ impl SenzoShell {
             .on_click(cx.listener(move |this, _event, window, cx| {
                 this.navigate(page, window, cx);
             }))
-            .on_action(cx.listener(move |this, _: &ActivateNavigation, window, cx| {
-                this.navigate(page, window, cx);
-            }))
+            .on_action(
+                cx.listener(move |this, _: &ActivateNavigation, window, cx| {
+                    this.navigate(page, window, cx);
+                }),
+            )
             .child(
                 div()
                     .w(px(38.0))
@@ -408,7 +418,9 @@ impl SenzoShell {
                             .py_2()
                             .cursor_pointer()
                             .hover(|style| style.bg(rgb(Theme::SURFACE_HOVER)))
-                            .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                            .focus_visible(|style| {
+                                style.border_1().border_color(rgb(Theme::ACCENT))
+                            })
                             .aria_label("Toggle fullscreen")
                             .aria_keyshortcuts("F11")
                             .on_click(|_event, window, _cx| window.toggle_fullscreen())
@@ -435,7 +447,9 @@ impl SenzoShell {
                             .py_2()
                             .cursor_pointer()
                             .hover(|style| style.bg(rgb(Theme::SURFACE_HOVER)))
-                            .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                            .focus_visible(|style| {
+                                style.border_1().border_color(rgb(Theme::ACCENT))
+                            })
                             .aria_label("Open application menu")
                             .aria_expanded(self.menu_open)
                             .on_click(cx.listener(|this, _event, _window, cx| {
@@ -881,63 +895,57 @@ impl SenzoShell {
             ],
         };
 
-        let rows = details.into_iter().fold(
-            div().flex().flex_col().gap_3(),
-            |column, (label, value)| {
-                column.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .gap_4()
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(rgb(Theme::TEXT_SECONDARY))
-                                .child(label),
-                        )
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(rgb(Theme::TEXT_PRIMARY))
-                                .child(value),
-                        ),
-                )
-            },
-        );
-
-        dialog
-            .child(rows)
-            .child(divider())
-            .child(
-                div()
-                    .flex()
-                    .justify_end()
-                    .child(
+        let rows =
+            details
+                .into_iter()
+                .fold(div().flex().flex_col().gap_3(), |column, (label, value)| {
+                    column.child(
                         div()
-                            .id("dialog-close")
-                            .track_focus(&self.dialog_focus)
-                            .tab_index(60)
-                            .rounded_md()
-                            .bg(rgb(Theme::ACCENT))
-                            .px_4()
-                            .py_2()
-                            .cursor_pointer()
-                            .focus_visible(|style| style.border_1().border_color(rgb(Theme::TEXT_PRIMARY)))
-                            .aria_label("Close dialog")
-                            .on_click(cx.listener(|this, _event, window, cx| {
-                                this.dialog = None;
-                                this.focus_page(this.navigation.current(), window, cx);
-                                cx.notify();
-                            }))
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap_4()
                             .child(
                                 div()
                                     .text_sm()
-                                    .text_color(rgb(Theme::BACKGROUND))
-                                    .child("Close"),
+                                    .text_color(rgb(Theme::TEXT_SECONDARY))
+                                    .child(label),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                                    .child(value),
                             ),
+                    )
+                });
+
+        dialog.child(rows).child(divider()).child(
+            div().flex().justify_end().child(
+                div()
+                    .id("dialog-close")
+                    .track_focus(&self.dialog_focus)
+                    .tab_index(60)
+                    .rounded_md()
+                    .bg(rgb(Theme::ACCENT))
+                    .px_4()
+                    .py_2()
+                    .cursor_pointer()
+                    .focus_visible(|style| style.border_1().border_color(rgb(Theme::TEXT_PRIMARY)))
+                    .aria_label("Close dialog")
+                    .on_click(cx.listener(|this, _event, window, cx| {
+                        this.dialog = None;
+                        this.focus_page(this.navigation.current(), window, cx);
+                        cx.notify();
+                    }))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::BACKGROUND))
+                            .child("Close"),
                     ),
-            )
+            ),
+        )
     }
 
     fn render_notification(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -1044,7 +1052,10 @@ impl Render for SenzoShell {
             }))
             .on_action(cx.listener(|this, _: &ShowWhatsNew, _window, cx| {
                 this.menu_open = false;
-                this.notification = Some("Phase 2 brings SENZO's native navigation, design system and desktop shell.".to_owned());
+                this.notification = Some(
+                    "Phase 2 brings SENZO's native navigation, design system and desktop shell."
+                        .to_owned(),
+                );
                 cx.notify();
             }))
             .on_action(|_: &Quit, _window, cx| cx.quit())
@@ -1172,15 +1183,12 @@ pub fn run(tokio: Handle, smoke_test: bool) {
         });
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[gpui::test]
-    async fn keyboard_navigation_back_forward_and_focus_restoration(
-        cx: &mut gpui::TestAppContext,
-    ) {
+    async fn keyboard_navigation_back_forward_and_focus_restoration(cx: &mut gpui::TestAppContext) {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -1199,7 +1207,10 @@ mod tests {
 
         window_cx.update(|_, app| bind_shell_keys(app));
         window_cx.simulate_keystrokes("down enter");
-        assert_eq!(shell.read_with(window_cx, |shell, _| shell.navigation.current()), AppPage::Movies);
+        assert_eq!(
+            shell.read_with(window_cx, |shell, _| shell.navigation.current()),
+            AppPage::Movies
+        );
         assert!(window_cx.update(|window, app| {
             shell
                 .read(app)
@@ -1210,9 +1221,15 @@ mod tests {
         }));
 
         window_cx.simulate_keystrokes("escape");
-        assert_eq!(shell.read_with(window_cx, |shell, _| shell.navigation.current()), AppPage::Home);
+        assert_eq!(
+            shell.read_with(window_cx, |shell, _| shell.navigation.current()),
+            AppPage::Home
+        );
         window_cx.simulate_keystrokes("alt-right");
-        assert_eq!(shell.read_with(window_cx, |shell, _| shell.navigation.current()), AppPage::Movies);
+        assert_eq!(
+            shell.read_with(window_cx, |shell, _| shell.navigation.current()),
+            AppPage::Movies
+        );
 
         window_cx.dispatch_action(ShowShortcuts);
         assert_eq!(
