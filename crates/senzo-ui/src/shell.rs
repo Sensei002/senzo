@@ -705,10 +705,11 @@ impl SenzoShell {
             ))
         });
         cx.spawn(async move |this, cx| {
-            let result = task.await.unwrap_or_else(|_| {
-                Err("The details request stopped unexpectedly. Check your connection and retry."
+            let result =
+                task.await.unwrap_or_else(|_| {
+                    Err("The details request stopped unexpectedly. Check your connection and retry."
                     .to_owned())
-            });
+                });
             let _ = this.update(cx, |this, cx| {
                 if cancellation.is_cancelled() {
                     return;
@@ -784,8 +785,7 @@ impl SenzoShell {
         };
         if current.media_type != MediaType::Tv
             || current.loading
-            || current.selected_season_number == Some(number)
-                && current.selected_season.is_some()
+            || current.selected_season_number == Some(number) && current.selected_season.is_some()
         {
             return;
         }
@@ -811,20 +811,18 @@ impl SenzoShell {
         });
         cx.spawn(async move |this, cx| {
             let result = task.await.unwrap_or_else(|_| {
-                Err("The season request stopped unexpectedly. Check your connection and retry."
-                    .to_owned())
+                Err(
+                    "The season request stopped unexpectedly. Check your connection and retry."
+                        .to_owned(),
+                )
             });
             let _ = this.update(cx, |this, cx| {
                 if cancellation.is_cancelled() {
                     return;
                 }
-                if let Some(details) = this
-                    .details
-                    .as_mut()
-                    .filter(|details| {
-                        details.id == id && details.selected_season_number == Some(number)
-                    })
-                {
+                if let Some(details) = this.details.as_mut().filter(|details| {
+                    details.id == id && details.selected_season_number == Some(number)
+                }) {
                     details.season_loading = false;
                     match result {
                         Ok(season) => {
@@ -1085,8 +1083,7 @@ impl SenzoShell {
                     "Loading episodes",
                     "Fetching the selected season.",
                 ));
-            } else if let (Some(error), Some(number)) =
-                (&d.season_error, d.selected_season_number)
+            } else if let (Some(error), Some(number)) = (&d.season_error, d.selected_season_number)
             {
                 section = section.child(status_panel(
                     StatusTone::Error,
@@ -2812,23 +2809,31 @@ mod tests {
 
     #[test]
     fn metadata_failures_have_actionable_user_messages() {
-        assert!(metadata_error_message(&MetadataError::Network("timeout".to_owned()))
-            .contains("internet connection"));
-        assert!(metadata_error_message(&MetadataError::Api {
-            status: 429,
-            message: "rate limited".to_owned(),
-        })
-        .contains("Wait a moment"));
-        assert!(metadata_error_message(&MetadataError::Api {
-            status: 503,
-            message: "upstream unavailable".to_owned(),
-        })
-        .contains("temporarily unavailable"));
-        assert!(metadata_error_message(&MetadataError::Api {
-            status: 404,
-            message: "not found".to_owned(),
-        })
-        .contains("could not be found"));
+        assert!(
+            metadata_error_message(&MetadataError::Network("timeout".to_owned()))
+                .contains("internet connection")
+        );
+        assert!(
+            metadata_error_message(&MetadataError::Api {
+                status: 429,
+                message: "rate limited".to_owned(),
+            })
+            .contains("Wait a moment")
+        );
+        assert!(
+            metadata_error_message(&MetadataError::Api {
+                status: 503,
+                message: "upstream unavailable".to_owned(),
+            })
+            .contains("temporarily unavailable")
+        );
+        assert!(
+            metadata_error_message(&MetadataError::Api {
+                status: 404,
+                message: "not found".to_owned(),
+            })
+            .contains("could not be found")
+        );
     }
 
     #[gpui::test]
