@@ -11,7 +11,9 @@ use gpui::{
 use gpui_component::input::{Input, InputEvent, InputState};
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_domain::AppPage;
-use senzo_metadata::{MediaType, MetadataClient, MetadataError, SearchType, SeasonDetails, SeasonSummary};
+use senzo_metadata::{
+    MediaType, MetadataClient, MetadataError, SearchType, SeasonDetails, SeasonSummary,
+};
 use tokio::{runtime::Handle, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 
@@ -1232,7 +1234,11 @@ impl SenzoShell {
                     return;
                 }
                 Err(error) => {
-                    let message = "The search request stopped before a response was received. Check your connection and retry.".to_owned();
+                    let message = concat!(
+                        "The search request stopped before a response was received. ",
+                        "Check your connection and retry.",
+                    )
+                    .to_owned();
                     let _ = this.update(cx, |this, cx| {
                         if this.search_generation == generation && !cancellation.is_cancelled() {
                             this.search_status = SearchStatus::Failed;
