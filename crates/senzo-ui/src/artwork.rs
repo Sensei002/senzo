@@ -59,8 +59,16 @@ pub(crate) fn poster_card(
                 .child(
                     div()
                         .text_xs()
-                        .text_color(rgb(if loading { Theme::ACCENT } else { Theme::TEXT_MUTED }))
-                        .child(if loading { "LOADING ARTWORK" } else { "NO ARTWORK" }),
+                        .text_color(rgb(if loading {
+                            Theme::ACCENT
+                        } else {
+                            Theme::TEXT_MUTED
+                        }))
+                        .child(if loading {
+                            "LOADING ARTWORK"
+                        } else {
+                            "NO ARTWORK"
+                        }),
                 ),
         );
     }
@@ -87,11 +95,7 @@ pub(crate) fn poster_card(
 }
 
 /// Wide native image surface for hero/backdrop layouts.
-pub(crate) fn backdrop_surface(
-    image: Option<Arc<RenderImage>>,
-    height: f32,
-    loading: bool,
-) -> Div {
+pub(crate) fn backdrop_surface(image: Option<Arc<RenderImage>>, height: f32, loading: bool) -> Div {
     let mut surface = div()
         .relative()
         .w_full()

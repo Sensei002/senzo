@@ -303,13 +303,8 @@ impl SenzoShell {
                     let backdrop = if Some(index) == featured_index {
                         match candidate.backdrop_path {
                             Some(path) => {
-                                load_gpui_artwork(
-                                    artwork,
-                                    path,
-                                    ArtworkSize::W1280,
-                                    cancellation,
-                                )
-                                .await
+                                load_gpui_artwork(artwork, path, ArtworkSize::W1280, cancellation)
+                                    .await
                             }
                             None => None,
                         }
@@ -422,7 +417,13 @@ impl SenzoShell {
             .flex_col()
             .gap_3()
             .child(heading)
-            .child(div().id("trending-shelf-scroll").w_full().overflow_x_scroll().child(content));
+            .child(
+                div()
+                    .id("trending-shelf-scroll")
+                    .w_full()
+                    .overflow_x_scroll()
+                    .child(content),
+            );
 
         if let Some(error) = &self.home_catalogue_error {
             section = section.child(status_panel(
@@ -1299,7 +1300,9 @@ async fn load_gpui_artwork(
     size: ArtworkSize,
     cancellation: CancellationToken,
 ) -> Option<Arc<RenderImage>> {
-    let url = ArtworkUrlResolver.resolve_tmdb_path(&file_path, size).ok()?;
+    let url = ArtworkUrlResolver
+        .resolve_tmdb_path(&file_path, size)
+        .ok()?;
     let decoded = artwork.load(&url, &cancellation).await.ok()?;
     tokio::task::spawn_blocking(move || {
         render_image_from_artwork(decoded.width(), decoded.height(), decoded.rgba8())
@@ -1446,12 +1449,7 @@ fn bind_shell_keys(cx: &mut App) {
     ]);
 }
 
-pub fn run(
-    tokio: Handle,
-    smoke_test: bool,
-    metadata: MetadataClient,
-    artwork: ArtworkService,
-) {
+pub fn run(tokio: Handle, smoke_test: bool, metadata: MetadataClient, artwork: ArtworkService) {
     gpui_platform::application()
         .with_quit_mode(QuitMode::LastWindowClosed)
         .run(move |cx: &mut App| {
@@ -1501,9 +1499,7 @@ pub fn run(
             };
 
             cx.open_window(options, move |window, cx| {
-                let shell = cx.new(|cx| {
-                    SenzoShell::new(tokio, smoke_test, metadata, artwork, cx)
-                });
+                let shell = cx.new(|cx| SenzoShell::new(tokio, smoke_test, metadata, artwork, cx));
                 let initial_focus = shell
                     .read(cx)
                     .navigation_focus
@@ -1541,13 +1537,7 @@ mod tests {
         .expect("test artwork cache should initialize");
 
         let (shell, window_cx) = cx.add_window_view(|window, cx| {
-            let mut shell = SenzoShell::new(
-                runtime.handle().clone(),
-                false,
-                metadata,
-                artwork,
-                cx,
-            );
+            let mut shell = SenzoShell::new(runtime.handle().clone(), false, metadata, artwork, cx);
             shell.home_catalogue_status = HomeCatalogueStatus::Loaded;
             let home_focus = shell
                 .navigation_focus
