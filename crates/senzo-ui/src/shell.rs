@@ -1,6 +1,6 @@
 //! Native SENZO desktop shell: routes, focus, menus, dialogs and window actions.
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::{HashMap, HashSet}, sync::Arc, time::Duration};
 
 use gpui::{
     App, Bounds, ColorExt, Context, Entity, FocusHandle, Image, ImageFormat, KeyBinding, Menu,
@@ -12,7 +12,8 @@ use gpui_component::input::{Input, InputEvent, InputState};
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_domain::AppPage;
 use senzo_metadata::{
-    MediaType, MetadataClient, MetadataError, SearchType, SeasonDetails, SeasonSummary,
+    MediaType, MetadataClient, MetadataError, Person, PersonCredit, SearchType, SeasonDetails,
+    SeasonSummary,
 };
 use tokio::{runtime::Handle, task::JoinSet};
 use tokio_util::sync::CancellationToken;
@@ -128,6 +129,39 @@ struct SearchMediaCard {
     poster: Option<Arc<RenderImage>>,
 }
 
+struct PersonCreditCandidate {
+    id: u64,
+    media_type: MediaType,
+    title: String,
+    detail: String,
+    popularity: f64,
+    artwork_path: String,
+    artwork_size: ArtworkSize,
+}
+
+struct PersonCreditCard {
+    id: u64,
+    media_type: MediaType,
+    title: String,
+    detail: String,
+    poster: Option<Arc<RenderImage>>,
+}
+
+struct PersonDetailsPage {
+    id: u64,
+    name: String,
+    biography: Option<String>,
+    birthday: Option<String>,
+    deathday: Option<String>,
+    place_of_birth: Option<String>,
+    known_for_department: Option<String>,
+    profile: Option<Arc<RenderImage>>,
+    movie_credits: Vec<PersonCreditCard>,
+    tv_credits: Vec<PersonCreditCard>,
+    loading: bool,
+    error: Option<String>,
+}
+
 struct DetailsPage {
     id: u64,
     media_type: MediaType,
@@ -179,6 +213,8 @@ pub(crate) struct SenzoShell {
     search_generation: u64,
     details: Option<DetailsPage>,
     details_cancellation: CancellationToken,
+    person_details: Option<PersonDetailsPage>,
+    person_details_cancellation: CancellationToken,
     logo: Arc<Image>,
     dialog: Option<DialogKind>,
     menu_open: bool,
@@ -237,6 +273,97 @@ fn metadata_error_message(error: &MetadataError) -> String {
     }
 }
 
+fn person_credit_candidates(
+    person: &Person,
+    media_type: MediaType,
+) -> Vec<PersonCreditCandidate> {
+    let Some(credits) = person.combined_credits.as_ref() else {
+        return Vec::new();
+    };
+    let department = person
+        .known_for_department
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let prefer_crew = !department.is_empty() && !matches!(department.as_str(), "acting" | "actors");
+
+    let mut cast = Vec::new();
+    let mut crew = Vec::new();
+    for (source, destination, is_crew) in [
+        (credits.cast.as_slice(), &mut cast, false),
+        (credits.crew.as_slice(), &mut crew, true),
+    ] {
+        for credit in source {
+            if credit.media_type != Some(media_type) {
+                continue;
+            }
+            let (artwork_path, artwork_size) = match (
+                credit.poster_path.as_deref(),
+                credit.backdrop_path.as_deref(),
+            ) {
+                (Some(path), _) => (path.to_owned(), ArtworkSize::W342),
+                (None, Some(path)) => (path.to_owned(), ArtworkSize::W780),
+                (None, None) => continue,
+            };
+            let title = credit.display_title().trim();
+            if title.is_empty() || title == "Untitled" {
+                continue;
+            }
+            let media_label = match media_type {
+                MediaType::Movie => "MOVIE",
+                MediaType::Tv => "TV SERIES",
+                MediaType::Person | MediaType::Other => continue,
+            };
+            let role = if is_crew {
+                credit
+                    .job
+                    .as_deref()
+                    .or(credit.department.as_deref())
+            } else {
+                credit
+                    .character
+                    .as_deref()
+                    .or(credit.job.as_deref())
+            };
+            let mut details = vec![media_label.to_owned()];
+            if let Some(year) = credit.release_year() {
+                details.push(year.to_owned());
+            }
+            if let Some(role) = role.map(str::trim).filter(|role| !role.is_empty()) {
+                details.push(role.to_owned());
+            }
+            destination.push(PersonCreditCandidate {
+                id: credit.id,
+                media_type,
+                title: title.to_owned(),
+                detail: details.join(" · "),
+                popularity: credit.popularity.unwrap_or_default(),
+                artwork_path,
+                artwork_size,
+            });
+        }
+    }
+
+    let mut selected = if prefer_crew && !crew.is_empty() {
+        crew
+    } else if !cast.is_empty() {
+        cast
+    } else {
+        crew
+    };
+    selected.sort_by(|left, right| {
+        right
+            .popularity
+            .total_cmp(&left.popularity)
+            .then_with(|| left.title.cmp(&right.title))
+    });
+    let mut seen = HashSet::new();
+    selected.retain(|credit| seen.insert(credit.id));
+    selected.truncate(20);
+    selected
+}
+
 impl SenzoShell {
     pub(crate) fn new(
         tokio: Handle,
@@ -288,6 +415,8 @@ impl SenzoShell {
             search_generation: 0,
             details: None,
             details_cancellation: CancellationToken::new(),
+            person_details: None,
+            person_details_cancellation: CancellationToken::new(),
             logo: Arc::new(Image::from_bytes(
                 ImageFormat::Png,
                 include_bytes!("../../../assets/branding/senzo-logo.png").to_vec(),
@@ -345,6 +474,14 @@ impl SenzoShell {
             let page = self.navigation.current();
             self.focus_page(page, window, cx);
             cx.notify();
+            return;
+        }
+        if self.details.is_some() {
+            self.close_details(cx);
+            return;
+        }
+        if self.person_details.is_some() {
+            self.close_person_details(cx);
             return;
         }
         if self.navigation.back() {
@@ -550,6 +687,8 @@ impl SenzoShell {
         initial_title: String,
         cx: &mut Context<Self>,
     ) {
+        self.person_details_cancellation.cancel();
+        self.person_details = None;
         self.details_cancellation.cancel();
         let cancellation = CancellationToken::new();
         self.details_cancellation = cancellation.clone();
@@ -1151,6 +1290,457 @@ impl SenzoShell {
         page
     }
 
+    fn open_person_details(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(card) = self.search_results.get(index) else {
+            return;
+        };
+        if card.media_type != MediaType::Person {
+            return;
+        }
+        self.load_person_details(card.id, card.title.clone(), card.poster.clone(), cx);
+    }
+
+    fn load_person_details(
+        &mut self,
+        id: u64,
+        initial_name: String,
+        initial_profile: Option<Arc<RenderImage>>,
+        cx: &mut Context<Self>,
+    ) {
+        self.details_cancellation.cancel();
+        self.details = None;
+        self.person_details_cancellation.cancel();
+        let cancellation = CancellationToken::new();
+        self.person_details_cancellation = cancellation.clone();
+        self.person_details = Some(PersonDetailsPage {
+            id,
+            name: initial_name,
+            biography: None,
+            birthday: None,
+            deathday: None,
+            place_of_birth: None,
+            known_for_department: None,
+            profile: initial_profile,
+            movie_credits: Vec::new(),
+            tv_credits: Vec::new(),
+            loading: true,
+            error: None,
+        });
+
+        let metadata = self.metadata.clone();
+        let artwork = self.artwork.clone();
+        let task_token = cancellation.clone();
+        let task = self.tokio.spawn(async move {
+            let person = metadata
+                .person(id, "en-US", &task_token)
+                .await
+                .map_err(|error| metadata_error_message(&error))?;
+            if person.id != id {
+                return Err("The metadata service returned a different person than requested."
+                    .to_owned());
+            }
+
+            let profile = match person.profile_path.as_deref() {
+                Some(path) => {
+                    load_gpui_artwork(
+                        artwork.clone(),
+                        path.to_owned(),
+                        ArtworkSize::W500,
+                        task_token.child_token(),
+                    )
+                    .await
+                }
+                None => None,
+            };
+
+            let movie_candidates = person_credit_candidates(&person, MediaType::Movie);
+            let tv_candidates = person_credit_candidates(&person, MediaType::Tv);
+            let mut movie_credits: Vec<PersonCreditCard> = movie_candidates
+                .iter()
+                .map(|candidate| PersonCreditCard {
+                    id: candidate.id,
+                    media_type: candidate.media_type,
+                    title: candidate.title.clone(),
+                    detail: candidate.detail.clone(),
+                    poster: None,
+                })
+                .collect();
+            let mut tv_credits: Vec<PersonCreditCard> = tv_candidates
+                .iter()
+                .map(|candidate| PersonCreditCard {
+                    id: candidate.id,
+                    media_type: candidate.media_type,
+                    title: candidate.title.clone(),
+                    detail: candidate.detail.clone(),
+                    poster: None,
+                })
+                .collect();
+
+            let mut jobs = JoinSet::new();
+            for (index, candidate) in movie_candidates.into_iter().enumerate() {
+                let service = artwork.clone();
+                let token = task_token.child_token();
+                jobs.spawn(async move {
+                    let image = load_gpui_artwork(
+                        service,
+                        candidate.artwork_path,
+                        candidate.artwork_size,
+                        token,
+                    )
+                    .await;
+                    (MediaType::Movie, index, image)
+                });
+            }
+            for (index, candidate) in tv_candidates.into_iter().enumerate() {
+                let service = artwork.clone();
+                let token = task_token.child_token();
+                jobs.spawn(async move {
+                    let image = load_gpui_artwork(
+                        service,
+                        candidate.artwork_path,
+                        candidate.artwork_size,
+                        token,
+                    )
+                    .await;
+                    (MediaType::Tv, index, image)
+                });
+            }
+
+            while let Some(result) = jobs.join_next().await {
+                if task_token.is_cancelled() {
+                    return Err("Cancelled".to_owned());
+                }
+                if let Ok((media_type, index, image)) = result {
+                    let target = match media_type {
+                        MediaType::Movie => &mut movie_credits,
+                        MediaType::Tv => &mut tv_credits,
+                        MediaType::Person | MediaType::Other => continue,
+                    };
+                    if let Some(card) = target.get_mut(index) {
+                        card.poster = image;
+                    }
+                }
+            }
+
+            if task_token.is_cancelled() {
+                return Err("Cancelled".to_owned());
+            }
+
+            Ok::<_, String>((
+                person.name,
+                person.biography,
+                person.birthday,
+                person.deathday,
+                person.place_of_birth,
+                person.known_for_department,
+                profile,
+                movie_credits,
+                tv_credits,
+            ))
+        });
+
+        cx.spawn(async move |this, cx| {
+            let result = task.await.unwrap_or_else(|_| {
+                Err("The person details request stopped unexpectedly. Check your connection and retry."
+                    .to_owned())
+            });
+            let _ = this.update(cx, |this, cx| {
+                if cancellation.is_cancelled() {
+                    return;
+                }
+                let Some(page) = this
+                    .person_details
+                    .as_mut()
+                    .filter(|page| page.id == id)
+                else {
+                    return;
+                };
+                match result {
+                    Ok((
+                        name,
+                        biography,
+                        birthday,
+                        deathday,
+                        place_of_birth,
+                        known_for_department,
+                        profile,
+                        movie_credits,
+                        tv_credits,
+                    )) => {
+                        page.name = name;
+                        page.biography = biography;
+                        page.birthday = birthday;
+                        page.deathday = deathday;
+                        page.place_of_birth = place_of_birth;
+                        page.known_for_department = known_for_department;
+                        if profile.is_some() {
+                            page.profile = profile;
+                        }
+                        page.movie_credits = movie_credits;
+                        page.tv_credits = tv_credits;
+                        page.loading = false;
+                        page.error = None;
+                    }
+                    Err(error) => {
+                        page.loading = false;
+                        page.error = Some(error);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn retry_person_details(&mut self, cx: &mut Context<Self>) {
+        let Some(page) = &self.person_details else {
+            return;
+        };
+        self.load_person_details(page.id, page.name.clone(), page.profile.clone(), cx);
+    }
+
+    fn close_person_details(&mut self, cx: &mut Context<Self>) {
+        self.person_details_cancellation.cancel();
+        self.person_details = None;
+        cx.notify();
+    }
+
+    fn render_person_credit_shelf(
+        &self,
+        key: &str,
+        title: &str,
+        credits: &[PersonCreditCard],
+        tab_start: isize,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let mut row = div().flex().gap_4();
+        for (index, credit) in credits.iter().enumerate() {
+            let id = credit.id;
+            let media_type = credit.media_type;
+            let media_title = credit.title.clone();
+            row = row.child(
+                div()
+                    .id(format!("person-{key}-{id}-{index}"))
+                    .tab_index(tab_start + index as isize)
+                    .cursor_pointer()
+                    .rounded_lg()
+                    .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                    .aria_label(format!("Open {}", credit.title))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.load_details(id, media_type, media_title.clone(), cx);
+                    }))
+                    .child(poster_card(
+                        &credit.title,
+                        &credit.detail,
+                        credit.poster.clone(),
+                        false,
+                    )),
+            );
+        }
+
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(
+                div()
+                    .text_lg()
+                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                    .child(title.to_owned()),
+            )
+            .child(
+                div()
+                    .id(format!("person-{key}-shelf-scroll"))
+                    .w_full()
+                    .overflow_x_scroll()
+                    .child(row),
+            )
+    }
+
+    fn render_person_details(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let Some(person) = &self.person_details else {
+            return div();
+        };
+        let mut page = div().w_full().flex().flex_col().gap_5().child(
+            div()
+                .id("person-details-back")
+                .tab_index(20)
+                .cursor_pointer()
+                .rounded_md()
+                .bg(rgb(Theme::SURFACE))
+                .px_3()
+                .py_2()
+                .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                .aria_label("Back to search results")
+                .on_click(cx.listener(|this, _, _, cx| this.close_person_details(cx)))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(Theme::ACCENT))
+                        .child("← Back to results"),
+                ),
+        );
+
+        if person.loading {
+            return page
+                .child(status_panel(
+                    StatusTone::Loading,
+                    "PERSON",
+                    "Loading person details",
+                    "Fetching profile information, filmography and validated artwork.",
+                ))
+                .child(backdrop_surface(None, 180.0, true));
+        }
+        if let Some(error) = &person.error {
+            page = page.child(status_panel(
+                StatusTone::Error,
+                "PERSON UNAVAILABLE",
+                "Could not load this person's details",
+                error,
+            ));
+            return page.child(
+                div()
+                    .id("retry-person-details")
+                    .tab_index(21)
+                    .rounded_md()
+                    .bg(rgb(Theme::ACCENT_DARK))
+                    .px_3()
+                    .py_2()
+                    .cursor_pointer()
+                    .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                    .aria_label("Retry loading person details")
+                    .on_click(cx.listener(|this, _, _, cx| this.retry_person_details(cx)))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::ACCENT))
+                            .child("Retry"),
+                    ),
+            );
+        }
+
+        let mut identity = div().w_full().flex().items_start().gap_5();
+        if let Some(profile) = person.profile.clone() {
+            identity = identity.child(
+                div()
+                    .w(px(180.0))
+                    .h(px(270.0))
+                    .rounded_lg()
+                    .overflow_hidden()
+                    .bg(rgb(Theme::SURFACE_RAISED))
+                    .child(img(profile).w_full().h_full()),
+            );
+        } else {
+            identity = identity.child(
+                poster_card(&person.name, "PERSON", None, false),
+            );
+        }
+
+        let mut facts = Vec::new();
+        if let Some(birthday) = &person.birthday {
+            facts.push(format!("Born {birthday}"));
+        }
+        if let Some(deathday) = &person.deathday {
+            facts.push(format!("Died {deathday}"));
+        }
+        if let Some(place) = &person.place_of_birth {
+            if !place.trim().is_empty() {
+                facts.push(place.clone());
+            }
+        }
+        let mut info = div()
+            .flex_1()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(Theme::ACCENT))
+                    .child(
+                        person
+                            .known_for_department
+                            .as_deref()
+                            .filter(|value| !value.trim().is_empty())
+                            .unwrap_or("PERSON")
+                            .to_uppercase(),
+                    ),
+            )
+            .child(
+                div()
+                    .text_2xl()
+                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                    .child(person.name.clone()),
+            );
+        if !facts.is_empty() {
+            info = info.child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(Theme::TEXT_MUTED))
+                    .child(facts.join(" · ")),
+            );
+        }
+        page = page.child(identity.child(info));
+
+        page = page.child(
+            div()
+                .w_full()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    div()
+                        .text_lg()
+                        .text_color(rgb(Theme::TEXT_PRIMARY))
+                        .child("Biography"),
+                )
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(Theme::TEXT_SECONDARY))
+                        .child(
+                            person
+                                .biography
+                                .as_deref()
+                                .filter(|value| !value.trim().is_empty())
+                                .unwrap_or("No biography is available for this person.")
+                                .to_owned(),
+                        ),
+                ),
+        );
+
+        if person.movie_credits.is_empty() && person.tv_credits.is_empty() {
+            page = page.child(status_panel(
+                StatusTone::Empty,
+                "FILMOGRAPHY",
+                "No credited titles are available",
+                "The person profile loaded, but the metadata provider returned no movie or TV credits with artwork.",
+            ));
+        } else {
+            if !person.movie_credits.is_empty() {
+                page = page.child(self.render_person_credit_shelf(
+                    "movies",
+                    "Movie credits",
+                    &person.movie_credits,
+                    80,
+                    cx,
+                ));
+            }
+            if !person.tv_credits.is_empty() {
+                page = page.child(self.render_person_credit_shelf(
+                    "tv",
+                    "TV credits",
+                    &person.tv_credits,
+                    110,
+                    cx,
+                ));
+            }
+        }
+        page
+    }
+
     fn update_search_query(&mut self, query: String, cx: &mut Context<Self>) {
         if self.search_query == query {
             return;
@@ -1621,7 +2211,31 @@ impl SenzoShell {
                                 .child(format!("TMDB rating · {rating:.1}/10")),
                         );
                     }
-                    if matches!(card.media_type, MediaType::Movie | MediaType::Tv) {
+                    if card.media_type == MediaType::Person {
+                        preview = preview.child(
+                            div()
+                                .id("open-person-details")
+                                .tab_index(61)
+                                .cursor_pointer()
+                                .rounded_md()
+                                .bg(rgb(Theme::ACCENT_DARK))
+                                .px_3()
+                                .py_2()
+                                .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                                .aria_label(format!("View details for {}", card.title))
+                                .on_click(
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.open_person_details(index, cx);
+                                    }),
+                                )
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(rgb(Theme::ACCENT))
+                                        .child("View person details"),
+                                ),
+                        );
+                    } else if matches!(card.media_type, MediaType::Movie | MediaType::Tv) {
                         preview = preview.child(
                             div()
                                 .id("open-title-details")
@@ -1631,6 +2245,8 @@ impl SenzoShell {
                                 .bg(rgb(Theme::ACCENT_DARK))
                                 .px_3()
                                 .py_2()
+                                .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                                .aria_label(format!("View details for {}", card.title))
                                 .on_click(
                                     cx.listener(move |this, _, _, cx| this.open_details(index, cx)),
                                 )
@@ -2269,6 +2885,9 @@ impl SenzoShell {
         if self.details.is_some() {
             return self.render_details(cx);
         }
+        if self.person_details.is_some() {
+            return self.render_person_details(cx);
+        }
         match self.navigation.current() {
             AppPage::Home => self.render_home(cx),
             AppPage::Movies => div()
@@ -2595,6 +3214,7 @@ impl Drop for SenzoShell {
         self.home_cancellation.cancel();
         self.search_cancellation.cancel();
         self.details_cancellation.cancel();
+        self.person_details_cancellation.cancel();
     }
 }
 
@@ -2805,6 +3425,138 @@ mod tests {
         assert_eq!(SearchFilter::All.search_type(), SearchType::Multi);
         assert_eq!(SearchFilter::Movies.search_type(), SearchType::Movie);
         assert_eq!(SearchFilter::TvShows.search_type(), SearchType::Tv);
+    }
+
+    #[test]
+    fn person_credit_selection_prefers_crew_for_non_acting_departments() {
+        let person = Person {
+            id: 42,
+            name: "Filmmaker".to_owned(),
+            biography: None,
+            birthday: None,
+            deathday: None,
+            place_of_birth: None,
+            profile_path: None,
+            known_for_department: Some("Directing".to_owned()),
+            also_known_as: None,
+            gender: None,
+            homepage: None,
+            imdb_id: None,
+            popularity: None,
+            combined_credits: Some(senzo_metadata::PersonCredits {
+                cast: vec![PersonCredit {
+                    id: 10,
+                    media_type: Some(MediaType::Movie),
+                    title: Some("On Screen".to_owned()),
+                    name: None,
+                    original_title: None,
+                    original_name: None,
+                    overview: None,
+                    poster_path: Some("/cast.jpg".to_owned()),
+                    backdrop_path: None,
+                    release_date: Some("2020-01-01".to_owned()),
+                    first_air_date: None,
+                    vote_average: Some(7.0),
+                    vote_count: None,
+                    popularity: Some(90.0),
+                    character: Some("Himself".to_owned()),
+                    job: None,
+                    department: None,
+                    episode_count: None,
+                }],
+                crew: vec![PersonCredit {
+                    id: 11,
+                    media_type: Some(MediaType::Movie),
+                    title: Some("Directed Film".to_owned()),
+                    name: None,
+                    original_title: None,
+                    original_name: None,
+                    overview: None,
+                    poster_path: Some("/crew.jpg".to_owned()),
+                    backdrop_path: None,
+                    release_date: Some("2021-01-01".to_owned()),
+                    first_air_date: None,
+                    vote_average: Some(8.0),
+                    vote_count: None,
+                    popularity: Some(10.0),
+                    character: None,
+                    job: Some("Director".to_owned()),
+                    department: Some("Directing".to_owned()),
+                    episode_count: None,
+                }],
+            }),
+        };
+        let credits = person_credit_candidates(&person, MediaType::Movie);
+        assert_eq!(credits.len(), 1);
+        assert_eq!(credits[0].title, "Directed Film");
+        assert_eq!(credits[0].detail, "MOVIE · 2021 · Director");
+    }
+
+    #[test]
+    fn person_credit_selection_uses_cast_for_actors_and_deduplicates() {
+        let mut person = Person {
+            id: 42,
+            name: "Actor".to_owned(),
+            biography: None,
+            birthday: None,
+            deathday: None,
+            place_of_birth: None,
+            profile_path: None,
+            known_for_department: Some("Acting".to_owned()),
+            also_known_as: None,
+            gender: None,
+            homepage: None,
+            imdb_id: None,
+            popularity: None,
+            combined_credits: Some(senzo_metadata::PersonCredits {
+                cast: vec![
+                    PersonCredit {
+                        id: 10,
+                        media_type: Some(MediaType::Movie),
+                        title: Some("Popular Film".to_owned()),
+                        name: None,
+                        original_title: None,
+                        original_name: None,
+                        overview: None,
+                        poster_path: Some("/film.jpg".to_owned()),
+                        backdrop_path: None,
+                        release_date: Some("2022-01-01".to_owned()),
+                        first_air_date: None,
+                        vote_average: None,
+                        vote_count: None,
+                        popularity: Some(80.0),
+                        character: Some("Lead".to_owned()),
+                        job: None,
+                        department: None,
+                        episode_count: None,
+                    },
+                    PersonCredit {
+                        id: 10,
+                        media_type: Some(MediaType::Movie),
+                        title: Some("Duplicate Film".to_owned()),
+                        name: None,
+                        original_title: None,
+                        original_name: None,
+                        overview: None,
+                        poster_path: Some("/duplicate.jpg".to_owned()),
+                        backdrop_path: None,
+                        release_date: None,
+                        first_air_date: None,
+                        vote_average: None,
+                        vote_count: None,
+                        popularity: Some(70.0),
+                        character: Some("Other".to_owned()),
+                        job: None,
+                        department: None,
+                        episode_count: None,
+                    },
+                ],
+                crew: Vec::new(),
+            }),
+        };
+        let credits = person_credit_candidates(&person, MediaType::Movie);
+        assert_eq!(credits.len(), 1);
+        assert_eq!(credits[0].title, "Popular Film");
     }
 
     #[test]
