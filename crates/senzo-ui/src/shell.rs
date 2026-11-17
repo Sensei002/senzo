@@ -672,34 +672,30 @@ impl SenzoShell {
             );
 
             let mut trending = match trending_response {
-                Ok(response) => home_shelf_load_data(
-                    home_media_candidates(response.results, None),
-                    None,
-                ),
-                Err(error) => home_shelf_load_data(
-                    Vec::new(),
-                    Some(metadata_error_message(&error)),
-                ),
+                Ok(response) => {
+                    home_shelf_load_data(home_media_candidates(response.results, None), None)
+                }
+                Err(error) => {
+                    home_shelf_load_data(Vec::new(), Some(metadata_error_message(&error)))
+                }
             };
             let mut popular_movies = match movie_response {
                 Ok(response) => home_shelf_load_data(
                     home_media_candidates(response.results, Some(MediaType::Movie)),
                     None,
                 ),
-                Err(error) => home_shelf_load_data(
-                    Vec::new(),
-                    Some(metadata_error_message(&error)),
-                ),
+                Err(error) => {
+                    home_shelf_load_data(Vec::new(), Some(metadata_error_message(&error)))
+                }
             };
             let mut popular_tv = match tv_response {
                 Ok(response) => home_shelf_load_data(
                     home_media_candidates(response.results, Some(MediaType::Tv)),
                     None,
                 ),
-                Err(error) => home_shelf_load_data(
-                    Vec::new(),
-                    Some(metadata_error_message(&error)),
-                ),
+                Err(error) => {
+                    home_shelf_load_data(Vec::new(), Some(metadata_error_message(&error)))
+                }
             };
 
             let featured_index = trending
@@ -716,13 +712,12 @@ impl SenzoShell {
                     let service = artwork.clone();
                     let task_token = cancellation.child_token();
                     let poster_path = candidate.poster_path.clone();
-                    let backdrop_path = if key == HomeShelfKey::Trending
-                        && Some(index) == featured_index
-                    {
-                        candidate.backdrop_path.clone()
-                    } else {
-                        None
-                    };
+                    let backdrop_path =
+                        if key == HomeShelfKey::Trending && Some(index) == featured_index {
+                            candidate.backdrop_path.clone()
+                        } else {
+                            None
+                        };
                     jobs.spawn(async move {
                         let poster = load_gpui_artwork(
                             service.clone(),
@@ -2466,22 +2461,19 @@ impl SenzoShell {
             && matches!(
                 shelf.status,
                 HomeCatalogueStatus::NotRequested | HomeCatalogueStatus::Loading
-            )
-        {
+            ) {
             let mut row = div().flex().gap_4();
             for _ in 0..7 {
                 row = row.child(poster_card(" ", " ", None, true));
             }
             row
         } else if shelf.cards.is_empty() {
-            div()
-                .w_full()
-                .child(status_panel(
-                    StatusTone::Empty,
-                    "NO TITLES AVAILABLE",
-                    "Nothing to show yet",
-                    "This catalogue did not return titles with usable poster artwork.",
-                ))
+            div().w_full().child(status_panel(
+                StatusTone::Empty,
+                "NO TITLES AVAILABLE",
+                "Nothing to show yet",
+                "This catalogue did not return titles with usable poster artwork.",
+            ))
         } else {
             let mut row = div().flex().gap_4();
             for (index, card) in shelf.cards.iter().enumerate() {
@@ -2495,9 +2487,7 @@ impl SenzoShell {
                         .tab_index(tab_start + index as isize)
                         .cursor_pointer()
                         .rounded_lg()
-                        .focus_visible(|style| {
-                            style.border_1().border_color(rgb(Theme::ACCENT))
-                        })
+                        .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
                         .aria_label(format!("Open {}", card.title))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.open_home_card(
@@ -2554,9 +2544,7 @@ impl SenzoShell {
                     .px_3()
                     .py_2()
                     .cursor_pointer()
-                    .focus_visible(|style| {
-                        style.border_1().border_color(rgb(Theme::ACCENT))
-                    })
+                    .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
                     .aria_label(format!("Retry {title} catalogue"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.load_home_catalogue(cx);
@@ -2897,7 +2885,12 @@ impl SenzoShell {
         let featured_title = self
             .home_featured_title
             .as_deref()
-            .or_else(|| self.home_trending.cards.first().map(|card| card.title.as_str()))
+            .or_else(|| {
+                self.home_trending
+                    .cards
+                    .first()
+                    .map(|card| card.title.as_str())
+            })
             .unwrap_or("Your entertainment. Your space.");
         let featured_eyebrow = if self.home_catalogue_status == HomeCatalogueStatus::Loaded {
             "TRENDING THIS WEEK"
