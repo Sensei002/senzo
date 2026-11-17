@@ -11,7 +11,7 @@ use gpui::{
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_domain::AppPage;
 use senzo_metadata::{MediaType, MetadataClient, SearchType};
-use gpui_component::input::{InputEvent, InputState, TextInput};
+use gpui_component::input::{Input, InputEvent, InputState};
 use tokio::{runtime::Handle, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 
@@ -681,7 +681,7 @@ impl SenzoShell {
         &self,
         filter: SearchFilter,
         cx: &mut Context<Self>,
-    ) -> gpui::Div {
+    ) -> impl IntoElement {
         let active = self.search_filter == filter;
         let tab_index = match filter {
             SearchFilter::All => 26,
@@ -714,9 +714,10 @@ impl SenzoShell {
     }
 
     fn render_search(&self, cx: &mut Context<Self>) -> gpui::Div {
-        let input = TextInput::new(&self.search_input)
+        let input = Input::new(&self.search_input)
             .tab_index(25)
-            .cleanable()
+            .aria_label("Search movies, TV shows, and people")
+            .cleanable(true)
             .w_full()
             .bg(rgb(Theme::SURFACE))
             .border_1()
