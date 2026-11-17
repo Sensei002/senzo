@@ -722,4 +722,282 @@ mod tests {
         cancellation.cancel();
         assert!(matches!(task.await.unwrap(), Err(MetadataError::Cancelled)));
     }
+
+    #[tokio::test]
+    async fn retries_transient_5xx_and_recovers() {
+        let (base, server) = start_sequence_server(vec![
+            MockResponse::new(503, None, r#"{"error":"provider unavailable"}"#),
+            MockResponse::new(
+                200,
+                None,
+                r#"{"page":1,"results":[{"id":27205,"media_type":"movie","title":"Inception"}]}"#,
+            ),
+        ])
+        .await;
+        let client = MetadataClient::new(
+            HttpClient::new(Default::default()).unwrap(),
+            MetadataClientConfig {
+                base_url: base,
+                max_retries: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let response = client
+            .search(
+                "inception",
+                SearchType::Multi,
+                1,
+                "en-US",
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let requests = server.await.unwrap();
+
+        assert_eq!(response.results[0].display_title(), "Inception");
+        assert_eq!(requests.len(), 2, "a transient 503 should be retried once");
+    }
+
+    #[tokio::test]
+    async fn retries_rate_limits_only_when_retry_after_is_short() {
+        let (base, server) = start_sequence_server(vec![
+            MockResponse::new(429, Some("0"), r#"{"error":"rate limited"}"#),
+            MockResponse::new(200, None, r#"{"page":1,"results":[]}"#),
+        ])
+        .await;
+        let client = MetadataClient::new(
+            HttpClient::new(Default::default()).unwrap(),
+            MetadataClientConfig {
+                base_url: base,
+                max_retries: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        client
+            .search(
+                "inception",
+                SearchType::Multi,
+                1,
+                "en-US",
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(server.await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn does_not_retry_rate_limits_without_a_short_retry_after() {
+        for retry_after in [None, Some("4")] {
+            let (base, server) = start_sequence_server(vec![MockResponse::new(
+                429,
+                retry_after,
+                r#"{"error":"rate limited"}"#,
+            )])
+            .await;
+            let client = MetadataClient::new(
+                HttpClient::new(Default::default()).unwrap(),
+                MetadataClientConfig {
+                    base_url: base,
+                    max_retries: 3,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+            let error = client
+                .search(
+                    "inception",
+                    SearchType::Multi,
+                    1,
+                    "en-US",
+                    &CancellationToken::new(),
+                )
+                .await
+                .unwrap_err();
+            assert!(matches!(error, MetadataError::Api { status: 429, .. }));
+            assert_eq!(server.await.unwrap().len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn does_not_cache_failed_responses() {
+        let (base, server) = start_sequence_server(vec![
+            MockResponse::new(503, None, r#"{"error":"provider unavailable"}"#),
+            MockResponse::new(200, None, r#"{"page":1,"results":[]}"#),
+        ])
+        .await;
+        let client = MetadataClient::new(
+            HttpClient::new(Default::default()).unwrap(),
+            MetadataClientConfig {
+                base_url: base,
+                max_retries: 0,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let first = client
+            .trending(1, "en-US", &CancellationToken::new())
+            .await;
+        assert!(matches!(first, Err(MetadataError::Api { status: 503, .. })));
+
+        let second = client
+            .trending(1, "en-US", &CancellationToken::new())
+            .await
+            .unwrap();
+        assert!(second.results.is_empty());
+        assert_eq!(
+            server.await.unwrap().len(),
+            2,
+            "the failed response must not poison the resource cache"
+        );
+    }
+
+    #[tokio::test]
+    async fn coalesces_identical_concurrent_requests() {
+        let (base, server) = start_sequence_server(vec![MockResponse::new(
+            200,
+            None,
+            r#"{"page":1,"results":[]}"#,
+        )])
+        .await;
+        let client = MetadataClient::new(
+            HttpClient::new(Default::default()).unwrap(),
+            MetadataClientConfig {
+                base_url: base,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let first = client.trending(1, "en-US", &CancellationToken::new());
+        let second = client.trending(1, "en-US", &CancellationToken::new());
+        let (first, second) = tokio::join!(first, second);
+
+        assert!(first.unwrap().results.is_empty());
+        assert!(second.unwrap().results.is_empty());
+        assert_eq!(
+            server.await.unwrap().len(),
+            1,
+            "identical concurrent GETs should share one network request"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancels_during_retry_after_backoff() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+        use tokio::sync::oneshot;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (response_sent, response_received) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 4096];
+            let _ = socket.read(&mut request).await.unwrap();
+            let body = r#"{"error":"provider unavailable"}"#;
+            let response = format!(
+                "HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: {}\r\nRetry-After: 3\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+            let _ = response_sent.send(());
+        });
+        let client = MetadataClient::new(
+            HttpClient::new(Default::default()).unwrap(),
+            MetadataClientConfig {
+                base_url: format!("http://{address}"),
+                max_retries: 2,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let cancellation = CancellationToken::new();
+        let task_cancellation = cancellation.clone();
+        let request = tokio::spawn(async move {
+            client
+                .trending(1, "en-US", &task_cancellation)
+                .await
+        });
+
+        response_received.await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        cancellation.cancel();
+
+        assert!(matches!(
+            request.await.unwrap(),
+            Err(MetadataError::Cancelled)
+        ));
+        server.await.unwrap();
+    }
+
+    #[derive(Clone, Copy)]
+    struct MockResponse {
+        status: u16,
+        retry_after: Option<&'static str>,
+        body: &'static str,
+    }
+
+    impl MockResponse {
+        fn new(status: u16, retry_after: Option<&'static str>, body: &'static str) -> Self {
+            Self {
+                status,
+                retry_after,
+                body,
+            }
+        }
+    }
+
+    async fn start_sequence_server(
+        responses: Vec<MockResponse>,
+    ) -> (String, tokio::task::JoinHandle<Vec<String>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            let mut requests = Vec::with_capacity(responses.len());
+            for response in responses {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0_u8; 4096];
+                let count = socket.read(&mut request).await.unwrap();
+                requests.push(String::from_utf8_lossy(&request[..count]).to_string());
+
+                let reason = match response.status {
+                    200 => "OK",
+                    429 => "Too Many Requests",
+                    500 => "Internal Server Error",
+                    502 => "Bad Gateway",
+                    503 => "Service Unavailable",
+                    504 => "Gateway Timeout",
+                    _ => "Test Response",
+                };
+                let retry_after = response
+                    .retry_after
+                    .map(|value| format!("Retry-After: {value}\r\n"))
+                    .unwrap_or_default();
+                let wire_response = format!(
+                    "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{}Connection: close\r\n\r\n{}",
+                    response.status,
+                    reason,
+                    response.body.len(),
+                    retry_after,
+                    response.body
+                );
+                socket.write_all(wire_response.as_bytes()).await.unwrap();
+            }
+            requests
+        });
+
+        (format!("http://{address}"), task)
+    }
+
 }
