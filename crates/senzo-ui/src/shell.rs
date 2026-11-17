@@ -4,13 +4,17 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use gpui::{
     App, Bounds, ColorExt, Context, FocusHandle, Image, ImageFormat, KeyBinding, Menu, MenuItem,
-    MouseButton, NavigationDirection, QuitMode, Render, SharedString, TitlebarOptions, Window,
-    WindowBounds, WindowOptions, actions, div, img, prelude::*, px, rgb, size,
+    MouseButton, NavigationDirection, QuitMode, Render, RenderImage, SharedString, TitlebarOptions,
+    Window, WindowBounds, WindowOptions, actions, div, img, prelude::*, px, rgb, size,
 };
+use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_domain::AppPage;
-use tokio::runtime::Handle;
+use senzo_metadata::{MediaType, MetadataClient};
+use tokio::{runtime::Handle, task::JoinSet};
+use tokio_util::sync::CancellationToken;
 
 use crate::{
+    artwork::{backdrop_surface, poster_card, render_image_from_artwork},
     components::{StatusTone, divider, feature_tile, page_intro, status_panel},
     navigation::NavigationStack,
     theme::Theme,
@@ -40,11 +44,46 @@ enum DialogKind {
     Shortcuts,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HomeCatalogueStatus {
+    NotRequested,
+    Loading,
+    Loaded,
+}
+
+#[derive(Clone)]
+struct HomeMediaCandidate {
+    title: String,
+    detail: String,
+    poster_path: String,
+    backdrop_path: Option<String>,
+}
+
+struct HomeMediaCard {
+    title: String,
+    detail: String,
+    poster: Option<Arc<RenderImage>>,
+}
+
+struct HomeCatalogueData {
+    cards: Vec<HomeMediaCard>,
+    featured_backdrop: Option<Arc<RenderImage>>,
+    featured_title: Option<String>,
+}
+
 pub(crate) struct SenzoShell {
     navigation: NavigationStack,
     navigation_focus: HashMap<AppPage, FocusHandle>,
     dialog_focus: FocusHandle,
     tokio: Handle,
+    metadata: MetadataClient,
+    artwork: ArtworkService,
+    home_cancellation: CancellationToken,
+    home_catalogue_status: HomeCatalogueStatus,
+    home_catalogue_error: Option<String>,
+    home_cards: Vec<HomeMediaCard>,
+    home_featured_backdrop: Option<Arc<RenderImage>>,
+    home_featured_title: Option<String>,
     logo: Arc<Image>,
     dialog: Option<DialogKind>,
     menu_open: bool,
@@ -55,7 +94,13 @@ pub(crate) struct SenzoShell {
 }
 
 impl SenzoShell {
-    pub(crate) fn new(tokio: Handle, smoke_test: bool, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(
+        tokio: Handle,
+        smoke_test: bool,
+        metadata: MetadataClient,
+        artwork: ArtworkService,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let navigation_focus = AppPage::ALL
             .iter()
             .enumerate()
@@ -68,6 +113,14 @@ impl SenzoShell {
             navigation_focus,
             dialog_focus,
             tokio,
+            metadata,
+            artwork,
+            home_cancellation: CancellationToken::new(),
+            home_catalogue_status: HomeCatalogueStatus::NotRequested,
+            home_catalogue_error: None,
+            home_cards: Vec::new(),
+            home_featured_backdrop: None,
+            home_featured_title: None,
             logo: Arc::new(Image::from_bytes(
                 ImageFormat::Png,
                 include_bytes!("../../../assets/branding/senzo-logo.png").to_vec(),
@@ -174,6 +227,235 @@ impl SenzoShell {
             });
         })
         .detach();
+    }
+
+    fn load_home_catalogue(&mut self, cx: &mut Context<Self>) {
+        if self.home_catalogue_status == HomeCatalogueStatus::Loading
+            || self.home_catalogue_status == HomeCatalogueStatus::Loaded
+        {
+            return;
+        }
+
+        self.home_catalogue_status = HomeCatalogueStatus::Loading;
+        self.home_catalogue_error = None;
+
+        let metadata = self.metadata.clone();
+        let artwork = self.artwork.clone();
+        let cancellation = self.home_cancellation.child_token();
+        let task = self.tokio.spawn(async move {
+            let response = metadata
+                .trending(1, "en-US", &cancellation)
+                .await
+                .map_err(|_| {
+                    "The trending catalogue is unavailable. Check your connection and try again."
+                        .to_owned()
+                })?;
+
+            let candidates: Vec<HomeMediaCandidate> = response
+                .results
+                .into_iter()
+                .filter_map(|media| {
+                    let poster_path = media.poster_path.clone()?;
+                    let category = match media.media_type.unwrap_or(MediaType::Other) {
+                        MediaType::Movie => "MOVIE",
+                        MediaType::Tv => "SERIES",
+                        MediaType::Person => "PERSON",
+                        MediaType::Other => "TRENDING",
+                    };
+                    let detail = media
+                        .release_year()
+                        .map(|year| format!("{category} · {year}"))
+                        .unwrap_or_else(|| category.to_owned());
+                    Some(HomeMediaCandidate {
+                        title: media.display_title().to_owned(),
+                        detail,
+                        poster_path,
+                        backdrop_path: media.backdrop_path,
+                    })
+                })
+                .take(8)
+                .collect();
+
+            let featured_index = candidates
+                .iter()
+                .position(|candidate| candidate.backdrop_path.is_some());
+            let mut cards: Vec<HomeMediaCard> = candidates
+                .iter()
+                .map(|candidate| HomeMediaCard {
+                    title: candidate.title.clone(),
+                    detail: candidate.detail.clone(),
+                    poster: None,
+                })
+                .collect();
+
+            let mut jobs = JoinSet::new();
+            for (index, candidate) in candidates.into_iter().enumerate() {
+                let artwork = artwork.clone();
+                let cancellation = cancellation.child_token();
+                jobs.spawn(async move {
+                    let poster = load_gpui_artwork(
+                        artwork.clone(),
+                        candidate.poster_path,
+                        ArtworkSize::W342,
+                        cancellation.child_token(),
+                    )
+                    .await;
+                    let backdrop = if Some(index) == featured_index {
+                        match candidate.backdrop_path {
+                            Some(path) => {
+                                load_gpui_artwork(
+                                    artwork,
+                                    path,
+                                    ArtworkSize::W1280,
+                                    cancellation,
+                                )
+                                .await
+                            }
+                            None => None,
+                        }
+                    } else {
+                        None
+                    };
+                    (index, poster, backdrop)
+                });
+            }
+
+            let mut featured_backdrop = None;
+            while let Some(result) = jobs.join_next().await {
+                if let Ok((index, poster, backdrop)) = result {
+                    if let Some(card) = cards.get_mut(index) {
+                        card.poster = poster;
+                    }
+                    if Some(index) == featured_index {
+                        featured_backdrop = backdrop;
+                    }
+                }
+            }
+
+            let featured_title = featured_index
+                .and_then(|index| cards.get(index).map(|card| card.title.clone()))
+                .or_else(|| cards.first().map(|card| card.title.clone()));
+
+            Ok::<_, String>(HomeCatalogueData {
+                cards,
+                featured_backdrop,
+                featured_title,
+            })
+        });
+
+        cx.spawn(async move |this, cx| {
+            let result = match task.await {
+                Ok(result) => result,
+                Err(_) => Err("The catalogue task stopped unexpectedly.".to_owned()),
+            };
+            let _ = this.update(cx, |this, cx| {
+                if this.home_cancellation.is_cancelled() {
+                    return;
+                }
+                match result {
+                    Ok(data) => {
+                        this.home_cards = data.cards;
+                        this.home_featured_backdrop = data.featured_backdrop;
+                        this.home_featured_title = data.featured_title;
+                        this.home_catalogue_status = HomeCatalogueStatus::Loaded;
+                        this.home_catalogue_error = None;
+                    }
+                    Err(message) => {
+                        this.home_cards.clear();
+                        this.home_featured_backdrop = None;
+                        this.home_featured_title = None;
+                        this.home_catalogue_status = HomeCatalogueStatus::NotRequested;
+                        this.home_catalogue_error = Some(message);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn render_home_artwork(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let heading = div()
+            .text_lg()
+            .text_color(rgb(Theme::TEXT_PRIMARY))
+            .child("Trending this week");
+
+        let content = match self.home_catalogue_status {
+            HomeCatalogueStatus::Loading | HomeCatalogueStatus::NotRequested => {
+                let mut row = div().flex().gap_4();
+                for _ in 0..7 {
+                    row = row.child(poster_card(" ", " ", None, true));
+                }
+                row
+            }
+            HomeCatalogueStatus::Loaded if self.home_cards.is_empty() => {
+                return div()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(heading)
+                    .child(status_panel(
+                        StatusTone::Empty,
+                        "NO ARTWORK AVAILABLE",
+                        "Nothing to show yet",
+                        "The metadata catalogue did not return titles with poster artwork.",
+                    ));
+            }
+            HomeCatalogueStatus::Loaded => {
+                let mut row = div().flex().gap_4();
+                for card in &self.home_cards {
+                    row = row.child(poster_card(
+                        &card.title,
+                        &card.detail,
+                        card.poster.clone(),
+                        false,
+                    ));
+                }
+                row
+            }
+        };
+
+        let mut section = div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(heading)
+            .child(div().w_full().overflow_x_scroll().child(content));
+
+        if let Some(error) = &self.home_catalogue_error {
+            section = section.child(status_panel(
+                StatusTone::Error,
+                "CATALOGUE UNAVAILABLE",
+                "Trending titles could not be loaded",
+                error,
+            ));
+            section = section.child(
+                div()
+                    .id("retry-trending-catalogue")
+                    .tab_index(34)
+                    .rounded_md()
+                    .bg(rgb(Theme::ACCENT_DARK))
+                    .px_3()
+                    .py_2()
+                    .cursor_pointer()
+                    .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                    .aria_label("Retry trending artwork")
+                    .on_click(cx.listener(|this, _event, _window, cx| {
+                        this.load_home_catalogue(cx);
+                        cx.notify();
+                    }))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::ACCENT))
+                            .child("Retry"),
+                    ),
+            );
+        }
+
+        section
     }
 
     fn nav_item(&self, page: AppPage, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -467,93 +749,115 @@ impl SenzoShell {
     }
 
     fn render_home(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let featured_title = self
+            .home_featured_title
+            .as_deref()
+            .or_else(|| self.home_cards.first().map(|card| card.title.as_str()))
+            .unwrap_or("Your entertainment. Your space.");
+        let featured_eyebrow = if self.home_catalogue_status == HomeCatalogueStatus::Loaded {
+            "TRENDING THIS WEEK"
+        } else {
+            "NATIVE MEDIA CENTER"
+        };
+        let mut hero = backdrop_surface(
+            self.home_featured_backdrop.clone(),
+            286.0,
+            self.home_catalogue_status == HomeCatalogueStatus::Loading,
+        )
+        .child(
+            div()
+                .absolute()
+                .inset_0()
+                .bg(rgb(Theme::BACKGROUND).opacity(0.76)),
+        );
+        hero = hero.child(
+            div()
+                .absolute()
+                .inset_0()
+                .flex()
+                .flex_col()
+                .justify_end()
+                .gap_3()
+                .p_6()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(Theme::ACCENT))
+                        .child(featured_eyebrow),
+                )
+                .child(
+                    div()
+                        .text_2xl()
+                        .text_color(rgb(Theme::TEXT_PRIMARY))
+                        .child(featured_title.to_owned()),
+                )
+                .child(
+                    div()
+                        .max_w(px(720.0))
+                        .text_sm()
+                        .text_color(rgb(Theme::TEXT_SECONDARY))
+                        .child("Real catalogue artwork, validated and decoded by SENZO's native Rust pipeline, rendered directly by GPUI."),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .gap_3()
+                        .child(
+                            div()
+                                .id("home-explore-movies")
+                                .tab_index(30)
+                                .rounded_md()
+                                .bg(rgb(Theme::ACCENT))
+                                .px_4()
+                                .py_3()
+                                .cursor_pointer()
+                                .hover(|style| style.bg(rgb(0x67E8F9)))
+                                .focus_visible(|style| style.border_1().border_color(rgb(Theme::TEXT_PRIMARY)))
+                                .aria_label("Browse movies")
+                                .on_click(cx.listener(|this, _event, window, cx| {
+                                    this.navigate(AppPage::Movies, window, cx);
+                                }))
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(rgb(Theme::BACKGROUND))
+                                        .child("Explore movies"),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .id("home-open-addons")
+                                .tab_index(31)
+                                .rounded_md()
+                                .border_1()
+                                .border_color(rgb(Theme::BORDER_STRONG))
+                                .bg(rgb(Theme::SURFACE_RAISED))
+                                .px_4()
+                                .py_3()
+                                .cursor_pointer()
+                                .hover(|style| style.bg(rgb(Theme::SURFACE_HOVER)))
+                                .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                                .aria_label("Open add-ons")
+                                .on_click(cx.listener(|this, _event, window, cx| {
+                                    this.navigate(AppPage::Addons, window, cx);
+                                }))
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(rgb(Theme::TEXT_PRIMARY))
+                                        .child("Manage add-ons"),
+                                ),
+                        ),
+                ),
+        );
+
         div()
             .w_full()
             .flex()
             .flex_col()
             .gap_6()
-            .child(
-                div()
-                    .w_full()
-                    .rounded_lg()
-                    .border_1()
-                    .border_color(rgb(Theme::BORDER))
-                    .bg(rgb(Theme::SURFACE))
-                    .p_6()
-                    .flex()
-                    .flex_col()
-                    .gap_4()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(Theme::ACCENT))
-                            .child("YOUR NEXT FAVORITE STARTS HERE"),
-                    )
-                    .child(
-                        div()
-                            .text_2xl()
-                            .text_color(rgb(Theme::TEXT_PRIMARY))
-                            .child("Your entertainment. Your space."),
-                    )
-                    .child(
-                        div()
-                            .max_w(px(720.0))
-                            .text_sm()
-                            .text_color(rgb(Theme::TEXT_SECONDARY))
-                            .child("SENZO is now running as a native desktop application. Discovery, artwork and catalogues will connect in the next development phase."),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap_3()
-                            .child(
-                                div()
-                                    .id("home-explore-movies")
-                                    .tab_index(30)
-                                    .rounded_md()
-                                    .bg(rgb(Theme::ACCENT))
-                                    .px_4()
-                                    .py_3()
-                                    .cursor_pointer()
-                                    .hover(|style| style.bg(rgb(0x67E8F9)))
-                                    .focus_visible(|style| style.border_1().border_color(rgb(Theme::TEXT_PRIMARY)))
-                                    .aria_label("Browse movies")
-                                    .on_click(cx.listener(|this, _event, window, cx| {
-                                        this.navigate(AppPage::Movies, window, cx);
-                                    }))
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(rgb(Theme::BACKGROUND))
-                                            .child("Explore movies"),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .id("home-open-addons")
-                                    .tab_index(31)
-                                    .rounded_md()
-                                    .border_1()
-                                    .border_color(rgb(Theme::BORDER_STRONG))
-                                    .bg(rgb(Theme::SURFACE_RAISED))
-                                    .px_4()
-                                    .py_3()
-                                    .cursor_pointer()
-                                    .hover(|style| style.bg(rgb(Theme::SURFACE_HOVER)))
-                                    .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
-                                    .aria_label("Open add-ons")
-                                    .on_click(cx.listener(|this, _event, window, cx| {
-                                        this.navigate(AppPage::Addons, window, cx);
-                                    }))
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(rgb(Theme::TEXT_PRIMARY))
-                                            .child("Manage add-ons"),
-                                    ),
-                            ),
-                    ),
-            )
+            .child(hero)
+            .child(self.render_home_artwork(cx))
             .child(
                 div()
                     .flex()
@@ -586,12 +890,6 @@ impl SenzoShell {
                             )),
                     ),
             )
-            .child(status_panel(
-                StatusTone::Info,
-                "PHASE 2",
-                "Native shell is ready",
-                "This screen intentionally contains no fabricated movie recommendations. Real catalogues and artwork arrive with the metadata foundation.",
-            ))
     }
 
     fn render_settings(&self, cx: &mut Context<Self>) -> gpui::Div {
@@ -995,8 +1293,38 @@ impl SenzoShell {
     }
 }
 
+async fn load_gpui_artwork(
+    artwork: ArtworkService,
+    file_path: String,
+    size: ArtworkSize,
+    cancellation: CancellationToken,
+) -> Option<Arc<RenderImage>> {
+    let url = ArtworkUrlResolver.resolve_tmdb_path(&file_path, size).ok()?;
+    let decoded = artwork.load(&url, &cancellation).await.ok()?;
+    tokio::task::spawn_blocking(move || {
+        render_image_from_artwork(decoded.width(), decoded.height(), decoded.rgba8())
+    })
+    .await
+    .ok()?
+    .ok()
+}
+
+impl Drop for SenzoShell {
+    fn drop(&mut self) {
+        self.home_cancellation.cancel();
+    }
+}
+
 impl Render for SenzoShell {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if !self.smoke_test
+            && self.navigation.current() == AppPage::Home
+            && self.home_catalogue_status == HomeCatalogueStatus::NotRequested
+            && self.home_catalogue_error.is_none()
+        {
+            self.load_home_catalogue(cx);
+        }
+
         if self.smoke_test && !self.smoke_test_scheduled {
             self.smoke_test_scheduled = true;
             cx.spawn(async move |this, cx| {
@@ -1118,7 +1446,12 @@ fn bind_shell_keys(cx: &mut App) {
     ]);
 }
 
-pub fn run(tokio: Handle, smoke_test: bool) {
+pub fn run(
+    tokio: Handle,
+    smoke_test: bool,
+    metadata: MetadataClient,
+    artwork: ArtworkService,
+) {
     gpui_platform::application()
         .with_quit_mode(QuitMode::LastWindowClosed)
         .run(move |cx: &mut App| {
@@ -1168,7 +1501,9 @@ pub fn run(tokio: Handle, smoke_test: bool) {
             };
 
             cx.open_window(options, move |window, cx| {
-                let shell = cx.new(|cx| SenzoShell::new(tokio, smoke_test, cx));
+                let shell = cx.new(|cx| {
+                    SenzoShell::new(tokio, smoke_test, metadata, artwork, cx)
+                });
                 let initial_focus = shell
                     .read(cx)
                     .navigation_focus
@@ -1194,8 +1529,26 @@ mod tests {
             .build()
             .expect("test Tokio runtime should initialize");
 
+        let http = senzo_network::HttpClient::new(Default::default())
+            .expect("test HTTP client should initialize");
+        let metadata = MetadataClient::new(http.clone(), Default::default())
+            .expect("test metadata client should initialize");
+        let artwork = ArtworkService::new(
+            http,
+            std::env::temp_dir().join("senzo-ui-artwork-test-cache"),
+            Default::default(),
+        )
+        .expect("test artwork cache should initialize");
+
         let (shell, window_cx) = cx.add_window_view(|window, cx| {
-            let shell = SenzoShell::new(runtime.handle().clone(), false, cx);
+            let mut shell = SenzoShell::new(
+                runtime.handle().clone(),
+                false,
+                metadata,
+                artwork,
+                cx,
+            );
+            shell.home_catalogue_status = HomeCatalogueStatus::Loaded;
             let home_focus = shell
                 .navigation_focus
                 .get(&AppPage::Home)

@@ -22,6 +22,7 @@ publish = false
 
 [workspace.dependencies]
 anyhow = "1"
+image = { version = "0.25", default-features = false }
 dirs = "6"
 gpui = { package = "gpui-ce", version = "=0.2.2" }
 gpui_platform = { package = "gpui_ce_platform", version = "=0.1.0" }

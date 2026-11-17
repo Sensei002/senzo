@@ -1,6 +1,6 @@
 # Phase 3 — Networking, metadata and artwork foundation
 
-**Status:** In progress — the metadata API client passed cross-platform CI; the native artwork service is implemented and awaiting cross-platform CI acceptance. GPUI image presentation and discovery workflows remain.
+**Status:** In progress — metadata and artwork-service CI passed on Windows and Linux; native GPUI image presentation is implemented and awaiting this batch's CI/live API acceptance. Search and Details workflows remain.
 
 ## Scope
 
@@ -27,7 +27,6 @@ The hosted API remains the only TMDB credential boundary. The desktop applicatio
 
 ## Not yet implemented
 
-- GPUI image-cache integration and image presentation in Home, Search and Details.
 - Search input, result navigation and movie/TV details screens.
 - Live hosted API health, search, details and artwork acceptance on Windows and Linux.
 - Provider outage and offline UX in the shell.
@@ -46,6 +45,19 @@ The new `senzo-artwork` crate implements the second Phase 3 slice:
 - Exposes cache statistics and composes the service into the application-owned service graph. GPUI image rendering remains the next integration slice.
 
 The artwork cache lives below the OS cache directory in `SENZO/artwork`; it is disposable and contains no credentials or database records.
+
+## Native GPUI image integration
+
+The SENZO UI now consumes the typed metadata client and artwork service directly:
+
+- Home requests the real hosted trending catalogue asynchronously; no hardcoded titles or stock artwork are used.
+- Poster requests use the bounded artwork service at w342; the featured title's backdrop is resolved at w1280.
+- Decoded RGBA8 pixels are converted on Tokio's blocking pool into GPUI RenderImage frames in BGRA order. The GPUI renderer receives cached render frames, not arbitrary remote URLs.
+- Reusable poster and backdrop components provide fixed layout dimensions and explicit loading/unavailable placeholders.
+- Metadata requests, downloads and pixel conversion do not block the GPUI render thread. The UI is updated only after the background task completes.
+- A cancellation token is owned by the shell and cancelled during teardown.
+
+The initial Home rail is intentionally limited to eight current trending items as an integration proof. Full Home discovery shelves, Search and Details remain separate work.
 
 ## First-slice automated acceptance
 

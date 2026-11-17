@@ -10,8 +10,13 @@ publish.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
+image.workspace = true
+senzo-artwork = { path = "../senzo-artwork" }
+senzo-metadata = { path = "../senzo-metadata" }
 tracing.workspace = true
 senzo-domain = { path = "../senzo-domain" }
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
+senzo-network = { path = "../senzo-network" }
