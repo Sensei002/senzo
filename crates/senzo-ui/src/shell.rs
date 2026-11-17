@@ -1212,7 +1212,7 @@ mod tests {
         window_cx.simulate_keystrokes("escape");
         assert_eq!(shell.read_with(window_cx, |shell, _| shell.navigation.current()), AppPage::Home);
         window_cx.simulate_keystrokes("alt-right");
-        assert_eq!(shell.read(window_cx).navigation.current(), AppPage::Movies);
+        assert_eq!(shell.read_with(window_cx, |shell, _| shell.navigation.current()), AppPage::Movies);
 
         window_cx.dispatch_action(ShowShortcuts);
         assert_eq!(
