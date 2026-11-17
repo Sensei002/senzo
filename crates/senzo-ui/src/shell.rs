@@ -1,6 +1,10 @@
 //! Native SENZO desktop shell: routes, focus, menus, dialogs and window actions.
 
-use std::{collections::{HashMap, HashSet}, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use gpui::{
     App, Bounds, ColorExt, Context, Entity, FocusHandle, Image, ImageFormat, KeyBinding, Menu,
@@ -12,9 +16,10 @@ use gpui_component::input::{Input, InputEvent, InputState};
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_domain::AppPage;
 use senzo_metadata::{
-    MediaType, MetadataClient, MetadataError, Person, PersonCredit, SearchType, SeasonDetails,
-    SeasonSummary,
+    MediaType, MetadataClient, MetadataError, Person, SearchType, SeasonDetails, SeasonSummary,
 };
+#[cfg(test)]
+use senzo_metadata::PersonCredit;
 use tokio::{runtime::Handle, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 
@@ -1645,10 +1650,10 @@ impl SenzoShell {
         if let Some(deathday) = &person.deathday {
             facts.push(format!("Died {deathday}"));
         }
-        if let Some(place) = &person.place_of_birth {
-            if !place.trim().is_empty() {
-                facts.push(place.clone());
-            }
+        if let Some(place) = &person.place_of_birth
+            && !place.trim().is_empty()
+        {
+            facts.push(place.clone());
         }
         let mut info = div()
             .flex_1()
@@ -3494,7 +3499,7 @@ mod tests {
 
     #[test]
     fn person_credit_selection_uses_cast_for_actors_and_deduplicates() {
-        let mut person = Person {
+        let person = Person {
             id: 42,
             name: "Actor".to_owned(),
             biography: None,
