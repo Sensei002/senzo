@@ -1206,30 +1206,50 @@ mod tests {
         });
 
         window_cx.update(|_, app| bind_shell_keys(app));
+
+        for expected in [
+            AppPage::Movies,
+            AppPage::TvShows,
+            AppPage::Search,
+            AppPage::Library,
+            AppPage::Addons,
+            AppPage::Settings,
+        ] {
+            window_cx.simulate_keystrokes("down enter");
+            assert_eq!(
+                shell.read_with(window_cx, |shell, _| shell.navigation.current()),
+                expected
+            );
+        }
+
         window_cx.simulate_keystrokes("down enter");
         assert_eq!(
             shell.read_with(window_cx, |shell, _| shell.navigation.current()),
-            AppPage::Movies
+            AppPage::Home
+        );
+        window_cx.simulate_keystrokes("escape");
+        assert_eq!(
+            shell.read_with(window_cx, |shell, _| shell.navigation.current()),
+            AppPage::Settings
+        );
+        window_cx.simulate_keystrokes("alt-left");
+        assert_eq!(
+            shell.read_with(window_cx, |shell, _| shell.navigation.current()),
+            AppPage::Addons
+        );
+        window_cx.simulate_keystrokes("alt-right");
+        assert_eq!(
+            shell.read_with(window_cx, |shell, _| shell.navigation.current()),
+            AppPage::Settings
         );
         assert!(window_cx.update(|window, app| {
             shell
                 .read(app)
                 .navigation_focus
-                .get(&AppPage::Movies)
-                .expect("movies focus handle exists")
+                .get(&AppPage::Settings)
+                .expect("settings focus handle exists")
                 .is_focused(window)
         }));
-
-        window_cx.simulate_keystrokes("escape");
-        assert_eq!(
-            shell.read_with(window_cx, |shell, _| shell.navigation.current()),
-            AppPage::Home
-        );
-        window_cx.simulate_keystrokes("alt-right");
-        assert_eq!(
-            shell.read_with(window_cx, |shell, _| shell.navigation.current()),
-            AppPage::Movies
-        );
 
         window_cx.dispatch_action(ShowShortcuts);
         assert_eq!(
