@@ -1085,26 +1085,30 @@ impl Render for SenzoShell {
     }
 }
 
+fn bind_shell_keys(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("escape", GoBack, Some("SENZO_ROOT")),
+        KeyBinding::new("alt-left", GoBack, Some("SENZO_ROOT")),
+        KeyBinding::new("alt-right", GoForward, Some("SENZO_ROOT")),
+        KeyBinding::new("f11", ToggleFullscreen, Some("SENZO_ROOT")),
+        KeyBinding::new("alt-enter", ToggleFullscreen, Some("SENZO_ROOT")),
+        KeyBinding::new("tab", FocusNext, Some("SENZO_ROOT")),
+        KeyBinding::new("shift-tab", FocusPrevious, Some("SENZO_ROOT")),
+        KeyBinding::new("up", MoveNavigationUp, Some("SENZO_NAVIGATION")),
+        KeyBinding::new("down", MoveNavigationDown, Some("SENZO_NAVIGATION")),
+        KeyBinding::new("enter", ActivateNavigation, Some("SENZO_NAVIGATION")),
+        KeyBinding::new("space", ActivateNavigation, Some("SENZO_NAVIGATION")),
+        KeyBinding::new("cmd-q", Quit, None),
+        KeyBinding::new("ctrl-q", Quit, None),
+        KeyBinding::new("cmd-shift-/", ShowShortcuts, None),
+    ]);
+}
+
 pub fn run(tokio: Handle, smoke_test: bool) {
     gpui_platform::application()
         .with_quit_mode(QuitMode::LastWindowClosed)
         .run(move |cx: &mut App| {
-            cx.bind_keys([
-                KeyBinding::new("escape", GoBack, Some("SENZO_ROOT")),
-                KeyBinding::new("alt-left", GoBack, Some("SENZO_ROOT")),
-                KeyBinding::new("alt-right", GoForward, Some("SENZO_ROOT")),
-                KeyBinding::new("f11", ToggleFullscreen, Some("SENZO_ROOT")),
-                KeyBinding::new("alt-enter", ToggleFullscreen, Some("SENZO_ROOT")),
-                KeyBinding::new("tab", FocusNext, Some("SENZO_ROOT")),
-                KeyBinding::new("shift-tab", FocusPrevious, Some("SENZO_ROOT")),
-                KeyBinding::new("up", MoveNavigationUp, Some("SENZO_NAVIGATION")),
-                KeyBinding::new("down", MoveNavigationDown, Some("SENZO_NAVIGATION")),
-                KeyBinding::new("enter", ActivateNavigation, Some("SENZO_NAVIGATION")),
-                KeyBinding::new("space", ActivateNavigation, Some("SENZO_NAVIGATION")),
-                KeyBinding::new("cmd-q", Quit, None),
-                KeyBinding::new("ctrl-q", Quit, None),
-                KeyBinding::new("cmd-shift-/", ShowShortcuts, None),
-            ]);
+            bind_shell_keys(cx);
 
             cx.set_menus(vec![
                 Menu {
@@ -1163,4 +1167,64 @@ pub fn run(tokio: Handle, smoke_test: bool) {
             .expect("failed to open the SENZO native window");
             cx.activate(true);
         });
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[gpui::test]
+    async fn keyboard_navigation_back_forward_and_focus_restoration(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test Tokio runtime should initialize");
+
+        let (shell, window_cx) = cx.add_window_view(|window, cx| {
+            let shell = SenzoShell::new(runtime.handle().clone(), false, cx);
+            let home_focus = shell
+                .navigation_focus
+                .get(&AppPage::Home)
+                .expect("home focus handle exists")
+                .clone();
+            window.focus(&home_focus, cx);
+            shell
+        });
+
+        window_cx.update(|_, app| bind_shell_keys(app));
+        window_cx.simulate_keystrokes("down enter");
+        assert_eq!(shell.read(window_cx).navigation.current(), AppPage::Movies);
+        assert!(window_cx.update(|window, app| {
+            shell
+                .read(app)
+                .navigation_focus
+                .get(&AppPage::Movies)
+                .expect("movies focus handle exists")
+                .is_focused(window)
+        }));
+
+        window_cx.simulate_keystrokes("escape");
+        assert_eq!(shell.read(window_cx).navigation.current(), AppPage::Home);
+        window_cx.simulate_keystrokes("alt-right");
+        assert_eq!(shell.read(window_cx).navigation.current(), AppPage::Movies);
+
+        window_cx.dispatch_action(ShowShortcuts);
+        assert_eq!(
+            shell.read(window_cx).dialog,
+            Some(DialogKind::Shortcuts)
+        );
+        window_cx.simulate_keystrokes("escape");
+        assert_eq!(shell.read(window_cx).dialog, None);
+        assert!(window_cx.update(|window, app| {
+            shell
+                .read(app)
+                .navigation_focus
+                .get(&AppPage::Movies)
+                .expect("movies focus handle exists")
+                .is_focused(window)
+        }));
+    }
 }
