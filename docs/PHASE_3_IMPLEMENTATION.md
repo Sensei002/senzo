@@ -25,12 +25,9 @@ The hosted API remains the only TMDB credential boundary. The desktop applicatio
 - Added local HTTP test coverage proving the route shape and absence of Authorization headers; the test uses a loopback server and does not depend on a live TMDB account.
 - Added the SENZO_API_BASE_URL development override. The default is https://senzo-api.vercel.app.
 
-## Not yet implemented
+## Phase 3 scope boundary
 
-- Live hosted API health, Home, Search, Movie/TV/Person Details and artwork acceptance on Windows and Linux.
-- Merge/deploy SENZO API PR #1 before validating the new production person endpoint.
-- Runtime verification of connection loss, rate limiting and provider outages with recovery on both desktop platforms.
-- Full Nuvio Search parity: recent-search persistence, discover catalogues, pagination and add-on/server aggregation.
+The remaining full Nuvio discovery features—recent-search persistence, discover filters, pagination, add-on/server catalogues and configurable Home sections—belong to the later discovery phases. Phase 3 establishes the hosted metadata and artwork transport, native integration baseline and reliable recovery behavior; it does not claim full Nuvio discovery parity.
 
 
 ## Artwork pipeline implementation
@@ -44,7 +41,7 @@ The new `senzo-artwork` crate implements the second Phase 3 slice:
 - Decodes validated images to RGBA8 for native GPUI rendering while retaining validated encoded bytes.
 - Adds an LRU in-memory cache with a 64 MiB default budget and a persistent disk cache with a 512 MiB default budget and oldest-entry eviction.
 - Supports cancellation, bounded transient retries, corrupt disk-entry cleanup and cache directory isolation.
-- Exposes cache statistics and composes the service into the application-owned service graph. Native poster/backdrop components and the initial Home trending shelf now consume this service.
+- Exposes cache statistics and composes the service into the application-owned service graph. Native poster/backdrop components and all three built-in Home catalogue shelves now consume this service.
 
 The artwork cache lives below the OS cache directory in `SENZO/artwork`; it is disposable and contains no credentials or database records.
 
@@ -52,14 +49,15 @@ The artwork cache lives below the OS cache directory in `SENZO/artwork`; it is d
 
 The SENZO UI now consumes the typed metadata client and artwork service directly:
 
-- Home requests the real hosted trending catalogue asynchronously; no hardcoded titles or stock artwork are used.
-- Poster requests use the bounded artwork service at w342; the featured title's backdrop is resolved at w1280.
+- Home requests real hosted catalogue metadata asynchronously; no hardcoded titles or stock artwork are used.
+- Trending, popular movies and popular TV are loaded concurrently and rendered as independent native shelves.
+- Poster requests use the bounded artwork service at w342; the featured trending title's backdrop is resolved at w1280.
 - Decoded RGBA8 pixels are converted on Tokio's blocking pool into GPUI RenderImage frames in BGRA order. The GPUI renderer receives cached render frames, not arbitrary remote URLs.
 - Reusable poster and backdrop components provide fixed layout dimensions and explicit loading/unavailable placeholders.
 - Metadata requests, downloads and pixel conversion do not block the GPUI render thread. The UI is updated only after the background task completes.
 - A cancellation token is owned by the shell and cancelled during teardown.
 
-The initial Home rail is intentionally limited to eight current trending items as an integration proof. Full Home discovery shelves, Search and Details remain separate work.
+The current built-in Home baseline shows up to 12 cards in each of the three catalogue shelves, selects a trending item with a backdrop for the hero, and routes movie, TV and person cards to their matching native Details workflow. Each shelf has loading, empty/error and retry states. Configurable/add-on catalogues, collections, Continue Watching, pagination and a full cinematic carousel remain later Home/discovery work.
 
 ## Native hosted-metadata Search integration
 
@@ -106,6 +104,7 @@ The desktop implementation and typed client are on `development` (native Person 
 - Home, Search and Details retain explicit Retry actions; individual TV season requests also provide a dedicated retry action.
 - Selecting another TV season cancels the previous request so a late response cannot overwrite the currently selected season.
 - API diagnostics and raw upstream response text are not exposed as the primary UI message. The desktop still contains no TMDB credential.
+- Deterministic local-server tests cover transient 5xx recovery, the short `Retry-After` rule for 429 responses, non-caching of failed responses, identical-request coalescing and cancellation during retry backoff.
 
 ## First-slice automated acceptance
 
@@ -118,12 +117,12 @@ The metadata-client foundation passed [CI run #431](https://github.com/Sensei002
   - senzo-linux-x64-development-072ff362e84c37b6ca45f439cad39c8fe562ab73
 - CI regenerated and committed Cargo.lock in commit 66df5a3c75281fc65698e7f69a7fa94b19736cf8.
 
-These checks validate the service foundation and native application build. They do not claim that the hosted API was live-tested or that Search, details and artwork are already wired into the UI.
+These first-slice checks validate the initial service foundation and native application build only. Later desktop CI runs cover the expanded Home, Search, Details and resilience implementations; no desktop build or mock-server test proves that the production hosted API is reachable.
 
 ## Opt-in live hosted API acceptance
 
-An opt-in live API acceptance workflow is available through Actions → SENZO Desktop CI → Run workflow → enable `run_live_api_acceptance`. It checks API health, Search, trending, movie details/credits, TV details/seasons, person details/combined credits and a TMDB artwork CDN response from both Windows and Linux runners. Keep it disabled during normal CI to avoid making every commit depend on external services.
+An opt-in live API acceptance workflow is available through Actions → SENZO Desktop CI → Run workflow → enable `run_live_api_acceptance`. It checks API health and server-side TMDB configuration; multi/movie/TV Search; trending, popular movie and popular TV catalogues; movie/TV details, credits, videos, images and external IDs; TV season and episode details; person details and combined cast/crew credits; and the TMDB artwork CDN with byte-limit and file-signature checks. The job runs on both Windows and Linux. Keep it disabled during normal CI to avoid making every commit depend on external services.
 
 ## Remaining Phase 3 acceptance
 
-Phase 3 is not complete until the native Home, Search, Movie/TV/Person Details and artwork flows are verified against the live hosted API on Windows and Linux without a desktop TMDB secret. First merge/deploy SENZO API PR #1 so the hosted person profile/combined-credits route exists in production. Run the opt-in live API acceptance workflow after deployment. Runtime acceptance must also simulate offline connectivity, HTTP 429 and provider 5xx outages, verify that every Retry action recovers cleanly, and confirm that cancelled or superseded requests never restore stale data. Desktop CI #457 and API CI #10 are green, but neither substitutes for this live runtime gate.
+Phase 3 is not complete until the native Home, Search, Movie/TV/Person Details and artwork flows are verified against the live hosted API on Windows and Linux without a desktop TMDB secret. SENZO API PR #1 must be deployed first so the hosted person profile/combined-credits route exists in production. Then run the expanded opt-in live API acceptance workflow. The client-side offline, 429, 5xx, cache and coalescing rules now have deterministic local HTTP regression coverage in desktop CI; the remaining runtime gate is to verify Retry behavior and stale-request cancellation in the actual Windows and Linux application against deployed services. The API PR is still intentionally unmerged, so production Person Details is not yet available.
