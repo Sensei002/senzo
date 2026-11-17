@@ -1464,8 +1464,9 @@ impl SenzoShell {
                 }
                 page = page.child(results);
 
-                if let Some(index) = self.selected_search_result {
-                    if let Some(card) = self.search_results.get(index) {
+                if let Some(index) = self.selected_search_result
+                    && let Some(card) = self.search_results.get(index)
+                {
                     let synopsis = card
                         .overview
                         .as_deref()
@@ -1536,7 +1537,6 @@ impl SenzoShell {
                         );
                     }
                     page = page.child(preview);
-                    }
                 }
 
                 if self.search_artwork_loading {
