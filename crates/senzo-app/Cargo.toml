@@ -14,6 +14,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 senzo-artwork = { path = "../senzo-artwork" }
 tokio.workspace = true
+tokio-util.workspace = true
 tracing.workspace = true
 senzo-diagnostics = { path = "../senzo-diagnostics" }
 senzo-domain = { path = "../senzo-domain" }
