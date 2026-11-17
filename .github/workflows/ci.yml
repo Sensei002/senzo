@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main, development]
   workflow_dispatch:
+    inputs:
+      run_live_api_acceptance:
+        description: "Run live hosted API and TMDB artwork acceptance on Windows and Linux"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -93,6 +99,24 @@ jobs:
           path: target/release/senzo
           if-no-files-found: error
           retention-days: 14
+
+  live-api-acceptance:
+    name: Live hosted API acceptance (${{ matrix.os }})
+    if: github.event_name == 'workflow_dispatch' && inputs.run_live_api_acceptance
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify live hosted metadata and artwork
+        run: node scripts/live-api-acceptance.mjs
 
   lockfile:
     name: Commit resolved Cargo.lock
