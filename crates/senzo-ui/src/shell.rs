@@ -2085,7 +2085,7 @@ mod tests {
 
     #[gpui::test]
     async fn keyboard_navigation_back_forward_and_focus_restoration(cx: &mut gpui::TestAppContext) {
-        cx.update(|app| gpui_component::init(app));
+        cx.update(gpui_component::init);
 
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
