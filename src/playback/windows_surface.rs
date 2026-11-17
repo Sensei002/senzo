@@ -7,8 +7,8 @@ use windows_sys::Win32::{
     Foundation::{GetLastError, HWND, RECT},
     UI::WindowsAndMessaging::{
         CreateWindowExW, DestroyWindow, GetClientRect, GetParent, HWND_TOP, IsWindow,
-        IsWindowVisible, PostMessageW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_SHOWWINDOW,
-        SetWindowPos, WM_CLOSE, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
+        IsWindowVisible, PostMessageW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
+        SWP_SHOWWINDOW, SetWindowPos, WM_CLOSE, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
     },
 };
 
@@ -89,7 +89,10 @@ pub fn request_parent_close(parent: usize) -> anyhow::Result<()> {
     }
     // SAFETY: WM_CLOSE has no pointer payload and the HWND was validated above.
     if unsafe { PostMessageW(parent as HWND, WM_CLOSE, 0, 0) } == 0 {
-        bail!("could not post WM_CLOSE to SENZO's main window (Win32 error {})", unsafe { GetLastError() });
+        bail!(
+            "could not post WM_CLOSE to SENZO's main window (Win32 error {})",
+            unsafe { GetLastError() }
+        );
     }
     Ok(())
 }

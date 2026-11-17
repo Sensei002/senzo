@@ -25,7 +25,9 @@ use senzo::{
     playback::{
         mpv_config::build_mpv_config,
         mpv_worker::{PlaybackEvent, PlaybackState, PlaybackWorker},
-        windows_surface::{SurfaceBounds, WindowsVideoSurface, gpui_parent_hwnd, request_parent_close},
+        windows_surface::{
+            SurfaceBounds, WindowsVideoSurface, gpui_parent_hwnd, request_parent_close,
+        },
     },
     settings::{
         DecoderPreference, HardwareDecoding, HdrMode, PlaybackSettings, RendererPreference,
@@ -1611,8 +1613,20 @@ impl SenzoApp {
         self.addon_subtitle_results.clear();
         self.addon_subtitle_status = "Checking the selected add-on for subtitle tracks…".into();
         self.addon_catalog_status = format!("Loading details and streams for {media_id}…");
-        self.selected_poster_path = meta.get("poster_path").and_then(Value::as_str).map(str::to_owned).or_else(|| meta.get("poster").and_then(Value::as_str).map(str::to_owned));
-        self.selected_backdrop_path = meta.get("backdrop_path").or_else(|| meta.get("background")).and_then(Value::as_str).map(str::to_owned);
+        self.selected_poster_path = meta
+            .get("poster_path")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| {
+                meta.get("poster")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            });
+        self.selected_backdrop_path = meta
+            .get("backdrop_path")
+            .or_else(|| meta.get("background"))
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         self.selected_title = meta
             .get("name")
             .or_else(|| meta.get("title"))
