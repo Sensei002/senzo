@@ -269,10 +269,13 @@ Batch 8 turns the existing MPV worker integration into a dedicated, usable nativ
 
 ### Batch 8.5B — Native player rendering
 
-**Status: In progress.** The first remediation reasserts the native child HWND's top sibling z-order during the active player viewport prepaint. This addresses a likely failure mode where the child is shown but remains behind a GPUI/native sibling after a repaint; it is a targeted fix, not yet proof of visible video.
+**Status: In progress.** The latest remediation removes the 1×1 visible startup target. SENZO now creates a full-client-sized native child HWND hidden, allowing MPV to bind to a correctly sized target before playback. The Player viewport then reapplies its measured geometry and shows/raises the child. Post-layout diagnostics record the actual HWND visibility and client dimensions. This is a lifecycle correction, not yet proof of visible video.
 
 - [x] Reassert native video child-window z-order while the Player viewport is active, even when its geometry has not changed.
 - [x] Add native-surface diagnostics for HWND validity, visibility, parent, bounds, and client geometry before MPV startup.
+- [x] Create the startup MPV child target at the fullscreen client dimensions and keep it hidden until the Player viewport is laid out.
+- [x] Always reapply measured Player viewport geometry and show the existing MPV child HWND during Player prepaint.
+- [x] Record a post-layout native-surface diagnostic snapshot.
 - [ ] Diagnose and fix audio-only playback where MPV reports configured video output but the native video surface is not visibly presenting frames.
 - [ ] Validate Win32 child-surface geometry, z-order, clipping, resizing, and lifecycle against the GPUI viewport.
 - [ ] Verify visible video with direct HTTP(S) and user-installed Stremio/Torrentio sources.
@@ -280,8 +283,8 @@ Batch 8 turns the existing MPV worker integration into a dedicated, usable nativ
 
 ### Batch 8.5C — Fullscreen application shell
 
-- [ ] Launch the application in a maximized media-center window by default.
-- [ ] Add an intentional borderless/fullscreen presentation mode with a discoverable exit/restore action.
+- [x] Configure the initial application window to open in GPUI fullscreen mode with no titlebar, resize frame, or movable window chrome.
+- [ ] Verify fullscreen startup and an intentional exit/restore path on Windows.
 - [ ] Verify navigation, Home, and playback layouts across common resolutions and DPI scales.
 
 ### Batch 8.5D — Nuvio-style title details and source selection
