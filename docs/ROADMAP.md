@@ -30,19 +30,23 @@ A phase is complete only when its documented deliverables, automated checks, and
 
 ## Phase 1 — Clean Rust workspace and technical foundation
 
-- [ ] Establish a clean Cargo workspace and crate boundaries.
-- [ ] Retire the legacy monolithic `src/main.rs` from the active application path; preserve Git history.
-- [ ] Pin GPUI CE and validate the native Windows and Linux startup paths.
-- [ ] Establish typed domain models, service interfaces and dependency composition.
-- [ ] Establish Tokio task ownership and GPUI-safe async state updates.
-- [ ] Establish structured errors, logging, diagnostics and credential redaction.
-- [ ] Establish SQLite repositories and transactional ordered migrations.
-- [ ] Establish secure credential storage per platform.
-- [ ] Establish shared HTTP policy and URL validation.
-- [ ] Establish CI for format, lint, test, Windows build and Linux build.
-- [ ] Create a minimal native shell that opens, navigates and shuts down cleanly.
+<badge>Complete</badge>
 
-**Gate:** Clean native app startup/shutdown and workspace checks on Windows; Linux foundation compiles and launches.
+- [x] Establish a clean Cargo workspace and crate boundaries.
+- [x] Retire the legacy monolithic `src/main.rs` from the active application path; preserve Git history.
+- [x] Pin GPUI CE and validate the native Windows and Linux startup paths.
+- [x] Establish typed domain models, service interfaces and dependency composition.
+- [x] Establish Tokio task ownership and GPUI-safe async state updates.
+- [x] Establish structured errors, logging, diagnostics and credential redaction.
+- [x] Establish SQLite repositories and transactional ordered migrations.
+- [x] Establish secure credential storage per platform.
+- [x] Establish shared HTTP policy and URL validation.
+- [x] Establish CI for format, lint, test, Windows build and Linux build.
+- [x] Create a minimal native shell that opens, navigates and shuts down cleanly.
+
+**Gate:** Passed on Windows Server 2022 and Ubuntu 24.04 in [CI run #411](https://github.com/Sensei002/senzo/actions/runs/44081493351). Both native release builds, workspace checks and startup/render/shutdown smoke tests succeeded. Windows and Linux foundation artifacts were uploaded. The basic Home/Library/Settings navigation is implemented; automated smoke tests validate window startup/render/shutdown, while interactive route behavior will receive broader acceptance coverage in Phase 2.
+
+**Completion record:** [Phase 1 completion](PHASE_1_COMPLETION.md).
 
 ## Phase 2 — Native GPUI application shell and design system
 
