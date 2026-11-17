@@ -89,7 +89,11 @@ if (!address || typeof address === "string") {
 const localBase = "http://127.0.0.1:" + address.port + "/";
 
 const childEnvironment = { ...process.env, SENZO_API_BASE_URL: localBase };
-delete childEnvironment.VERCEL_AUTOMATION_BYPASS_SECRET;
+for (const name of Object.keys(childEnvironment)) {
+  if (name.toUpperCase() === "VERCEL_AUTOMATION_BYPASS_SECRET") {
+    delete childEnvironment[name];
+  }
+}
 
 console.log("Running the native Rust metadata and artwork smoke test on " + process.platform + ".");
 
