@@ -99,7 +99,7 @@ async fn run_metadata_smoke_test(
     let health = metadata.health(&cancellation).await?;
     ensure!(
         health.service == "SENZO API" && health.status == "ok" && health.tmdb_configured,
-        "hosted SENZO API health or server-side TMDB configuration is invalid"
+        "hosted SENZO API health is invalid or the selected Vercel environment is missing its server-side TMDB_READ_ACCESS_TOKEN; configure it in the Vercel Preview environment, separately from the GitHub Actions bypass secret"
     );
     println!("PASS  hosted API health and server-side TMDB configuration");
 
