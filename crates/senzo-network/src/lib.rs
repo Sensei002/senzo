@@ -39,7 +39,9 @@ impl ValidatedHttpUrl {
         Ok(Self(url))
     }
 
-    pub fn as_url(&self) -> &Url { &self.0 }
+    pub fn as_url(&self) -> &Url {
+        &self.0
+    }
 }
 
 #[derive(Debug, Error)]
@@ -53,7 +55,9 @@ pub enum NetworkError {
 }
 
 #[derive(Clone)]
-pub struct HttpClient { client: Client }
+pub struct HttpClient {
+    client: Client,
+}
 
 impl HttpClient {
     pub fn new(policy: HttpPolicy) -> Result<Self, NetworkError> {

@@ -13,17 +13,23 @@ use thiserror::Error;
 pub const CURRENT_SCHEMA_VERSION: i64 = 2;
 
 const MIGRATIONS: &[(i64, &str)] = &[
-    (1, "CREATE TABLE app_settings (
+    (
+        1,
+        "CREATE TABLE app_settings (
         key TEXT PRIMARY KEY NOT NULL,
         value TEXT NOT NULL,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );"),
-    (2, "CREATE TABLE profiles (
+    );",
+    ),
+    (
+        2,
+        "CREATE TABLE profiles (
         id TEXT PRIMARY KEY NOT NULL,
         name TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-    INSERT OR IGNORE INTO profiles (id, name) VALUES ('default', 'Default');"),
+    INSERT OR IGNORE INTO profiles (id, name) VALUES ('default', 'Default');",
+    ),
 ];
 
 #[derive(Debug, Error)]
@@ -38,7 +44,9 @@ pub enum StorageError {
     LockPoisoned,
 }
 
-pub struct SqliteDatabase { connection: Mutex<Connection> }
+pub struct SqliteDatabase {
+    connection: Mutex<Connection>,
+}
 
 impl SqliteDatabase {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StorageError> {
@@ -60,16 +68,22 @@ impl SqliteDatabase {
              PRAGMA synchronous = NORMAL;",
         )?;
         run_migrations(&mut connection)?;
-        Ok(Self { connection: Mutex::new(connection) })
+        Ok(Self {
+            connection: Mutex::new(connection),
+        })
     }
 
     pub fn schema_version(&self) -> Result<i64, StorageError> {
-        let connection = self.connection.lock().map_err(|_| StorageError::LockPoisoned)?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| StorageError::LockPoisoned)?;
         read_schema_version(&connection).map_err(StorageError::Sqlite)
     }
 
     fn lock(&self) -> Result<MutexGuard<'_, Connection>, RepositoryError> {
-        self.connection.lock()
+        self.connection
+            .lock()
             .map_err(|_| RepositoryError::Unavailable("database lock is poisoned".to_owned()))
     }
 }
@@ -84,7 +98,10 @@ fn run_migrations(connection: &mut Connection) -> Result<(), StorageError> {
     )?;
     let current = read_schema_version(&transaction)?;
     if current > CURRENT_SCHEMA_VERSION {
-        return Err(StorageError::UnsupportedSchema { found: current, supported: CURRENT_SCHEMA_VERSION });
+        return Err(StorageError::UnsupportedSchema {
+            found: current,
+            supported: CURRENT_SCHEMA_VERSION,
+        });
     }
     apply_migrations(&transaction, current)?;
     transaction.commit()?;
@@ -95,7 +112,10 @@ fn apply_migrations(transaction: &Transaction<'_>, current: i64) -> Result<(), r
     for (version, sql) in MIGRATIONS {
         if *version > current {
             transaction.execute_batch(sql)?;
-            transaction.execute("INSERT INTO schema_migrations (version) VALUES (?1)", [version])?;
+            transaction.execute(
+                "INSERT INTO schema_migrations (version) VALUES (?1)",
+                [version],
+            )?;
         }
     }
     Ok(())
@@ -112,19 +132,26 @@ fn read_schema_version(connection: &Connection) -> Result<i64, rusqlite::Error> 
 impl SettingsRepository for SqliteDatabase {
     fn get(&self, key: &SettingKey) -> Result<Option<String>, RepositoryError> {
         let connection = self.lock()?;
-        connection.query_row("SELECT value FROM app_settings WHERE key = ?1", [key.as_str()], |row| row.get(0))
+        connection
+            .query_row(
+                "SELECT value FROM app_settings WHERE key = ?1",
+                [key.as_str()],
+                |row| row.get(0),
+            )
             .optional()
             .map_err(|error| RepositoryError::Unavailable(error.to_string()))
     }
 
     fn set(&self, key: &SettingKey, value: &str) -> Result<(), RepositoryError> {
         let connection = self.lock()?;
-        connection.execute(
-            "INSERT INTO app_settings (key, value, updated_at)
+        connection
+            .execute(
+                "INSERT INTO app_settings (key, value, updated_at)
              VALUES (?1, ?2, CURRENT_TIMESTAMP)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP",
-            (key.as_str(), value),
-        ).map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+                (key.as_str(), value),
+            )
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
         Ok(())
     }
 }
@@ -132,9 +159,16 @@ impl SettingsRepository for SqliteDatabase {
 impl ProfileRepository for SqliteDatabase {
     fn list_profiles(&self) -> Result<Vec<Profile>, RepositoryError> {
         let connection = self.lock()?;
-        let mut statement = connection.prepare("SELECT id, name FROM profiles ORDER BY created_at, id")
+        let mut statement = connection
+            .prepare("SELECT id, name FROM profiles ORDER BY created_at, id")
             .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
-        let profiles = statement.query_map([], |row| Ok(Profile { id: row.get(0)?, name: row.get(1)? }))
+        let profiles = statement
+            .query_map([], |row| {
+                Ok(Profile {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                })
+            })
             .map_err(|error| RepositoryError::Unavailable(error.to_string()))?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
@@ -146,9 +180,16 @@ impl ProfileRepository for SqliteDatabase {
         if name.is_empty() || name.chars().count() > 64 || name.chars().any(char::is_control) {
             return Err(RepositoryError::InvalidProfileName);
         }
-        let profile = Profile { id: uuid::Uuid::new_v4().to_string(), name: name.to_owned() };
+        let profile = Profile {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: name.to_owned(),
+        };
         let connection = self.lock()?;
-        connection.execute("INSERT INTO profiles (id, name) VALUES (?1, ?2)", (&profile.id, &profile.name))
+        connection
+            .execute(
+                "INSERT INTO profiles (id, name) VALUES (?1, ?2)",
+                (&profile.id, &profile.name),
+            )
             .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
         Ok(profile)
     }
@@ -181,6 +222,9 @@ mod tests {
         let profile = database.create_profile("  Guest  ").unwrap();
         assert_eq!(profile.name, "Guest");
         assert_eq!(database.list_profiles().unwrap().len(), 2);
-        assert!(matches!(database.create_profile(" "), Err(RepositoryError::InvalidProfileName)));
+        assert!(matches!(
+            database.create_profile(" "),
+            Err(RepositoryError::InvalidProfileName)
+        ));
     }
 }

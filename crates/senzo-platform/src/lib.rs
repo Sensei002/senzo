@@ -26,19 +26,37 @@ pub struct AppDirectories {
 
 impl AppDirectories {
     pub fn discover() -> Result<Self, PlatformError> {
-        let data = dirs::data_local_dir().ok_or(PlatformError::DataDirectoryUnavailable)?.join("SENZO");
-        let config = dirs::config_dir().ok_or(PlatformError::ConfigDirectoryUnavailable)?.join("SENZO");
-        let cache = dirs::cache_dir().ok_or(PlatformError::CacheDirectoryUnavailable)?.join("SENZO");
+        let data = dirs::data_local_dir()
+            .ok_or(PlatformError::DataDirectoryUnavailable)?
+            .join("SENZO");
+        let config = dirs::config_dir()
+            .ok_or(PlatformError::ConfigDirectoryUnavailable)?
+            .join("SENZO");
+        let cache = dirs::cache_dir()
+            .ok_or(PlatformError::CacheDirectoryUnavailable)?
+            .join("SENZO");
         for directory in [&data, &config, &cache] {
             std::fs::create_dir_all(directory)?;
         }
-        Ok(Self { data, config, cache })
+        Ok(Self {
+            data,
+            config,
+            cache,
+        })
     }
 
-    pub fn database_file(&self) -> PathBuf { self.data.join("senzo.sqlite3") }
-    pub fn data_dir(&self) -> &std::path::Path { &self.data }
-    pub fn config_dir(&self) -> &std::path::Path { &self.config }
-    pub fn cache_dir(&self) -> &std::path::Path { &self.cache }
+    pub fn database_file(&self) -> PathBuf {
+        self.data.join("senzo.sqlite3")
+    }
+    pub fn data_dir(&self) -> &std::path::Path {
+        &self.data
+    }
+    pub fn config_dir(&self) -> &std::path::Path {
+        &self.config
+    }
+    pub fn cache_dir(&self) -> &std::path::Path {
+        &self.cache
+    }
 }
 
 #[derive(Debug, Error)]
@@ -54,10 +72,16 @@ pub trait CredentialStore: Send + Sync {
 }
 
 /// Windows uses Credential Manager; Linux uses Secret Service and keyutils.
-pub struct KeyringCredentialStore { service: String }
+pub struct KeyringCredentialStore {
+    service: String,
+}
 
 impl KeyringCredentialStore {
-    pub fn new(service: impl Into<String>) -> Self { Self { service: service.into() } }
+    pub fn new(service: impl Into<String>) -> Self {
+        Self {
+            service: service.into(),
+        }
+    }
 
     fn entry(&self, account: &str) -> Result<Entry, CredentialError> {
         Entry::new(&self.service, account).map_err(CredentialError::Backend)
@@ -74,7 +98,9 @@ impl CredentialStore for KeyringCredentialStore {
     }
 
     fn set(&self, account: &str, secret: &str) -> Result<(), CredentialError> {
-        self.entry(account)?.set_password(secret).map_err(CredentialError::Backend)
+        self.entry(account)?
+            .set_password(secret)
+            .map_err(CredentialError::Backend)
     }
 
     fn delete(&self, account: &str) -> Result<(), CredentialError> {

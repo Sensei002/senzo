@@ -22,8 +22,10 @@ fn main() {
 }
 
 fn run() -> anyhow::Result<()> {
-    senzo_diagnostics::init().map_err(|error| anyhow::anyhow!("initialize structured diagnostics: {error}"))?;
-    let directories = AppDirectories::discover().context("resolve native application directories")?;
+    senzo_diagnostics::init()
+        .map_err(|error| anyhow::anyhow!("initialize structured diagnostics: {error}"))?;
+    let directories =
+        AppDirectories::discover().context("resolve native application directories")?;
     let database = Arc::new(
         SqliteDatabase::open(directories.database_file())
             .context("open the local SENZO database and apply migrations")?,
@@ -37,7 +39,9 @@ fn run() -> anyhow::Result<()> {
         _credentials: Arc::new(KeyringCredentialStore::new("SENZO Desktop")),
     };
 
-    let schema_version = database.schema_version().context("read database schema version")?;
+    let schema_version = database
+        .schema_version()
+        .context("read database schema version")?;
     tracing::info!(
         schema_version,
         data_directory = %directories.data_dir().display(),

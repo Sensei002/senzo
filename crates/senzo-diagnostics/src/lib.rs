@@ -47,8 +47,11 @@ pub fn redact_url(value: &str) -> String {
         .collect();
     url.set_query(None);
     if !pairs.is_empty() {
-        url.query_pairs_mut()
-            .extend_pairs(pairs.iter().map(|(key, value)| (key.as_str(), value.as_str())));
+        url.query_pairs_mut().extend_pairs(
+            pairs
+                .iter()
+                .map(|(key, value)| (key.as_str(), value.as_str())),
+        );
     }
     url.to_string()
 }
@@ -82,9 +85,17 @@ fn is_sensitive_name(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     matches!(
         name.as_str(),
-        "token" | "api_key" | "apikey" | "password" | "secret" | "authorization"
-            | "access_token" | "refresh_token" | "client_secret"
-    ) || name.ends_with("_token") || name.ends_with("_secret")
+        "token"
+            | "api_key"
+            | "apikey"
+            | "password"
+            | "secret"
+            | "authorization"
+            | "access_token"
+            | "refresh_token"
+            | "client_secret"
+    ) || name.ends_with("_token")
+        || name.ends_with("_secret")
 }
 
 #[cfg(test)]
@@ -101,8 +112,16 @@ mod tests {
         let redacted = redact_url("https://example.test/items?api_key=private&lang=en");
         let parsed = Url::parse(&redacted).unwrap();
         let pairs: Vec<_> = parsed.query_pairs().collect();
-        assert!(pairs.iter().any(|(key, value)| key == "api_key" && value == "[REDACTED]"));
-        assert!(pairs.iter().any(|(key, value)| key == "lang" && value == "en"));
+        assert!(
+            pairs
+                .iter()
+                .any(|(key, value)| key == "api_key" && value == "[REDACTED]")
+        );
+        assert!(
+            pairs
+                .iter()
+                .any(|(key, value)| key == "lang" && value == "en")
+        );
         assert!(!redacted.contains("private"));
     }
 

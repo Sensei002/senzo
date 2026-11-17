@@ -46,7 +46,11 @@ impl MediaId {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum MediaKind { Movie, Series, Episode }
+pub enum MediaKind {
+    Movie,
+    Series,
+    Episode,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MediaReference {
@@ -56,7 +60,11 @@ pub struct MediaReference {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AppPage { Home, Library, Settings }
+pub enum AppPage {
+    Home,
+    Library,
+    Settings,
+}
 
 impl AppPage {
     pub const fn title(self) -> &'static str {
@@ -71,7 +79,9 @@ impl AppPage {
         match self {
             Self::Home => "The native SENZO application foundation is ready.",
             Self::Library => "Your local library will live here in a later phase.",
-            Self::Settings => "Application preferences and provider settings will be added in later phases.",
+            Self::Settings => {
+                "Application preferences and provider settings will be added in later phases."
+            }
         }
     }
 }
@@ -114,7 +124,10 @@ mod tests {
 
     #[test]
     fn setting_keys_are_validated() {
-        assert_eq!(SettingKey::new("player.audio_language").unwrap().as_str(), "player.audio_language");
+        assert_eq!(
+            SettingKey::new("player.audio_language").unwrap().as_str(),
+            "player.audio_language"
+        );
         assert!(SettingKey::new("../secret").is_err());
         assert!(SettingKey::new("Uppercase").is_err());
     }
