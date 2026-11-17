@@ -64,6 +64,13 @@ pub struct PlaybackDiagnostics {
     pub mistimed_frames: Option<u64>,
     pub source_transfer: Option<String>,
     pub output_transfer: Option<String>,
+    pub audio_output: Option<String>,
+    pub audio_codec: Option<String>,
+    pub audio_format: Option<String>,
+    pub audio_sample_rate: Option<String>,
+    pub audio_channels: Option<String>,
+    pub selected_video_track: Option<String>,
+    pub selected_audio_track: Option<String>,
 }
 
 /// Capabilities confirmed by the active MPV output and current Windows display state.
@@ -129,6 +136,13 @@ impl PlaybackState {
                 mistimed_frames: read_unsigned(runtime, "mistimed-frame-count"),
                 source_transfer,
                 output_transfer,
+                audio_output: read_property(runtime, "current-ao"),
+                audio_codec: read_property(runtime, "audio-codec"),
+                audio_format: read_property(runtime, "audio-params/format"),
+                audio_sample_rate: read_property(runtime, "audio-params/samplerate"),
+                audio_channels: read_property(runtime, "audio-params/channel-count"),
+                selected_video_track: read_property(runtime, "vid"),
+                selected_audio_track: read_property(runtime, "aid"),
             },
             capabilities: PlaybackCapabilities {
                 gpu_renderer_active,
