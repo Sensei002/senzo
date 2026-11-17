@@ -11,7 +11,7 @@ use url::{Host, Url};
 use crate::{
     cache::MetadataCache,
     models::{
-        ApiHealth, EpisodeDetails, ExternalIds, MediaListResponse, MovieDetails, SearchType,
+        ApiHealth, EpisodeDetails, ExternalIds, MediaListResponse, MovieDetails, Person, SearchType,
         SeasonDetails, TvDetails,
     },
 };
@@ -217,6 +217,23 @@ impl MetadataClient {
         self.get_json(
             &format!("api/tmdb/tv/{id}"),
             &[],
+            Duration::from_secs(900),
+            cancellation,
+        )
+        .await
+    }
+
+    pub async fn person(
+        &self,
+        id: u64,
+        language: &str,
+        cancellation: &CancellationToken,
+    ) -> Result<Person, MetadataError> {
+        validate_id(id)?;
+        validate_language(language)?;
+        self.get_json(
+            &format!("api/tmdb/person/{id}"),
+            &[("language", language)],
             Duration::from_secs(900),
             cancellation,
         )
@@ -609,6 +626,69 @@ mod tests {
         assert!(request.contains("query=arrival"));
         assert!(request.contains("type=multi"));
         assert!(!request.to_ascii_lowercase().contains("authorization:"));
+    }
+
+    #[tokio::test]
+    async fn requests_person_profile_with_combined_cast_and_crew_credits() {
+        let (base, server) = start_server(
+            r#"{
+                "id":287,
+                "name":"Brad Pitt",
+                "biography":"An actor and producer.",
+                "birthday":"1963-12-18",
+                "known_for_department":"Acting",
+                "profile_path":"/profile.jpg",
+                "combined_credits":{
+                    "cast":[{"id":550,"media_type":"movie","title":"Fight Club","character":"Tyler Durden","poster_path":"/fight-club.jpg","release_date":"1999-10-15","vote_average":8.4}],
+                    "crew":[{"id":680,"media_type":"movie","title":"Pulp Fiction","job":"Producer","department":"Production","release_date":"1994-09-10"}]
+                }
+            }"#,
+        )
+        .await;
+        let client = MetadataClient::new(
+            HttpClient::new(Default::default()).unwrap(),
+            MetadataClientConfig {
+                base_url: base,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let person = client
+            .person(287, "en-US", &CancellationToken::new())
+            .await
+            .unwrap();
+        let request = server.await.unwrap();
+
+        assert_eq!(person.name, "Brad Pitt");
+        let credits = person.combined_credits.expect("combined credits are present");
+        assert_eq!(credits.cast[0].display_title(), "Fight Club");
+        assert_eq!(credits.cast[0].character.as_deref(), Some("Tyler Durden"));
+        assert_eq!(credits.cast[0].release_year(), Some("1999"));
+        assert_eq!(credits.crew[0].job.as_deref(), Some("Producer"));
+        assert!(request.starts_with("GET /api/tmdb/person/287?"));
+        assert!(request.contains("language=en-US"));
+        assert!(!request.to_ascii_lowercase().contains("authorization:"));
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_person_ids_before_network_access() {
+        let client = MetadataClient::new(
+            HttpClient::new(Default::default()).unwrap(),
+            MetadataClientConfig {
+                base_url: "http://127.0.0.1:3000".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            client.person(0, "en-US", &CancellationToken::new()).await,
+            Err(MetadataError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            client.person(287, "EN-us", &CancellationToken::new()).await,
+            Err(MetadataError::InvalidInput(_))
+        ));
     }
 
     #[tokio::test]
