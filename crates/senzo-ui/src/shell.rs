@@ -3,7 +3,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use gpui::{
-    App, Context, FocusHandle, Image, ImageFormat, KeyBinding, Menu, MenuItem, MouseButton,
+    App, ColorExt, Context, FocusHandle, Image, ImageFormat, KeyBinding, Menu, MenuItem, MouseButton,
     NavigationDirection, QuitMode, Render, SharedString, TitlebarOptions, Window, WindowOptions,
     actions, div, img, prelude::*, px, rgb, size,
 };
@@ -23,7 +23,6 @@ actions!(senzo, [
     FocusNext,
     FocusPrevious,
     ActivateNavigation,
-    ToggleMenu,
     ShowShortcuts,
     ShowAbout,
     ShowWhatsNew,
@@ -74,16 +73,16 @@ impl SenzoShell {
         }
     }
 
-    fn focus_page(&self, page: AppPage, window: &mut Window) {
+    fn focus_page(&self, page: AppPage, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(handle) = self.navigation_focus.get(&page) {
-            window.focus(handle);
+            window.focus(handle, cx);
         }
     }
 
     fn navigate(&mut self, page: AppPage, window: &mut Window, cx: &mut Context<Self>) {
         if self.navigation.navigate(page) {
             self.menu_open = false;
-            self.focus_page(page, window);
+            self.focus_page(page, window, cx);
             cx.notify();
         }
     }
@@ -109,7 +108,7 @@ impl SenzoShell {
         if self.dialog.is_some() || self.menu_open {
             return;
         }
-        if self.navigation.forward() {
+        if self.navigation.can_go_forward() && self.navigation.forward() {
             let page = self.navigation.current();
             self.focus_page(page, window);
             cx.notify();
@@ -237,7 +236,7 @@ impl SenzoShell {
             })
     }
 
-    fn render_sidebar(&self, cx: &mut Context<Self>) -> gpui::Div {
+    fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("senzo-sidebar")
             .key_context("SENZO_NAVIGATION")
@@ -585,7 +584,11 @@ impl SenzoShell {
                     )),
             )
             .child(status_panel(
-                StatusTone::Info,
+                if self.runtime_status.contains("failed") {
+                    StatusTone::Error
+                } else {
+                    StatusTone::Info
+                },
                 "ADVANCED DIAGNOSTICS",
                 "Background runtime",
                 "A lightweight check confirms that the application-owned Tokio runtime can execute background work without blocking the GPUI interface.",
@@ -718,7 +721,7 @@ impl SenzoShell {
         }
     }
 
-    fn render_menu(&self, cx: &mut Context<Self>) -> gpui::Div {
+    fn render_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("application-menu")
             .absolute()
@@ -772,7 +775,7 @@ impl SenzoShell {
             )
     }
 
-    fn render_dialog(&self, kind: DialogKind, cx: &mut Context<Self>) -> gpui::Div {
+    fn render_dialog(&self, kind: DialogKind, cx: &mut Context<Self>) -> impl IntoElement {
         let (eyebrow, title, description) = match kind {
             DialogKind::About => (
                 "ABOUT",
@@ -824,17 +827,6 @@ impl SenzoShell {
                             .child(description),
                     ),
             );
-
-        if kind == DialogKind::About {
-            dialog = dialog.child(
-                div()
-                    .absolute()
-                    .top(px(0.0))
-                    .left(px(0.0))
-                    .w(px(1.0))
-                    .h(px(1.0)),
-            );
-        }
 
         let details = match kind {
             DialogKind::About => vec![
@@ -898,7 +890,7 @@ impl SenzoShell {
                             .aria_label("Close dialog")
                             .on_click(cx.listener(|this, _event, window, cx| {
                                 this.dialog = None;
-                                this.focus_page(this.navigation.current(), window);
+                                this.focus_page(this.navigation.current(), window, cx);
                                 cx.notify();
                             }))
                             .child(
@@ -911,7 +903,7 @@ impl SenzoShell {
             )
     }
 
-    fn render_notification(&self, cx: &mut Context<Self>) -> gpui::Div {
+    fn render_notification(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let message = self.notification.clone().unwrap_or_default();
         div()
             .id("notification-toast")
@@ -991,13 +983,13 @@ impl Render for SenzoShell {
             .on_action(cx.listener(|this, _: &GoForward, window, cx| {
                 this.go_forward(window, cx);
             }))
-            .on_action(|_, _: &ToggleFullscreen, window, _cx| {
+            .on_action(|_: &ToggleFullscreen, window, _cx| {
                 window.toggle_fullscreen();
             })
-            .on_action(|_, _: &FocusNext, window, _cx| {
+            .on_action(|_: &FocusNext, window, cx| {
                 window.focus_next();
             })
-            .on_action(|_, _: &FocusPrevious, window, _cx| {
+            .on_action(|_: &FocusPrevious, window, cx| {
                 window.focus_prev();
             })
             .on_action(cx.listener(|this, _: &ShowShortcuts, _window, cx| {
@@ -1011,7 +1003,7 @@ impl Render for SenzoShell {
                 this.notification = Some("Phase 2 brings SENZO's native navigation, design system and desktop shell.".to_owned());
                 cx.notify();
             }))
-            .on_action(|_, _: &Quit, _window, cx| cx.quit())
+            .on_action(|_: &Quit, _window, cx| cx.quit())
             .on_mouse_down(
                 MouseButton::Navigate(NavigationDirection::Back),
                 cx.listener(|this, _event, window, cx| this.go_back(window, cx)),
@@ -1076,6 +1068,7 @@ pub(crate) fn run(tokio: Handle, smoke_test: bool) {
             cx.set_menus(vec![
                 Menu {
                     name: "SENZO".into(),
+                    disabled: false,
                     items: vec![
                         MenuItem::action("About SENZO", ShowAbout),
                         MenuItem::action("Keyboard shortcuts", ShowShortcuts),
@@ -1084,6 +1077,7 @@ pub(crate) fn run(tokio: Handle, smoke_test: bool) {
                 },
                 Menu {
                     name: "Navigate".into(),
+                    disabled: false,
                     items: vec![
                         MenuItem::action("Back", GoBack),
                         MenuItem::action("Forward", GoForward),
@@ -1091,6 +1085,7 @@ pub(crate) fn run(tokio: Handle, smoke_test: bool) {
                 },
                 Menu {
                     name: "View".into(),
+                    disabled: false,
                     items: vec![MenuItem::action("Toggle Fullscreen", ToggleFullscreen)],
                 },
             ]);
@@ -1116,7 +1111,7 @@ pub(crate) fn run(tokio: Handle, smoke_test: bool) {
                     .get(&AppPage::Home)
                     .expect("home navigation focus is initialized")
                     .clone();
-                window.focus(&initial_focus);
+                window.focus(&initial_focus, cx);
                 shell
             })
             .expect("failed to open the SENZO native window");

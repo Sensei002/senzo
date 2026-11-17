@@ -34,10 +34,6 @@ impl NavigationStack {
         !self.forward.is_empty()
     }
 
-    pub(crate) fn depth(&self) -> usize {
-        self.back.len()
-    }
-
     pub(crate) fn navigate(&mut self, page: AppPage) -> bool {
         if self.current() == page {
             return false;
@@ -82,7 +78,7 @@ mod tests {
 
         assert!(routes.navigate(AppPage::Movies));
         assert!(routes.navigate(AppPage::TvShows));
-        assert_eq!(routes.depth(), 3);
+        assert!(routes.can_go_back());
         assert!(routes.back());
         assert_eq!(routes.current(), AppPage::Movies);
         assert!(routes.forward());
@@ -104,7 +100,7 @@ mod tests {
     fn duplicate_route_does_not_create_history_entries() {
         let mut routes = NavigationStack::new();
         assert!(!routes.navigate(AppPage::Home));
-        assert_eq!(routes.depth(), 1);
+        assert!(!routes.can_go_back());
         assert!(!routes.back());
     }
 }
