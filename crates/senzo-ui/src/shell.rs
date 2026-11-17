@@ -1262,8 +1262,8 @@ mod tests {
             shell
                 .read(app)
                 .navigation_focus
-                .get(&AppPage::Movies)
-                .expect("movies focus handle exists")
+                .get(&AppPage::Settings)
+                .expect("settings focus handle exists")
                 .is_focused(window)
         }));
     }
