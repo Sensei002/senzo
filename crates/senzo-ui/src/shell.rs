@@ -422,7 +422,7 @@ impl SenzoShell {
             .flex_col()
             .gap_3()
             .child(heading)
-            .child(div().w_full().overflow_x_scroll().child(content));
+            .child(div().id("trending-shelf-scroll").w_full().overflow_x_scroll().child(content));
 
         if let Some(error) = &self.home_catalogue_error {
             section = section.child(status_panel(
