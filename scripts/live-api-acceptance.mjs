@@ -10,7 +10,7 @@ if (
   throw new Error("SENZO_API_BASE_URL must use HTTPS (HTTP is allowed only for loopback testing).");
 }
 
-base.pathname = base.pathname.replace(/\/$/, "");
+const basePath = base.pathname.replace(/\/+$/, "");
 
 console.log("Network diagnostics: NODE_USE_ENV_PROXY=" + (process.env.NODE_USE_ENV_PROXY ?? "unset"));
 for (const name of ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"]) {
@@ -38,7 +38,10 @@ try {
 }
 
 async function getJson(path) {
-  const url = new URL(base.pathname + path, base.origin);
+  const url = new URL(basePath + path, base.origin);
+  if (url.origin !== base.origin) {
+    throw new Error(path + " produced a cross-origin API URL; refusing to send the request.");
+  }
   let response;
   try {
     response = await fetch(url, {
