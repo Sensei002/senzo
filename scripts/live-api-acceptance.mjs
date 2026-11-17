@@ -97,7 +97,7 @@ console.log("Checking hosted SENZO API: " + base.origin);
 
 const health = await getJson("/api/health");
 requireValue(health.service === "SENZO API" && health.status === "ok", "API health response is not healthy.");
-requireValue(health.tmdbConfigured === true, "The hosted API does not report TMDB as configured.");
+requireValue(health.tmdbConfigured === true, "The selected Vercel environment is missing its server-side TMDB_READ_ACCESS_TOKEN. Add it to the Vercel senzo-api Preview environment and redeploy the Preview; VERCEL_AUTOMATION_BYPASS_SECRET only bypasses deployment protection.");
 report("API health and server-side TMDB configuration");
 
 const search = await getJson("/api/tmdb/search?query=Inception&type=multi&page=1&language=en-US");
