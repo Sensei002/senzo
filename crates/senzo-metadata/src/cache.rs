@@ -46,7 +46,10 @@ impl MetadataCache {
     }
 
     pub fn get(&self, key: &str) -> Result<Option<CachedBytes>, MetadataError> {
-        let mut state = self.state.lock().map_err(|_| MetadataError::CachePoisoned)?;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| MetadataError::CachePoisoned)?;
         let expired = state
             .entries
             .get(key)
@@ -77,7 +80,10 @@ impl MetadataCache {
         if ttl.is_zero() {
             return Ok(());
         }
-        let mut state = self.state.lock().map_err(|_| MetadataError::CachePoisoned)?;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| MetadataError::CachePoisoned)?;
         state.entries.insert(
             key.clone(),
             CacheEntry {
@@ -98,7 +104,10 @@ impl MetadataCache {
     }
 
     pub fn in_flight(&self, key: &str) -> Result<InFlight, MetadataError> {
-        let mut state = self.state.lock().map_err(|_| MetadataError::CachePoisoned)?;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| MetadataError::CachePoisoned)?;
         Ok(Arc::clone(
             state
                 .in_flight
@@ -108,7 +117,10 @@ impl MetadataCache {
     }
 
     pub fn finish_in_flight(&self, key: &str, cell: &InFlight) -> Result<(), MetadataError> {
-        let mut state = self.state.lock().map_err(|_| MetadataError::CachePoisoned)?;
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| MetadataError::CachePoisoned)?;
         if state
             .in_flight
             .get(key)
@@ -120,7 +132,10 @@ impl MetadataCache {
     }
 
     pub fn stats(&self) -> Result<CacheStats, MetadataError> {
-        let state = self.state.lock().map_err(|_| MetadataError::CachePoisoned)?;
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| MetadataError::CachePoisoned)?;
         Ok(CacheStats {
             hits: state.hits,
             misses: state.misses,
@@ -144,7 +159,11 @@ mod tests {
             .unwrap();
         assert_eq!(&*cache.get("a").unwrap().unwrap(), b"one");
         cache
-            .insert("c".into(), Arc::from(&b"three"[..]), Duration::from_secs(10))
+            .insert(
+                "c".into(),
+                Arc::from(&b"three"[..]),
+                Duration::from_secs(10),
+            )
             .unwrap();
         assert!(cache.get("b").unwrap().is_none());
         assert_eq!(&*cache.get("a").unwrap().unwrap(), b"one");

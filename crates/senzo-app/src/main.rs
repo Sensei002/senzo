@@ -31,8 +31,8 @@ fn run() -> anyhow::Result<()> {
         SqliteDatabase::open(directories.database_file())
             .context("open the local SENZO database and apply migrations")?,
     );
-    let http = HttpClient::new(HttpPolicy::default())
-        .context("initialize the shared HTTP client")?;
+    let http =
+        HttpClient::new(HttpPolicy::default()).context("initialize the shared HTTP client")?;
     let api_base_url =
         env::var("SENZO_API_BASE_URL").unwrap_or_else(|_| DEFAULT_API_BASE_URL.to_owned());
     let metadata = MetadataClient::new(

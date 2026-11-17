@@ -322,8 +322,14 @@ mod tests {
             }"#,
         )
         .unwrap();
-        assert_eq!(details.credits.unwrap().cast[0].character.as_deref(), Some("Cobb"));
+        assert_eq!(
+            details.credits.unwrap().cast[0].character.as_deref(),
+            Some("Cobb")
+        );
         assert_eq!(details.videos.unwrap().results[0].video_type, "Trailer");
-        assert_eq!(details.external_ids.unwrap().imdb_id.as_deref(), Some("tt1375666"));
+        assert_eq!(
+            details.external_ids.unwrap().imdb_id.as_deref(),
+            Some("tt1375666")
+        );
     }
 }

@@ -1,8 +1,4 @@
-use std::{
-    net::IpAddr,
-    sync::Arc,
-    time::Duration,
-};
+use std::{net::IpAddr, sync::Arc, time::Duration};
 
 use reqwest::StatusCode;
 use senzo_network::{HttpClient, NetworkError, ValidatedHttpUrl};
@@ -71,7 +67,8 @@ pub struct MetadataClient {
 
 impl MetadataClient {
     pub fn new(http: HttpClient, config: MetadataClientConfig) -> Result<Self, MetadataError> {
-        let mut base_url = Url::parse(&config.base_url).map_err(|_| MetadataError::InvalidBaseUrl)?;
+        let mut base_url =
+            Url::parse(&config.base_url).map_err(|_| MetadataError::InvalidBaseUrl)?;
         let loopback = match base_url.host() {
             Some(Host::Domain(host)) => host.eq_ignore_ascii_case("localhost"),
             Some(Host::Ipv4(address)) => IpAddr::V4(address).is_loopback(),
@@ -249,7 +246,9 @@ impl MetadataClient {
     ) -> Result<SeasonDetails, MetadataError> {
         validate_id(series_id)?;
         if season_number > 100 {
-            return Err(MetadataError::InvalidInput("season number must be between 0 and 100"));
+            return Err(MetadataError::InvalidInput(
+                "season number must be between 0 and 100",
+            ));
         }
         self.get_json(
             &format!("api/tmdb/tv/{series_id}/season/{season_number}"),
@@ -481,7 +480,9 @@ fn validate_id(id: u64) -> Result<(), MetadataError> {
 
 fn validate_page(page: u32) -> Result<(), MetadataError> {
     if !(1..=500).contains(&page) {
-        return Err(MetadataError::InvalidInput("page must be between 1 and 500"));
+        return Err(MetadataError::InvalidInput(
+            "page must be between 1 and 500",
+        ));
     }
     Ok(())
 }
@@ -555,9 +556,7 @@ mod tests {
         assert!(validate_id(0).is_err());
     }
 
-    async fn start_server(
-        body: &'static str,
-    ) -> (String, tokio::task::JoinHandle<String>) {
+    async fn start_server(body: &'static str) -> (String, tokio::task::JoinHandle<String>) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::net::TcpListener;
 
@@ -636,9 +635,7 @@ mod tests {
         .unwrap();
         let cancellation = CancellationToken::new();
         let child = cancellation.clone();
-        let task = tokio::spawn(async move {
-            client.trending(1, "en-US", &child).await
-        });
+        let task = tokio::spawn(async move { client.trending(1, "en-US", &child).await });
         tokio::time::sleep(Duration::from_millis(30)).await;
         cancellation.cancel();
         assert!(matches!(task.await.unwrap(), Err(MetadataError::Cancelled)));
