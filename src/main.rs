@@ -61,6 +61,8 @@ struct SenzoApp {
     metadata_language: String,
     poster_size: String,
     selected_title: Option<String>,
+    selected_poster_path: Option<String>,
+    selected_backdrop_path: Option<String>,
     search_query: String,
     search_input: Option<Entity<InputState>>,
     search_input_subscription: Option<Subscription>,
@@ -220,6 +222,8 @@ impl SenzoApp {
             metadata_language,
             poster_size,
             selected_title: None,
+            selected_poster_path: None,
+            selected_backdrop_path: None,
             search_query: String::new(),
             search_input: None,
             search_input_subscription: None,
@@ -1092,6 +1096,8 @@ impl SenzoApp {
         let tmdb_id = title.id;
         let addons = self.database.installed_addons().unwrap_or_default();
         self.selected_title = Some(display_title.clone());
+        self.selected_poster_path = title.poster_path.clone();
+        self.selected_backdrop_path = title.backdrop_path.clone();
         self.active_page = AppPage::Details;
         self.tmdb_details = None;
         self.tv_seasons.clear();
@@ -1605,6 +1611,8 @@ impl SenzoApp {
         self.addon_subtitle_results.clear();
         self.addon_subtitle_status = "Checking the selected add-on for subtitle tracks…".into();
         self.addon_catalog_status = format!("Loading details and streams for {media_id}…");
+        self.selected_poster_path = meta.get("poster_path").and_then(Value::as_str).map(str::to_owned).or_else(|| meta.get("poster").and_then(Value::as_str).map(str::to_owned));
+        self.selected_backdrop_path = meta.get("backdrop_path").or_else(|| meta.get("background")).and_then(Value::as_str).map(str::to_owned);
         self.selected_title = meta
             .get("name")
             .or_else(|| meta.get("title"))
@@ -4614,7 +4622,7 @@ impl Render for SenzoApp {
                     }
                 }
                 root.child(
-                    div().id("senzo-player-screen").flex_1().h_full().min_w_0().overflow_y_scroll().p_4().flex().flex_col().gap_3().bg(rgb(0x050708))
+                    div().id("senzo-player-screen").flex_1().h_full().min_w_0().overflow_hidden().p_4().flex().flex_col().gap_3().bg(rgb(0x050708))
                         .child(div().flex().items_center().justify_between()
                             .child(div().flex().flex_col().gap_1()
                                 .child(div().text_2xl().font_weight(gpui::FontWeight::BOLD).text_color(rgb(0xF8FAFC)).child("NOW PLAYING"))
@@ -4622,7 +4630,7 @@ impl Render for SenzoApp {
                             .child(div().flex().items_center().gap_2()
                                 .child(choice_chip("Back", false, |this, cx| { this.active_page = if this.selected_title.is_some() { AppPage::Details } else { AppPage::Home }; cx.notify(); }, cx))
                                 .child(choice_chip("Open media", false, |this, cx| this.open_media(cx), cx))))
-                        .child(div().w_full().on_children_prepainted(move |children, window, _cx| {
+                        .child(div().w_full().flex_1().min_h(px(0.)).flex().on_children_prepainted(move |children, window, _cx| {
                             if let Some(bounds) = children.first() {
                                 if let Ok(measured) = SurfaceBounds::from_logical_pixels(f32::from(bounds.origin.x), f32::from(bounds.origin.y), f32::from(bounds.size.width), f32::from(bounds.size.height), window.scale_factor()) {
                                     if let Ok(mut current) = viewport_bounds.lock() { *current = Some(measured); }
@@ -4672,7 +4680,7 @@ impl Render for SenzoApp {
                                     }
                                 }
                             }
-                        }).child(div().id("player-video-viewport").w_full().flex_1().min_h(px(300.0)).rounded_lg().border_1().border_color(rgb(0x263238)).bg(rgb(0x000000)).flex().items_center().justify_center()
+                        }).child(div().id("player-video-viewport").w_full().h_full().flex_1().min_h(px(0.)).rounded_lg().border_1().border_color(rgb(0x263238)).bg(rgb(0x000000)).flex().items_center().justify_center()
                             .child(div().text_sm().text_color(rgb(0x67E8F9)).child("SENZO NATIVE VIDEO"))))
                         .child(div().flex().items_center().justify_between()
                             .child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child(self.playback_state.media_title.clone().or_else(|| self.selected_title.clone()).unwrap_or_else(|| "No media loaded".into())))
@@ -6382,16 +6390,16 @@ fn render_discovery_page(
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| "Genres unavailable".into());
             let poster = cached_artwork_or_remote(tmdb_artwork_url(
-                details.get("poster_path").and_then(Value::as_str),
+                details.get("poster_path").and_then(Value::as_str).or(selected_poster_path.as_deref()),
                 "w500",
             ).or_else(|| safe_addon_artwork_url(
-                details.get("poster").and_then(Value::as_str),
+                details.get("poster").and_then(Value::as_str).or(selected_poster_path.as_deref()),
             )));
             let backdrop = cached_artwork_or_remote(tmdb_artwork_url(
-                details.get("backdrop_path").and_then(Value::as_str),
+                details.get("backdrop_path").and_then(Value::as_str).or(selected_backdrop_path.as_deref()),
                 "w1280",
             ).or_else(|| safe_addon_artwork_url(
-                details.get("background").and_then(Value::as_str),
+                details.get("background").and_then(Value::as_str).or(selected_backdrop_path.as_deref()),
             )));
             this.child(
                 div()
