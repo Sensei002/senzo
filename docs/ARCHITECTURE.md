@@ -22,6 +22,7 @@ The rewrite preserves Nuvio desktop behavior and feature boundaries, not Kotlin 
 | senzo-ui | GPUI application shell, routes and GPUI-safe async state updates. |
 | senzo-domain | Typed media/settings/profile models and repository contracts. |
 | senzo-metadata | Typed SENZO API client, TMDB-shaped response models, request coalescing and metadata response cache. |
+| senzo-artwork | Validated TMDB artwork resolution, bounded download/decode, memory/disk caches and safe image data for GPUI. |
 | senzo-storage | SQLite connection ownership, repositories and ordered transactional migrations. |
 | senzo-platform | OS data/config/cache directories and native credential storage. |
 | senzo-network | Shared HTTP client policy, timeouts, redirect limits and URL validation. |
@@ -49,7 +50,7 @@ GPUI view → typed catalog/search use case → senzo-metadata → hosted SENZO 
 
 The metadata client uses fixed API routes and typed request methods. It validates search terms, media identifiers, page numbers and language tags before transport. Responses are size-limited and decoded into typed domain-facing models. Identical concurrent requests are coalesced, successful responses are cached with per-resource TTLs and a bounded LRU policy, and retry waits and response reads can be cancelled.
 
-The hosted API remains the TMDB credential boundary. Remote API origins must use HTTPS; HTTP is accepted only for loopback development/test servers. The desktop client never sends a TMDB Authorization header. Artwork paths are intended to pass through a separate bounded artwork service before GPUI image presentation; raw provider paths must not be treated as arbitrary image URLs.
+The hosted API remains the TMDB credential boundary. Remote API origins must use HTTPS; HTTP is accepted only for loopback development/test servers. The desktop client never sends a TMDB Authorization header. Artwork paths pass through the bounded senzo-artwork service before GPUI image presentation; raw provider paths are never treated as arbitrary image URLs. The UI converts validated RGBA8 pixels into BGRA RenderImage frames on Tokio's blocking pool and passes cached frames to GPUI's native img element. The UI never loads arbitrary remote image URLs directly.
 
 ## 6. Native playback architecture — critical gate
 

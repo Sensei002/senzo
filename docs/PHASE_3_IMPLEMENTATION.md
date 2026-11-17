@@ -1,6 +1,6 @@
 # Phase 3 — Networking, metadata and artwork foundation
 
-**Status:** In progress — the metadata API client passed cross-platform CI; the native artwork service is implemented and awaiting cross-platform CI acceptance. GPUI image presentation and discovery workflows remain.
+**Status:** In progress — metadata and artwork-service CI passed on Windows and Linux. Native GPUI Home artwork and a hosted-metadata Search integration are implemented on development; this application integration is awaiting Windows/Linux CI and live hosted-service acceptance. Dedicated Details and offline/provider-error workflows remain.
 
 ## Scope
 
@@ -27,10 +27,11 @@ The hosted API remains the only TMDB credential boundary. The desktop applicatio
 
 ## Not yet implemented
 
-- GPUI image-cache integration and image presentation in Home, Search and Details.
-- Search input, result navigation and movie/TV details screens.
-- Live hosted API health, search, details and artwork acceptance on Windows and Linux.
+- Dedicated movie and TV Details screens, including metadata enrichment and season/episode navigation.
+- Live hosted API health, Search and Details acceptance on Windows and Linux.
 - Provider outage and offline UX in the shell.
+- Full Nuvio Search parity: recent-search persistence, discover catalogues, pagination and add-on/server aggregation.
+
 
 ## Artwork pipeline implementation
 
@@ -40,12 +41,38 @@ The new `senzo-artwork` crate implements the second Phase 3 slice:
 - Downloads through the shared HTTP client with redirects disabled, preventing image requests from escaping the allowed origin.
 - Bounds concurrent downloads, request time, compressed response bytes, decoded dimensions, total pixel count and decoder allocation.
 - Requires an allowed image MIME type and independently verifies the image signature; supports JPEG, PNG and WebP only.
-- Decodes validated images to RGBA8 for the native GPUI image adapter while retaining validated encoded bytes.
+- Decodes validated images to RGBA8 for native GPUI rendering while retaining validated encoded bytes.
 - Adds an LRU in-memory cache with a 64 MiB default budget and a persistent disk cache with a 512 MiB default budget and oldest-entry eviction.
 - Supports cancellation, bounded transient retries, corrupt disk-entry cleanup and cache directory isolation.
-- Exposes cache statistics and composes the service into the application-owned service graph. GPUI image rendering remains the next integration slice.
+- Exposes cache statistics and composes the service into the application-owned service graph. Native poster/backdrop components and the initial Home trending shelf now consume this service.
 
 The artwork cache lives below the OS cache directory in `SENZO/artwork`; it is disposable and contains no credentials or database records.
+
+## Native GPUI image integration
+
+The SENZO UI now consumes the typed metadata client and artwork service directly:
+
+- Home requests the real hosted trending catalogue asynchronously; no hardcoded titles or stock artwork are used.
+- Poster requests use the bounded artwork service at w342; the featured title's backdrop is resolved at w1280.
+- Decoded RGBA8 pixels are converted on Tokio's blocking pool into GPUI RenderImage frames in BGRA order. The GPUI renderer receives cached render frames, not arbitrary remote URLs.
+- Reusable poster and backdrop components provide fixed layout dimensions and explicit loading/unavailable placeholders.
+- Metadata requests, downloads and pixel conversion do not block the GPUI render thread. The UI is updated only after the background task completes.
+- A cancellation token is owned by the shell and cancelled during teardown.
+
+The initial Home rail is intentionally limited to eight current trending items as an integration proof. Full Home discovery shelves, Search and Details remain separate work.
+
+## Native hosted-metadata Search integration
+
+The Search route now exercises the metadata and artwork foundation through a native GPUI workflow:
+
+- Uses the GPUI CE native input state and TextInput component from the GPUI CE companion package compatible with the pinned GPUI CE 0.2.2 runtime. No WebView or browser input is used.
+- Normalizes the query and debounces typing by 350 ms; a new query or filter cancels the previous metadata request and outstanding artwork downloads.
+- Supports All (multi-search), Movies and TV Shows through the existing hosted metadata API contract.
+- Renders up to 24 actual API results with title, media type, release year, rating and validated poster/profile artwork. Results remain usable when artwork is unavailable.
+- Provides a selectable quick-preview panel for the overview and rating, plus explicit idle, loading, empty and retryable error states.
+- Uses the bounded artwork service and performs downloads and RGBA-to-GPUI conversion outside the GPUI render path.
+
+This is an initial hosted-API integration, not full Nuvio Search parity. Recent-search persistence, discover catalogues, pagination, add-on/server aggregation and navigation to full movie/TV Details remain future work. The desktop still contains no TMDB credential.
 
 ## First-slice automated acceptance
 
