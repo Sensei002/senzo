@@ -34,7 +34,7 @@ mod tests {
     fn brand_tokens_match_the_senzo_identity() {
         assert_eq!(Theme::BACKGROUND, 0x0A0A0A);
         assert_eq!(Theme::ACCENT, 0x22D3EE);
-        assert!(Theme::SIDEBAR_WIDTH >= 200.0);
-        assert!(Theme::MIN_WINDOW_WIDTH > Theme::SIDEBAR_WIDTH * 2.0);
+        const { assert!(Theme::SIDEBAR_WIDTH >= 200.0) };
+        const { assert!(Theme::MIN_WINDOW_WIDTH > Theme::SIDEBAR_WIDTH * 2.0) };
     }
 }
