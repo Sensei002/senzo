@@ -151,6 +151,10 @@ fn apply_renderer(
     capabilities: &MpvCapabilities,
 ) {
     let selected = match preference {
+        // On Windows, prefer MPV's compatibility GPU renderer with the native
+        // D3D11 context. This is the most conservative pairing for embedded
+        // Win32 HWND presentation and D3D11VA; GPU Next remains user-selectable.
+        RendererPreference::Auto if cfg!(windows) && capabilities.gpu_available => Some("gpu"),
         RendererPreference::Auto if capabilities.gpu_next_available => Some("gpu-next"),
         RendererPreference::Auto if capabilities.gpu_available => Some("gpu"),
         RendererPreference::Auto => None,
@@ -178,6 +182,8 @@ fn apply_renderer(
 
     if let Some(renderer) = selected {
         config.set("vo", renderer);
+        #[cfg(windows)]
+        config.set("gpu-context", "d3d11");
     }
 }
 
@@ -338,7 +344,12 @@ mod tests {
         );
         assert_eq!(
             config.options.get("vo").map(String::as_str),
-            Some("gpu-next")
+            Some(if cfg!(windows) { "gpu" } else { "gpu-next" })
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            config.options.get("gpu-context").map(String::as_str),
+            Some("d3d11")
         );
         assert!(config.fallbacks.is_empty());
     }
