@@ -37,6 +37,12 @@ try {
   );
 }
 
+const requestHeaders = { Accept: "application/json" };
+const vercelBypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+if (vercelBypassSecret) {
+  requestHeaders["x-vercel-protection-bypass"] = vercelBypassSecret;
+}
+
 async function getJson(path) {
   const url = new URL(basePath + path, base.origin);
   if (url.origin !== base.origin) {
@@ -45,7 +51,7 @@ async function getJson(path) {
   let response;
   try {
     response = await fetch(url, {
-      headers: { Accept: "application/json" },
+      headers: requestHeaders,
       redirect: "manual",
       signal: AbortSignal.timeout(20_000),
     });
@@ -74,6 +80,11 @@ async function getJson(path) {
   }
   if (!response.ok) {
     const body = (await response.text()).slice(0, 300);
+    if (response.status === 401 && body.includes('"vercel_auth_enabled":true')) {
+      throw new Error(
+        "The Vercel Preview is protected by Vercel Authentication. Add the VERCEL_AUTOMATION_BYPASS_SECRET GitHub Actions repository secret to enable protected Preview acceptance.",
+      );
+    }
     throw new Error(path + " returned HTTP " + response.status + ": " + body);
   }
   const contentType = response.headers.get("content-type") ?? "";
