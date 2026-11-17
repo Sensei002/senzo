@@ -6455,7 +6455,7 @@ fn render_discovery_page(
                                     .flex_col()
                                     .justify_end()
                                     .gap_3()
-                                    .bg(rgb(0x101719))
+                                    // Keep the backdrop visible beneath the title content.
                                     .child(
                                         div()
                                             .text_2xl()
@@ -6871,12 +6871,11 @@ fn render_discovery_page(
 }
 
 fn cached_artwork_or_remote(url: Option<String>) -> Option<String> {
-    let url = url?;
-    senzo::cache::cached_artwork_path(&url)
-        .ok()
-        .flatten()
-        .map(|path| path.to_string_lossy().into_owned())
-        .or(Some(url))
+    // Keep the HTTPS image URL as GPUI's image source. The registered artwork
+    // HttpClient checks SENZO's bounded disk cache and returns cached bytes to
+    // GPUI; passing a Windows filesystem path to img() bypasses that HTTP
+    // client and is not a portable GPUI image source.
+    url
 }
 
 fn tmdb_artwork_url(path: Option<&str>, size: &str) -> Option<String> {
