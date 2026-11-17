@@ -2850,6 +2850,18 @@ impl SenzoApp {
         }
     }
 
+    fn stop_playback(&mut self, cx: &mut Context<Self>) {
+        // Torrent cleanup already performs a synchronous MPV stop acknowledgement
+        // before shutting down the local stream server. Do not queue a second
+        // fire-and-forget stop command ahead of that acknowledgement.
+        self.persist_playback_progress(true);
+        if self.torrent_session.is_some() {
+            self.stop_torrent_session(cx);
+        } else {
+            self.send_playback_command("stop", |worker| worker.stop(), cx);
+        }
+    }
+
     fn send_playback_command(
         &mut self,
         operation: &'static str,
@@ -3900,14 +3912,7 @@ impl Render for SenzoApp {
                                         "Stop",
                                         false,
                                         |this, cx| {
-                                            // Preserve the last known position before stopping MPV.
-                                            this.persist_playback_progress(true);
-                                            this.send_playback_command(
-                                                "stop",
-                                                |worker| worker.stop(),
-                                                cx,
-                                            );
-                                            this.stop_torrent_session(cx);
+                                            this.stop_playback(cx);
                                         },
                                         cx,
                                     ))
@@ -4644,7 +4649,7 @@ impl Render for SenzoApp {
                             .child(div().flex().items_center().gap_2()
                                 .child(choice_chip("Back", false, |this, cx| { this.active_page = if this.selected_title.is_some() { AppPage::Details } else { AppPage::Home }; cx.notify(); }, cx))
                                 .child(choice_chip("Open media", false, |this, cx| this.open_media(cx), cx))
-                                .child(choice_chip("Exit SENZO", false, |this, _cx| { if let Some(hwnd) = this.native_parent_hwnd { if let Err(error) = request_parent_close(hwnd) { diagnostics::record(diagnostics::Level::Warn, "application", &format!("could not close SENZO window: {error:#}")); } } }, cx))))
+                                .child(choice_chip("✕ Exit", false, |this, _cx| { if let Some(hwnd) = this.native_parent_hwnd { if let Err(error) = request_parent_close(hwnd) { diagnostics::record(diagnostics::Level::Warn, "application", &format!("could not close SENZO window: {error:#}")); } } }, cx))))
                         .child(div().w_full().flex_1().min_h(px(0.)).flex().on_children_prepainted(move |children, window, _cx| {
                             if let Some(bounds) = children.first() {
                                 if let Ok(measured) = SurfaceBounds::from_logical_pixels(f32::from(bounds.origin.x), f32::from(bounds.origin.y), f32::from(bounds.size.width), f32::from(bounds.size.height), window.scale_factor()) {
@@ -4735,7 +4740,7 @@ impl Render for SenzoApp {
                             .child(choice_chip("Volume −", false, |this, cx| { let volume = (this.playback_state.volume.unwrap_or(100.0) - 5.0).clamp(0.0, 100.0); this.send_playback_command("volume down", move |worker| worker.set_volume(volume), cx); }, cx))
                             .child(choice_chip("Volume +", false, |this, cx| { let volume = (this.playback_state.volume.unwrap_or(100.0) + 5.0).clamp(0.0, 100.0); this.send_playback_command("volume up", move |worker| worker.set_volume(volume), cx); }, cx))
                             .child(choice_chip("Fullscreen", self.playback_state.fullscreen.unwrap_or(false), |this, cx| { let fullscreen = !this.playback_state.fullscreen.unwrap_or(false); this.send_playback_command("fullscreen", move |worker| worker.set_fullscreen(fullscreen), cx); }, cx))
-                            .child(choice_chip("Stop", false, |this, cx| { this.persist_playback_progress(true); this.send_playback_command("stop", |worker| worker.stop(), cx); this.stop_torrent_session(cx); }, cx)))
+                            .child(choice_chip("Stop", false, |this, cx| this.stop_playback(cx), cx)))
                         .child(section("Audio tracks", "Choose an audio stream from the active media.", div().flex().flex_wrap().gap_2().children(player_audio_tracks)))
                         .child(section("Subtitles", "Select a subtitle track or add a local or online subtitle.", div().flex().flex_wrap().gap_2()
                             .child(choice_chip("Off", false, |this, cx| this.send_playback_command("disable subtitles", |worker| worker.set_subtitle_track(None), cx), cx))
@@ -5283,7 +5288,7 @@ fn render_discovery_page(
                                 .child(current_time_string()),
                         )
                         .child(dynamic_choice_chip(
-                            "Exit SENZO".into(),
+                            "✕ Exit SENZO".into(),
                             false,
                             |this, _cx| {
                                 if let Some(hwnd) = this.native_parent_hwnd {
