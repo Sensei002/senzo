@@ -875,8 +875,10 @@ mod tests {
         )
         .unwrap();
 
-        let first = client.trending(1, "en-US", &CancellationToken::new());
-        let second = client.trending(1, "en-US", &CancellationToken::new());
+        let first_cancellation = CancellationToken::new();
+        let second_cancellation = CancellationToken::new();
+        let first = client.trending(1, "en-US", &first_cancellation);
+        let second = client.trending(1, "en-US", &second_cancellation);
         let (first, second) = tokio::join!(first, second);
 
         assert!(first.unwrap().results.is_empty());
