@@ -489,11 +489,12 @@ impl SenzoShell {
         if !matches!(card.media_type, MediaType::Movie | MediaType::Tv) { return; }
         let id = card.id;
         let media_type = card.media_type;
+        let initial_title = card.title.clone();
         self.details_cancellation.cancel();
         let cancellation = CancellationToken::new();
         self.details_cancellation = cancellation.clone();
         self.details = Some(DetailsPage {
-            id, media_type, title: card.title.clone(), overview: None, tagline: None,
+            id, media_type, title: initial_title, overview: None, tagline: None,
             release_date: None, runtime: None, status: None, rating: None,
             genres: Vec::new(), cast: Vec::new(), seasons: Vec::new(),
             selected_season: None, selected_season_number: None, season_loading: false,
@@ -501,7 +502,9 @@ impl SenzoShell {
         });
         let metadata = self.metadata.clone();
         let artwork = self.artwork.clone();
+        let task_cancellation = cancellation.clone();
         let task = self.tokio.spawn(async move {
+            let cancellation = task_cancellation;
             let data = match media_type {
                 MediaType::Movie => {
                     let m = metadata.movie(id, &cancellation).await.map_err(|e| e.to_string())?;
@@ -570,8 +573,9 @@ impl SenzoShell {
         d.season_loading = true;
         let id = d.id;
         let token = self.details_cancellation.child_token();
+        let task_token = token.clone();
         let metadata = self.metadata.clone();
-        let task = self.tokio.spawn(async move { metadata.season(id, number, &token).await.map_err(|e| e.to_string()) });
+        let task = self.tokio.spawn(async move { metadata.season(id, number, &task_token).await.map_err(|e| e.to_string()) });
         cx.spawn(async move |this, cx| {
             let result = task.await.unwrap_or_else(|e| Err(format!("Season task failed: {e}")));
             let _ = this.update(cx, |this, cx| {
