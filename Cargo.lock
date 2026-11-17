@@ -6228,6 +6228,7 @@ dependencies = [
  "senzo-storage",
  "senzo-ui",
  "tokio",
+ "tokio-util",
  "tracing",
 ]
 

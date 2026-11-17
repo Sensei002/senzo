@@ -1,13 +1,9 @@
 use std::{env, sync::Arc};
 
 use anyhow::{Context, ensure};
-use senzo_artwork::{
-    ArtworkConfig, ArtworkService, ArtworkSize, ArtworkUrlResolver,
-};
+use senzo_artwork::{ArtworkConfig, ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_domain::{ProfileRepository, SettingsRepository};
-use senzo_metadata::{
-    DEFAULT_API_BASE_URL, MetadataClient, MetadataClientConfig, SearchType,
-};
+use senzo_metadata::{DEFAULT_API_BASE_URL, MetadataClient, MetadataClientConfig, SearchType};
 use senzo_network::{HttpClient, HttpPolicy};
 use senzo_platform::{AppDirectories, CredentialStore, KeyringCredentialStore};
 use senzo_storage::SqliteDatabase;
@@ -109,9 +105,7 @@ async fn run_metadata_smoke_test(
 
     let trending = metadata.trending(1, "en-US", &cancellation).await?;
     ensure!(!trending.results.is_empty(), "trending catalogue is empty");
-    let popular_movies = metadata
-        .popular_movies(1, "en-US", &cancellation)
-        .await?;
+    let popular_movies = metadata.popular_movies(1, "en-US", &cancellation).await?;
     ensure!(
         !popular_movies.results.is_empty(),
         "popular movies catalogue is empty"
@@ -138,13 +132,7 @@ async fn run_metadata_smoke_test(
         "movie-only search did not contain Inception"
     );
     let tv_search = metadata
-        .search(
-            "Game of Thrones",
-            SearchType::Tv,
-            1,
-            "en-US",
-            &cancellation,
-        )
+        .search("Game of Thrones", SearchType::Tv, 1, "en-US", &cancellation)
         .await?;
     ensure!(
         tv_search.results.iter().any(|item| item.id == 1_399),
@@ -159,12 +147,13 @@ async fn run_metadata_smoke_test(
         "movie Details is missing credits, videos or image metadata"
     );
     ensure!(
-        movie.external_ids.as_ref().is_some_and(|ids| ids.imdb_id.is_some()),
+        movie
+            .external_ids
+            .as_ref()
+            .is_some_and(|ids| ids.imdb_id.is_some()),
         "movie Details is missing external IDs"
     );
-    let movie_external_ids = metadata
-        .movie_external_ids(27_205, &cancellation)
-        .await?;
+    let movie_external_ids = metadata.movie_external_ids(27_205, &cancellation).await?;
     ensure!(
         movie_external_ids.imdb_id.is_some(),
         "dedicated movie external-ID route returned no IMDb ID"
