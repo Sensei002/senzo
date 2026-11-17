@@ -540,9 +540,16 @@ impl SenzoShell {
         if !matches!(card.media_type, MediaType::Movie | MediaType::Tv) {
             return;
         }
-        let id = card.id;
-        let media_type = card.media_type;
-        let initial_title = card.title.clone();
+        self.load_details(card.id, card.media_type, card.title.clone(), cx);
+    }
+
+    fn load_details(
+        &mut self,
+        id: u64,
+        media_type: MediaType,
+        initial_title: String,
+        cx: &mut Context<Self>,
+    ) {
         self.details_cancellation.cancel();
         let cancellation = CancellationToken::new();
         self.details_cancellation = cancellation.clone();
@@ -756,17 +763,13 @@ impl SenzoShell {
     }
 
     fn retry_details(&mut self, cx: &mut Context<Self>) {
-        let Some(d) = &self.details else {
+        let Some(details) = &self.details else {
             return;
         };
-        let Some(index) = self
-            .search_results
-            .iter()
-            .position(|c| c.id == d.id && c.media_type == d.media_type)
-        else {
-            return;
-        };
-        self.open_details(index, cx);
+        let id = details.id;
+        let media_type = details.media_type;
+        let title = details.title.clone();
+        self.load_details(id, media_type, title, cx);
     }
 
     fn close_details(&mut self, cx: &mut Context<Self>) {
@@ -881,11 +884,14 @@ impl SenzoShell {
             return page.child(
                 div()
                     .id("retry-details")
+                    .tab_index(21)
                     .cursor_pointer()
                     .rounded_md()
                     .bg(rgb(Theme::ACCENT_DARK))
                     .px_3()
                     .py_2()
+                    .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                    .aria_label("Retry loading title details")
                     .on_click(cx.listener(|this, _, _, cx| this.retry_details(cx)))
                     .child(
                         div()
