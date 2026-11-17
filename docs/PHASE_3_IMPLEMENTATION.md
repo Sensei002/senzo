@@ -121,9 +121,11 @@ These first-slice checks validate the initial service foundation and native appl
 
 ## Opt-in live hosted API acceptance
 
-The live API acceptance job checks API health and server-side TMDB configuration; multi/movie/TV Search; trending, popular movie and popular TV catalogues; movie/TV details, credits, videos, images and external IDs; TV season and episode details; person details and combined cast/crew credits; and the TMDB artwork CDN with byte-limit and file-signature checks. The job runs on both Windows and Linux. It can be started from Actions → SENZO Desktop CI → Run workflow by enabling `run_live_api_acceptance` and setting `api_base_url`, or automatically from a `development` push whose commit message contains `[live-api-acceptance]`. Tagged pushes use the SENZO API development Preview URL by default; ordinary commits do not invoke external live services.
+The live API acceptance job checks API health and server-side TMDB configuration; multi/movie/TV Search; trending, popular movie and popular TV catalogues; movie/TV details, credits, videos, images and external IDs; TV season and episode details; person details and combined cast/crew credits; and the TMDB artwork CDN with byte-limit and file-signature checks. The job runs on both Windows and Linux. It can be started from Actions → SENZO Desktop CI → Run workflow by enabling `run_live_api_acceptance` and setting `api_base_url`, or automatically from a `development` push whose commit message contains `[live-api-acceptance]`. Marker-triggered pushes use the SENZO API development Preview URL by default; ordinary commits do not invoke external live services.
 
 SENZO API PR #1 currently has a ready Vercel Preview deployment at `https://senzo-api-git-development-stream-anything.vercel.app`. This allows the new Person route and the rest of the API contract to be tested before merging the PR. The preview does not change the production API or the desktop's default production base URL.
+
+The first Preview acceptance attempt on both Windows and Linux was redirected to an unresolved hostname (`api`) before an API response was received. The live script now stops at redirects and reports the exact `Location` header, so the Preview URL can be corrected without weakening the route assertions. An explicit offline connection-failure test has also been added to the metadata client.
 
 ## Remaining Phase 3 acceptance
 
