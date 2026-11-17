@@ -115,8 +115,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Check live API acceptance script syntax
-        run: node --check scripts/live-api-acceptance.mjs
+      - name: Validate live acceptance scripts and URL safety
+        run: |
+          node --check scripts/live-api-acceptance.mjs
+          node --check scripts/live-api-url.mjs
+          node --test scripts/live-api-url.test.mjs
 
   live-api-acceptance:
     name: Live hosted API acceptance (${{ matrix.os }})
