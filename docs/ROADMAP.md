@@ -80,7 +80,7 @@ A phase is complete only when its documented deliverables, automated checks, and
 - [x] Implement bounded in-memory LRU and persistent disk cache with oldest-entry eviction.
 - [x] Render decoded RGBA artwork as native GPUI BGRA RenderImage frames.
 - [x] Add reusable native poster and backdrop components with loading/unavailable placeholders.
-- [x] Connect the Home trending shelf to real hosted metadata and the bounded artwork service.
+- [x] Connect the Home trending, popular movie and popular TV shelves to real hosted metadata and the bounded artwork service.
 - [x] Keep metadata requests, artwork downloads and pixel conversion off the GPUI render thread.
 - [x] Add native hosted-metadata Search with All/Movies/TV filters, debounce, request cancellation, poster artwork and quick preview.
 - [x] Implement dedicated movie/TV Details workflows, including TV season and episode navigation.
