@@ -259,6 +259,8 @@ Batch 8 turns the existing MPV worker integration into a dedicated, usable nativ
 
 **Status: In progress.** This remediation batch closes the user-facing and runtime gaps found during Windows acceptance of Batch 8. The work is split into independently buildable sub-batches.
 
+**Latest Windows acceptance findings (2026-11-17):** The user reports audio-only playback, no visible video, missing player controls/navigation affordances, and missing title artwork. Diagnostics show MPV decoding H.264/H.265 at approximately 24–25 FPS with zero dropped frames; in later sessions the native child HWND is valid, visible, and sized to the Player viewport. This does not prove that the child surface is actually composited to the display. Artwork HTTP requests return successful byte counts, but the UI still fails to show title artwork. A code inspection found that the GPUI image source helper could return a local Windows cache path instead of the HTTPS image URL; this bypasses the registered GPUI artwork HTTP client. Batch 8.5 now includes a correction to keep GPUI image sources on the HTTPS client/cache path, plus removal of an opaque panel fill that covered the detail backdrop. CI and Windows visual acceptance for this correction remain pending.
+
 ### Batch 8.5A — Home and artwork repair
 
 - [x] Prefer featured titles with usable TMDB backdrop or poster artwork.
