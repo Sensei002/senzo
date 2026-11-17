@@ -12,3 +12,6 @@ gpui_platform.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 senzo-domain = { path = "../senzo-domain" }
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
