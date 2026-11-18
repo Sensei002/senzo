@@ -2149,6 +2149,10 @@ mod tests {
             .await
             .expect("Torrentio stream endpoint must return a Stremio stream response");
         assert!(
+            !result.streams.is_empty(),
+            "Torrentio must return at least one validated stream for Fight Club"
+        );
+        assert!(
             result.streams.len() + result.rejected_items <= 250,
             "stream response must remain within the documented item cap"
         );
