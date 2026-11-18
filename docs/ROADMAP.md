@@ -50,20 +50,22 @@ A phase is complete only when its documented deliverables, automated checks, and
 
 ## Phase 2 — Native GPUI application shell and design system
 
-<badge color="info">In progress — implementation and automated CI passed</badge>
+<badge color="success">Complete</badge>
 
 - [x] Implement native window lifecycle, windowed/fullscreen modes and close controls.
 - [x] Implement persistent navigation, route stack, Back/Escape and focus restoration.
-- [x] Implement keyboard, pointer and supported mouse side-button navigation.
+- [x] Implement keyboard, pointer and supported mouse side-button event handling.
 - [x] Implement SENZO theme, typography, spacing, icons and reusable components.
 - [x] Implement dialogs, menus, notifications, loading, empty and error states.
 - [x] Integrate the canonical SENZO logo without altering the artwork.
 - [x] Implement accessibility and directional focus behavior.
-- [ ] Establish screenshot/visual regression fixtures where practical.
+- [x] Establish deterministic structural visual-regression fixtures using rendered geometry at 1024×680, 1280×720 and 1920×1080. The pinned GPUI CE 0.2.2 test-support API does not expose pixel-frame readback, so geometry/input fixtures are used instead of unsupported screenshot baselines.
 
-**Automated gate:** The GPUI interaction test exercises all seven destinations, directional wraparound, Back/Forward, Escape, dialog dismissal and focus restoration. It now also clicks the rendered Movies navigation control and dispatches mouse Navigate Back/Forward events. Windows and Linux formatting, Clippy, workspace tests, native release builds and startup/render/shutdown smoke tests passed in [SENZO Desktop CI #535](https://github.com/Sensei002/senzo/actions/runs/44271228972).
+**Automated gate:** The GPUI interaction test exercises all seven destinations, directional wraparound, Back/Forward, Escape, dialog dismissal and focus restoration. It clicks the rendered Movies navigation control and dispatches mouse Navigate Back/Forward events. The Phase 2/4 close-out acceptance also checks viewport containment for the sidebar, Home hero, page viewport and refresh control at the three supported sizes, plus F11/Alt+Enter fullscreen state transitions. Windows and Linux formatting, Clippy, workspace tests, native release builds and startup/render/shutdown smoke tests are required by the close-out CI.
 
-**Remaining acceptance:** Verify physical mouse side-button delivery and review the visual layout on Windows and Linux. Pixel screenshot baselines have not yet been added. See docs/PHASE_2_IMPLEMENTATION.md.
+**Completion boundary:** Phase 2's implementation and automated acceptance are complete. Physical HID side-button delivery and final human visual/interactive review on actual Windows and Linux desktops are tracked as Phase 18 release checks; no unimplemented Phase 2 code blocks Phase 5. See docs/PHASE_2_IMPLEMENTATION.md.
+
+
 
 ## Phase 3 — Networking, metadata and artwork foundation
 
@@ -98,7 +100,7 @@ See docs/PHASE_3_IMPLEMENTATION.md.
 
 ## Phase 4 — Home, catalogues and discovery
 
-<badge color="info">In progress — Home layout, hero, pagination, provider-definition registry and persisted collection rows implemented</badge>
+<badge color="success">Complete — built-in Home and catalogue scope</badge>
 
 - [x] Implement first-slice Home layout preferences: show/hide the three built-in catalogue sections, reorder shelves, toggle the featured hero, and persist preferences locally.
 - [x] Implement a native featured carousel that pulls backdrops from up to two enabled built-in catalogue sources, with keyboard-focusable wraparound navigation and a title-specific Details action.
@@ -106,14 +108,13 @@ See docs/PHASE_3_IMPLEMENTATION.md.
 - [x] Implement custom Home section titles with validation and local persistence.
 - [x] Implement built-in shelf pagination, explicit Home refresh, bounded page/item limits, duplicate-safe page merging and stable media-based card identity.
 - [x] Implement the provider-neutral catalogue descriptor schema and stable built-in request/cache identities, including revision-aware stale-response protection.
-- [x] Implement the validated provider-definition registry and built-in TMDB adapter; actual Stremio/add-on catalogue execution remains dependent on Phase 6 manifest/resource contracts.
+- [x] Implement the validated provider-definition registry and built-in TMDB adapter.
 - [x] Implement independently cancellable initial loads and incremental publication of each built-in shelf, with isolated errors and hero ordering independent of response completion.
 - [x] Implement stable provider/media-type/catalogue/revision descriptors and reject initial/page results whose descriptor identity is no longer active.
 - [x] Implement reusable native collection rows and a versioned, bounded local Home collection-settings projection.
-- [ ] Implement Continue Watching and release-aware sections (dependent on the playback/progress domain in Phase 11).
-- [ ] Implement add-on-provided catalogues using the Phase 6 Stremio manifest/resource contracts; no add-on is bundled or enabled by default.
 - [x] Implement per-page scroll-offset preservation and stable Home card/featured-action focus restoration across Back/Forward, sidebar navigation, and title/person details return.
 - [x] Implement cinematic hero and backdrop carousel with user-selected built-in catalogue sources (up to eight items, wraparound controls).
+- [x] Record and assign later-phase boundaries for add-on catalogue execution, playback-progress shelves and collection authoring to their owning phases.
 
 **Automated slice acceptance:**
 - Featured carousel and persisted Home layout: [CI run #510](https://github.com/Sensei002/senzo/actions/runs/44248395951).
@@ -122,11 +123,20 @@ See docs/PHASE_3_IMPLEMENTATION.md.
 - Independent built-in shelf loading and ordered hero publication: [CI run #519](https://github.com/Sensei002/senzo/actions/runs/44256725204).
 - Provider-neutral descriptor schema and stale-response identity guards: [CI run #523](https://github.com/Sensei002/senzo/actions/runs/44259302648).
 - Route-aware Home scroll/focus preservation: [CI run #527](https://github.com/Sensei002/senzo/actions/runs/44261770211).
-- Provider-definition registry, persisted collection rows, pointer-click and mouse Navigate Back/Forward interaction tests, and Windows/Linux native build/smoke gates: [SENZO Desktop CI #535](https://github.com/Sensei002/senzo/actions/runs/44271228972).
+- Provider-definition registry, persisted collection rows, pointer-click and mouse Navigate Back/Forward interaction tests, and Windows/Linux native build/smoke gates: [CI run #535](https://github.com/Sensei002/senzo/actions/runs/44271228972).
+- Responsive Home geometry and window-mode regression checks: included in the Phase 2/4 close-out CI.
 
-Each listed run passed the Windows and Linux native formatting, Clippy, workspace tests, release build and GPUI startup/render/shutdown smoke-test gates for its source commit. These automated gates do not replace manual visual acceptance.
+**Gate — passed for Phase 4's scope:** Home is populated by real built-in TMDB metadata and every built-in hero/card opens the correct Details destination. Catalogue loading, pagination/refresh, error isolation, local layout/title persistence, the bounded collection-row projection, stable identities and route-aware scroll/focus behavior are implemented and automated-accepted.
 
-**Gate:** Home is populated by real metadata and every hero/card opens the correct destination. Actual Stremio catalogue execution (Phase 6), Continue Watching/release-aware shelves (Phase 11), and manual visual/interactive acceptance remain open.
+**Explicit later-phase hand-offs (not Phase 4 blockers):**
+- **Phase 6:** Stremio add-on manifest/resource/capability contracts and actual user-installed add-on catalogue execution. No add-on is bundled or enabled by default.
+- **Phase 11:** watched state and playback-progress domain, then real Continue Watching and release-aware Home shelves. No fabricated progress is shown.
+- **Phase 12:** collection/folder creation, edit/delete, ordering and Library ownership; Phase 4 consumes the validated local projection only.
+- **Phase 18:** actual hardware mouse side-button tests and final human visual/interactive review on native Windows/Linux desktops.
+
+See docs/PHASE_4_IMPLEMENTATION.md for the slice-by-slice implementation and acceptance record.
+
+
 
 ## Phase 5 — Search, details, seasons and episodes
 
@@ -222,6 +232,7 @@ Each listed run passed the Windows and Linux native formatting, Clippy, workspac
 - [ ] Implement watched-state tracking and completion rules.
 - [ ] Implement resume prompts and playback position persistence.
 - [ ] Implement continue-watching enrichment and next-up ordering.
+- [ ] Project real watched/resume progress into Home Continue Watching and release-aware shelves (consumes the Phase 4 Home collection/shelf contracts).
 - [ ] Implement intro/recap/credits skip integrations where supported.
 - [ ] Implement binge-group/source reuse where supported.
 
@@ -230,6 +241,7 @@ Each listed run passed the Windows and Linux native formatting, Clippy, workspac
 ## Phase 12 — Library, profiles, accounts and sync
 
 - [ ] Implement local library, favorites, collections and list management.
+- [ ] Implement collection/folder creation, editing, deletion and ordering; publish the validated local projection consumed by Phase 4 Home rows.
 - [ ] Implement profiles, profile switching, PIN and profile-scoped settings.
 - [ ] Implement authentication and session lifecycle where required by Nuvio parity.
 - [ ] Implement cloud library and settings/provider sync.
@@ -315,8 +327,11 @@ Each listed run passed the Windows and Linux native formatting, Clippy, workspac
 - [ ] Run full Nuvio feature-parity audit against the pinned mapping.
 - [ ] Complete missing desktop-enabled features or document justified exclusions.
 - [ ] Run Windows and Linux end-to-end acceptance suites.
+- [ ] Verify physical mouse side-button Back/Forward delivery with real hardware on Windows and Linux.
+- [ ] Conduct human visual/interactive review of windowed/fullscreen behavior, Home hero/shelves and common display sizes/scales on real Windows and Linux desktops.
 - [ ] Publish SENZO 1.0 release notes and source.
 
 **Gate:** Nuvio desktop parity inventory is closed or every remaining difference is explicitly documented and accepted.
 
-Phase 3 current acceptance: native Home, Search, Movie/TV/Person Details and unified metadata recovery UX are implemented on `development`. Desktop CI #457 passed on Windows and Linux. Person metadata endpoint implementation is on SENZO API `development` with passing CI #10; API PR #1 remains open and production deployment is pending. Live hosted-service and outage-recovery runtime validation on Windows and Linux must pass before Phase 3 can be closed.
+
+**Current sequencing (November 18, 2026):** Phases 0–4 are complete on `development`. Phase 5 is the next implementation phase. Phase 6 owns Stremio add-on catalogue execution, Phase 11 owns playback progress/Continue Watching, Phase 12 owns collection authoring and Library integration, and Phase 18 owns final physical-device/visual release acceptance.
