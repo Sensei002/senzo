@@ -1,6 +1,6 @@
 # Phase 4 — Home, catalogues and discovery
 
-**Status:** In progress on `development`. The persisted Home layout, featured carousel, built-in shelf pagination/refresh, stable card identity, and editable shelf titles are implemented. Provider-neutral catalogue orchestration, collections/add-on catalogues, progress-aware shelves, and scroll restoration remain open.
+**Status:** In progress on `development`. The persisted Home layout, featured carousel, built-in shelf pagination/refresh, stable catalogue identity, editable shelf titles, independent initial loading, and route-aware scroll/focus restoration are implemented and automated-accepted. Reusable collection rows/adapters, add-on catalogues, progress-aware shelves, and manual visual acceptance remain open.
 
 ## Slice 1 — Configurable built-in Home layout
 
@@ -110,13 +110,35 @@ Passed in [SENZO Desktop CI run #523](https://github.com/Sensei002/senzo/actions
 - GPUI native window startup/render/shutdown smoke tests on both platforms.
 - Repository automation validation, Windows/Linux artifact upload and Cargo.lock housekeeping.
 
+## Slice 7 — Route-aware Home scroll and focus preservation
+
+- Bound the main scrollable viewport to a persistent GPUI `ScrollHandle` and store scroll offsets independently for each primary `AppPage`.
+- Save the outgoing page offset before navigation and restore the target page offset on the next frame after Back, Forward or sidebar navigation.
+- Added stable focus identities for Home cards using the existing stable section/media-type/media-ID identity; appended pages do not rename previously focused cards.
+- Retained GPUI focus handles for Home catalogue cards and the featured More Info action.
+- Save the focused Home element when navigating away, then restore it after returning to Home. Opening a title/person from a Home card records the originating card and restores both the Home offset and focus when its details page closes.
+- Search/person details entry also snapshots the current page offset so returning does not lose its prior viewport position.
+- Added a unit test for stable Home card focus identity across shelf reordering and pagination.
+
+### Slice 7 automated acceptance
+
+Passed in [SENZO Desktop CI run #527](https://github.com/Sensei002/senzo/actions/runs/44261770211) on November 18, 2026:
+
+- Windows and Linux formatting, Clippy and all workspace tests.
+- Native Windows x64 and Linux release builds.
+- GPUI native window startup/render/shutdown smoke tests on both platforms.
+- Windows and Linux binary artifact upload.
+- Repository automation validation and Cargo.lock housekeeping.
+
+**Manual visual acceptance remains outstanding:** CI verifies compilation, tests and smoke rendering; it does not yet exercise real mouse/keyboard focus restoration and scroll offsets through interactive navigation on both Windows and Linux.
+
 ## Still outstanding
 
-- Provider-neutral catalogue definitions and descriptor-based request/cache identity. The built-in shelves now load and publish independently; generic provider descriptors and reusable request/cache identities remain open.
+- Reusable provider registry/adapters so future add-ons, collection sources and media integrations can supply definitions through the descriptor contract.
 - Reusable collection rows and add-on catalogue registration. Add-on catalogue discovery must use the dedicated Stremio manifest/capability contracts from Phase 6; no add-on is bundled or silently enabled.
 - Continue Watching and release-aware shelves. These require the playback-progress and watched-state domain planned for Phase 11; SENZO will not show fabricated playback data.
-- Focus and scroll-position preservation across Home reordering and route changes.
-- Manual visual/interactive acceptance of the new hero, pagination and title-editor controls on Windows and Linux. CI startup/render/shutdown smoke tests are not a substitute for visual review.
+
+- Manual visual/interactive acceptance of the hero, pagination, title-editor and focus/scroll flows on Windows and Linux. CI startup/render/shutdown smoke tests are not a substitute for visual review.
 
 ## Verification boundary
 

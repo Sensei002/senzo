@@ -112,7 +112,7 @@ See docs/PHASE_3_IMPLEMENTATION.md.
 - [ ] Implement reusable collection rows.
 - [ ] Implement Continue Watching and release-aware sections (dependent on the playback/progress domain in Phase 11).
 - [ ] Implement add-on-provided catalogues using the Phase 6 Stremio manifest/resource contracts; no add-on is bundled or enabled by default.
-- [ ] Implement focus/scroll preservation across Home reorder and route changes.
+- [x] Implement per-page scroll-offset preservation and stable Home card/featured-action focus restoration across Back/Forward, sidebar navigation, and title/person details return.
 - [x] Implement cinematic hero and backdrop carousel with user-selected built-in catalogue sources (up to eight items, wraparound controls).
 
 **Automated slice acceptance:**
@@ -121,10 +121,11 @@ See docs/PHASE_3_IMPLEMENTATION.md.
 - Editable shelf titles: [CI run #517](https://github.com/Sensei002/senzo/actions/runs/44254968935).
 - Independent built-in shelf loading and ordered hero publication: [CI run #519](https://github.com/Sensei002/senzo/actions/runs/44256725204).
 - Provider-neutral descriptor schema and stale-response identity guards: [CI run #523](https://github.com/Sensei002/senzo/actions/runs/44259302648).
+- Route-aware Home scroll/focus preservation: [CI run #527](https://github.com/Sensei002/senzo/actions/runs/44261770211).
 
 Each listed run passed the Windows and Linux native formatting, Clippy, workspace tests, release build and GPUI startup/render/shutdown smoke-test gates for its source commit. These automated gates do not replace manual visual acceptance.
 
-**Gate:** Home is populated by real metadata and every hero/card opens the correct destination. Reusable provider adapters, add-on catalogues, collection rows, progress/release-aware shelves and focus/scroll preservation remain open.
+**Gate:** Home is populated by real metadata and every hero/card opens the correct destination. Reusable provider adapters, collection rows, add-on catalogues, progress/release-aware shelves and manual visual/interactive acceptance remain open.
 
 ## Phase 5 — Search, details, seasons and episodes
 
