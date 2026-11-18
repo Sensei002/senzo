@@ -5241,7 +5241,7 @@ mod tests {
         );
         assert_eq!(
             shell.read_with(window_cx, |shell, _| shell.navigation.current()),
-            AppPage::Home
+            AppPage::Settings
         );
         window_cx.simulate_mouse_up(
             movies_center,
