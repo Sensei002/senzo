@@ -6868,6 +6868,8 @@ mod tests {
                 window,
                 cx,
             );
+            // Keep navigation traversal deterministic: visiting Movies and TV should not
+            // start real discovery requests from the single-threaded GPUI test scheduler.
             shell.home_catalogue_status = HomeCatalogueStatus::Loaded;
             shell.movie_discovery.status = DiscoveryStatus::Empty;
             shell.tv_discovery.status = DiscoveryStatus::Empty;
