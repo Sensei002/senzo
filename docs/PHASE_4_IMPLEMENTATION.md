@@ -20,7 +20,19 @@
 - Each selected backdrop is validated and decoded through the existing native Rust artwork pipeline in background tasks; poster loading remains parallel and independent.
 - Added wraparound previous/next controls, a visible position indicator, title-specific metadata/overview, and a More info action that opens the matching movie or TV details route.
 - Added unit tests for source-selection order/visibility and carousel wraparound behavior.
+- Hiding a selected hero source or reordering selected shelves refreshes the featured sequence so hidden sources disappear and saved priority takes effect immediately.
 - Kept the hero local-first and provider-neutral. Torrent/add-on providers are not bundled, installed, or enabled by this slice.
+
+### Slice 2 automated acceptance
+
+Passed in [SENZO Desktop CI run #510](https://github.com/Sensei002/senzo/actions/runs/44248395951) on November 18, 2026:
+
+- Windows and Linux formatting and Clippy.
+- All workspace tests on both platforms, including the new hero-source and carousel-navigation tests.
+- Native Windows x64 and Linux release builds.
+- GPUI native window startup/render/shutdown smoke tests on both platforms.
+- Repository automation validation and lockfile housekeeping.
+
 
 ## Still outstanding
 

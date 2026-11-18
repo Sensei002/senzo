@@ -709,8 +709,17 @@ impl SenzoShell {
             .iter()
             .find(|section| section.key == key)
             .is_some_and(|section| section.enabled);
+        let was_hero_source = self
+            .home_settings
+            .sections
+            .iter()
+            .find(|section| section.key == key)
+            .is_some_and(|section| section.hero_source_enabled);
         if self.home_settings.set_section_enabled(key, !enabled) {
             self.persist_home_settings(cx);
+            if was_hero_source {
+                self.refresh_home_catalogue(cx);
+            }
         }
     }
 
@@ -745,7 +754,15 @@ impl SenzoShell {
 
     fn move_home_section(&mut self, key: &str, direction: isize, cx: &mut Context<Self>) {
         if self.home_settings.move_section(key, direction) {
+            let has_hero_sources = self
+                .home_settings
+                .sections
+                .iter()
+                .any(|section| section.enabled && section.hero_source_enabled);
             self.persist_home_settings(cx);
+            if has_hero_sources {
+                self.refresh_home_catalogue(cx);
+            }
         }
     }
 

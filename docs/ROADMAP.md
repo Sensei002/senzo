@@ -110,7 +110,9 @@ See docs/PHASE_3_IMPLEMENTATION.md.
 - [ ] Implement pagination, refresh and stable section identity.
 - [ ] Implement focus/scroll preservation across routes.
 
-**Gate:** Home is populated by real metadata and every hero/card opens the correct destination. The native featured carousel is implemented; generic/add-on catalogues, independent section orchestration, pagination/refresh, Continue Watching and focus/scroll preservation remain open.
+**Slice acceptance:** The persisted layout and built-in featured carousel passed Windows and Linux CI run [#510](https://github.com/Sensei002/senzo/actions/runs/44248395951), including formatting, Clippy, workspace tests, native release builds and GPUI smoke tests. This is not the full Phase 4 gate.
+
+**Gate:** Home is populated by real metadata and every hero/card opens the correct destination. Generic/add-on catalogues, independent section orchestration, pagination/refresh, Continue Watching and focus/scroll preservation remain open.
 
 ## Phase 5 — Search, details, seasons and episodes
 
