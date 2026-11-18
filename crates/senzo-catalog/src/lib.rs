@@ -41,7 +41,7 @@ impl Default for HomeSectionPreference {
 
 impl HomeSectionPreference {
     pub fn display_title(&self) -> &str {
-        self.title.as_deref().unwrap_or_else(|| match self.key.as_str() {
+        self.title.as_deref().unwrap_or(match self.key.as_str() {
             "trending" => "Trending this week",
             "popular-movies" => "Popular movies",
             "popular-tv" => "Popular TV shows",
