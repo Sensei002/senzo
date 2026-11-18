@@ -31,6 +31,10 @@ pub(crate) fn record_search_history(current: &[String], query: &str) -> Vec<Stri
     updated
 }
 
+pub(crate) const fn episode_identity(series_id: u64, season_number: u32, episode_number: u32) -> (u64, u32, u32) {
+    (series_id, season_number, episode_number)
+}
+
 pub(crate) const fn media_identity(media_type: MediaType, id: u64) -> (u8, u64) {
     let kind = match media_type {
         MediaType::Movie => 1, MediaType::Tv => 2, MediaType::Person => 3, MediaType::Other => 4,
@@ -66,6 +70,14 @@ mod tests {
     fn media_identity_keeps_movie_and_tv_ids_separate() {
         assert_ne!(media_identity(MediaType::Movie,42),media_identity(MediaType::Tv,42));
     }
+    #[test]
+    fn episode_identity_includes_series_season_and_episode() {
+        let first = episode_identity(1399, 1, 1);
+        assert_eq!(first, (1399, 1, 1));
+        assert_ne!(first, episode_identity(1399, 2, 1));
+        assert_ne!(first, episode_identity(1400, 1, 1));
+    }
+
     #[test]
     fn season_zero_is_presented_as_specials() {
         assert_eq!(season_label(0,"Season 0"),"Specials");

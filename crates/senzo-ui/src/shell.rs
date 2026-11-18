@@ -367,6 +367,7 @@ enum DiscoveryStatus { Idle, Loading, Results, Empty, Failed }
 struct DiscoveryPageState {
     genres: Vec<Genre>,
     selected_genre: Option<u64>,
+    selected_year: Option<u32>,
     sort: DiscoverSort,
     cards: Vec<SearchMediaCard>,
     page: u32,
@@ -381,7 +382,7 @@ struct DiscoveryPageState {
 impl Default for DiscoveryPageState {
     fn default() -> Self {
         Self {
-            genres: Vec::new(), selected_genre: None, sort: DiscoverSort::Popularity,
+            genres: Vec::new(), selected_genre: None, selected_year: None, sort: DiscoverSort::Popularity,
             cards: Vec::new(), page: 0, total_pages: 1, status: DiscoveryStatus::Idle,
             loading_more: false, error: None, cancellation: CancellationToken::new(), generation: 0,
         }
@@ -476,6 +477,7 @@ struct DetailsPage {
     season_cancellation: CancellationToken,
     selected_season_poster: Option<Arc<RenderImage>>,
     selected_episode: Option<EpisodeDetails>,
+    selected_episode_identity: Option<(u64, u32, u32)>,
     selected_episode_artwork: Option<Arc<RenderImage>>,
     episode_loading: bool,
     episode_error: Option<String>,
@@ -1823,7 +1825,8 @@ impl SenzoShell {
             production_countries: Vec::new(), trailers: Vec::new(), related: Vec::new(),
             seasons: Vec::new(), selected_season: None, selected_season_number: None,
             season_loading: false, season_error: None, season_cancellation: CancellationToken::new(),
-            selected_season_poster: None, selected_episode: None, selected_episode_artwork: None,
+            selected_season_poster: None, selected_episode: None, selected_episode_identity: None,
+            selected_episode_artwork: None,
             episode_loading: false, episode_error: None, episode_cancellation: CancellationToken::new(),
             poster: None, backdrop: None, loading: true, error: None,
         });
@@ -2026,6 +2029,10 @@ impl SenzoShell {
                 id: person.id, name: person.name.clone(), profile: person.profile.clone(),
             });
         }
+        const MAX_DETAIL_HISTORY: usize = 32;
+        if self.detail_history.len() > MAX_DETAIL_HISTORY {
+            self.detail_history.remove(0);
+        }
     }
 
     fn open_related_detail(&mut self, id: u64, media_type: MediaType, title: String, cx: &mut Context<Self>) {
@@ -2057,6 +2064,7 @@ impl SenzoShell {
             details.selected_season = None;
             details.selected_season_poster = None;
             details.selected_episode = None;
+            details.selected_episode_identity = None;
             details.selected_episode_artwork = None;
             details.episode_error = None;
             details.episode_loading = false;
@@ -2110,6 +2118,7 @@ impl SenzoShell {
             details.episode_cancellation.cancel();
             details.episode_cancellation = cancellation.clone();
             details.selected_episode = None;
+            details.selected_episode_identity = Some(crate::discovery::episode_identity(id, season_number, episode_number));
             details.selected_episode_artwork = None;
             details.episode_loading = true;
             details.episode_error = None;
@@ -2471,14 +2480,31 @@ impl SenzoShell {
                 );
             } else if let Some(season) = &d.selected_season {
                 let season_name = crate::discovery::season_label(season.season_number, &season.name);
-                let mut selected_season = div().w_full().flex().items_start().gap_4()
-                    .child(div().flex_1().flex().flex_col().gap_1()
-                        .child(div().text_base().text_color(rgb(Theme::TEXT_PRIMARY)).child(season_name))
-                        .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(format!(
-                            "{} episodes{}",
-                            season.episodes.len(),
-                            season.air_date.as_deref().map(|date| format!(" · {date}")).unwrap_or_default()
-                        ))));
+                let mut selected_season =
+                    div().w_full().flex().items_start().gap_4().child(
+                        div()
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_base()
+                                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                                    .child(season_name),
+                            )
+                            .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
+                                format!(
+                                    "{} episodes{}",
+                                    season.episodes.len(),
+                                    season
+                                        .air_date
+                                        .as_deref()
+                                        .map(|date| format!(" · {date}"))
+                                        .unwrap_or_default()
+                                ),
+                            )),
+                    );
                 if let Some(poster) = d.selected_season_poster.clone() {
                     selected_season = selected_season.child(div().w(px(90.0)).h(px(135.0))
                         .rounded_md().overflow_hidden().child(img(poster).w_full().h_full()));
@@ -2489,7 +2515,8 @@ impl SenzoShell {
                 for episode in &season.episodes {
                     let episode_number = episode.episode_number;
                     let season_number = episode.season_number;
-                    let selected = d.selected_episode.as_ref().is_some_and(|selected| selected.episode_number == episode_number);
+                    let selected = d.selected_episode_identity
+                        == Some(crate::discovery::episode_identity(d.id, season_number, episode_number));
                     let mut heading = format!("S{:02} E{:02} · {}", season_number, episode_number, episode.name);
                     if let Some(minutes) = episode.runtime { heading.push_str(&format!(" · {minutes} min")); }
                     if let Some(date) = episode.air_date.as_deref() { heading.push_str(&format!(" · {date}")); }
@@ -3058,6 +3085,14 @@ impl SenzoShell {
         self.load_discovery_page(media_type, 1, true, cx);
     }
 
+    fn select_discovery_year(&mut self, media_type: MediaType, year: Option<u32>, cx: &mut Context<Self>) {
+        if self.discovery_state(media_type).selected_year == year {
+            return;
+        }
+        self.discovery_state_mut(media_type).selected_year = year;
+        self.load_discovery_page(media_type, 1, true, cx);
+    }
+
     fn select_discovery_sort(&mut self, media_type: MediaType, sort: DiscoverSort, cx: &mut Context<Self>) {
         if self.discovery_state(media_type).sort == sort { return; }
         self.discovery_state_mut(media_type).sort = sort;
@@ -3080,10 +3115,15 @@ impl SenzoShell {
         let cancellation = CancellationToken::new();
         state.cancellation = cancellation.clone();
         let genre = state.selected_genre;
+        let year = state.selected_year;
         let sort = state.sort;
-        let existing = state.cards.iter()
-            .map(|card| crate::discovery::media_identity(card.media_type, card.id))
-            .collect::<HashSet<_>>();
+        let existing = if reset {
+            HashSet::new()
+        } else {
+            state.cards.iter()
+                .map(|card| crate::discovery::media_identity(card.media_type, card.id))
+                .collect::<HashSet<_>>()
+        };
         if reset {
             state.cards.clear();
             state.page = 0;
@@ -3107,7 +3147,7 @@ impl SenzoShell {
             let (genre_result, response_result) = tokio::join!(
                 metadata.genres(media_type, "en-US", &genre_token),
                 metadata.discover(DiscoverRequest {
-                    media_type, genre_id: genre, year: None, sort, page, language: "en-US",
+                    media_type, genre_id: genre, year, sort, page, language: "en-US",
                 }, &discover_token),
             );
             if task_token.is_cancelled() { return; }
@@ -3258,6 +3298,29 @@ impl SenzoShell {
             );
         }
         page = page.child(genres);
+
+        let mut years = div().flex().flex_wrap().items_center().gap_2()
+            .child(
+                div().id("discover-year-any").tab_index(20).rounded_md().border_1()
+                    .border_color(rgb(if state.selected_year.is_none() { Theme::ACCENT } else { Theme::BORDER }))
+                    .bg(rgb(if state.selected_year.is_none() { Theme::ACCENT_DARK } else { Theme::SURFACE }))
+                    .px_3().py_2().cursor_pointer()
+                    .on_click(cx.listener(move |this, _, _, cx| this.select_discovery_year(media_type, None, cx)))
+                    .child(div().text_xs().text_color(rgb(if state.selected_year.is_none() { Theme::ACCENT } else { Theme::TEXT_SECONDARY })).child("Any year")),
+            );
+        for year in (2017..=2026).rev() {
+            let selected = state.selected_year == Some(year);
+            years = years.child(
+                div().id(format!("discover-year-{year}")).tab_index(21)
+                    .rounded_md().border_1()
+                    .border_color(rgb(if selected { Theme::ACCENT } else { Theme::BORDER }))
+                    .bg(rgb(if selected { Theme::ACCENT_DARK } else { Theme::SURFACE }))
+                    .px_3().py_2().cursor_pointer()
+                    .on_click(cx.listener(move |this, _, _, cx| this.select_discovery_year(media_type, Some(year), cx)))
+                    .child(div().text_xs().text_color(rgb(if selected { Theme::ACCENT } else { Theme::TEXT_SECONDARY })).child(year.to_string())),
+            );
+        }
+        page = page.child(years);
 
         if state.status == DiscoveryStatus::Loading && state.cards.is_empty() {
             page = page.child(status_panel(StatusTone::Loading, "LOADING CATALOGUE", "Finding titles", "Fetching genre options and matching titles from the hosted metadata service."));

@@ -85,6 +85,18 @@ async function getJson(path) {
   return response.json();
 }
 
+async function expectStatus(path, expectedStatus) {
+  const response = await fetch(buildApiUrl(path), {
+    headers: requestHeaders,
+    redirect: "manual",
+    signal: AbortSignal.timeout(20_000),
+  });
+  requireValue(
+    response.status === expectedStatus,
+    path + " returned HTTP " + response.status + ", expected " + expectedStatus + ".",
+  );
+}
+
 function requireValue(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -125,10 +137,31 @@ const popularTv = await getJson("/api/tmdb/tv/popular?page=1&language=en-US");
 requireValue(Array.isArray(popularTv.results) && popularTv.results.length > 0, "Popular TV returned no results.");
 report("Home catalogues: trending, popular movies and popular TV");
 
+const movieGenres = await getJson("/api/tmdb/genre/movie/list?language=en-US");
+requireValue(
+  Array.isArray(movieGenres.genres) && movieGenres.genres.some((genre) => genre.id === 28 && genre.name === "Action"),
+  "Movie genre list did not return Action.",
+);
+const tvGenres = await getJson("/api/tmdb/genre/tv/list?language=en-US");
+requireValue(
+  Array.isArray(tvGenres.genres) && tvGenres.genres.some((genre) => genre.id === 18 && genre.name === "Drama"),
+  "TV genre list did not return Drama.",
+);
+const discoveredMovies = await getJson("/api/tmdb/discover/movie?with_genres=28&sort_by=popularity.desc&page=1&language=en-US");
+requireValue(Array.isArray(discoveredMovies.results) && discoveredMovies.results.length > 0, "Filtered movie discovery returned no titles.");
+const discoveredTv = await getJson("/api/tmdb/discover/tv?with_genres=18&sort_by=popularity.desc&page=1&language=en-US");
+requireValue(Array.isArray(discoveredTv.results) && discoveredTv.results.length > 0, "Filtered TV discovery returned no titles.");
+await expectStatus("/api/tmdb/discover/movie?sort_by=untrusted.field&page=1", 400);
+await expectStatus("/api/tmdb/discover/tv?first_air_date_year=2200&page=1", 400);
+await expectStatus("/api/tmdb/discover/movie?with_genres=0&page=1", 400);
+report("Movie/TV genres, filtered discovery, and invalid-filter rejection");
+
 const movie = await getJson("/api/tmdb/movie/27205?language=en-US");
 requireValue(movie.id === 27205 && typeof movie.title === "string", "Movie details response is incomplete.");
 requireValue(typeof movie.poster_path === "string" && movie.poster_path.startsWith("/"), "Movie details did not include a valid poster path.");
 requireValue(movie.credits && Array.isArray(movie.credits.cast), "Movie credits are missing.");
+requireValue(movie.recommendations && Array.isArray(movie.recommendations.results), "Movie recommendations are missing.");
+requireValue(movie.similar && Array.isArray(movie.similar.results), "Movie similar titles are missing.");
 requireValue(movie.videos && Array.isArray(movie.videos.results), "Movie videos are missing.");
 requireValue(
   movie.images && Array.isArray(movie.images.posters) && Array.isArray(movie.images.backdrops),
@@ -143,6 +176,8 @@ const tv = await getJson("/api/tmdb/tv/1399?language=en-US");
 requireValue(tv.id === 1399 && typeof tv.name === "string", "TV details response is incomplete.");
 requireValue(Array.isArray(tv.seasons) && tv.seasons.length > 0, "TV season metadata is missing.");
 requireValue(tv.aggregate_credits && Array.isArray(tv.aggregate_credits.cast), "TV aggregate credits are missing.");
+requireValue(tv.recommendations && Array.isArray(tv.recommendations.results), "TV recommendations are missing.");
+requireValue(tv.similar && Array.isArray(tv.similar.results), "TV similar titles are missing.");
 requireValue(tv.videos && Array.isArray(tv.videos.results), "TV videos are missing.");
 requireValue(
   tv.images && Array.isArray(tv.images.posters) && Array.isArray(tv.images.backdrops),
