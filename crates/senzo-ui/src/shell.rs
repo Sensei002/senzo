@@ -5392,6 +5392,10 @@ mod tests {
             (1920.0, 1080.0),
         ] {
             window_cx.simulate_resize(size(px(width), px(height)));
+            // The test platform reports the new native viewport immediately;
+            // drain GPUI's scheduled frame before inspecting its painted bounds.
+            window_cx.update(|window, _| window.refresh());
+            window_cx.run_until_parked();
             let viewport = window_cx.update(|window, _| window.viewport_size());
             assert!(
                 (f32::from(viewport.width) - width).abs() < 1.0
