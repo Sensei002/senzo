@@ -5904,10 +5904,16 @@ mod tests {
     async fn keyboard_navigation_back_forward_and_focus_restoration(cx: &mut gpui::TestAppContext) {
         cx.update(gpui_component::init);
 
-        let runtime = tokio::runtime::Builder::new_current_thread()
+        // GPUI's test executor is independent of Tokio. Use a small
+        // multi-thread runtime and enter it while constructing/rendering the
+        // shell so any Tokio APIs that require a current reactor are valid,
+        // while spawned tasks continue to make progress alongside GPUI.
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
             .enable_all()
             .build()
             .expect("test Tokio runtime should initialize");
+        let _runtime_guard = runtime.enter();
 
         let http = senzo_network::HttpClient::new(Default::default())
             .expect("test HTTP client should initialize");
