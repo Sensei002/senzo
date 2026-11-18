@@ -1,6 +1,6 @@
 # Phase 2 — Native GPUI application shell and design system
 
-**Status:** Implementation and automated CI acceptance passed. Pointer-click and synthesized mouse Back/Forward navigation-event paths are now covered by the GPUI interaction test. Physical mouse side-button and manual visual acceptance remain pending.
+**Status:** Complete on `development` for the native shell, interaction model, responsive layout fixtures and automated Windows/Linux acceptance. Physical HID delivery and final human visual review are explicitly release-only checks in Phase 18; they are not unimplemented Phase 2 code.
 
 ## Design reference
 
@@ -22,6 +22,8 @@ The implementation adapts Nuvio Desktop's desktop navigation and application-she
 - Unit tests for route history and design tokens.
 - A GPUI interaction test covering all seven destinations, directional wraparound, Back/Forward, Escape, keyboard-shortcut dialog dismissal and focus restoration.
 - The same interaction test performs a pointer click on the rendered Movies navigation item and dispatches GPUI mouse Navigate Back/Forward events, validating the route-history behavior used by physical side buttons.
+- The rendered shell is checked at 1024×680 (minimum), 1280×720 (standard) and 1920×1080 (Full HD): the fixed sidebar, page viewport, featured hero and Home refresh control must remain within the available window geometry.
+- F11 and Alt+Enter are exercised as state transitions: each enters/exits fullscreen and restores the original window mode.
 
 ## CI acceptance
 
@@ -37,6 +39,7 @@ The implementation adapts Nuvio Desktop's desktop navigation and application-she
 - [x] Windows and Linux development binaries uploaded as workflow artifacts.
 - [x] Windows and Linux pointer-click plus mouse Navigate Back/Forward interaction assertions in [SENZO Desktop CI #535](https://github.com/Sensei002/senzo/actions/runs/44271228972).
 - [x] Windows and Linux release builds, GPUI startup/render/shutdown smoke tests and development binary uploads in [SENZO Desktop CI #535](https://github.com/Sensei002/senzo/actions/runs/44271228972).
+- [x] Responsive geometry assertions at 1024×680, 1280×720 and 1920×1080, plus F11/Alt+Enter state-transition tests, in the Phase 2/4 close-out validation.
 
 **Artifacts:**
 - `senzo-windows-x64-foundation-29397f507b2f89692f657a1266ac6eb9e3e240a8`
@@ -44,15 +47,22 @@ The implementation adapts Nuvio Desktop's desktop navigation and application-she
 
 Download both from the [Actions run](https://github.com/Sensei002/senzo/actions/runs/44088401293). These are development binaries, not production installers or stable releases.
 
-## Remaining manual acceptance
+## Completion and release-only validation
 
-- [ ] Verify physical mouse side-button Back/Forward behavior on Windows (the GPUI Navigate event path is automated-tested; hardware delivery still needs a real desktop).
-- [ ] Verify physical mouse side-button Back/Forward behavior on Linux (the GPUI Navigate event path is automated-tested; hardware delivery still needs a real desktop).
-- [ ] Review windowed/fullscreen transitions and the complete visual layout at common desktop resolutions on both platforms.
+Phase 2's implementation and automated acceptance criteria are complete. Windows and Linux CI validate compilation, Clippy, workspace tests, native release builds, startup/render/shutdown, pointer interaction, synthesized mouse Navigate events, responsive geometry and fullscreen keyboard actions.
 
-The CI smoke tests prove native startup, rendering and shutdown. The GPUI interaction test proves keyboard navigation and focus behavior. They do not replace human visual review or physical mouse testing.
+- [x] Automated GPUI event routing for Back/Forward via mouse Navigate events on Windows and Linux.
+- [x] Deterministic structural geometry fixtures at the minimum, standard and Full HD window sizes.
+- [x] F11 and Alt+Enter fullscreen transitions and restoration of the previous window mode.
+- [x] Keyboard route traversal, directional wraparound, dialog dismissal and focus restoration.
 
-No pixel screenshot baseline is committed yet. The Linux CI runner uses Xvfb for a native startup smoke test; it is not currently configured as a deterministic cross-platform pixel-regression environment.
+The pinned GPUI CE 0.2.2 test-support API exposes rendered bounds and input simulation, but not pixel-frame readback. For that reason, deterministic geometry/input regression fixtures are used instead of pretending to have pixel screenshot baselines.
+
+The following checks remain explicitly assigned to the final Windows/Linux release acceptance in [Phase 18](ROADMAP.md#phase-18--cross-platform-packaging-and-nuvio-parity-release), because they require real physical devices or human visual judgement. They do not block Phase 5:
+- [ ] Verify physical mouse side-button Back/Forward delivery with actual hardware on Windows and Linux.
+- [ ] Review windowed/fullscreen and complete visual layout on real Windows and Linux desktops, including common resolutions and display scaling.
+
+The CI smoke tests prove native startup, rendering and shutdown. Automated geometry tests check layout containment, not artistic/pixel-perfect visual quality. Real hardware and human review remain mandatory before a stable release.
 
 ## Explicit boundaries
 
