@@ -175,6 +175,26 @@ jobs:
       - name: Verify live hosted metadata and artwork
         run: node scripts/live-api-acceptance.mjs
 
+  live-addon-acceptance:
+    name: Live Stremio add-on acceptance (${{ matrix.os }})
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[live-addon-acceptance]')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust 1.95
+        uses: dtolnay/rust-toolchain@1.95.0
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Resolve workspace lockfile
+        run: cargo generate-lockfile
+      - name: Verify public Stremio manifest and catalogue compatibility
+        run: cargo test -p senzo-addons live_cinemeta_manifest_and_catalog_compatibility -- --ignored --nocapture
+
   lockfile:
     name: Commit resolved Cargo.lock
     if: github.event_name == 'push' && github.ref == 'refs/heads/development'
