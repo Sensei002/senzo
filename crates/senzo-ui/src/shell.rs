@@ -15,6 +15,7 @@ use gpui::{
 use gpui_component::input::{Input, InputEvent, InputState};
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_catalog::{
+    home_collection_folder_key, visible_home_collections,
     BuiltInHomeCatalog as HomeShelfKey, HomeCatalogDefinition, HomeCatalogProviderRegistry,
     HomeCollection, HomeCollectionsSettings, HomeSettings,
 };
