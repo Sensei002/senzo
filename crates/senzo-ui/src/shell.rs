@@ -758,7 +758,7 @@ fn person_credit_candidates(person: &Person, media_type: MediaType) -> Vec<Perso
 }
 
 impl SenzoShell {
-    pub(crate) fn new(
+    fn new(
         services: ShellServices,
         smoke_test: bool,
         window: &mut Window,
