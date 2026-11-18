@@ -1748,31 +1748,53 @@ mod tests {
         let first = manager.install_preview("default", &preview).unwrap();
         assert!(first.enabled);
         assert_eq!(manager.list_addons("guest").unwrap().len(), 0);
+        assert!(matches!(
+            manager.install_preview("default", &preview),
+            Err(AddonError::AlreadyInstalled)
+        ));
+
+        let second_url = Url::parse("https://second.example/manifest.json").unwrap();
+        let second_preview = AddonPreview {
+            manifest_url: second_url.to_string(),
+            display_address: redacted_url(&second_url),
+            manifest: preview.manifest.clone(),
+            allow_insecure_http: false,
+        };
+        let second = manager.install_preview("default", &second_preview).unwrap();
+
         manager.set_enabled("default", &first.id, false).unwrap();
         assert!(!manager.list_addons("default").unwrap()[0].enabled);
         manager.set_enabled("default", &first.id, true).unwrap();
         manager
-            .reorder_addons("default", std::slice::from_ref(&first.id))
+            .reorder_addons("default", &[second.id.clone(), first.id.clone()])
             .unwrap();
+        let ordered = manager.list_addons("default").unwrap();
+        assert_eq!(ordered[0].id, second.id);
+        assert_eq!(ordered[1].id, first.id);
+        assert!(manager.reorder_addons("default", &[first.id.clone(), first.id.clone()]).is_err());
 
         let stored = store.list("default").unwrap();
+        let first_record = stored.iter().find(|record| record.id == first.id).unwrap();
         assert!(
-            !stored[0]
+            !first_record
                 .manifest_json
                 .as_deref()
                 .unwrap()
                 .contains("private-token")
         );
         assert!(
-            !stored[0]
+            !first_record
                 .manifest_json
                 .as_deref()
                 .unwrap()
                 .contains("private")
         );
         let listed = manager.list_addons("default").unwrap();
-        assert!(!listed[0].display_address.contains("private"));
+        let first_listed = listed.iter().find(|addon| addon.id == first.id).unwrap();
+        assert!(!first_listed.display_address.contains("private"));
         manager.remove_addon("default", &first.id).unwrap();
+        assert_eq!(manager.list_addons("default").unwrap().len(), 1);
+        manager.remove_addon("default", &second.id).unwrap();
         assert!(manager.list_addons("default").unwrap().is_empty());
     }
 
