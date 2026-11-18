@@ -5238,19 +5238,32 @@ mod tests {
         assert_eq!(requests[0].1, "/covers/one.jpg");
         assert_eq!(requests[1].0, home_collection_folder_key("collection", "second").unwrap());
 
-        let many = HomeCollection {
-            folders: (0..(MAX_HOME_COLLECTION_ARTWORK_ITEMS + 10))
+        let first_collection = HomeCollection {
+            id: "first".to_owned(),
+            title: "First collection".to_owned(),
+            folders: (0..100)
                 .map(|index| {
                     make_folder(
-                        format!("folder-{index}"),
-                        Some(format!("/covers/{index}.jpg")),
+                        format!("first-{index}"),
+                        Some(format!("/covers/first-{index}.jpg")),
                     )
                 })
                 .collect(),
-            ..collection
+        };
+        let second_collection = HomeCollection {
+            id: "second".to_owned(),
+            title: "Second collection".to_owned(),
+            folders: (100..(MAX_HOME_COLLECTION_ARTWORK_ITEMS + 10))
+                .map(|index| {
+                    make_folder(
+                        format!("second-{index}"),
+                        Some(format!("/covers/second-{index}.jpg")),
+                    )
+                })
+                .collect(),
         };
         assert_eq!(
-            home_collection_artwork_requests(&[many]).len(),
+            home_collection_artwork_requests(&[first_collection, second_collection]).len(),
             MAX_HOME_COLLECTION_ARTWORK_ITEMS
         );
     }
