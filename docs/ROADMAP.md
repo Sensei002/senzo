@@ -98,21 +98,28 @@ See docs/PHASE_3_IMPLEMENTATION.md.
 
 ## Phase 4 — Home, catalogues and discovery
 
-<badge color="info">In progress — persisted Home layout and native featured carousel implemented</badge>
+<badge color="info">In progress — configurable Home layout, featured carousel, built-in pagination and editable shelf titles implemented</badge>
 
 - [x] Implement first-slice Home layout preferences: show/hide the three built-in catalogue sections, reorder shelves, toggle the featured hero, and persist preferences locally.
 - [x] Implement a native featured carousel that pulls backdrops from up to two enabled built-in catalogue sources, with keyboard-focusable wraparound navigation and a title-specific Details action.
-- [ ] Implement Home data orchestration and configurable sections.
+- [x] Implement built-in Home catalogue shelves, horizontal poster rails, loading skeletons, empty/error states, and title-specific Details navigation.
+- [x] Implement custom Home section titles with validation and local persistence.
+- [x] Implement built-in shelf pagination, explicit Home refresh, bounded page/item limits, duplicate-safe page merging and stable media-based card identity.
+- [ ] Implement provider-neutral catalogue definitions, descriptor-based request/cache identity, and independently cancellable/incrementally published initial shelf loading.
+- [ ] Implement reusable collection rows.
+- [ ] Implement Continue Watching and release-aware sections (dependent on the playback/progress domain in Phase 11).
+- [ ] Implement add-on-provided catalogues using the Phase 6 Stremio manifest/resource contracts; no add-on is bundled or enabled by default.
+- [ ] Implement focus/scroll preservation across Home reorder and route changes.
 - [x] Implement cinematic hero and backdrop carousel with user-selected built-in catalogue sources (up to eight items, wraparound controls).
-- [ ] Implement catalog shelves, poster rails, collection rows and skeleton states.
-- [ ] Implement Continue Watching and release-aware sections.
-- [ ] Implement add-on-provided catalogues.
-- [ ] Implement pagination, refresh and stable section identity.
-- [ ] Implement focus/scroll preservation across routes.
 
-**Slice acceptance:** The persisted layout and built-in featured carousel passed Windows and Linux CI run [#510](https://github.com/Sensei002/senzo/actions/runs/44248395951), including formatting, Clippy, workspace tests, native release builds and GPUI smoke tests. This is not the full Phase 4 gate.
+**Automated slice acceptance:**
+- Featured carousel and persisted Home layout: [CI run #510](https://github.com/Sensei002/senzo/actions/runs/44248395951).
+- Built-in pagination, refresh and stable card identity: [CI run #515](https://github.com/Sensei002/senzo/actions/runs/44253403129).
+- Editable shelf titles: [CI run #517](https://github.com/Sensei002/senzo/actions/runs/44254968935).
 
-**Gate:** Home is populated by real metadata and every hero/card opens the correct destination. Generic/add-on catalogues, independent section orchestration, pagination/refresh, Continue Watching and focus/scroll preservation remain open.
+Each listed run passed the Windows and Linux native formatting, Clippy, workspace tests, release build and GPUI startup/render/shutdown smoke-test gates for its source commit. These automated gates do not replace manual visual acceptance.
+
+**Gate:** Home is populated by real metadata and every hero/card opens the correct destination. Provider-neutral and add-on catalogues, collection rows, independently published section loading, progress/release-aware shelves and focus/scroll preservation remain open.
 
 ## Phase 5 — Search, details, seasons and episodes
 

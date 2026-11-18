@@ -1,6 +1,6 @@
 # Phase 4 — Home, catalogues and discovery
 
-**Status:** In progress on `development`. Slice 1 established persisted Home layout preferences. Slice 2 adds a native, multi-title featured carousel driven by user-selected built-in catalogue sources.
+**Status:** In progress on `development`. The persisted Home layout, featured carousel, built-in shelf pagination/refresh, stable card identity, and editable shelf titles are implemented. Provider-neutral catalogue orchestration, collections/add-on catalogues, progress-aware shelves, and scroll restoration remain open.
 
 ## Slice 1 — Configurable built-in Home layout
 
@@ -16,7 +16,7 @@
 ## Slice 2 — Native featured hero carousel
 
 - Added per-section featured-source controls to Settings; no more than two enabled shelves can feed the hero, and hidden shelves cannot remain selected as hero sources.
-- The Home loader now resolves hero candidates from the selected sources in saved section order, with a hard cap of eight featured entries.
+- The Home loader resolves hero candidates from the selected sources in saved section order, with a hard cap of eight featured entries.
 - Each selected backdrop is validated and decoded through the existing native Rust artwork pipeline in background tasks; poster loading remains parallel and independent.
 - Added wraparound previous/next controls, a visible position indicator, title-specific metadata/overview, and a More info action that opens the matching movie or TV details route.
 - Added unit tests for source-selection order/visibility and carousel wraparound behavior.
@@ -33,16 +33,54 @@ Passed in [SENZO Desktop CI run #510](https://github.com/Sensei002/senzo/actions
 - GPUI native window startup/render/shutdown smoke tests on both platforms.
 - Repository automation validation and lockfile housekeeping.
 
+## Slice 3 — Built-in shelf pagination, refresh and stable card identity
+
+- Each built-in shelf now tracks its own current page, total pages, loading-more state, and next-page error independently.
+- Added explicit Home catalogue refresh. Refresh cancels the previous catalogue generation before starting new requests so stale responses cannot overwrite the newer Home state.
+- Added page-by-page requests for Trending, Popular Movies and Popular TV, with native poster artwork decoded in background tasks.
+- Added duplicate-safe page merging keyed by `(media_type, id)`, preserving the existing shelf order and avoiding collisions between movie and TV IDs.
+- Poster row element IDs now use the stable shelf key plus media identity rather than the card's current position, so appended pages do not rename existing cards.
+- Added bounded pagination (500 pages / 120 cards per shelf), returned-page validation, load-more feedback, and retry for a failed next page.
+- Added unit tests for page limits and duplicate-safe page merging.
+
+### Slice 3 automated acceptance
+
+Passed in [SENZO Desktop CI run #515](https://github.com/Sensei002/senzo/actions/runs/44253403129) on November 18, 2026:
+
+- Windows and Linux formatting, Clippy and all workspace tests.
+- Native Windows x64 and Linux release builds.
+- GPUI native window startup/render/shutdown smoke tests on both platforms.
+- Repository automation validation.
+- The live hosted API acceptance job was not required for this Home-only change and was skipped.
+
+## Slice 4 — Editable Home shelf titles
+
+- Added a retained native GPUI input for each persisted Home section.
+- Custom titles are saved on Enter or when the input loses focus; they are not written to SQLite on every keystroke.
+- Reuses `HomeSettings::set_section_title` validation: whitespace is trimmed, empty titles restore the default label, control characters are rejected, and titles are limited to 80 characters.
+- Invalid titles display inline validation feedback. The editor preserves keyboard tab order across visibility, reorder and hero-source controls.
+- Custom titles remain local-first through the existing settings repository.
+
+### Slice 4 automated acceptance
+
+Passed in [SENZO Desktop CI run #517](https://github.com/Sensei002/senzo/actions/runs/44254968935) on November 18, 2026:
+
+- Windows and Linux formatting and Clippy.
+- All workspace tests on both platforms.
+- Native Windows x64 and Linux release builds.
+- GPUI native window startup/render/shutdown smoke tests on both platforms.
+- Repository automation validation and Cargo.lock housekeeping.
 
 ## Still outstanding
 
-- Custom section title editing in the Settings UI (the model and persistence validation already exist).
-- Generic catalogue request definitions, independent per-section loading/cache/error state, stable request identity, and refresh/pagination.
-- Add-on catalogue registration and collection rows; this will plug into the dedicated Stremio add-on contracts in Phase 6.
-- Continue Watching and release-aware shelves; these require the playback/progress domain planned for Phase 11.
-- Focus/scroll preservation across Home reorder and route changes.
-- Full Windows/Linux visual and interactive acceptance of the new hero controls.
+- Provider-neutral catalogue definitions and descriptor-based request/cache identity, with independently cancellable and incrementally published initial loads for each section. Current built-in requests run concurrently and preserve per-shelf page/error state, but initial shelf publication still waits for the aggregate artwork load.
+- Reusable collection rows and add-on catalogue registration. Add-on catalogue discovery must use the dedicated Stremio manifest/capability contracts from Phase 6; no add-on is bundled or silently enabled.
+- Continue Watching and release-aware shelves. These require the playback-progress and watched-state domain planned for Phase 11; SENZO will not show fabricated playback data.
+- Focus and scroll-position preservation across Home reordering and route changes.
+- Manual visual/interactive acceptance of the new hero, pagination and title-editor controls on Windows and Linux. CI startup/render/shutdown smoke tests are not a substitute for visual review.
 
-## Verification
+## Verification boundary
 
-The Phase 3 hosted Preview acceptance remains a separate gate and is already recorded in `docs/PHASE_3_IMPLEMENTATION.md`. The new Phase 4 slice must pass the Windows and Linux formatting, Clippy, workspace-test, native build, and GPUI smoke-test jobs before it is considered accepted.
+The Phase 3 hosted Preview acceptance remains a separate completed gate recorded in `docs/PHASE_3_IMPLEMENTATION.md`. Phase 4 is not complete until its remaining deliverables and their relevant acceptance criteria pass. The Home changes above have been automated-accepted on both supported desktop CI targets, but that does not claim the outstanding manual visual review or deferred provider/playback integrations are complete.
+
+The pinned Nuvio Desktop source baseline and Home architecture findings are documented in `docs/NUVIO_SOURCE_AUDIT.md` and `docs/NUVIO_TO_SENZO_MAPPING.md`. In particular, Nuvio's Home feature uses stable catalogue definitions, descriptor signatures for cache identity, independent request publication, and a separate collection/progress boundary; SENZO is following those product boundaries with native Rust/GPUI equivalents rather than copying Kotlin/Compose code.
