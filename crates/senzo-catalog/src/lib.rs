@@ -3,7 +3,10 @@
 //! Home preferences are persisted through the existing settings repository so
 //! the catalogue layer does not own a second database or depend on GPUI.
 
-use std::{collections::{HashMap, HashSet}, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use senzo_domain::{DomainError, RepositoryError, SettingKey, SettingsRepository};
 use serde::{Deserialize, Serialize};
@@ -151,7 +154,10 @@ impl HomeCollectionsSettings {
         Ok(settings.normalized())
     }
 
-    pub fn save(&self, repository: &dyn SettingsRepository) -> Result<(), HomeCollectionsSettingsError> {
+    pub fn save(
+        &self,
+        repository: &dyn SettingsRepository,
+    ) -> Result<(), HomeCollectionsSettingsError> {
         let key = SettingKey::new(HOME_COLLECTIONS_SETTINGS_KEY)?;
         let payload = serde_json::to_string(&self.clone().normalized())?;
         repository.set(&key, &payload)?;
@@ -364,13 +370,18 @@ impl HomeCatalogProviderRegistry {
         registry
     }
 
-    pub fn register(&mut self, adapter: Arc<dyn HomeCatalogProviderAdapter>) -> Result<(), HomeCatalogDefinitionError> {
+    pub fn register(
+        &mut self,
+        adapter: Arc<dyn HomeCatalogProviderAdapter>,
+    ) -> Result<(), HomeCatalogDefinitionError> {
         let provider_id = adapter.provider_id();
         if !valid_descriptor_component(provider_id, 48) {
             return Err(HomeCatalogDefinitionError::InvalidProviderId);
         }
         if self.adapters.contains_key(provider_id) {
-            return Err(HomeCatalogDefinitionError::DuplicateProvider(provider_id.to_owned()));
+            return Err(HomeCatalogDefinitionError::DuplicateProvider(
+                provider_id.to_owned(),
+            ));
         }
 
         let definitions = adapter.catalog_definitions();
@@ -383,7 +394,9 @@ impl HomeCatalogProviderRegistry {
                 });
             }
             if !valid_section_key(&definition.key) || !seen_keys.insert(definition.key.clone()) {
-                return Err(HomeCatalogDefinitionError::InvalidCatalogKey(definition.key.clone()));
+                return Err(HomeCatalogDefinitionError::InvalidCatalogKey(
+                    definition.key.clone(),
+                ));
             }
             HomeCatalogDescriptor::new(
                 definition.descriptor.provider.clone(),
@@ -392,7 +405,9 @@ impl HomeCatalogProviderRegistry {
                 definition.descriptor.revision,
             )?;
             if self.definitions.contains_key(&definition.key) {
-                return Err(HomeCatalogDefinitionError::DuplicateCatalogKey(definition.key.clone()));
+                return Err(HomeCatalogDefinitionError::DuplicateCatalogKey(
+                    definition.key.clone(),
+                ));
             }
         }
 
@@ -407,7 +422,8 @@ impl HomeCatalogProviderRegistry {
         if self.adapters.remove(provider_id).is_none() {
             return false;
         }
-        self.definitions.retain(|_, definition| definition.descriptor.provider != provider_id);
+        self.definitions
+            .retain(|_, definition| definition.descriptor.provider != provider_id);
         true
     }
 
@@ -923,7 +939,11 @@ mod tests {
                         },
                     ],
                 },
-                HomeCollection { id: "empty".to_owned(), title: "Empty".to_owned(), folders: Vec::new() },
+                HomeCollection {
+                    id: "empty".to_owned(),
+                    title: "Empty".to_owned(),
+                    folders: Vec::new(),
+                },
             ],
         };
 
@@ -933,7 +953,10 @@ mod tests {
         assert_eq!(restored.collections.len(), 1);
         assert_eq!(restored.collections[0].id, "favorites");
         assert_eq!(restored.collections[0].folders.len(), 1);
-        assert_eq!(restored.collections[0].folders[0].cover_emoji.as_deref(), Some("🎬"));
+        assert_eq!(
+            restored.collections[0].folders[0].cover_emoji.as_deref(),
+            Some("🎬")
+        );
     }
 
     struct TestCatalogProvider {
@@ -942,8 +965,12 @@ mod tests {
     }
 
     impl HomeCatalogProviderAdapter for TestCatalogProvider {
-        fn provider_id(&self) -> &str { self.provider_id }
-        fn catalog_definitions(&self) -> Vec<HomeCatalogDefinition> { self.definitions.clone() }
+        fn provider_id(&self) -> &str {
+            self.provider_id
+        }
+        fn catalog_definitions(&self) -> Vec<HomeCatalogDefinition> {
+            self.definitions.clone()
+        }
     }
 
     #[test]
@@ -951,7 +978,14 @@ mod tests {
         let mut registry = HomeCatalogProviderRegistry::built_ins();
         assert_eq!(registry.definitions().len(), 3);
         assert!(registry.definition("trending").is_some());
-        assert_eq!(registry.definition("popular-movies").unwrap().descriptor.provider, "senzo-tmdb");
+        assert_eq!(
+            registry
+                .definition("popular-movies")
+                .unwrap()
+                .descriptor
+                .provider,
+            "senzo-tmdb"
+        );
         assert!(registry.provider("senzo-tmdb").is_some());
         assert!(registry.unregister("senzo-tmdb"));
         assert!(registry.definitions().is_empty());

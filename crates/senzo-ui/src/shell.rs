@@ -30,7 +30,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     artwork::{backdrop_surface, poster_card, render_image_from_artwork},
-    components::{StatusTone, divider, feature_tile, home_collection_row, page_intro, status_panel},
+    components::{
+        StatusTone, divider, feature_tile, home_collection_row, page_intro, status_panel,
+    },
     navigation::NavigationStack,
     theme::Theme,
 };
