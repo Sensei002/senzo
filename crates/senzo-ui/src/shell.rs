@@ -4005,7 +4005,7 @@ impl SenzoShell {
                     } else {
                         Theme::TEXT_SECONDARY
                     }))
-                    .child(label.into()),
+                    .child(label),
             )
     }
 
@@ -4871,10 +4871,18 @@ impl SenzoShell {
         self.addon_error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
+            let request_addon_id = addon_id.clone();
+            let request_catalog_id = catalog_id.clone();
             let result = runtime
                 .spawn(async move {
                     manager
-                        .fetch_catalog("default", &addon_id, &media_type, &catalog_id, &extras)
+                        .fetch_catalog(
+                            "default",
+                            &request_addon_id,
+                            &media_type,
+                            &request_catalog_id,
+                            &extras,
+                        )
                         .await
                 })
                 .await;
@@ -5049,16 +5057,18 @@ impl SenzoShell {
         .detach();
     }
 
-    fn addon_control<F>(
+    fn addon_control<F, L>(
         &self,
         id: &str,
-        label: impl Into<SharedString>,
+        label: L,
         tab_index: isize,
         on_click: F,
-    ) -> impl IntoElement + use<F>
+    ) -> impl IntoElement + use<F, L>
     where
         F: Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+        L: Into<SharedString>,
     {
+        let label: SharedString = label.into();
         div()
             .id(id.to_owned())
             .tab_index(tab_index)
