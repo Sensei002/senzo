@@ -1,7 +1,7 @@
 //! Native GPUI shell and application-owned async runtime bridge.
 
 mod artwork;
-mod components;
+pub mod components;
 mod navigation;
 mod shell;
 mod theme;

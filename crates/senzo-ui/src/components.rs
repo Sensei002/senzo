@@ -135,7 +135,7 @@ pub(crate) fn feature_tile(eyebrow: &str, title: &str, description: &str) -> Div
 
 /// Render a validated, horizontally-scrolling collection row using native GPUI cards.
 /// Artwork is supplied as already-validated native RenderImage frames from senzo-artwork.
-pub(crate) fn home_collection_row(
+pub fn home_collection_row(
     collection: &HomeCollection,
     artwork: &HashMap<String, Arc<RenderImage>>,
 ) -> Div {
@@ -173,7 +173,7 @@ pub(crate) fn home_collection_row(
 
 /// Reusable folder tile. The parent owns activation/navigation so the same
 /// visual can be used by Home, Library and future collection destinations.
-pub(crate) fn home_collection_folder_card(
+pub fn home_collection_folder_card(
     folder: &HomeCollectionFolder,
     image: Option<Arc<RenderImage>>,
 ) -> Div {
