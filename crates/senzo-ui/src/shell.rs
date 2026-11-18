@@ -22,7 +22,7 @@ use senzo_metadata::{
     MediaItem, MediaType, MetadataClient, MetadataError, Person, SearchType, SeasonDetails,
     SeasonSummary,
 };
-use tokio::{runtime::Handle, task::JoinSet};
+use tokio::{runtime::Handle, sync::mpsc, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -95,6 +95,7 @@ struct HomeMediaCandidate {
     backdrop_path: Option<String>,
 }
 
+#[derive(Clone)]
 struct HomeFeaturedCard {
     id: u64,
     media_type: MediaType,
@@ -118,6 +119,23 @@ fn selected_home_hero_sources(settings: &HomeSettings) -> Vec<HomeShelfKey> {
         })
         .take(2)
         .collect()
+}
+
+/// Only publish a later hero source after all earlier selected sources have
+/// completed. This keeps the visible carousel in the user's saved priority
+/// order even when network requests finish out of order.
+fn ready_home_hero_sources(
+    settings: &HomeSettings,
+    pending: &HashSet<HomeShelfKey>,
+) -> Vec<HomeShelfKey> {
+    let mut ready = Vec::new();
+    for source in selected_home_hero_sources(settings) {
+        if pending.contains(&source) {
+            break;
+        }
+        ready.push(source);
+    }
+    ready
 }
 
 fn next_home_featured_index(current: usize, item_count: usize, direction: isize) -> usize {
@@ -182,10 +200,9 @@ struct HomeShelfPageData {
     cards: Vec<HomeMediaCard>,
 }
 
-struct HomeCatalogueData {
-    trending: HomeShelfLoadData,
-    popular_movies: HomeShelfLoadData,
-    popular_tv: HomeShelfLoadData,
+struct HomeShelfInitialResult {
+    key: HomeShelfKey,
+    data: HomeShelfLoadData,
     featured: Vec<HomeFeaturedCard>,
 }
 
@@ -420,6 +437,8 @@ pub(crate) struct SenzoShell {
     home_popular_tv: HomeShelfState,
     home_featured_items: Vec<HomeFeaturedCard>,
     home_featured_index: usize,
+    home_featured_by_source: HashMap<HomeShelfKey, Vec<HomeFeaturedCard>>,
+    home_featured_sources_pending: HashSet<HomeShelfKey>,
     home_title_inputs: HashMap<String, Entity<InputState>>,
     _home_title_subscriptions: Vec<Subscription>,
     home_title_errors: HashMap<String, String>,
@@ -648,6 +667,8 @@ impl SenzoShell {
             home_popular_tv: HomeShelfState::default(),
             home_featured_items: Vec::new(),
             home_featured_index: 0,
+            home_featured_by_source: HashMap::new(),
+            home_featured_sources_pending: HashSet::new(),
             home_title_inputs,
             _home_title_subscriptions: home_title_subscriptions,
             home_title_errors: HashMap::new(),
@@ -829,6 +850,7 @@ impl SenzoShell {
         self.home_settings
             .set_hero_enabled(!self.home_settings.hero_enabled);
         self.persist_home_settings(cx);
+        self.refresh_home_catalogue(cx);
     }
 
     fn toggle_home_section(&mut self, key: &str, cx: &mut Context<Self>) {
@@ -878,6 +900,8 @@ impl SenzoShell {
         self.home_popular_tv = HomeShelfState::default();
         self.home_featured_items.clear();
         self.home_featured_index = 0;
+        self.home_featured_by_source.clear();
+        self.home_featured_sources_pending.clear();
         self.load_home_catalogue(cx);
     }
 
@@ -1252,6 +1276,45 @@ impl SenzoShell {
 
         panel
     }
+    fn rebuild_home_featured_items(&mut self) {
+        let current = self
+            .home_featured_items
+            .get(self.home_featured_index)
+            .map(|item| (item.id, item.media_type));
+
+        if !self.home_settings.hero_enabled {
+            self.home_featured_items.clear();
+            self.home_featured_index = 0;
+            return;
+        }
+
+        let ready_sources =
+            ready_home_hero_sources(&self.home_settings, &self.home_featured_sources_pending);
+        let mut featured = Vec::with_capacity(MAX_HOME_FEATURED_ITEMS);
+        for source in ready_sources {
+            if let Some(items) = self.home_featured_by_source.get(&source) {
+                for item in items {
+                    if featured.len() >= MAX_HOME_FEATURED_ITEMS {
+                        break;
+                    }
+                    featured.push(item.clone());
+                }
+            }
+            if featured.len() >= MAX_HOME_FEATURED_ITEMS {
+                break;
+            }
+        }
+
+        self.home_featured_items = featured;
+        self.home_featured_index = current
+            .and_then(|(id, media_type)| {
+                self.home_featured_items
+                    .iter()
+                    .position(|item| item.id == id && item.media_type == media_type)
+            })
+            .unwrap_or(0);
+    }
+
     fn load_home_catalogue(&mut self, cx: &mut Context<Self>) {
         let all_shelves_recovered = [
             &self.home_trending,
@@ -1282,241 +1345,119 @@ impl SenzoShell {
 
         let metadata = self.metadata.clone();
         let artwork = self.artwork.clone();
-        let hero_sources = selected_home_hero_sources(&self.home_settings);
+        let hero_sources = if self.home_settings.hero_enabled {
+            selected_home_hero_sources(&self.home_settings)
+        } else {
+            Vec::new()
+        };
+        self.home_featured_by_source.clear();
+        self.home_featured_sources_pending = hero_sources.iter().copied().collect();
+        self.rebuild_home_featured_items();
+
         let cancellation = self.home_cancellation.child_token();
         let completion_cancellation = cancellation.clone();
+        let (sender, mut receiver) = mpsc::unbounded_channel::<HomeShelfInitialResult>();
         let task = self.tokio.spawn(async move {
-            let (trending_response, movie_response, tv_response) = tokio::join!(
-                metadata.trending(1, "en-US", &cancellation),
-                metadata.popular_movies(1, "en-US", &cancellation),
-                metadata.popular_tv(1, "en-US", &cancellation),
-            );
-
-            let mut trending = match trending_response {
-                Ok(response) => {
-                    let page = response.page.clamp(1, MAX_HOME_CATALOGUE_PAGES);
-                    home_shelf_load_data(
-                        home_media_candidates(response.results, None),
-                        None,
-                        page,
-                        response.total_pages,
-                    )
-                }
-                Err(error) => {
-                    home_shelf_load_data(Vec::new(), Some(metadata_error_message(&error)), 0, None)
-                }
-            };
-            let mut popular_movies = match movie_response {
-                Ok(response) => {
-                    let page = response.page.clamp(1, MAX_HOME_CATALOGUE_PAGES);
-                    home_shelf_load_data(
-                        home_media_candidates(response.results, Some(MediaType::Movie)),
-                        None,
-                        page,
-                        response.total_pages,
-                    )
-                }
-                Err(error) => {
-                    home_shelf_load_data(Vec::new(), Some(metadata_error_message(&error)), 0, None)
-                }
-            };
-            let mut popular_tv = match tv_response {
-                Ok(response) => {
-                    let page = response.page.clamp(1, MAX_HOME_CATALOGUE_PAGES);
-                    home_shelf_load_data(
-                        home_media_candidates(response.results, Some(MediaType::Tv)),
-                        None,
-                        page,
-                        response.total_pages,
-                    )
-                }
-                Err(error) => {
-                    home_shelf_load_data(Vec::new(), Some(metadata_error_message(&error)), 0, None)
-                }
-            };
-
-            let mut featured_candidates = Vec::with_capacity(MAX_HOME_FEATURED_ITEMS);
-            for key in hero_sources {
-                let candidates = match key {
-                    HomeShelfKey::Trending => &trending.candidates,
-                    HomeShelfKey::PopularMovies => &popular_movies.candidates,
-                    HomeShelfKey::PopularTv => &popular_tv.candidates,
-                };
-                for (index, candidate) in candidates.iter().enumerate() {
-                    if candidate.backdrop_path.is_none() {
-                        continue;
-                    }
-                    featured_candidates.push((key, index, candidate.clone()));
-                    if featured_candidates.len() >= MAX_HOME_FEATURED_ITEMS {
-                        break;
-                    }
-                }
-                if featured_candidates.len() >= MAX_HOME_FEATURED_ITEMS {
-                    break;
-                }
-            }
-            let featured_indices = featured_candidates
-                .iter()
-                .map(|(key, index, _)| (*key, *index))
-                .collect::<Vec<_>>();
-
             let mut jobs = JoinSet::new();
-            for (key, candidates) in [
-                (HomeShelfKey::Trending, &trending.candidates),
-                (HomeShelfKey::PopularMovies, &popular_movies.candidates),
-                (HomeShelfKey::PopularTv, &popular_tv.candidates),
+            for key in [
+                HomeShelfKey::Trending,
+                HomeShelfKey::PopularMovies,
+                HomeShelfKey::PopularTv,
             ] {
-                for (index, candidate) in candidates.iter().enumerate() {
-                    let service = artwork.clone();
-                    let task_token = cancellation.child_token();
-                    let poster_path = candidate.poster_path.clone();
-                    let backdrop_path = if featured_indices.contains(&(key, index)) {
-                        candidate.backdrop_path.clone()
-                    } else {
-                        None
-                    };
-                    jobs.spawn(async move {
-                        let poster = load_gpui_artwork(
-                            service.clone(),
-                            poster_path,
-                            ArtworkSize::W342,
-                            task_token.child_token(),
-                        )
-                        .await;
-                        let backdrop = match backdrop_path {
-                            Some(path) => {
-                                load_gpui_artwork(
-                                    service,
-                                    path,
-                                    ArtworkSize::W1280,
-                                    task_token.child_token(),
-                                )
-                                .await
-                            }
-                            None => None,
-                        };
-                        (key, index, poster, backdrop)
-                    });
-                }
-            }
-
-            let mut featured_backdrops = HashMap::new();
-            while let Some(result) = jobs.join_next().await {
-                if cancellation.is_cancelled() {
-                    return Err("Cancelled".to_owned());
-                }
-                if let Ok((key, index, poster, backdrop)) = result {
-                    let shelf = match key {
-                        HomeShelfKey::Trending => &mut trending,
-                        HomeShelfKey::PopularMovies => &mut popular_movies,
-                        HomeShelfKey::PopularTv => &mut popular_tv,
-                    };
-                    if let Some(card) = shelf.cards.get_mut(index) {
-                        card.poster = poster;
-                    }
-                    if let Some(backdrop) = backdrop {
-                        featured_backdrops.insert((key, index), backdrop);
-                    }
-                }
-            }
-
-            if cancellation.is_cancelled() {
-                return Err("Cancelled".to_owned());
-            }
-
-            let mut featured = Vec::with_capacity(featured_candidates.len());
-            for (key, index, candidate) in featured_candidates {
-                let Some(backdrop) = featured_backdrops.remove(&(key, index)) else {
-                    continue;
-                };
-                let shelf = match key {
-                    HomeShelfKey::Trending => &trending,
-                    HomeShelfKey::PopularMovies => &popular_movies,
-                    HomeShelfKey::PopularTv => &popular_tv,
-                };
-                let poster = shelf.cards.get(index).and_then(|card| card.poster.clone());
-                featured.push(HomeFeaturedCard {
-                    id: candidate.id,
-                    media_type: candidate.media_type,
-                    title: candidate.title,
-                    detail: candidate.detail,
-                    overview: candidate.overview,
-                    poster,
-                    backdrop,
+                let metadata = metadata.clone();
+                let artwork = artwork.clone();
+                let token = cancellation.child_token();
+                let is_hero_source = hero_sources.contains(&key);
+                jobs.spawn(async move {
+                    load_home_shelf_initial(key, metadata, artwork, is_hero_source, token).await
                 });
             }
 
-            Ok::<_, String>(HomeCatalogueData {
-                trending,
-                popular_movies,
-                popular_tv,
-                featured,
-            })
+            while let Some(result) = jobs.join_next().await {
+                if cancellation.is_cancelled() {
+                    break;
+                }
+                if let Ok(Some(result)) = result
+                    && sender.send(result).is_err()
+                {
+                    break;
+                }
+            }
         });
 
         cx.spawn(async move |this, cx| {
-            let result = task.await.unwrap_or_else(|_| {
-                Err("The Home catalogue request stopped unexpectedly. Check your connection and retry."
-                    .to_owned())
-            });
+            while let Some(result) = receiver.recv().await {
+                let _ = this.update(cx, |this, cx| {
+                    if this.home_catalogue_generation != generation
+                        || completion_cancellation.is_cancelled()
+                    {
+                        return;
+                    }
+
+                    let HomeShelfInitialResult { key, data, featured } = result;
+                    *this.home_shelf_mut(key) = HomeShelfState {
+                        status: HomeCatalogueStatus::Loaded,
+                        error: data.error,
+                        cards: data.cards,
+                        page: data.page,
+                        total_pages: data.total_pages,
+                        loading_more: false,
+                        load_more_error: None,
+                    };
+
+                    if this.home_featured_sources_pending.remove(&key) {
+                        this.home_featured_by_source.insert(key, featured);
+                        this.rebuild_home_featured_items();
+                    }
+
+                    if [
+                        &this.home_trending,
+                        &this.home_popular_movies,
+                        &this.home_popular_tv,
+                    ]
+                    .iter()
+                    .all(|shelf| shelf.status == HomeCatalogueStatus::Loaded)
+                    {
+                        this.home_catalogue_status = HomeCatalogueStatus::Loaded;
+                    }
+                    cx.notify();
+                });
+            }
+
+            let worker_result = task.await;
             let _ = this.update(cx, |this, cx| {
                 if this.home_catalogue_generation != generation
                     || completion_cancellation.is_cancelled()
                 {
                     return;
                 }
-                match result {
-                    Ok(data) => {
-                        this.home_trending = HomeShelfState {
-                            status: HomeCatalogueStatus::Loaded,
-                            error: data.trending.error,
-                            cards: data.trending.cards,
-                            page: data.trending.page,
-                            total_pages: data.trending.total_pages,
-                            loading_more: false,
-                            load_more_error: None,
-                        };
-                        this.home_popular_movies = HomeShelfState {
-                            status: HomeCatalogueStatus::Loaded,
-                            error: data.popular_movies.error,
-                            cards: data.popular_movies.cards,
-                            page: data.popular_movies.page,
-                            total_pages: data.popular_movies.total_pages,
-                            loading_more: false,
-                            load_more_error: None,
-                        };
-                        this.home_popular_tv = HomeShelfState {
-                            status: HomeCatalogueStatus::Loaded,
-                            error: data.popular_tv.error,
-                            cards: data.popular_tv.cards,
-                            page: data.popular_tv.page,
-                            total_pages: data.popular_tv.total_pages,
-                            loading_more: false,
-                            load_more_error: None,
-                        };
-                        this.home_featured_items = data.featured;
-                        this.home_featured_index = 0;
-                        this.home_catalogue_status = HomeCatalogueStatus::Loaded;
+
+                let worker_stopped = worker_result.is_err();
+                for key in [
+                    HomeShelfKey::Trending,
+                    HomeShelfKey::PopularMovies,
+                    HomeShelfKey::PopularTv,
+                ] {
+                    let shelf = this.home_shelf_mut(key);
+                    if shelf.status == HomeCatalogueStatus::Loading {
+                        shelf.status = HomeCatalogueStatus::Loaded;
+                        shelf.error = Some(if worker_stopped {
+                            "A Home catalogue worker stopped unexpectedly. Refresh Home to retry."
+                                .to_owned()
+                        } else {
+                            "This catalogue did not finish loading. Refresh Home to retry."
+                                .to_owned()
+                        });
+                        shelf.cards.clear();
+                        shelf.page = 0;
+                        shelf.total_pages = 1;
+                        shelf.loading_more = false;
+                        shelf.load_more_error = None;
                     }
-                    Err(message) => {
-                        for shelf in [
-                            &mut this.home_trending,
-                            &mut this.home_popular_movies,
-                            &mut this.home_popular_tv,
-                        ] {
-                            shelf.status = HomeCatalogueStatus::Loaded;
-                            shelf.error = Some(message.clone());
-                            shelf.cards.clear();
-                            shelf.page = 0;
-                            shelf.total_pages = 1;
-                            shelf.loading_more = false;
-                            shelf.load_more_error = None;
-                        }
-                        this.home_featured_items.clear();
-                        this.home_featured_index = 0;
-                        this.home_catalogue_status = HomeCatalogueStatus::Loaded;
-                    }
+                    this.home_featured_sources_pending.remove(&key);
                 }
+                this.home_catalogue_status = HomeCatalogueStatus::Loaded;
+                this.rebuild_home_featured_items();
                 cx.notify();
             });
         })
@@ -4315,6 +4256,138 @@ impl SenzoShell {
     }
 }
 
+async fn load_home_shelf_initial(
+    key: HomeShelfKey,
+    metadata: MetadataClient,
+    artwork: ArtworkService,
+    is_hero_source: bool,
+    cancellation: CancellationToken,
+) -> Option<HomeShelfInitialResult> {
+    let response = match key {
+        HomeShelfKey::Trending => metadata.trending(1, "en-US", &cancellation).await,
+        HomeShelfKey::PopularMovies => metadata.popular_movies(1, "en-US", &cancellation).await,
+        HomeShelfKey::PopularTv => metadata.popular_tv(1, "en-US", &cancellation).await,
+    };
+
+    if cancellation.is_cancelled() {
+        return None;
+    }
+
+    let mut data = match response {
+        Ok(response) => {
+            let page = response.page.clamp(1, MAX_HOME_CATALOGUE_PAGES);
+            let fallback_type = match key {
+                HomeShelfKey::Trending => None,
+                HomeShelfKey::PopularMovies => Some(MediaType::Movie),
+                HomeShelfKey::PopularTv => Some(MediaType::Tv),
+            };
+            home_shelf_load_data(
+                home_media_candidates(response.results, fallback_type),
+                None,
+                page,
+                response.total_pages,
+            )
+        }
+        Err(error) => home_shelf_load_data(
+            Vec::new(),
+            Some(metadata_error_message(&error)),
+            0,
+            None,
+        ),
+    };
+
+    let featured_indices = if is_hero_source {
+        data.candidates
+            .iter()
+            .enumerate()
+            .filter_map(|(index, candidate)| {
+                candidate.backdrop_path.as_ref().map(|_| index)
+            })
+            .take(MAX_HOME_FEATURED_ITEMS)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let featured_index_set = featured_indices.iter().copied().collect::<HashSet<_>>();
+
+    let mut jobs = JoinSet::new();
+    for (index, candidate) in data.candidates.iter().enumerate() {
+        let service = artwork.clone();
+        let token = cancellation.child_token();
+        let poster_path = candidate.poster_path.clone();
+        let backdrop_path = if featured_index_set.contains(&index) {
+            candidate.backdrop_path.clone()
+        } else {
+            None
+        };
+        jobs.spawn(async move {
+            let poster = load_gpui_artwork(
+                service.clone(),
+                poster_path,
+                ArtworkSize::W342,
+                token.child_token(),
+            )
+            .await;
+            let backdrop = match backdrop_path {
+                Some(path) => {
+                    load_gpui_artwork(
+                        service,
+                        path,
+                        ArtworkSize::W1280,
+                        token.child_token(),
+                    )
+                    .await
+                }
+                None => None,
+            };
+            (index, poster, backdrop)
+        });
+    }
+
+    let mut backdrops = HashMap::new();
+    while let Some(result) = jobs.join_next().await {
+        if cancellation.is_cancelled() {
+            return None;
+        }
+        if let Ok((index, poster, backdrop)) = result
+            && let Some(card) = data.cards.get_mut(index)
+        {
+            card.poster = poster;
+            if let Some(backdrop) = backdrop {
+                backdrops.insert(index, backdrop);
+            }
+        }
+    }
+
+    if cancellation.is_cancelled() {
+        return None;
+    }
+
+    let featured = featured_indices
+        .into_iter()
+        .filter_map(|index| {
+            let candidate = data.candidates.get(index)?;
+            let backdrop = backdrops.remove(&index)?;
+            let poster = data.cards.get(index).and_then(|card| card.poster.clone());
+            Some(HomeFeaturedCard {
+                id: candidate.id,
+                media_type: candidate.media_type,
+                title: candidate.title.clone(),
+                detail: candidate.detail.clone(),
+                overview: candidate.overview.clone(),
+                poster,
+                backdrop,
+            })
+        })
+        .collect();
+
+    Some(HomeShelfInitialResult {
+        key,
+        data,
+        featured,
+    })
+}
+
 async fn load_gpui_artwork(
     artwork: ArtworkService,
     file_path: String,
@@ -4811,6 +4884,28 @@ mod tests {
         assert_eq!(
             selected_home_hero_sources(&settings),
             vec![HomeShelfKey::Trending]
+        );
+    }
+
+    #[test]
+    fn featured_sources_publish_in_saved_order_even_when_a_later_source_finishes_first() {
+        let mut settings = HomeSettings::default();
+        assert!(settings.set_hero_source_enabled("popular-movies", true));
+        assert!(settings.move_section("popular-movies", 1));
+
+        let mut pending = HashSet::from([
+            HomeShelfKey::Trending,
+            HomeShelfKey::PopularMovies,
+        ]);
+        assert!(ready_home_hero_sources(&settings, &pending).is_empty());
+
+        pending.remove(&HomeShelfKey::PopularMovies);
+        assert!(ready_home_hero_sources(&settings, &pending).is_empty());
+
+        pending.remove(&HomeShelfKey::Trending);
+        assert_eq!(
+            ready_home_hero_sources(&settings, &pending),
+            vec![HomeShelfKey::Trending, HomeShelfKey::PopularMovies]
         );
     }
 
