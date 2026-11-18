@@ -3115,7 +3115,7 @@ impl SenzoShell {
             ))
         } else {
             let mut row = div().flex().gap_4();
-            for card in shelf.cards.iter() {
+            for (index, card) in shelf.cards.iter().enumerate() {
                 let id = card.id;
                 let media_type = card.media_type;
                 let media_title = card.title.clone();
