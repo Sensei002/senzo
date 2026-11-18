@@ -116,9 +116,7 @@ pub fn visible_home_collections(collections: &[HomeCollection]) -> Vec<HomeColle
 }
 
 fn valid_collection_text(value: &str, max_chars: usize) -> bool {
-    !value.is_empty()
-        && value.chars().count() <= max_chars
-        && !value.chars().any(char::is_control)
+    !value.is_empty() && value.chars().count() <= max_chars && !value.chars().any(char::is_control)
 }
 
 /// Stable, delimiter-safe element identity for a folder tile.
@@ -641,7 +639,10 @@ mod tests {
 
         let visible = visible_home_collections(&collections);
         assert_eq!(
-            visible.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(),
+            visible
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
             vec!["duplicate", "other"]
         );
         assert_eq!(visible[0].title, "First");

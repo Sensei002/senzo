@@ -4,8 +4,8 @@ use std::{collections::HashMap, sync::Arc};
 
 use gpui::{Div, RenderImage, div, img, prelude::*, px, rgb};
 use senzo_catalog::{
-    HomeCollection, HomeCollectionFolder, HomeCollectionPosterShape,
-    home_collection_folder_key, visible_home_collections,
+    HomeCollection, HomeCollectionFolder, HomeCollectionPosterShape, home_collection_folder_key,
+    visible_home_collections,
 };
 
 use crate::theme::Theme;
@@ -168,12 +168,7 @@ pub(crate) fn home_collection_row(
                 .text_color(rgb(Theme::TEXT_PRIMARY))
                 .child(collection.title.clone()),
         )
-        .child(
-            div()
-                .w_full()
-                .overflow_x_scroll()
-                .child(row),
-        )
+        .child(div().w_full().overflow_x_scroll().child(row))
 }
 
 /// Reusable folder tile. The parent owns activation/navigation so the same
@@ -229,12 +224,7 @@ pub(crate) fn home_collection_folder_card(
         );
     }
 
-    let mut card = div()
-        .w(px(width))
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(surface);
+    let mut card = div().w(px(width)).flex().flex_col().gap_2().child(surface);
 
     if !folder.hide_title {
         card = card.child(
