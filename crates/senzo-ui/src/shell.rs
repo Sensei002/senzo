@@ -5299,7 +5299,7 @@ impl Render for SenzoShell {
             }
         }
 
-        if self.smoke_test && !self.smoke_test_scheduled {
+        if self.smoke_test && !cfg!(test) && !self.smoke_test_scheduled {
             self.smoke_test_scheduled = true;
             cx.spawn(async move |this, cx| {
                 cx.background_executor()
@@ -5928,7 +5928,7 @@ mod tests {
         let (shell, window_cx) = cx.add_window_view(|window, cx| {
             let mut shell = SenzoShell::new(
                 runtime.handle().clone(),
-                false,
+                true,
                 metadata,
                 artwork,
                 Arc::new(TestSettingsRepository),
@@ -5936,6 +5936,8 @@ mod tests {
                 cx,
             );
             shell.home_catalogue_status = HomeCatalogueStatus::Loaded;
+            shell.movie_discovery.status = DiscoveryStatus::Loaded;
+            shell.tv_discovery.status = DiscoveryStatus::Loaded;
             let home_focus = shell
                 .navigation_focus
                 .get(&AppPage::Home)
