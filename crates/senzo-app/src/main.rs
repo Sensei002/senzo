@@ -3,7 +3,10 @@ use std::{env, sync::Arc};
 use anyhow::{Context, ensure};
 use senzo_artwork::{ArtworkConfig, ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_domain::{ProfileRepository, SettingsRepository};
-use senzo_metadata::{DiscoverRequest, DiscoverSort, DEFAULT_API_BASE_URL, MediaType, MetadataClient, MetadataClientConfig, SearchType};
+use senzo_metadata::{
+    DEFAULT_API_BASE_URL, DiscoverRequest, DiscoverSort, MediaType, MetadataClient,
+    MetadataClientConfig, SearchType,
+};
 use senzo_network::{HttpClient, HttpPolicy};
 use senzo_platform::{AppDirectories, CredentialStore, KeyringCredentialStore};
 use senzo_storage::SqliteDatabase;
@@ -123,20 +126,54 @@ async fn run_metadata_smoke_test(
     );
     println!("PASS  all three Home catalogues");
 
-    let movie_genres = metadata.genres(MediaType::Movie, "en-US", &cancellation).await?;
-    ensure!(movie_genres.genres.iter().any(|genre| genre.id == 28), "movie genre catalogue is missing Action");
-    let tv_genres = metadata.genres(MediaType::Tv, "en-US", &cancellation).await?;
-    ensure!(tv_genres.genres.iter().any(|genre| genre.id == 18), "TV genre catalogue is missing Drama");
-    let movie_discovery = metadata.discover(DiscoverRequest {
-        media_type: MediaType::Movie, genre_id: Some(28), year: None,
-        sort: DiscoverSort::Popularity, page: 1, language: "en-US",
-    }, &cancellation).await?;
-    ensure!(!movie_discovery.results.is_empty(), "filtered movie discovery returned no titles");
-    let tv_discovery = metadata.discover(DiscoverRequest {
-        media_type: MediaType::Tv, genre_id: Some(18), year: None,
-        sort: DiscoverSort::Popularity, page: 1, language: "en-US",
-    }, &cancellation).await?;
-    ensure!(!tv_discovery.results.is_empty(), "filtered TV discovery returned no titles");
+    let movie_genres = metadata
+        .genres(MediaType::Movie, "en-US", &cancellation)
+        .await?;
+    ensure!(
+        movie_genres.genres.iter().any(|genre| genre.id == 28),
+        "movie genre catalogue is missing Action"
+    );
+    let tv_genres = metadata
+        .genres(MediaType::Tv, "en-US", &cancellation)
+        .await?;
+    ensure!(
+        tv_genres.genres.iter().any(|genre| genre.id == 18),
+        "TV genre catalogue is missing Drama"
+    );
+    let movie_discovery = metadata
+        .discover(
+            DiscoverRequest {
+                media_type: MediaType::Movie,
+                genre_id: Some(28),
+                year: None,
+                sort: DiscoverSort::Popularity,
+                page: 1,
+                language: "en-US",
+            },
+            &cancellation,
+        )
+        .await?;
+    ensure!(
+        !movie_discovery.results.is_empty(),
+        "filtered movie discovery returned no titles"
+    );
+    let tv_discovery = metadata
+        .discover(
+            DiscoverRequest {
+                media_type: MediaType::Tv,
+                genre_id: Some(18),
+                year: None,
+                sort: DiscoverSort::Popularity,
+                page: 1,
+                language: "en-US",
+            },
+            &cancellation,
+        )
+        .await?;
+    ensure!(
+        !tv_discovery.results.is_empty(),
+        "filtered TV discovery returned no titles"
+    );
     println!("PASS  movie/TV genres and filtered discovery");
 
     let multi_search = metadata

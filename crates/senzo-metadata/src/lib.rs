@@ -7,10 +7,12 @@ mod cache;
 mod client;
 mod models;
 
-pub use client::{DiscoverRequest, DEFAULT_API_BASE_URL, MetadataClient, MetadataClientConfig, MetadataError};
+pub use client::{
+    DEFAULT_API_BASE_URL, DiscoverRequest, MetadataClient, MetadataClientConfig, MetadataError,
+};
 pub use models::{
-    ApiHealth, CastMember, Credits, DiscoverSort, EpisodeDetails, ExternalIds, Genre, GenreListResponse, ImageItem, Images,
-    MediaItem, MediaListResponse, MediaType, MovieDetails, Person, PersonCredit, PersonCredits,
-    ProductionCompany, ProductionCountry, SearchType, SeasonDetails, SeasonSummary, TvDetails,
-    VideoItem, Videos,
+    ApiHealth, CastMember, Credits, DiscoverSort, EpisodeDetails, ExternalIds, Genre,
+    GenreListResponse, ImageItem, Images, MediaItem, MediaListResponse, MediaType, MovieDetails,
+    Person, PersonCredit, PersonCredits, ProductionCompany, ProductionCountry, SearchType,
+    SeasonDetails, SeasonSummary, TvDetails, VideoItem, Videos,
 };
