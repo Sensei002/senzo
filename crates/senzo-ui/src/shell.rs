@@ -5394,6 +5394,7 @@ mod tests {
             window_cx.simulate_resize(size(px(width), px(height)));
             // The test platform reports the new native viewport immediately;
             // drain GPUI's scheduled frame before inspecting its painted bounds.
+            window_cx.update_entity(&shell, |_, cx| cx.notify()).unwrap();
             window_cx.update(|window, _| window.refresh());
             window_cx.run_until_parked();
             let viewport = window_cx.update(|window, _| window.viewport_size());
@@ -5442,7 +5443,9 @@ mod tests {
             );
             assert!(
                 page_right <= width + 1.0 && f32::from(resized_page.size.height) > 0.0,
-                "page viewport should remain within the window at {width}x{height}"
+                "page viewport should remain within the window at {width}x{height} (page_x={page_x}, page_right={page_right}, page_width={}, viewport_width={})",
+                f32::from(resized_page.size.width),
+                f32::from(viewport.width)
             );
             assert!(
                 hero_x >= page_x && hero_right <= page_right + 1.0,
