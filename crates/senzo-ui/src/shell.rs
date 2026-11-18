@@ -420,6 +420,9 @@ pub(crate) struct SenzoShell {
     home_popular_tv: HomeShelfState,
     home_featured_items: Vec<HomeFeaturedCard>,
     home_featured_index: usize,
+    home_title_inputs: HashMap<String, Entity<InputState>>,
+    _home_title_subscriptions: Vec<Subscription>,
+    home_title_errors: HashMap<String, String>,
     search_input: Entity<InputState>,
     _search_input_subscription: Subscription,
     search_filter: SearchFilter,
@@ -604,6 +607,28 @@ impl SenzoShell {
             tracing::warn!(error = %error, "could not load persisted Home layout; using defaults");
             HomeSettings::default()
         });
+        let mut home_title_inputs = HashMap::new();
+        let mut home_title_subscriptions = Vec::new();
+        for section in &home_settings.sections {
+            let key = section.key.clone();
+            let initial_title = section.title.clone().unwrap_or_default();
+            let input = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .default_value(initial_title)
+                    .placeholder("Custom title (optional)")
+            });
+            let subscription = cx.subscribe(&input, move |this, input, event, cx| {
+                if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
+                    this.save_home_section_title(
+                        &key,
+                        input.read(cx).value().to_string(),
+                        cx,
+                    );
+                }
+            });
+            home_title_inputs.insert(key, input);
+            home_title_subscriptions.push(subscription);
+        }
 
         Self {
             navigation: NavigationStack::new(),
@@ -622,6 +647,9 @@ impl SenzoShell {
             home_popular_tv: HomeShelfState::default(),
             home_featured_items: Vec::new(),
             home_featured_index: 0,
+            home_title_inputs,
+            _home_title_subscriptions: home_title_subscriptions,
+            home_title_errors: HashMap::new(),
             search_input,
             _search_input_subscription: search_input_subscription,
             search_filter: SearchFilter::All,
@@ -752,6 +780,41 @@ impl SenzoShell {
             });
         })
         .detach();
+    }
+
+    fn save_home_section_title(
+        &mut self,
+        key: &str,
+        raw_title: String,
+        cx: &mut Context<Self>,
+    ) {
+        let trimmed = raw_title.trim();
+        let current = self
+            .home_settings
+            .sections
+            .iter()
+            .find(|section| section.key == key)
+            .and_then(|section| section.title.as_deref())
+            .unwrap_or_default();
+        if current == trimmed {
+            self.home_title_errors.remove(key);
+            return;
+        }
+
+        match self.home_settings.set_section_title(key, Some(trimmed)) {
+            Ok(()) => {
+                self.home_title_errors.remove(key);
+                self.persist_home_settings(cx);
+            }
+            Err(error) => {
+                self.home_title_errors.insert(key.to_owned(), error.to_string());
+                self.notification = Some(
+                    "Custom titles must be 1–80 printable characters. Clear the field to restore the default title."
+                        .to_owned(),
+                );
+                cx.notify();
+            }
+        }
     }
 
     fn persist_home_settings(&mut self, cx: &mut Context<Self>) {
@@ -1011,7 +1074,51 @@ impl SenzoShell {
             let title = section.display_title().to_owned();
             let enabled = section.enabled;
             let hero_source_enabled = section.hero_source_enabled;
-            let base_tab = 50 + (index as isize * 4);
+            let base_tab = 50 + (index as isize * 5);
+            let title_input = self.home_title_inputs.get(&key);
+            let title_error = self.home_title_errors.get(&key).cloned();
+
+            let mut section_identity = div()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(Theme::TEXT_PRIMARY))
+                        .child(title.clone()),
+                )
+                .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
+                    if enabled {
+                        "Visible on Home"
+                    } else {
+                        "Hidden from Home"
+                    },
+                ));
+            if let Some(input) = title_input {
+                section_identity = section_identity.child(
+                    Input::new(input)
+                        .tab_index(base_tab + 4)
+                        .aria_label(format!("Custom Home shelf title for {}", section.key))
+                        .w_full()
+                        .max_w(px(360.0))
+                        .bg(rgb(Theme::SURFACE))
+                        .border_1()
+                        .border_color(rgb(Theme::BORDER))
+                        .rounded_md()
+                        .px_2()
+                        .py_2(),
+                );
+            }
+            if let Some(error) = title_error {
+                section_identity = section_identity.child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(Theme::DANGER))
+                        .child(error),
+                );
+            }
 
             let row = div()
                 .w_full()
@@ -1023,26 +1130,7 @@ impl SenzoShell {
                 .border_color(rgb(Theme::BORDER))
                 .bg(rgb(Theme::SURFACE_RAISED))
                 .p_2()
-                .child(
-                    div()
-                        .flex_1()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(rgb(Theme::TEXT_PRIMARY))
-                                .child(title.clone()),
-                        )
-                        .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
-                            if enabled {
-                                "Visible on Home"
-                            } else {
-                                "Hidden from Home"
-                            },
-                        )),
-                )
+                .child(section_identity)
                 .child(
                     div()
                         .id(format!("settings-home-toggle-{}", key))
