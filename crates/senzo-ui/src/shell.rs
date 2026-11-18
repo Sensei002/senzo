@@ -2936,7 +2936,7 @@ impl SenzoShell {
                     .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
                     .aria_label(format!("Retry {title} catalogue"))
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.load_home_catalogue(cx);
+                        this.refresh_home_catalogue(cx);
                         cx.notify();
                     }))
                     .child(
