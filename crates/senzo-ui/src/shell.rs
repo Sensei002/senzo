@@ -81,6 +81,8 @@ impl HomeShelfKey {
 }
 
 const MAX_HOME_FEATURED_ITEMS: usize = 8;
+const MAX_HOME_SHELF_ITEMS: usize = 120;
+const MAX_HOME_CATALOGUE_PAGES: u32 = 500;
 
 #[derive(Clone)]
 struct HomeMediaCandidate {
@@ -137,6 +139,10 @@ struct HomeShelfState {
     status: HomeCatalogueStatus,
     error: Option<String>,
     cards: Vec<HomeMediaCard>,
+    page: u32,
+    total_pages: u32,
+    loading_more: bool,
+    load_more_error: Option<String>,
 }
 
 impl Default for HomeShelfState {
@@ -145,7 +151,20 @@ impl Default for HomeShelfState {
             status: HomeCatalogueStatus::NotRequested,
             error: None,
             cards: Vec::new(),
+            page: 0,
+            total_pages: 1,
+            loading_more: false,
+            load_more_error: None,
         }
+    }
+}
+
+impl HomeShelfState {
+    fn can_load_more(&self) -> bool {
+        self.status == HomeCatalogueStatus::Loaded
+            && self.page > 0
+            && self.page < self.total_pages
+            && self.cards.len() < MAX_HOME_SHELF_ITEMS
     }
 }
 
@@ -153,6 +172,14 @@ struct HomeShelfLoadData {
     candidates: Vec<HomeMediaCandidate>,
     cards: Vec<HomeMediaCard>,
     error: Option<String>,
+    page: u32,
+    total_pages: u32,
+}
+
+struct HomeShelfPageData {
+    page: u32,
+    total_pages: u32,
+    cards: Vec<HomeMediaCard>,
 }
 
 struct HomeCatalogueData {
@@ -206,6 +233,8 @@ fn home_media_candidates(
 fn home_shelf_load_data(
     candidates: Vec<HomeMediaCandidate>,
     error: Option<String>,
+    page: u32,
+    total_pages: Option<u32>,
 ) -> HomeShelfLoadData {
     let cards = candidates
         .iter()
@@ -221,7 +250,47 @@ fn home_shelf_load_data(
         candidates,
         cards,
         error,
+        page,
+        total_pages: bounded_home_total_pages(page, total_pages),
     }
+}
+
+fn bounded_home_total_pages(page: u32, total_pages: Option<u32>) -> u32 {
+    total_pages
+        .unwrap_or(page)
+        .max(page)
+        .clamp(1, MAX_HOME_CATALOGUE_PAGES)
+}
+
+fn home_media_type_key(media_type: MediaType) -> &'static str {
+    match media_type {
+        MediaType::Movie => "movie",
+        MediaType::Tv => "tv",
+        MediaType::Person => "person",
+        MediaType::Other => "other",
+    }
+}
+
+fn append_unique_home_cards(
+    existing: &mut Vec<HomeMediaCard>,
+    incoming: Vec<HomeMediaCard>,
+) -> usize {
+    let mut identities = existing
+        .iter()
+        .map(|card| (card.id, home_media_type_key(card.media_type)))
+        .collect::<HashSet<_>>();
+    let mut added = 0;
+
+    for card in incoming {
+        if existing.len() >= MAX_HOME_SHELF_ITEMS {
+            break;
+        }
+        if identities.insert((card.id, home_media_type_key(card.media_type))) {
+            existing.push(card);
+            added += 1;
+        }
+    }
+    added
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -752,6 +821,138 @@ impl SenzoShell {
         self.load_home_catalogue(cx);
     }
 
+    fn home_shelf_mut(&mut self, key: HomeShelfKey) -> &mut HomeShelfState {
+        match key {
+            HomeShelfKey::Trending => &mut self.home_trending,
+            HomeShelfKey::PopularMovies => &mut self.home_popular_movies,
+            HomeShelfKey::PopularTv => &mut self.home_popular_tv,
+        }
+    }
+
+    fn load_more_home_shelf(&mut self, key: HomeShelfKey, cx: &mut Context<Self>) {
+        let page = {
+            let shelf = self.home_shelf_mut(key);
+            if !shelf.can_load_more() || shelf.loading_more {
+                return;
+            }
+            shelf.loading_more = true;
+            shelf.load_more_error = None;
+            shelf.page.saturating_add(1)
+        };
+
+        let generation = self.home_catalogue_generation;
+        let metadata = self.metadata.clone();
+        let artwork = self.artwork.clone();
+        let cancellation = self.home_cancellation.child_token();
+        let completion_cancellation = cancellation.clone();
+        let task = self.tokio.spawn(async move {
+            let response = match key {
+                HomeShelfKey::Trending => metadata.trending(page, "en-US", &cancellation).await,
+                HomeShelfKey::PopularMovies => {
+                    metadata.popular_movies(page, "en-US", &cancellation).await
+                }
+                HomeShelfKey::PopularTv => {
+                    metadata.popular_tv(page, "en-US", &cancellation).await
+                }
+            }
+            .map_err(|error| metadata_error_message(&error))?;
+
+            if response.page != page {
+                return Err(format!(
+                    "The catalogue returned page {} while page {} was requested. Retry this shelf.",
+                    response.page, page
+                ));
+            }
+
+            let total_pages = bounded_home_total_pages(page, response.total_pages);
+            let fallback_type = match key {
+                HomeShelfKey::Trending => None,
+                HomeShelfKey::PopularMovies => Some(MediaType::Movie),
+                HomeShelfKey::PopularTv => Some(MediaType::Tv),
+            };
+            let candidates = home_media_candidates(response.results, fallback_type);
+            let mut cards = candidates
+                .iter()
+                .map(|candidate| HomeMediaCard {
+                    id: candidate.id,
+                    media_type: candidate.media_type,
+                    title: candidate.title.clone(),
+                    detail: candidate.detail.clone(),
+                    poster: None,
+                })
+                .collect::<Vec<_>>();
+
+            let mut jobs = JoinSet::new();
+            for (index, candidate) in candidates.iter().enumerate() {
+                let service = artwork.clone();
+                let token = cancellation.child_token();
+                let poster_path = candidate.poster_path.clone();
+                jobs.spawn(async move {
+                    let poster = load_gpui_artwork(
+                        service,
+                        poster_path,
+                        ArtworkSize::W342,
+                        token,
+                    )
+                    .await;
+                    (index, poster)
+                });
+            }
+
+            while let Some(result) = jobs.join_next().await {
+                if cancellation.is_cancelled() {
+                    return Err("Cancelled".to_owned());
+                }
+                if let Ok((index, poster)) = result {
+                    if let Some(card) = cards.get_mut(index) {
+                        card.poster = poster;
+                    }
+                }
+            }
+
+            if cancellation.is_cancelled() {
+                return Err("Cancelled".to_owned());
+            }
+
+            Ok::<_, String>(HomeShelfPageData {
+                page,
+                total_pages,
+                cards,
+            })
+        });
+
+        cx.spawn(async move |this, cx| {
+            let result = task.await.unwrap_or_else(|_| {
+                Err("The next catalogue page stopped unexpectedly. Please retry.".to_owned())
+            });
+            let _ = this.update(cx, |this, cx| {
+                if this.home_catalogue_generation != generation
+                    || completion_cancellation.is_cancelled()
+                {
+                    return;
+                }
+
+                let shelf = this.home_shelf_mut(key);
+                shelf.loading_more = false;
+                match result {
+                    Ok(data) => {
+                        append_unique_home_cards(&mut shelf.cards, data.cards);
+                        shelf.page = data.page;
+                        shelf.total_pages = data.total_pages;
+                        shelf.load_more_error = None;
+                    }
+                    Err(message) => {
+                        shelf.load_more_error = Some(message);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+
+        cx.notify();
+    }
+
     fn move_home_section(&mut self, key: &str, direction: isize, cx: &mut Context<Self>) {
         if self.home_settings.move_section(key, direction) {
             let has_hero_sources = self
@@ -998,6 +1199,8 @@ impl SenzoShell {
         ] {
             shelf.status = HomeCatalogueStatus::Loading;
             shelf.error = None;
+            shelf.loading_more = false;
+            shelf.load_more_error = None;
         }
 
         let metadata = self.metadata.clone();
@@ -1014,28 +1217,59 @@ impl SenzoShell {
 
             let mut trending = match trending_response {
                 Ok(response) => {
-                    home_shelf_load_data(home_media_candidates(response.results, None), None)
+                    let page = response.page.clamp(1, MAX_HOME_CATALOGUE_PAGES);
+                    home_shelf_load_data(
+                        home_media_candidates(response.results, None),
+                        None,
+                        page,
+                        response.total_pages,
+                    )
                 }
                 Err(error) => {
-                    home_shelf_load_data(Vec::new(), Some(metadata_error_message(&error)))
+                    home_shelf_load_data(
+                        Vec::new(),
+                        Some(metadata_error_message(&error)),
+                        0,
+                        None,
+                    )
                 }
             };
             let mut popular_movies = match movie_response {
-                Ok(response) => home_shelf_load_data(
-                    home_media_candidates(response.results, Some(MediaType::Movie)),
-                    None,
-                ),
+                Ok(response) => {
+                    let page = response.page.clamp(1, MAX_HOME_CATALOGUE_PAGES);
+                    home_shelf_load_data(
+                        home_media_candidates(response.results, Some(MediaType::Movie)),
+                        None,
+                        page,
+                        response.total_pages,
+                    )
+                },
                 Err(error) => {
-                    home_shelf_load_data(Vec::new(), Some(metadata_error_message(&error)))
+                    home_shelf_load_data(
+                        Vec::new(),
+                        Some(metadata_error_message(&error)),
+                        0,
+                        None,
+                    )
                 }
             };
             let mut popular_tv = match tv_response {
-                Ok(response) => home_shelf_load_data(
-                    home_media_candidates(response.results, Some(MediaType::Tv)),
-                    None,
-                ),
+                Ok(response) => {
+                    let page = response.page.clamp(1, MAX_HOME_CATALOGUE_PAGES);
+                    home_shelf_load_data(
+                        home_media_candidates(response.results, Some(MediaType::Tv)),
+                        None,
+                        page,
+                        response.total_pages,
+                    )
+                },
                 Err(error) => {
-                    home_shelf_load_data(Vec::new(), Some(metadata_error_message(&error)))
+                    home_shelf_load_data(
+                        Vec::new(),
+                        Some(metadata_error_message(&error)),
+                        0,
+                        None,
+                    )
                 }
             };
 
@@ -1175,16 +1409,28 @@ impl SenzoShell {
                             status: HomeCatalogueStatus::Loaded,
                             error: data.trending.error,
                             cards: data.trending.cards,
+                            page: data.trending.page,
+                            total_pages: data.trending.total_pages,
+                            loading_more: false,
+                            load_more_error: None,
                         };
                         this.home_popular_movies = HomeShelfState {
                             status: HomeCatalogueStatus::Loaded,
                             error: data.popular_movies.error,
                             cards: data.popular_movies.cards,
+                            page: data.popular_movies.page,
+                            total_pages: data.popular_movies.total_pages,
+                            loading_more: false,
+                            load_more_error: None,
                         };
                         this.home_popular_tv = HomeShelfState {
                             status: HomeCatalogueStatus::Loaded,
                             error: data.popular_tv.error,
                             cards: data.popular_tv.cards,
+                            page: data.popular_tv.page,
+                            total_pages: data.popular_tv.total_pages,
+                            loading_more: false,
+                            load_more_error: None,
                         };
                         this.home_featured_items = data.featured;
                         this.home_featured_index = 0;
@@ -1199,6 +1445,10 @@ impl SenzoShell {
                             shelf.status = HomeCatalogueStatus::Loaded;
                             shelf.error = Some(message.clone());
                             shelf.cards.clear();
+                            shelf.page = 0;
+                            shelf.total_pages = 1;
+                            shelf.loading_more = false;
+                            shelf.load_more_error = None;
                         }
                         this.home_featured_items.clear();
                         this.home_featured_index = 0;
@@ -2865,14 +3115,19 @@ impl SenzoShell {
             ))
         } else {
             let mut row = div().flex().gap_4();
-            for (index, card) in shelf.cards.iter().enumerate() {
+            for card in shelf.cards.iter() {
                 let id = card.id;
                 let media_type = card.media_type;
                 let media_title = card.title.clone();
                 let poster = card.poster.clone();
                 row = row.child(
                     div()
-                        .id(format!("home-{}-{}-{index}", key.as_str(), card.id))
+                        .id(format!(
+                            "home-{}-{}-{}",
+                            key.as_str(),
+                            home_media_type_key(card.media_type),
+                            card.id
+                        ))
                         .tab_index(tab_start + index as isize)
                         .cursor_pointer()
                         .rounded_lg()
@@ -2944,6 +3199,53 @@ impl SenzoShell {
                             .text_sm()
                             .text_color(rgb(Theme::ACCENT))
                             .child("Retry"),
+                    ),
+            );
+        }
+
+        if let Some(error) = &shelf.load_more_error {
+            section = section.child(status_panel(
+                StatusTone::Error,
+                "MORE TITLES UNAVAILABLE",
+                "This shelf could not load the next page",
+                error,
+            ));
+        }
+
+        if shelf.can_load_more() || shelf.loading_more {
+            let button_label = if shelf.loading_more {
+                "Loading more…"
+            } else if shelf.load_more_error.is_some() {
+                "Retry"
+            } else {
+                "Load more"
+            };
+            let button_aria = if shelf.load_more_error.is_some() {
+                format!("Retry loading more from {title}")
+            } else {
+                format!("Load more from {title}")
+            };
+            section = section.child(
+                div()
+                    .id(format!("home-{}-load-more", key.as_str()))
+                    .tab_index(tab_start + 41)
+                    .cursor_pointer()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(Theme::BORDER_STRONG))
+                    .bg(rgb(Theme::SURFACE_RAISED))
+                    .px_3()
+                    .py_2()
+                    .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                    .aria_label(button_aria)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.load_more_home_shelf(key, cx);
+                    }))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_PRIMARY))
+                            .child(button_label),
                     ),
             );
         }
@@ -3478,7 +3780,56 @@ impl SenzoShell {
         hero_content = hero_content.child(hero_actions);
         hero = hero.child(hero_content);
 
-        let mut page = div().w_full().flex().flex_col().gap_6();
+        let refresh_label = if self.home_catalogue_status == HomeCatalogueStatus::Loading {
+            "Refreshing…"
+        } else {
+            "Refresh catalogues"
+        };
+        let home_toolbar = div()
+            .w_full()
+            .flex()
+            .items_center()
+            .gap_3()
+            .child(
+                div()
+                    .flex_1()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(Theme::TEXT_MUTED))
+                            .child("HOME  /  DISCOVER"),
+                    ),
+            )
+            .child(
+                div()
+                    .id("home-refresh-catalogues")
+                    .tab_index(29)
+                    .cursor_pointer()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(Theme::BORDER_STRONG))
+                    .bg(rgb(Theme::SURFACE_RAISED))
+                    .px_3()
+                    .py_2()
+                    .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                    .aria_label("Refresh Home catalogues")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.refresh_home_catalogue(cx);
+                    }))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_PRIMARY))
+                            .child(refresh_label),
+                    ),
+            );
+
+        let mut page = div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_6()
+            .child(home_toolbar);
         if self.home_settings.hero_enabled {
             page = page.child(hero);
         }
@@ -4347,6 +4698,40 @@ mod tests {
         assert_eq!(candidates[0].detail, "MOVIE · 2024");
         assert_eq!(candidates[1].media_type, MediaType::Person);
         assert_eq!(candidates[1].poster_path, "/person.jpg");
+    }
+
+    #[test]
+    fn built_in_home_pagination_caps_reported_pages_and_uses_the_requested_page() {
+        assert_eq!(bounded_home_total_pages(1, Some(1)), 1);
+        assert_eq!(bounded_home_total_pages(3, Some(2)), 3);
+        assert_eq!(bounded_home_total_pages(3, Some(900)), MAX_HOME_CATALOGUE_PAGES);
+        assert_eq!(bounded_home_total_pages(1, None), 1);
+    }
+
+    #[test]
+    fn home_page_merge_deduplicates_by_media_identity_and_preserves_order() {
+        let card = |id, media_type| HomeMediaCard {
+            id,
+            media_type,
+            title: format!("Title {id}"),
+            detail: "CATALOGUE".to_owned(),
+            poster: None,
+        };
+        let mut existing = vec![card(10, MediaType::Movie)];
+        let added = append_unique_home_cards(
+            &mut existing,
+            vec![
+                card(10, MediaType::Movie),
+                card(10, MediaType::Tv),
+                card(11, MediaType::Movie),
+            ],
+        );
+
+        assert_eq!(added, 2);
+        assert_eq!(existing.len(), 3);
+        assert_eq!(existing[0].media_type, MediaType::Movie);
+        assert_eq!(existing[1].media_type, MediaType::Tv);
+        assert_eq!(existing[2].id, 11);
     }
 
     #[test]
