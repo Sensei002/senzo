@@ -3,6 +3,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use gpui::{Div, RenderImage, div, img, prelude::*, px, rgb};
+use gpui_component::scroll::ScrollableElement;
 use senzo_catalog::{
     HomeCollection, HomeCollectionFolder, HomeCollectionPosterShape, home_collection_folder_key,
     visible_home_collections,
