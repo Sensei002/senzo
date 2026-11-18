@@ -1394,7 +1394,11 @@ impl SenzoShell {
                         return;
                     }
 
-                    let HomeShelfInitialResult { key, data, featured } = result;
+                    let HomeShelfInitialResult {
+                        key,
+                        data,
+                        featured,
+                    } = result;
                     *this.home_shelf_mut(key) = HomeShelfState {
                         status: HomeCatalogueStatus::Loaded,
                         error: data.error,
@@ -4288,21 +4292,16 @@ async fn load_home_shelf_initial(
                 response.total_pages,
             )
         }
-        Err(error) => home_shelf_load_data(
-            Vec::new(),
-            Some(metadata_error_message(&error)),
-            0,
-            None,
-        ),
+        Err(error) => {
+            home_shelf_load_data(Vec::new(), Some(metadata_error_message(&error)), 0, None)
+        }
     };
 
     let featured_indices = if is_hero_source {
         data.candidates
             .iter()
             .enumerate()
-            .filter_map(|(index, candidate)| {
-                candidate.backdrop_path.as_ref().map(|_| index)
-            })
+            .filter_map(|(index, candidate)| candidate.backdrop_path.as_ref().map(|_| index))
             .take(MAX_HOME_FEATURED_ITEMS)
             .collect::<Vec<_>>()
     } else {
@@ -4330,13 +4329,7 @@ async fn load_home_shelf_initial(
             .await;
             let backdrop = match backdrop_path {
                 Some(path) => {
-                    load_gpui_artwork(
-                        service,
-                        path,
-                        ArtworkSize::W1280,
-                        token.child_token(),
-                    )
-                    .await
+                    load_gpui_artwork(service, path, ArtworkSize::W1280, token.child_token()).await
                 }
                 None => None,
             };
@@ -4893,10 +4886,7 @@ mod tests {
         assert!(settings.set_hero_source_enabled("popular-movies", true));
         assert!(settings.move_section("popular-movies", 1));
 
-        let mut pending = HashSet::from([
-            HomeShelfKey::Trending,
-            HomeShelfKey::PopularMovies,
-        ]);
+        let mut pending = HashSet::from([HomeShelfKey::Trending, HomeShelfKey::PopularMovies]);
         assert!(ready_home_hero_sources(&settings, &pending).is_empty());
 
         pending.remove(&HomeShelfKey::PopularMovies);
