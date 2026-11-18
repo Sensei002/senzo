@@ -2256,7 +2256,8 @@ impl SenzoShell {
             facts.push(status.clone());
         }
         if let Some(rating) = d.rating {
-            facts.push(format!("★ {rating:.1}/10"));
+            let votes = d.rating_count.map(|count| format!(" · {count} votes")).unwrap_or_default();
+            facts.push(format!("★ {rating:.1}/10{votes}"));
         }
         if !facts.is_empty() {
             info = info.child(
@@ -2302,41 +2303,88 @@ impl SenzoShell {
         );
         if !d.cast.is_empty() {
             let mut row = div().w_full().flex().flex_wrap().gap_3();
-            for (name, role) in d.cast.iter().take(12) {
+            for (id, name, role) in d.cast.iter().take(18) {
+                let id = *id;
+                let name_for_action = name.clone();
                 row = row.child(
-                    div()
-                        .rounded_md()
-                        .bg(rgb(Theme::SURFACE))
-                        .p_3()
-                        .min_w(px(140.0))
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(rgb(Theme::TEXT_PRIMARY))
-                                .child(name.clone()),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(Theme::TEXT_MUTED))
-                                .child(role.clone()),
-                        ),
+                    div().id(format!("title-cast-{id}")).tab_index(60)
+                        .rounded_md().bg(rgb(Theme::SURFACE)).p_3().min_w(px(140.0))
+                        .cursor_pointer()
+                        .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                        .aria_label(format!("View cast member {name}"))
+                        .on_click(cx.listener(move |this, _, _, cx| this.open_detail_person(id, name_for_action.clone(), cx)))
+                        .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(name.clone()))
+                        .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(role.clone())),
                 );
             }
-            page = page.child(
-                div()
-                    .w_full()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_lg()
-                            .text_color(rgb(Theme::TEXT_PRIMARY))
-                            .child("Cast"),
-                    )
-                    .child(row),
-            );
+            page = page.child(div().w_full().flex().flex_col().gap_2()
+                .child(div().text_lg().text_color(rgb(Theme::TEXT_PRIMARY)).child("Cast"))
+                .child(row));
+        }
+        if !d.crew.is_empty() {
+            let mut row = div().w_full().flex().flex_wrap().gap_3();
+            for (id, name, role) in d.crew.iter().take(12) {
+                let id = *id;
+                let name_for_action = name.clone();
+                row = row.child(
+                    div().id(format!("title-crew-{id}")).tab_index(61)
+                        .rounded_md().bg(rgb(Theme::SURFACE)).p_3().min_w(px(140.0))
+                        .cursor_pointer()
+                        .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                        .aria_label(format!("View crew member {name}"))
+                        .on_click(cx.listener(move |this, _, _, cx| this.open_detail_person(id, name_for_action.clone(), cx)))
+                        .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(name.clone()))
+                        .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(role.clone())),
+                );
+            }
+            page = page.child(div().w_full().flex().flex_col().gap_2()
+                .child(div().text_lg().text_color(rgb(Theme::TEXT_PRIMARY)).child("Crew"))
+                .child(row));
+        }
+        if !d.production_companies.is_empty() || !d.production_countries.is_empty() {
+            let mut production = div().w_full().flex().flex_col().gap_2()
+                .child(div().text_lg().text_color(rgb(Theme::TEXT_PRIMARY)).child("Production"));
+            if !d.production_companies.is_empty() {
+                production = production.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY))
+                    .child(format!("Companies · {}", d.production_companies.join(" · "))));
+            }
+            if !d.production_countries.is_empty() {
+                production = production.child(div().text_sm().text_color(rgb(Theme::TEXT_MUTED))
+                    .child(format!("Countries · {}", d.production_countries.join(" · "))));
+            }
+            page = page.child(production);
+        }
+        if !d.trailers.is_empty() {
+            let mut trailers = div().w_full().flex().flex_col().gap_2()
+                .child(div().text_lg().text_color(rgb(Theme::TEXT_PRIMARY)).child("Trailers & videos"));
+            for video in d.trailers.iter().take(6) {
+                let kind = if video.official == Some(true) { "Official" } else { "Video" };
+                trailers = trailers.child(div().rounded_md().bg(rgb(Theme::SURFACE)).p_3()
+                    .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(video.name.clone()))
+                    .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED))
+                        .child(format!("{kind} · {} · {}", video.site, video.video_type))));
+            }
+            page = page.child(trailers);
+        }
+        if !d.related.is_empty() {
+            let mut related = div().w_full().flex().flex_col().gap_3()
+                .child(div().text_lg().text_color(rgb(Theme::TEXT_PRIMARY)).child("You may also like"));
+            let mut cards = div().w_full().flex().gap_4().overflow_x_scroll();
+            for (index, card) in d.related.iter().enumerate() {
+                let id = card.id;
+                let kind = card.media_type;
+                let title = card.title.clone();
+                cards = cards.child(
+                    div().id(format!("related-title-{id}-{index}")).tab_index(80 + index as isize)
+                        .w(px(150.0)).flex_shrink_0().cursor_pointer()
+                        .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                        .aria_label(format!("Open related title {title}"))
+                        .on_click(cx.listener(move |this, _, _, cx| this.open_related_detail(id, kind, title.clone(), cx)))
+                        .child(poster_card(&card.title, &card.detail, card.poster.clone(), false)),
+                );
+            }
+            related = related.child(cards);
+            page = page.child(related);
         }
         if d.media_type == MediaType::Tv && !d.seasons.is_empty() {
             let mut selector = div().flex().flex_wrap().gap_2();
