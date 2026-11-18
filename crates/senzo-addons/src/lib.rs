@@ -1029,12 +1029,11 @@ pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifes
                 "catalogue type must be declared in the manifest types".to_owned(),
             ));
         }
-        if catalogs
-            .iter()
-            .any(|catalog: &AddonCatalog| catalog.id == catalog_id)
-        {
+        if catalogs.iter().any(|catalog: &AddonCatalog| {
+            catalog.media_type == media_type && catalog.id == catalog_id
+        }) {
             return Err(AddonError::InvalidManifest(
-                "catalogue IDs must be unique within an add-on".to_owned(),
+                "catalogue IDs must be unique within a media type".to_owned(),
             ));
         }
         let catalog_name = catalog_object
@@ -1657,6 +1656,38 @@ mod tests {
                 .ends_with("/catalog/series/top/search=game%20of%20thrones&skip=100.json")
         );
         assert_eq!(url.query(), Some("token=secret"));
+    }
+
+    #[test]
+    fn catalog_ids_are_unique_per_media_type_not_globally() {
+        let url = Url::parse("https://addons.example/manifest.json").unwrap();
+        let manifest = r#"{
+            "id":"org.example.multi-type-catalogs",
+            "version":"1.0.0",
+            "name":"Multi-type catalogue IDs",
+            "types":["movie","series"],
+            "resources":["catalog"],
+            "catalogs":[
+                {"type":"movie","id":"top","name":"Top movies"},
+                {"type":"series","id":"top","name":"Top series"}
+            ]
+        }"#;
+        let parsed = parse_manifest(&url, manifest).unwrap();
+        assert_eq!(parsed.catalogs_for("movie")[0].id, "top");
+        assert_eq!(parsed.catalogs_for("series")[0].id, "top");
+
+        let duplicate_within_type = r#"{
+            "id":"org.example.duplicate-catalog",
+            "version":"1.0.0",
+            "name":"Duplicate catalogue",
+            "types":["movie"],
+            "resources":["catalog"],
+            "catalogs":[
+                {"type":"movie","id":"top"},
+                {"type":"movie","id":"top"}
+            ]
+        }"#;
+        assert!(parse_manifest(&url, duplicate_within_type).is_err());
     }
 
     #[test]
