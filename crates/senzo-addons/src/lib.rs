@@ -708,10 +708,11 @@ impl AddonManager {
         };
         let mut result = Vec::with_capacity(metas.len().min(500));
         for item in metas.iter().take(500) {
-            if let Ok(meta) = serde_json::from_value::<AddonCatalogItem>(item.clone()) {
-                if !meta.id.is_empty() && !meta.media_type.is_empty() {
-                    result.push(meta);
-                }
+            if let Ok(meta) = serde_json::from_value::<AddonCatalogItem>(item.clone())
+                && !meta.id.is_empty()
+                && meta.media_type == media_type
+            {
+                result.push(meta);
             }
         }
         Ok(result)
@@ -1731,7 +1732,7 @@ mod tests {
         assert!(!manager.list_addons("default").unwrap()[0].enabled);
         manager.set_enabled("default", &first.id, true).unwrap();
         manager
-            .reorder_addons("default", &[first.id.clone()])
+            .reorder_addons("default", std::slice::from_ref(&first.id))
             .unwrap();
 
         let stored = store.list("default").unwrap();
