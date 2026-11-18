@@ -1005,11 +1005,15 @@ pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifes
         });
     }
 
-    let catalogs_value = object
-        .get("catalogs")
-        .and_then(Value::as_array)
-        .cloned()
-        .ok_or_else(|| AddonError::InvalidManifest("catalogs must be an array".to_owned()))?;
+    let catalogs_value = match object.get("catalogs") {
+        Some(Value::Array(catalogs)) => catalogs.clone(),
+        None => Vec::new(),
+        _ => {
+            return Err(AddonError::InvalidManifest(
+                "catalogs must be an array when present".to_owned(),
+            ));
+        }
+    };
     if catalogs_value.len() > MAX_CATALOGS {
         return Err(AddonError::InvalidManifest(
             "catalogue count exceeds the limit".to_owned(),
@@ -1703,6 +1707,21 @@ mod tests {
             }]
         }"#;
         assert!(parse_manifest(&url, manifest).is_err());
+    }
+
+    #[test]
+    fn resource_only_manifests_may_omit_catalogs() {
+        let url = Url::parse("https://subtitles.example/manifest.json").unwrap();
+        let manifest = r#"{
+            "id":"org.example.subtitle-only",
+            "version":"1.0.0",
+            "name":"Subtitle-only provider",
+            "types":["movie","series"],
+            "resources":["subtitles"]
+        }"#;
+        let parsed = parse_manifest(&url, manifest).unwrap();
+        assert!(parsed.catalogs.is_empty());
+        assert!(parsed.supports_resource("subtitles", "movie", "tt1254207"));
     }
 
     #[test]
