@@ -904,9 +904,11 @@ pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifes
     let id = required_string(object, "id")?;
     let name = required_string(object, "name")?;
     let version = required_string(object, "version")?;
+    let description = required_string(object, "description")?;
     validate_text("id", &id, 256)?;
     validate_text("name", &name, 256)?;
     validate_text("version", &version, 64)?;
+    validate_text("description", &description, 4096)?;
 
     let types = string_array(object.get("types"), MAX_TYPES)?;
     if types.is_empty() {
@@ -1470,6 +1472,8 @@ mod tests {
         let url = Url::parse("https://addons.example/manifest.json").unwrap();
         assert!(parse_manifest(&url, "{").is_err());
         assert!(parse_manifest(&url, r#"{"name":"Missing fields"}"#).is_err());
+        let missing_description = r#"{"id":"x","name":"x","version":"1","types":["movie"],"resources":["catalog"],"catalogs":[]}"#;
+        assert!(parse_manifest(&url, missing_description).is_err());
         let no_resources = r#"{"id":"x","name":"x","version":"1","types":["movie"],"resources":[]}"#;
         assert!(parse_manifest(&url, no_resources).is_err());
     }
