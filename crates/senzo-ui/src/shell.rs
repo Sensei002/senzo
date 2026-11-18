@@ -23,7 +23,7 @@ use senzo_domain::{AppPage, SettingKey, SettingsRepository};
 #[cfg(test)]
 use senzo_metadata::PersonCredit;
 use senzo_metadata::{
-    DiscoverSort, EpisodeDetails, Genre, MediaItem, MediaType, MetadataClient, MetadataError, Person,
+    DiscoverRequest, DiscoverSort, EpisodeDetails, Genre, MediaItem, MediaType, MetadataClient, MetadataError, Person,
     SearchType, SeasonDetails, SeasonSummary, VideoItem,
 };
 use tokio::{runtime::Handle, sync::mpsc, task::JoinSet};
@@ -3058,7 +3058,9 @@ impl SenzoShell {
             let discover_token = task_token.child_token();
             let (genre_result, response_result) = tokio::join!(
                 metadata.genres(media_type, "en-US", &genre_token),
-                metadata.discover(media_type, genre, None, sort, page, "en-US", &discover_token),
+                metadata.discover(DiscoverRequest {
+                    media_type, genre_id: genre, year: None, sort, page, language: "en-US",
+                }, &discover_token),
             );
             if task_token.is_cancelled() { return; }
             let response = match response_result {

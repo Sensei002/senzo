@@ -17,6 +17,16 @@ use crate::{
 };
 
 pub const DEFAULT_API_BASE_URL: &str = "https://senzo-api.vercel.app";
+
+#[derive(Debug, Clone, Copy)]
+pub struct DiscoverRequest<'a> {
+    pub media_type: MediaType,
+    pub genre_id: Option<u64>,
+    pub year: Option<u32>,
+    pub sort: DiscoverSort,
+    pub page: u32,
+    pub language: &'a str,
+}
 const MAX_RESPONSE_BYTES: usize = 12 * 1024 * 1024;
 const MAX_API_ERROR_BYTES: usize = 32 * 1024;
 
@@ -201,14 +211,10 @@ impl MetadataClient {
 
     pub async fn discover(
         &self,
-        media_type: MediaType,
-        genre_id: Option<u64>,
-        year: Option<u32>,
-        sort: DiscoverSort,
-        page: u32,
-        language: &str,
+        request: DiscoverRequest<'_>,
         cancellation: &CancellationToken,
     ) -> Result<MediaListResponse, MetadataError> {
+        let DiscoverRequest { media_type, genre_id, year, sort, page, language } = request;
         let (segment, year_key) = match media_type {
             MediaType::Movie => ("movie", "primary_release_year"),
             MediaType::Tv => ("tv", "first_air_date_year"),
@@ -606,7 +612,10 @@ mod tests {
             MetadataClientConfig { base_url: base, ..Default::default() },
         ).unwrap();
         let response = client.discover(
-            MediaType::Movie, Some(28), Some(2024), DiscoverSort::Newest, 2, "en-US",
+            DiscoverRequest {
+                media_type: MediaType::Movie, genre_id: Some(28), year: Some(2024),
+                sort: DiscoverSort::Newest, page: 2, language: "en-US",
+            },
             &CancellationToken::new(),
         ).await.unwrap();
         let request = server.await.unwrap();
@@ -638,11 +647,17 @@ mod tests {
             MetadataClientConfig { base_url: "http://127.0.0.1:3000".to_owned(), ..Default::default() },
         ).unwrap();
         assert!(matches!(
-            client.discover(MediaType::Movie, Some(0), None, DiscoverSort::Popularity, 1, "en-US", &CancellationToken::new()).await,
+            client.discover(DiscoverRequest {
+                media_type: MediaType::Movie, genre_id: Some(0), year: None,
+                sort: DiscoverSort::Popularity, page: 1, language: "en-US",
+            }, &CancellationToken::new()).await,
             Err(MetadataError::InvalidInput(_))
         ));
         assert!(matches!(
-            client.discover(MediaType::Tv, None, Some(2200), DiscoverSort::Popularity, 1, "en-US", &CancellationToken::new()).await,
+            client.discover(DiscoverRequest {
+                media_type: MediaType::Tv, genre_id: None, year: Some(2200),
+                sort: DiscoverSort::Popularity, page: 1, language: "en-US",
+            }, &CancellationToken::new()).await,
             Err(MetadataError::InvalidInput(_))
         ));
         assert!(matches!(
