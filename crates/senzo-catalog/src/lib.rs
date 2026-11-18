@@ -64,7 +64,7 @@ pub fn visible_home_collections(collections: &[HomeCollection]) -> Vec<HomeColle
         let title = collection.title.trim();
         if !valid_collection_text(id, MAX_HOME_COLLECTION_ID_CHARS)
             || !valid_collection_text(title, MAX_HOME_COLLECTION_TITLE_CHARS)
-            || !collection_ids.insert(id.to_owned())
+            || collection_ids.contains(id)
         {
             continue;
         }
@@ -104,6 +104,7 @@ pub fn visible_home_collections(collections: &[HomeCollection]) -> Vec<HomeColle
         if folders.is_empty() {
             continue;
         }
+        collection_ids.insert(id.to_owned());
 
         visible.push(HomeCollection {
             id: id.to_owned(),
@@ -647,6 +648,33 @@ mod tests {
         );
         assert_eq!(visible[0].title, "First");
         assert_eq!(visible[0].folders.len(), 1);
+    }
+
+    #[test]
+    fn empty_collection_does_not_reserve_an_id_from_a_later_renderable_collection() {
+        let folder = HomeCollectionFolder {
+            id: "folder".to_owned(),
+            title: "Folder".to_owned(),
+            poster_shape: HomeCollectionPosterShape::Poster,
+            cover_emoji: None,
+            hide_title: false,
+        };
+        let collections = vec![
+            HomeCollection {
+                id: "same-id".to_owned(),
+                title: "Empty first".to_owned(),
+                folders: Vec::new(),
+            },
+            HomeCollection {
+                id: "same-id".to_owned(),
+                title: "Renderable second".to_owned(),
+                folders: vec![folder],
+            },
+        ];
+
+        let visible = visible_home_collections(&collections);
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].title, "Renderable second");
     }
 
     #[test]
