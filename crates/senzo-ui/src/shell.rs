@@ -14,7 +14,10 @@ use gpui::{
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
-use senzo_catalog::{BuiltInHomeCatalog as HomeShelfKey, HomeCatalogDefinition, HomeSettings};
+use senzo_catalog::{
+    BuiltInHomeCatalog as HomeShelfKey, HomeCatalogDefinition, HomeCatalogProviderRegistry,
+    HomeCollection, HomeCollectionsSettings, HomeSettings,
+};
 use senzo_domain::{AppPage, SettingsRepository};
 #[cfg(test)]
 use senzo_metadata::PersonCredit;
@@ -27,7 +30,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     artwork::{backdrop_surface, poster_card, render_image_from_artwork},
-    components::{StatusTone, divider, feature_tile, page_intro, status_panel},
+    components::{StatusTone, divider, feature_tile, home_collection_row, page_intro, status_panel},
     navigation::NavigationStack,
     theme::Theme,
 };
@@ -418,6 +421,7 @@ pub(crate) struct SenzoShell {
     artwork: ArtworkService,
     settings: Arc<dyn SettingsRepository>,
     home_settings: HomeSettings,
+    home_collections: Vec<HomeCollection>,
     home_cancellation: CancellationToken,
     home_catalogue_generation: u64,
     home_catalogue_status: HomeCatalogueStatus,
@@ -621,6 +625,12 @@ impl SenzoShell {
             tracing::warn!(error = %error, "could not load persisted Home layout; using defaults");
             HomeSettings::default()
         });
+        let home_collections = HomeCollectionsSettings::load(settings.as_ref())
+            .unwrap_or_else(|error| {
+                tracing::warn!(error = %error, "could not load Home collections; using an empty collection list");
+                HomeCollectionsSettings::default()
+            })
+            .collections;
         let home_featured_info_focus = cx.focus_handle();
         let mut home_card_focus_handles = HashMap::new();
         home_card_focus_handles.insert(
@@ -660,6 +670,7 @@ impl SenzoShell {
             artwork,
             settings,
             home_settings,
+            home_collections,
             home_cancellation: CancellationToken::new(),
             home_catalogue_generation: 0,
             home_catalogue_status: HomeCatalogueStatus::NotRequested,
@@ -1452,7 +1463,7 @@ impl SenzoShell {
             shelf.load_more_error = None;
         }
 
-        let definitions = HomeCatalogDefinition::built_ins();
+        let definitions = HomeCatalogProviderRegistry::built_ins().definitions();
         self.home_catalogue_descriptor_identities = definitions
             .iter()
             .filter_map(|definition| {
@@ -3422,6 +3433,13 @@ impl SenzoShell {
             ));
         }
 
+        // Collections are local-first. The Library domain owns collection creation;
+        // Home only projects saved rows and never inserts sample data.
+        let collection_artwork = HashMap::new();
+        for collection in &self.home_collections {
+            content = content.child(home_collection_row(collection, &collection_artwork));
+        }
+
         content
     }
 
@@ -3435,6 +3453,7 @@ impl SenzoShell {
 
         div()
             .id(format!("navigation-{}", page.key()))
+            .debug_selector(|| format!("navigation-{}", page.key()))
             .track_focus(&focus)
             .tab_index(
                 AppPage::ALL
@@ -5199,5 +5218,50 @@ mod tests {
                 .expect("settings focus handle exists")
                 .is_focused(window)
         }));
+
+        // Exercise pointer sidebar navigation and platform mouse Navigate
+        // events used by physical Back/Forward side buttons.
+        let movies_bounds = window_cx
+            .debug_bounds("navigation-movies")
+            .expect("Movies navigation item should be present in the rendered window");
+        let movies_center = point(
+            movies_bounds.origin.x + movies_bounds.size.width / 2.0,
+            movies_bounds.origin.y + movies_bounds.size.height / 2.0,
+        );
+        window_cx.simulate_click(movies_center, gpui::Modifiers::default());
+        assert_eq!(
+            shell.read_with(window_cx, |shell, _| shell.navigation.current()),
+            AppPage::Movies
+        );
+
+        window_cx.simulate_mouse_down(
+            movies_center,
+            MouseButton::Navigate(NavigationDirection::Back),
+            gpui::Modifiers::default(),
+        );
+        assert_eq!(
+            shell.read_with(window_cx, |shell, _| shell.navigation.current()),
+            AppPage::Home
+        );
+        window_cx.simulate_mouse_up(
+            movies_center,
+            MouseButton::Navigate(NavigationDirection::Back),
+            gpui::Modifiers::default(),
+        );
+
+        window_cx.simulate_mouse_down(
+            movies_center,
+            MouseButton::Navigate(NavigationDirection::Forward),
+            gpui::Modifiers::default(),
+        );
+        assert_eq!(
+            shell.read_with(window_cx, |shell, _| shell.navigation.current()),
+            AppPage::Movies
+        );
+        window_cx.simulate_mouse_up(
+            movies_center,
+            MouseButton::Navigate(NavigationDirection::Forward),
+            gpui::Modifiers::default(),
+        );
     }
 }

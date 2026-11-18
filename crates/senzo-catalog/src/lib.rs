@@ -3,7 +3,7 @@
 //! Home preferences are persisted through the existing settings repository so
 //! the catalogue layer does not own a second database or depend on GPUI.
 
-use std::collections::HashSet;
+use std::{collections::{HashMap, HashSet}, sync::Arc};
 
 use senzo_domain::{DomainError, RepositoryError, SettingKey, SettingsRepository};
 use serde::{Deserialize, Serialize};
@@ -19,6 +19,8 @@ pub const BUILT_IN_HOME_CATALOGUE_DESCRIPTOR_VERSION: u32 = 1;
 pub const MAX_HOME_COLLECTION_ID_CHARS: usize = 128;
 pub const MAX_HOME_COLLECTION_TITLE_CHARS: usize = 80;
 pub const MAX_HOME_COLLECTION_COVER_EMOJI_CHARS: usize = 16;
+pub const MAX_HOME_COLLECTIONS: usize = 64;
+pub const MAX_HOME_COLLECTION_FOLDERS: usize = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -59,7 +61,7 @@ pub fn visible_home_collections(collections: &[HomeCollection]) -> Vec<HomeColle
     let mut collection_ids = HashSet::new();
     let mut visible = Vec::new();
 
-    for collection in collections {
+    for collection in collections.iter().take(MAX_HOME_COLLECTIONS) {
         let id = collection.id.trim();
         let title = collection.title.trim();
         if !valid_collection_text(id, MAX_HOME_COLLECTION_ID_CHARS)
@@ -73,6 +75,7 @@ pub fn visible_home_collections(collections: &[HomeCollection]) -> Vec<HomeColle
         let folders = collection
             .folders
             .iter()
+            .take(MAX_HOME_COLLECTION_FOLDERS)
             .filter_map(|folder| {
                 let folder_id = folder.id.trim();
                 let folder_title = folder.title.trim();
@@ -118,6 +121,60 @@ pub fn visible_home_collections(collections: &[HomeCollection]) -> Vec<HomeColle
 
 fn valid_collection_text(value: &str, max_chars: usize) -> bool {
     !value.is_empty() && value.chars().count() <= max_chars && !value.chars().any(char::is_control)
+}
+
+pub const HOME_COLLECTIONS_SETTINGS_KEY: &str = "home.collections";
+pub const HOME_COLLECTIONS_SETTINGS_VERSION: u16 = 1;
+
+/// Versioned local collection projection used by Home. Creation and editing
+/// belong to the Library domain; this type owns bounded, safe persistence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct HomeCollectionsSettings {
+    pub schema_version: u16,
+    pub collections: Vec<HomeCollection>,
+}
+
+impl HomeCollectionsSettings {
+    pub fn load(repository: &dyn SettingsRepository) -> Result<Self, HomeCollectionsSettingsError> {
+        let key = SettingKey::new(HOME_COLLECTIONS_SETTINGS_KEY)?;
+        let Some(payload) = repository.get(&key)? else {
+            return Ok(Self::default());
+        };
+        let settings: Self = serde_json::from_str(&payload)?;
+        if settings.schema_version > HOME_COLLECTIONS_SETTINGS_VERSION {
+            return Err(HomeCollectionsSettingsError::UnsupportedVersion {
+                found: settings.schema_version,
+                supported: HOME_COLLECTIONS_SETTINGS_VERSION,
+            });
+        }
+        Ok(settings.normalized())
+    }
+
+    pub fn save(&self, repository: &dyn SettingsRepository) -> Result<(), HomeCollectionsSettingsError> {
+        let key = SettingKey::new(HOME_COLLECTIONS_SETTINGS_KEY)?;
+        let payload = serde_json::to_string(&self.clone().normalized())?;
+        repository.set(&key, &payload)?;
+        Ok(())
+    }
+
+    pub fn normalized(mut self) -> Self {
+        self.collections = visible_home_collections(&self.collections);
+        self.schema_version = HOME_COLLECTIONS_SETTINGS_VERSION;
+        self
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum HomeCollectionsSettingsError {
+    #[error(transparent)]
+    Domain(#[from] DomainError),
+    #[error(transparent)]
+    Repository(#[from] RepositoryError),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error("Home collections version {found} is newer than supported version {supported}")]
+    UnsupportedVersion { found: u16, supported: u16 },
 }
 
 /// Stable, delimiter-safe element identity for a folder tile.
@@ -283,10 +340,120 @@ impl HomeCatalogDefinition {
     }
 }
 
+/// Provider definition adapter for Home discovery. A provider owns its
+/// protocol and transport; this boundary publishes only validated catalogues.
+pub trait HomeCatalogProviderAdapter: Send + Sync {
+    fn provider_id(&self) -> &str;
+    fn catalog_definitions(&self) -> Vec<HomeCatalogDefinition>;
+}
+
+/// Validates and indexes provider catalogue declarations before they can be
+/// exposed to the Home UI. Registration is atomic and keys remain stable.
+#[derive(Default)]
+pub struct HomeCatalogProviderRegistry {
+    adapters: HashMap<String, Arc<dyn HomeCatalogProviderAdapter>>,
+    definitions: HashMap<String, HomeCatalogDefinition>,
+}
+
+impl HomeCatalogProviderRegistry {
+    pub fn built_ins() -> Self {
+        let mut registry = Self::default();
+        registry
+            .register(Arc::new(BuiltInTmdbHomeCatalogProvider))
+            .expect("built-in TMDB catalogue definitions must be valid");
+        registry
+    }
+
+    pub fn register(&mut self, adapter: Arc<dyn HomeCatalogProviderAdapter>) -> Result<(), HomeCatalogDefinitionError> {
+        let provider_id = adapter.provider_id();
+        if !valid_descriptor_component(provider_id, 48) {
+            return Err(HomeCatalogDefinitionError::InvalidProviderId);
+        }
+        if self.adapters.contains_key(provider_id) {
+            return Err(HomeCatalogDefinitionError::DuplicateProvider(provider_id.to_owned()));
+        }
+
+        let definitions = adapter.catalog_definitions();
+        let mut seen_keys = HashSet::new();
+        for definition in &definitions {
+            if definition.descriptor.provider != provider_id {
+                return Err(HomeCatalogDefinitionError::ProviderMismatch {
+                    expected: provider_id.to_owned(),
+                    found: definition.descriptor.provider.clone(),
+                });
+            }
+            if !valid_section_key(&definition.key) || !seen_keys.insert(definition.key.clone()) {
+                return Err(HomeCatalogDefinitionError::InvalidCatalogKey(definition.key.clone()));
+            }
+            HomeCatalogDescriptor::new(
+                definition.descriptor.provider.clone(),
+                definition.descriptor.media_type.clone(),
+                definition.descriptor.catalog_id.clone(),
+                definition.descriptor.revision,
+            )?;
+            if self.definitions.contains_key(&definition.key) {
+                return Err(HomeCatalogDefinitionError::DuplicateCatalogKey(definition.key.clone()));
+            }
+        }
+
+        for definition in definitions {
+            self.definitions.insert(definition.key.clone(), definition);
+        }
+        self.adapters.insert(provider_id.to_owned(), adapter);
+        Ok(())
+    }
+
+    pub fn unregister(&mut self, provider_id: &str) -> bool {
+        if self.adapters.remove(provider_id).is_none() {
+            return false;
+        }
+        self.definitions.retain(|_, definition| definition.descriptor.provider != provider_id);
+        true
+    }
+
+    pub fn provider(&self, provider_id: &str) -> Option<Arc<dyn HomeCatalogProviderAdapter>> {
+        self.adapters.get(provider_id).cloned()
+    }
+
+    pub fn definition(&self, key: &str) -> Option<&HomeCatalogDefinition> {
+        self.definitions.get(key)
+    }
+
+    pub fn definitions(&self) -> Vec<HomeCatalogDefinition> {
+        let mut definitions = self.definitions.values().cloned().collect::<Vec<_>>();
+        definitions.sort_by(|left, right| left.key.cmp(&right.key));
+        definitions
+    }
+}
+
+/// Built-in catalogues use the same provider-definition registry contract as
+/// future Stremio and media-server integrations.
+pub struct BuiltInTmdbHomeCatalogProvider;
+
+impl HomeCatalogProviderAdapter for BuiltInTmdbHomeCatalogProvider {
+    fn provider_id(&self) -> &str {
+        "senzo-tmdb"
+    }
+
+    fn catalog_definitions(&self) -> Vec<HomeCatalogDefinition> {
+        HomeCatalogDefinition::built_ins().into()
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum HomeCatalogDefinitionError {
     #[error("Home catalogue descriptor contains an invalid or oversized field")]
     InvalidDescriptor,
+    #[error("Home catalogue provider ID is invalid")]
+    InvalidProviderId,
+    #[error("Home catalogue provider '{0}' is already registered")]
+    DuplicateProvider(String),
+    #[error("Home catalogue provider '{expected}' returned a descriptor for '{found}'")]
+    ProviderMismatch { expected: String, found: String },
+    #[error("Home catalogue key '{0}' is invalid or duplicated within its provider")]
+    InvalidCatalogKey(String),
+    #[error("Home catalogue key '{0}' is already registered")]
+    DuplicateCatalogKey(String),
 }
 
 fn valid_descriptor_component(value: &str, max_bytes: usize) -> bool {
@@ -728,6 +895,91 @@ mod tests {
         assert_ne!(first, different);
         assert!(home_collection_folder_key("", "folder").is_none());
         assert!(home_collection_folder_key("collection", "bad\nfolder").is_none());
+    }
+
+    #[test]
+    fn home_collections_are_versioned_and_persisted_safely() {
+        let repository = MemorySettings::default();
+        let settings = HomeCollectionsSettings {
+            schema_version: HOME_COLLECTIONS_SETTINGS_VERSION,
+            collections: vec![
+                HomeCollection {
+                    id: "favorites".to_owned(),
+                    title: "Favorites".to_owned(),
+                    folders: vec![
+                        HomeCollectionFolder {
+                            id: "movies".to_owned(),
+                            title: "Movies".to_owned(),
+                            poster_shape: HomeCollectionPosterShape::Poster,
+                            cover_emoji: Some("🎬".to_owned()),
+                            hide_title: false,
+                        },
+                        HomeCollectionFolder {
+                            id: "movies".to_owned(),
+                            title: "Duplicate folder".to_owned(),
+                            poster_shape: HomeCollectionPosterShape::Poster,
+                            cover_emoji: None,
+                            hide_title: false,
+                        },
+                    ],
+                },
+                HomeCollection { id: "empty".to_owned(), title: "Empty".to_owned(), folders: Vec::new() },
+            ],
+        };
+
+        settings.save(&repository).unwrap();
+        let restored = HomeCollectionsSettings::load(&repository).unwrap();
+        assert_eq!(restored.schema_version, HOME_COLLECTIONS_SETTINGS_VERSION);
+        assert_eq!(restored.collections.len(), 1);
+        assert_eq!(restored.collections[0].id, "favorites");
+        assert_eq!(restored.collections[0].folders.len(), 1);
+        assert_eq!(restored.collections[0].folders[0].cover_emoji.as_deref(), Some("🎬"));
+    }
+
+    struct TestCatalogProvider {
+        provider_id: &'static str,
+        definitions: Vec<HomeCatalogDefinition>,
+    }
+
+    impl HomeCatalogProviderAdapter for TestCatalogProvider {
+        fn provider_id(&self) -> &str { self.provider_id }
+        fn catalog_definitions(&self) -> Vec<HomeCatalogDefinition> { self.definitions.clone() }
+    }
+
+    #[test]
+    fn provider_registry_indexes_builtin_definitions_and_supports_removal() {
+        let mut registry = HomeCatalogProviderRegistry::built_ins();
+        assert_eq!(registry.definitions().len(), 3);
+        assert!(registry.definition("trending").is_some());
+        assert_eq!(registry.definition("popular-movies").unwrap().descriptor.provider, "senzo-tmdb");
+        assert!(registry.provider("senzo-tmdb").is_some());
+        assert!(registry.unregister("senzo-tmdb"));
+        assert!(registry.definitions().is_empty());
+        assert!(!registry.unregister("senzo-tmdb"));
+    }
+
+    #[test]
+    fn provider_registry_rejects_spoofed_and_duplicate_catalogue_keys() {
+        let mut registry = HomeCatalogProviderRegistry::default();
+        let definition = HomeCatalogDefinition::built_in(BuiltInHomeCatalog::Trending);
+        let spoofed = TestCatalogProvider {
+            provider_id: "addon-example",
+            definitions: vec![definition.clone()],
+        };
+        assert!(matches!(
+            registry.register(Arc::new(spoofed)),
+            Err(HomeCatalogDefinitionError::ProviderMismatch { .. })
+        ));
+
+        let duplicate = TestCatalogProvider {
+            provider_id: "senzo-tmdb",
+            definitions: vec![definition.clone(), definition],
+        };
+        assert!(matches!(
+            registry.register(Arc::new(duplicate)),
+            Err(HomeCatalogDefinitionError::InvalidCatalogKey(_))
+        ));
+        assert!(registry.definitions().is_empty());
     }
 
     #[test]
