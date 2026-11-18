@@ -2169,7 +2169,7 @@ mod tests {
         assert!(
             preview
                 .manifest
-                .supports_resource("subtitles", "movie", "tt1254207")
+                .supports_resource("subtitles", "movie", "tt0369702")
         );
 
         let installed = manager
@@ -2185,11 +2185,15 @@ mod tests {
                 "live-subtitle-acceptance",
                 &installed.id,
                 "movie",
-                "tt1254207",
+                "tt0369702",
                 &extras,
             )
             .await
             .expect("OpenSubtitles v3 subtitle endpoint must return a Stremio subtitle response");
+        assert!(
+            !result.subtitles.is_empty(),
+            "the known OpenSubtitles hash vector must resolve at least one subtitle"
+        );
         assert!(result.subtitles.iter().all(|subtitle| {
             !subtitle.language.trim().is_empty() && !subtitle.url.trim().is_empty()
         }));
