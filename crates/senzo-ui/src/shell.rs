@@ -617,10 +617,11 @@ impl SenzoShell {
                     .default_value(initial_title)
                     .placeholder("Custom title (optional)")
             });
+            let input_key = key.clone();
             let subscription = cx.subscribe(&input, move |this, input, event, cx| {
                 if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
                     this.save_home_section_title(
-                        &key,
+                        &input_key,
                         input.read(cx).value().to_string(),
                         cx,
                     );
