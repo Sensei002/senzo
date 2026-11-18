@@ -8,9 +8,9 @@ use std::{
 
 use gpui::{
     App, Bounds, ColorExt, Context, Entity, FocusHandle, Image, ImageFormat, KeyBinding, Menu,
-    MenuItem, MouseButton, NavigationDirection, QuitMode, Render, RenderImage, SharedString,
-    ScrollHandle, Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, actions,
-    div, img, point, prelude::*, px, rgb, size,
+    MenuItem, MouseButton, NavigationDirection, QuitMode, Render, RenderImage, ScrollHandle,
+    SharedString, Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div,
+    img, point, prelude::*, px, rgb, size,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
@@ -745,20 +745,15 @@ impl SenzoShell {
         for (index, card) in cards.iter().enumerate() {
             let id = home_card_focus_id(key, card.media_type, card.id);
             if !self.home_card_focus_handles.contains_key(&id) {
-                let focus =
-                    cx.focus_handle()
-                        .tab_index(base_tab + start_index as isize + index as isize);
+                let focus = cx
+                    .focus_handle()
+                    .tab_index(base_tab + start_index as isize + index as isize);
                 self.home_card_focus_handles.insert(id, focus);
             }
         }
     }
 
-    fn restore_page_position(
-        &self,
-        page: AppPage,
-        focus_id: Option<String>,
-        window: &mut Window,
-    ) {
+    fn restore_page_position(&self, page: AppPage, focus_id: Option<String>, window: &mut Window) {
         let offset = self
             .page_scroll_offsets
             .get(&page)
