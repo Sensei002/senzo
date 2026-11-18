@@ -5710,6 +5710,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "futures-core",
+ "futures-util",
  "http",
  "http-body",
  "http-body-util",
@@ -5729,12 +5730,14 @@ dependencies = [
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
+ "tokio-util",
  "tower",
  "tower-http",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-streams",
  "web-sys",
  "webpki-roots",
 ]
@@ -6215,10 +6218,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "senzo-addons"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "senzo-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "senzo-addons",
  "senzo-artwork",
  "senzo-diagnostics",
  "senzo-domain",
@@ -6312,6 +6329,7 @@ name = "senzo-storage"
 version = "0.1.0"
 dependencies = [
  "rusqlite",
+ "senzo-addons",
  "senzo-domain",
  "thiserror 2.0.21",
  "uuid",
@@ -6325,6 +6343,7 @@ dependencies = [
  "gpui_ce_components",
  "gpui_ce_platform",
  "image",
+ "senzo-addons",
  "senzo-artwork",
  "senzo-catalog",
  "senzo-domain",

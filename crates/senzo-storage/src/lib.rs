@@ -149,19 +149,21 @@ fn read_schema_version(connection: &Connection) -> Result<i64, rusqlite::Error> 
     )
 }
 
-
 impl AddonStore for SqliteDatabase {
     fn list(&self, profile_id: &str) -> Result<Vec<AddonRecord>, AddonStoreError> {
-        let connection = self.connection.lock().map_err(|_| {
-            AddonStoreError::Unavailable("database lock is poisoned".to_owned())
-        })?;
-        let mut statement = connection.prepare(
-            "SELECT id, secret_key, manifest_json, allow_insecure_http, enabled,
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| AddonStoreError::Unavailable("database lock is poisoned".to_owned()))?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, secret_key, manifest_json, allow_insecure_http, enabled,
                     sort_order, last_checked_at, last_error
              FROM installed_addons
              WHERE profile_id = ?1
              ORDER BY sort_order ASC, created_at ASC, id ASC",
-        ).map_err(|error| AddonStoreError::Unavailable(error.to_string()))?;
+            )
+            .map_err(|error| AddonStoreError::Unavailable(error.to_string()))?;
         let records = statement
             .query_map([profile_id], |row| {
                 Ok(AddonRecord {
@@ -182,51 +184,57 @@ impl AddonStore for SqliteDatabase {
     }
 
     fn insert(&self, profile_id: &str, record: &AddonRecord) -> Result<(), AddonStoreError> {
-        let connection = self.connection.lock().map_err(|_| {
-            AddonStoreError::Unavailable("database lock is poisoned".to_owned())
-        })?;
-        connection.execute(
-            "INSERT INTO installed_addons
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| AddonStoreError::Unavailable("database lock is poisoned".to_owned()))?;
+        connection
+            .execute(
+                "INSERT INTO installed_addons
              (id, profile_id, secret_key, manifest_json, allow_insecure_http, enabled,
               sort_order, last_checked_at, last_error)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            (
-                &record.id,
-                profile_id,
-                &record.secret_key,
-                &record.manifest_json,
-                i64::from(record.allow_insecure_http),
-                i64::from(record.enabled),
-                record.sort_order,
-                &record.last_checked_at,
-                &record.last_error,
-            ),
-        ).map_err(|error| AddonStoreError::Unavailable(error.to_string()))?;
+                (
+                    &record.id,
+                    profile_id,
+                    &record.secret_key,
+                    &record.manifest_json,
+                    i64::from(record.allow_insecure_http),
+                    i64::from(record.enabled),
+                    record.sort_order,
+                    &record.last_checked_at,
+                    &record.last_error,
+                ),
+            )
+            .map_err(|error| AddonStoreError::Unavailable(error.to_string()))?;
         Ok(())
     }
 
     fn update(&self, profile_id: &str, record: &AddonRecord) -> Result<(), AddonStoreError> {
-        let connection = self.connection.lock().map_err(|_| {
-            AddonStoreError::Unavailable("database lock is poisoned".to_owned())
-        })?;
-        let changed = connection.execute(
-            "UPDATE installed_addons
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| AddonStoreError::Unavailable("database lock is poisoned".to_owned()))?;
+        let changed = connection
+            .execute(
+                "UPDATE installed_addons
              SET manifest_json = ?1, allow_insecure_http = ?2, enabled = ?3,
                  sort_order = ?4, last_checked_at = ?5, last_error = ?6,
                  updated_at = CURRENT_TIMESTAMP
              WHERE profile_id = ?7 AND id = ?8 AND secret_key = ?9",
-            (
-                &record.manifest_json,
-                i64::from(record.allow_insecure_http),
-                i64::from(record.enabled),
-                record.sort_order,
-                &record.last_checked_at,
-                &record.last_error,
-                profile_id,
-                &record.id,
-                &record.secret_key,
-            ),
-        ).map_err(|error| AddonStoreError::Unavailable(error.to_string()))?;
+                (
+                    &record.manifest_json,
+                    i64::from(record.allow_insecure_http),
+                    i64::from(record.enabled),
+                    record.sort_order,
+                    &record.last_checked_at,
+                    &record.last_error,
+                    profile_id,
+                    &record.id,
+                    &record.secret_key,
+                ),
+            )
+            .map_err(|error| AddonStoreError::Unavailable(error.to_string()))?;
         if changed == 0 {
             return Err(AddonStoreError::NotFound);
         }
@@ -234,13 +242,16 @@ impl AddonStore for SqliteDatabase {
     }
 
     fn remove(&self, profile_id: &str, id: &str) -> Result<(), AddonStoreError> {
-        let connection = self.connection.lock().map_err(|_| {
-            AddonStoreError::Unavailable("database lock is poisoned".to_owned())
-        })?;
-        let changed = connection.execute(
-            "DELETE FROM installed_addons WHERE profile_id = ?1 AND id = ?2",
-            (profile_id, id),
-        ).map_err(|error| AddonStoreError::Unavailable(error.to_string()))?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| AddonStoreError::Unavailable("database lock is poisoned".to_owned()))?;
+        let changed = connection
+            .execute(
+                "DELETE FROM installed_addons WHERE profile_id = ?1 AND id = ?2",
+                (profile_id, id),
+            )
+            .map_err(|error| AddonStoreError::Unavailable(error.to_string()))?;
         if changed == 0 {
             return Err(AddonStoreError::NotFound);
         }

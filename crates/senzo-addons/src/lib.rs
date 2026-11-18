@@ -362,16 +362,16 @@ impl AddonHttpClient {
             if !response.status().is_success() {
                 return Err(AddonError::HttpStatus(response.status().as_u16()));
             }
-            if response.content_length().is_some_and(|length| length > max_bytes as u64) {
+            if response
+                .content_length()
+                .is_some_and(|length| length > max_bytes as u64)
+            {
                 return Err(AddonError::ResponseTooLarge(max_bytes));
             }
 
             let mut response = response;
             let mut bytes = Vec::with_capacity(
-                response
-                    .content_length()
-                    .unwrap_or(0)
-                    .min(max_bytes as u64) as usize,
+                response.content_length().unwrap_or(0).min(max_bytes as u64) as usize,
             );
             while let Some(chunk) = response.chunk().await.map_err(|_| AddonError::Network)? {
                 if bytes.len().saturating_add(chunk.len()) > max_bytes {
@@ -467,8 +467,8 @@ impl AddonManager {
 
         let id = Uuid::new_v4().to_string();
         let secret_key = format!("senzo.addon.{profile_id}.{id}");
-        let manifest_json = serde_json::to_string(&preview.manifest)
-            .map_err(|_| AddonError::InvalidResponse)?;
+        let manifest_json =
+            serde_json::to_string(&preview.manifest).map_err(|_| AddonError::InvalidResponse)?;
         let record = AddonRecord {
             id: id.clone(),
             secret_key: secret_key.clone(),
@@ -536,7 +536,9 @@ impl AddonManager {
     ) -> Result<(), AddonError> {
         let mut record = self.find_record(profile_id, addon_id)?;
         record.enabled = enabled;
-        self.store.update(profile_id, &record).map_err(map_store_error)
+        self.store
+            .update(profile_id, &record)
+            .map_err(map_store_error)
     }
 
     pub fn remove_addon(&self, profile_id: &str, addon_id: &str) -> Result<(), AddonError> {
@@ -607,11 +609,7 @@ impl AddonManager {
             let url = normalize_manifest_url(&raw_url, record.allow_insecure_http)?;
             let payload = self
                 .http
-                .get_text(
-                    url.clone(),
-                    record.allow_insecure_http,
-                    MAX_MANIFEST_BYTES,
-                )
+                .get_text(url.clone(), record.allow_insecure_http, MAX_MANIFEST_BYTES)
                 .await?;
             let manifest = parse_manifest(&url, &payload)?;
             let previous_id = record
@@ -653,9 +651,15 @@ impl AddonManager {
         }
     }
 
-    pub async fn refresh_all(&self, profile_id: &str) -> Vec<(String, Result<ManagedAddon, AddonError>)> {
+    pub async fn refresh_all(
+        &self,
+        profile_id: &str,
+    ) -> Vec<(String, Result<ManagedAddon, AddonError>)> {
         let ids = match self.store.list(profile_id) {
-            Ok(records) => records.into_iter().map(|record| record.id).collect::<Vec<_>>(),
+            Ok(records) => records
+                .into_iter()
+                .map(|record| record.id)
+                .collect::<Vec<_>>(),
             Err(error) => return vec![(String::new(), Err(map_store_error(error)))],
         };
         let mut results = Vec::with_capacity(ids.len());
@@ -724,19 +728,16 @@ impl AddonManager {
         if !manifest.supports_resource("meta", media_type, media_id) {
             return Err(AddonError::UnsupportedResource);
         }
-        let request_url = build_resource_url(
-            &url,
-            "meta",
-            media_type,
-            media_id,
-            &BTreeMap::new(),
-        )?;
+        let request_url = build_resource_url(&url, "meta", media_type, media_id, &BTreeMap::new())?;
         let text = self
             .http
             .get_text(request_url, allow_http, MAX_RESOURCE_BYTES)
             .await?;
         let value: Value = serde_json::from_str(&text).map_err(|_| AddonError::InvalidResponse)?;
-        let meta = value.get("meta").filter(|meta| meta.is_object()).cloned()
+        let meta = value
+            .get("meta")
+            .filter(|meta| meta.is_object())
+            .cloned()
             .ok_or(AddonError::InvalidResponse)?;
         let returned_id = meta.get("id").and_then(Value::as_str);
         let returned_type = meta.get("type").and_then(Value::as_str);
@@ -757,13 +758,8 @@ impl AddonManager {
         if !manifest.supports_resource("stream", media_type, video_id) {
             return Err(AddonError::UnsupportedResource);
         }
-        let request_url = build_resource_url(
-            &url,
-            "stream",
-            media_type,
-            video_id,
-            &BTreeMap::new(),
-        )?;
+        let request_url =
+            build_resource_url(&url, "stream", media_type, video_id, &BTreeMap::new())?;
         let text = self
             .http
             .get_text(request_url, allow_http, MAX_RESOURCE_BYTES)
@@ -797,7 +793,11 @@ impl AddonManager {
                     }
                 }
             }
-            if stream.info_hash.as_deref().is_some_and(|hash| !valid_info_hash(hash)) {
+            if stream
+                .info_hash
+                .as_deref()
+                .is_some_and(|hash| !valid_info_hash(hash))
+            {
                 rejected_items += 1;
                 continue;
             }
@@ -830,13 +830,8 @@ impl AddonManager {
             return Err(AddonError::UnsupportedResource);
         }
         validate_generic_extras(extra_args)?;
-        let request_url = build_resource_url(
-            &url,
-            "subtitles",
-            media_type,
-            subtitle_id,
-            extra_args,
-        )?;
+        let request_url =
+            build_resource_url(&url, "subtitles", media_type, subtitle_id, extra_args)?;
         let text = self
             .http
             .get_text(request_url, allow_http, MAX_RESOURCE_BYTES)
@@ -894,8 +889,8 @@ impl AddonManager {
             .manifest_json
             .as_deref()
             .ok_or(AddonError::InvalidResponse)?;
-        let manifest =
-            serde_json::from_str::<AddonManifest>(manifest_json).map_err(|_| AddonError::InvalidResponse)?;
+        let manifest = serde_json::from_str::<AddonManifest>(manifest_json)
+            .map_err(|_| AddonError::InvalidResponse)?;
         let raw_url = self
             .secrets
             .get(&record.secret_key)
@@ -937,7 +932,9 @@ pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifes
         .and_then(Value::as_array)
         .ok_or_else(|| AddonError::InvalidManifest("resources must be an array".to_owned()))?;
     if resources_value.is_empty() || resources_value.len() > MAX_RESOURCES {
-        return Err(AddonError::InvalidManifest("resources count is invalid".to_owned()));
+        return Err(AddonError::InvalidManifest(
+            "resources count is invalid".to_owned(),
+        ));
     }
     let mut resources = Vec::with_capacity(resources_value.len());
     for resource in resources_value {
@@ -946,8 +943,7 @@ pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifes
             Value::Object(resource) => {
                 let name = required_string(resource, "name")?;
                 let local_types = string_array(resource.get("types"), MAX_TYPES)?;
-                let local_prefixes =
-                    string_array(resource.get("idPrefixes"), MAX_ID_PREFIXES)?;
+                let local_prefixes = string_array(resource.get("idPrefixes"), MAX_ID_PREFIXES)?;
                 (
                     name,
                     if local_types.is_empty() {
@@ -1003,7 +999,9 @@ pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifes
         .cloned()
         .ok_or_else(|| AddonError::InvalidManifest("catalogs must be an array".to_owned()))?;
     if catalogs_value.len() > MAX_CATALOGS {
-        return Err(AddonError::InvalidManifest("catalogue count exceeds the limit".to_owned()));
+        return Err(AddonError::InvalidManifest(
+            "catalogue count exceeds the limit".to_owned(),
+        ));
     }
     let mut catalogs = Vec::with_capacity(catalogs_value.len());
     for catalog in catalogs_value {
@@ -1077,9 +1075,7 @@ pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifes
             url.set_fragment(None);
             url.to_string()
         });
-    let behavior = object
-        .get("behaviorHints")
-        .and_then(Value::as_object);
+    let behavior = object.get("behaviorHints").and_then(Value::as_object);
     let behavior_hints = AddonBehaviorHints {
         configurable: behavior
             .and_then(|value| value.get("configurable"))
@@ -1163,12 +1159,20 @@ fn validate_host_syntax(url: &Url) -> Result<(), AddonError> {
         return Err(AddonError::InvalidUrl);
     }
     match url.host().ok_or(AddonError::InvalidUrl)? {
-        Host::Ipv4(address) if !is_public_ip(IpAddr::V4(address)) => Err(AddonError::BlockedDestination),
-        Host::Ipv6(address) if !is_public_ip(IpAddr::V6(address)) => Err(AddonError::BlockedDestination),
+        Host::Ipv4(address) if !is_public_ip(IpAddr::V4(address)) => {
+            Err(AddonError::BlockedDestination)
+        }
+        Host::Ipv6(address) if !is_public_ip(IpAddr::V6(address)) => {
+            Err(AddonError::BlockedDestination)
+        }
         Host::Domain(host) => {
             let host = host.to_ascii_lowercase();
-            if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local")
-                || host.ends_with(".internal") || host.ends_with(".lan") || host.ends_with(".home")
+            if host == "localhost"
+                || host.ends_with(".localhost")
+                || host.ends_with(".local")
+                || host.ends_with(".internal")
+                || host.ends_with(".lan")
+                || host.ends_with(".home")
                 || host.ends_with(".test")
             {
                 return Err(AddonError::BlockedDestination);
@@ -1262,7 +1266,9 @@ fn string_array(value: Option<&Value>, maximum: usize) -> Result<Vec<String>, Ad
         AddonError::InvalidManifest("a list-valued field is not an array".to_owned())
     })?;
     if array.len() > maximum {
-        return Err(AddonError::InvalidManifest("a list exceeds its size limit".to_owned()));
+        return Err(AddonError::InvalidManifest(
+            "a list exceeds its size limit".to_owned(),
+        ));
     }
     let mut values = Vec::new();
     for item in array {
@@ -1271,7 +1277,9 @@ fn string_array(value: Option<&Value>, maximum: usize) -> Result<Vec<String>, Ad
         })?;
         let value = value.trim();
         if value.is_empty() || value.chars().any(char::is_control) || value.len() > 256 {
-            return Err(AddonError::InvalidManifest("list entry is invalid".to_owned()));
+            return Err(AddonError::InvalidManifest(
+                "list entry is invalid".to_owned(),
+            ));
         }
         if !values.iter().any(|existing| existing == value) {
             values.push(value.to_owned());
@@ -1281,10 +1289,7 @@ fn string_array(value: Option<&Value>, maximum: usize) -> Result<Vec<String>, Ad
 }
 
 fn validate_text(field: &str, value: &str, max_length: usize) -> Result<(), AddonError> {
-    if value.trim().is_empty()
-        || value.len() > max_length
-        || value.chars().any(char::is_control)
-    {
+    if value.trim().is_empty() || value.len() > max_length || value.chars().any(char::is_control) {
         return Err(AddonError::InvalidManifest(format!("{field} is invalid")));
     }
     Ok(())
@@ -1293,9 +1298,9 @@ fn validate_text(field: &str, value: &str, max_length: usize) -> Result<(), Addo
 fn validate_profile_id(profile_id: &str) -> Result<(), AddonError> {
     if profile_id.is_empty()
         || profile_id.len() > 128
-        || !profile_id.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || b"._-".contains(&byte)
-        })
+        || !profile_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
     {
         return Err(AddonError::InvalidProfile);
     }
@@ -1318,14 +1323,19 @@ fn validate_catalog_extras(
         match provided.get(&declared.name) {
             Some(value) => {
                 if !declared.options.is_empty()
-                    && !value.split(',').all(|option| declared.options.iter().any(|item| item == option))
+                    && !value
+                        .split(',')
+                        .all(|option| declared.options.iter().any(|item| item == option))
                 {
                     return Err(AddonError::InvalidCatalogExtras(format!(
                         "unsupported value for {}",
                         declared.name
                     )));
                 }
-                if declared.options_limit.is_some_and(|limit| value.split(',').count() > limit) {
+                if declared
+                    .options_limit
+                    .is_some_and(|limit| value.split(',').count() > limit)
+                {
                     return Err(AddonError::InvalidCatalogExtras(format!(
                         "too many values for {}",
                         declared.name
@@ -1440,10 +1450,7 @@ fn validate_magnet_url(value: &str) -> Result<String, AddonError> {
         return Err(AddonError::InvalidUrl);
     }
     let has_valid_v1_hash = url.query_pairs().any(|(key, value)| {
-        key == "xt"
-            && value
-                .strip_prefix("urn:btih:")
-                .is_some_and(valid_info_hash)
+        key == "xt" && value.strip_prefix("urn:btih:").is_some_and(valid_info_hash)
     });
     if !has_valid_v1_hash {
         return Err(AddonError::InvalidUrl);
@@ -1524,26 +1531,20 @@ mod tests {
         assert!(parse_manifest(&url, r#"{"name":"Missing fields"}"#).is_err());
         let missing_description = r#"{"id":"x","name":"x","version":"1","types":["movie"],"resources":["catalog"],"catalogs":[]}"#;
         assert!(parse_manifest(&url, missing_description).is_err());
-        let no_resources = r#"{"id":"x","name":"x","version":"1","types":["movie"],"resources":[]}"#;
+        let no_resources =
+            r#"{"id":"x","name":"x","version":"1","types":["movie"],"resources":[]}"#;
         assert!(parse_manifest(&url, no_resources).is_err());
     }
 
     #[test]
     fn normalizes_manifest_urls_without_losing_configuration_query() {
-        let url = normalize_manifest_url(
-            "https://addons.example/config=abc",
-            false,
-        )
-        .unwrap();
+        let url = normalize_manifest_url("https://addons.example/config=abc", false).unwrap();
         assert_eq!(
             url.as_str(),
             "https://addons.example/config=abc/manifest.json"
         );
-        let url = normalize_manifest_url(
-            "https://addons.example/manifest.json?token=abc",
-            false,
-        )
-        .unwrap();
+        let url = normalize_manifest_url("https://addons.example/manifest.json?token=abc", false)
+            .unwrap();
         assert_eq!(url.query(), Some("token=abc"));
     }
 
@@ -1556,19 +1557,25 @@ mod tests {
         assert!(normalize_manifest_url("http://addons.example/manifest.json", true).is_ok());
         assert!(normalize_manifest_url("https://127.0.0.1/manifest.json", true).is_err());
         assert!(normalize_manifest_url("https://localhost/manifest.json", true).is_err());
-        assert!(normalize_manifest_url("https://user:pass@addons.example/manifest.json", true).is_err());
+        assert!(
+            normalize_manifest_url("https://user:pass@addons.example/manifest.json", true).is_err()
+        );
         assert!(normalize_manifest_url("file:///etc/passwd", true).is_err());
     }
 
     #[test]
     fn resource_urls_preserve_config_tokens_and_encode_catalog_extras_as_one_segment() {
-        let manifest = Url::parse("https://addons.example/addon/manifest.json?token=secret").unwrap();
+        let manifest =
+            Url::parse("https://addons.example/addon/manifest.json?token=secret").unwrap();
         let extras = BTreeMap::from([
             ("search".to_owned(), "game of thrones".to_owned()),
             ("skip".to_owned(), "100".to_owned()),
         ]);
         let url = build_resource_url(&manifest, "catalog", "series", "top", &extras).unwrap();
-        assert!(url.path().ends_with("/catalog/series/top/search=game%20of%20thrones&skip=100.json"));
+        assert!(
+            url.path()
+                .ends_with("/catalog/series/top/search=game%20of%20thrones&skip=100.json")
+        );
         assert_eq!(url.query(), Some("token=secret"));
     }
 
@@ -1578,19 +1585,23 @@ mod tests {
         let manifest = parse_manifest(&url, MANIFEST).unwrap();
         let catalog = &manifest.catalogs[0];
         assert!(validate_catalog_extras(catalog, &BTreeMap::new()).is_err());
-        assert!(validate_catalog_extras(
-            catalog,
-            &BTreeMap::from([
-                ("genre".to_owned(), "action".to_owned()),
-                ("skip".to_owned(), "100".to_owned()),
-            ])
-        )
-        .is_ok());
-        assert!(validate_catalog_extras(
-            catalog,
-            &BTreeMap::from([("genre".to_owned(), "horror".to_owned())])
-        )
-        .is_err());
+        assert!(
+            validate_catalog_extras(
+                catalog,
+                &BTreeMap::from([
+                    ("genre".to_owned(), "action".to_owned()),
+                    ("skip".to_owned(), "100".to_owned()),
+                ])
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_catalog_extras(
+                catalog,
+                &BTreeMap::from([("genre".to_owned(), "horror".to_owned())])
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -1641,7 +1652,13 @@ mod tests {
 
     impl AddonStore for MemoryStore {
         fn list(&self, profile: &str) -> Result<Vec<AddonRecord>, AddonStoreError> {
-            Ok(self.0.lock().unwrap().get(profile).cloned().unwrap_or_default())
+            Ok(self
+                .0
+                .lock()
+                .unwrap()
+                .get(profile)
+                .cloned()
+                .unwrap_or_default())
         }
         fn insert(&self, profile: &str, record: &AddonRecord) -> Result<(), AddonStoreError> {
             let mut lock = self.0.lock().unwrap();
@@ -1655,7 +1672,10 @@ mod tests {
         fn update(&self, profile: &str, record: &AddonRecord) -> Result<(), AddonStoreError> {
             let mut lock = self.0.lock().unwrap();
             let records = lock.get_mut(profile).ok_or(AddonStoreError::NotFound)?;
-            let current = records.iter_mut().find(|item| item.id == record.id).ok_or(AddonStoreError::NotFound)?;
+            let current = records
+                .iter_mut()
+                .find(|item| item.id == record.id)
+                .ok_or(AddonStoreError::NotFound)?;
             *current = record.clone();
             Ok(())
         }
@@ -1664,7 +1684,9 @@ mod tests {
             let records = lock.get_mut(profile).ok_or(AddonStoreError::NotFound)?;
             let before = records.len();
             records.retain(|record| record.id != id);
-            if records.len() == before { return Err(AddonStoreError::NotFound); }
+            if records.len() == before {
+                return Err(AddonStoreError::NotFound);
+            }
             Ok(())
         }
     }
@@ -1677,7 +1699,10 @@ mod tests {
             Ok(self.0.lock().unwrap().get(key).cloned())
         }
         fn set(&self, key: &str, value: &str) -> Result<(), String> {
-            self.0.lock().unwrap().insert(key.to_owned(), value.to_owned());
+            self.0
+                .lock()
+                .unwrap()
+                .insert(key.to_owned(), value.to_owned());
             Ok(())
         }
         fn delete(&self, key: &str) -> Result<(), String> {
@@ -1705,11 +1730,25 @@ mod tests {
         manager.set_enabled("default", &first.id, false).unwrap();
         assert!(!manager.list_addons("default").unwrap()[0].enabled);
         manager.set_enabled("default", &first.id, true).unwrap();
-        manager.reorder_addons("default", &[first.id.clone()]).unwrap();
+        manager
+            .reorder_addons("default", &[first.id.clone()])
+            .unwrap();
 
         let stored = store.list("default").unwrap();
-        assert!(!stored[0].manifest_json.as_deref().unwrap().contains("private-token"));
-        assert!(!stored[0].manifest_json.as_deref().unwrap().contains("private"));
+        assert!(
+            !stored[0]
+                .manifest_json
+                .as_deref()
+                .unwrap()
+                .contains("private-token")
+        );
+        assert!(
+            !stored[0]
+                .manifest_json
+                .as_deref()
+                .unwrap()
+                .contains("private")
+        );
         let listed = manager.list_addons("default").unwrap();
         assert!(!listed[0].display_address.contains("private"));
         manager.remove_addon("default", &first.id).unwrap();
@@ -1725,10 +1764,17 @@ mod tests {
             "fileIdx": 4,
             "behaviorHints": { "notWebReady": true },
             "providerSpecific": "preserved"
-        })).unwrap();
-        assert_eq!(stream.info_hash.as_deref(), Some("0123456789abcdef0123456789abcdef01234567"));
+        }))
+        .unwrap();
+        assert_eq!(
+            stream.info_hash.as_deref(),
+            Some("0123456789abcdef0123456789abcdef01234567")
+        );
         assert_eq!(stream.file_idx, Some(4));
-        assert_eq!(stream.extra.get("providerSpecific").and_then(Value::as_str), Some("preserved"));
+        assert_eq!(
+            stream.extra.get("providerSpecific").and_then(Value::as_str),
+            Some("preserved")
+        );
 
         let subtitle: AddonSubtitle = serde_json::from_value(serde_json::json!({
             "id": "subtitle-1",
@@ -1736,7 +1782,8 @@ mod tests {
             "lang": "eng",
             "label": "English",
             "type": "srt"
-        })).unwrap();
+        }))
+        .unwrap();
         assert_eq!(subtitle.language, "eng");
         assert_eq!(subtitle.mime_type.as_deref(), Some("srt"));
         assert_eq!(subtitle.label.as_deref(), Some("English"));

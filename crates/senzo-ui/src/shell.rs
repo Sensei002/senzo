@@ -593,7 +593,6 @@ pub(crate) struct SenzoShell {
     smoke_test_scheduled: bool,
 }
 
-
 fn parse_addon_extras(raw: &str) -> Result<BTreeMap<String, String>, String> {
     let raw = raw.trim();
     if raw.is_empty() {
@@ -771,18 +770,22 @@ impl SenzoShell {
             InputState::new(window, cx).placeholder("https://provider.example/manifest.json")
         });
         let addon_media_type_input = cx.new(|cx| {
-            InputState::new(window, cx).default_value("movie").placeholder("movie or series")
+            InputState::new(window, cx)
+                .default_value("movie")
+                .placeholder("movie or series")
         });
-        let addon_media_id_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("IMDb ID, e.g. tt0133093")
-        });
+        let addon_media_id_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("IMDb ID, e.g. tt0133093"));
         let addon_catalog_extras_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Optional catalogue extras: genre=action&skip=0")
+            InputState::new(window, cx)
+                .placeholder("Optional catalogue extras: genre=action&skip=0")
         });
-        let addon_state = addon_manager.list_addons("default").unwrap_or_else(|error| {
-            tracing::warn!(error = %error, "could not load installed add-ons");
-            Vec::new()
-        });
+        let addon_state = addon_manager
+            .list_addons("default")
+            .unwrap_or_else(|error| {
+                tracing::warn!(error = %error, "could not load installed add-ons");
+                Vec::new()
+            });
         let search_input_subscription = cx.subscribe(&search_input, |this, input, event, cx| {
             if matches!(event, InputEvent::Change) {
                 this.update_search_query(input.read(cx).value().to_string(), cx);
@@ -4564,7 +4567,6 @@ impl SenzoShell {
             )
     }
 
-
     fn load_addon_registry(&mut self, cx: &mut Context<Self>) {
         if self.addon_busy {
             return;
@@ -4583,7 +4585,9 @@ impl SenzoShell {
                 match result {
                     Ok(Ok(addons)) => this.addon_state = addons,
                     Ok(Err(error)) => this.addon_error = Some(error.to_string()),
-                    Err(error) => this.addon_error = Some(format!("Add-on registry task failed: {error}")),
+                    Err(error) => {
+                        this.addon_error = Some(format!("Add-on registry task failed: {error}"))
+                    }
                 }
                 cx.notify();
             });
@@ -4618,10 +4622,15 @@ impl SenzoShell {
                 match result {
                     Ok(Ok(preview)) => {
                         this.addon_preview = Some(preview);
-                        this.addon_notice = Some("Manifest validated. Review the provider and confirm installation.".to_owned());
+                        this.addon_notice = Some(
+                            "Manifest validated. Review the provider and confirm installation."
+                                .to_owned(),
+                        );
                     }
                     Ok(Err(error)) => this.addon_error = Some(error.to_string()),
-                    Err(error) => this.addon_error = Some(format!("Manifest preview task failed: {error}")),
+                    Err(error) => {
+                        this.addon_error = Some(format!("Manifest preview task failed: {error}"))
+                    }
                 }
                 cx.notify();
             });
@@ -4634,7 +4643,8 @@ impl SenzoShell {
             return;
         }
         let Some(preview) = self.addon_preview.clone() else {
-            self.addon_error = Some("Preview a manifest before confirming installation.".to_owned());
+            self.addon_error =
+                Some("Preview a manifest before confirming installation.".to_owned());
             cx.notify();
             return;
         };
@@ -4644,23 +4654,38 @@ impl SenzoShell {
         self.addon_error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = runtime.spawn_blocking(move || {
-                let installed = manager.install_preview("default", &preview);
-                let current = manager.list_addons("default");
-                (installed, current)
-            }).await;
+            let result = runtime
+                .spawn_blocking(move || {
+                    let installed = manager.install_preview("default", &preview);
+                    let current = manager.list_addons("default");
+                    (installed, current)
+                })
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.addon_busy = false;
                 match result {
                     Ok((Ok(addon), Ok(addons))) => {
                         this.addon_state = addons;
                         this.addon_preview = None;
-                        this.addon_notice = Some(format!("{} was installed for the Default profile.", addon.manifest.as_ref().map(|manifest| manifest.name.as_str()).unwrap_or("Add-on")));
+                        this.addon_notice = Some(format!(
+                            "{} was installed for the Default profile.",
+                            addon
+                                .manifest
+                                .as_ref()
+                                .map(|manifest| manifest.name.as_str())
+                                .unwrap_or("Add-on")
+                        ));
                         this.addon_catalog_results.clear();
                     }
                     Ok((Err(error), _)) => this.addon_error = Some(error.to_string()),
-                    Ok((Ok(_), Err(error))) => this.addon_error = Some(format!("Installed, but the list could not be refreshed: {error}")),
-                    Err(error) => this.addon_error = Some(format!("Installation task failed: {error}")),
+                    Ok((Ok(_), Err(error))) => {
+                        this.addon_error = Some(format!(
+                            "Installed, but the list could not be refreshed: {error}"
+                        ))
+                    }
+                    Err(error) => {
+                        this.addon_error = Some(format!("Installation task failed: {error}"))
+                    }
                 }
                 cx.notify();
             });
@@ -4678,19 +4703,27 @@ impl SenzoShell {
         self.addon_error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = runtime.spawn_blocking(move || {
-                manager.set_enabled("default", &addon_id, enabled)?;
-                manager.list_addons("default")
-            }).await;
+            let result = runtime
+                .spawn_blocking(move || {
+                    manager.set_enabled("default", &addon_id, enabled)?;
+                    manager.list_addons("default")
+                })
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.addon_busy = false;
                 match result {
                     Ok(Ok(addons)) => {
                         this.addon_state = addons;
-                        this.addon_notice = Some(if enabled { "Add-on enabled.".to_owned() } else { "Add-on disabled.".to_owned() });
+                        this.addon_notice = Some(if enabled {
+                            "Add-on enabled.".to_owned()
+                        } else {
+                            "Add-on disabled.".to_owned()
+                        });
                     }
                     Ok(Err(error)) => this.addon_error = Some(error.to_string()),
-                    Err(error) => this.addon_error = Some(format!("Add-on update task failed: {error}")),
+                    Err(error) => {
+                        this.addon_error = Some(format!("Add-on update task failed: {error}"))
+                    }
                 }
                 cx.notify();
             });
@@ -4708,10 +4741,12 @@ impl SenzoShell {
         self.addon_error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = runtime.spawn_blocking(move || {
-                manager.remove_addon("default", &addon_id)?;
-                manager.list_addons("default")
-            }).await;
+            let result = runtime
+                .spawn_blocking(move || {
+                    manager.remove_addon("default", &addon_id)?;
+                    manager.list_addons("default")
+                })
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.addon_busy = false;
                 match result {
@@ -4723,7 +4758,9 @@ impl SenzoShell {
                         this.addon_notice = Some("Add-on removed from this profile.".to_owned());
                     }
                     Ok(Err(error)) => this.addon_error = Some(error.to_string()),
-                    Err(error) => this.addon_error = Some(format!("Add-on removal task failed: {error}")),
+                    Err(error) => {
+                        this.addon_error = Some(format!("Add-on removal task failed: {error}"))
+                    }
                 }
                 cx.notify();
             });
@@ -4741,11 +4778,13 @@ impl SenzoShell {
         self.addon_error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = runtime.spawn(async move {
-                let refresh = manager.refresh_addon("default", &addon_id).await;
-                let current = manager.list_addons("default");
-                (refresh, current)
-            }).await;
+            let result = runtime
+                .spawn(async move {
+                    let refresh = manager.refresh_addon("default", &addon_id).await;
+                    let current = manager.list_addons("default");
+                    (refresh, current)
+                })
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.addon_busy = false;
                 match result {
@@ -4755,10 +4794,16 @@ impl SenzoShell {
                     }
                     Ok((Err(error), Ok(addons))) => {
                         this.addon_state = addons;
-                        this.addon_error = Some(format!("Refresh failed; the last valid manifest was retained. {error}"));
+                        this.addon_error = Some(format!(
+                            "Refresh failed; the last valid manifest was retained. {error}"
+                        ));
                     }
-                    Ok((_, Err(error))) => this.addon_error = Some(format!("Could not reload add-ons: {error}")),
-                    Err(error) => this.addon_error = Some(format!("Add-on refresh task failed: {error}")),
+                    Ok((_, Err(error))) => {
+                        this.addon_error = Some(format!("Could not reload add-ons: {error}"))
+                    }
+                    Err(error) => {
+                        this.addon_error = Some(format!("Add-on refresh task failed: {error}"))
+                    }
                 }
                 cx.notify();
             });
@@ -4823,20 +4868,28 @@ impl SenzoShell {
         self.addon_error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = runtime.spawn(async move {
-                manager.fetch_catalog("default", &addon_id, &media_type, &catalog_id, &extras).await
-            }).await;
+            let result = runtime
+                .spawn(async move {
+                    manager
+                        .fetch_catalog("default", &addon_id, &media_type, &catalog_id, &extras)
+                        .await
+                })
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.addon_busy = false;
                 match result {
                     Ok(Ok(items)) => {
                         let count = items.len();
-                        this.addon_catalog_results.retain(|(id, catalog, _)| id != &addon_id || catalog != &catalog_id);
-                        this.addon_catalog_results.push((addon_id, catalog_id, items));
+                        this.addon_catalog_results
+                            .retain(|(id, catalog, _)| id != &addon_id || catalog != &catalog_id);
+                        this.addon_catalog_results
+                            .push((addon_id, catalog_id, items));
                         this.addon_notice = Some(format!("Catalogue loaded: {count} title(s)."));
                     }
                     Ok(Err(error)) => this.addon_error = Some(error.to_string()),
-                    Err(error) => this.addon_error = Some(format!("Catalogue request failed: {error}")),
+                    Err(error) => {
+                        this.addon_error = Some(format!("Catalogue request failed: {error}"))
+                    }
                 }
                 cx.notify();
             });
@@ -4851,7 +4904,8 @@ impl SenzoShell {
         let media_type = self.addon_media_type_input.read(cx).value().to_string();
         let media_id = self.addon_media_id_input.read(cx).value().to_string();
         if media_type.trim().is_empty() || media_id.trim().is_empty() {
-            self.addon_error = Some("Enter a media type and ID before requesting streams.".to_owned());
+            self.addon_error =
+                Some("Enter a media type and ID before requesting streams.".to_owned());
             cx.notify();
             return;
         }
@@ -4889,7 +4943,8 @@ impl SenzoShell {
         let media_type = self.addon_media_type_input.read(cx).value().to_string();
         let media_id = self.addon_media_id_input.read(cx).value().to_string();
         if media_type.trim().is_empty() || media_id.trim().is_empty() {
-            self.addon_error = Some("Enter a media type and ID before requesting subtitles.".to_owned());
+            self.addon_error =
+                Some("Enter a media type and ID before requesting subtitles.".to_owned());
             cx.notify();
             return;
         }
@@ -5062,7 +5117,13 @@ impl SenzoShell {
             );
 
         if let Some(preview) = self.addon_preview.as_ref() {
-            let resource_names = preview.manifest.resources.iter().map(|resource| resource.name.as_str()).collect::<Vec<_>>().join(", ");
+            let resource_names = preview
+                .manifest
+                .resources
+                .iter()
+                .map(|resource| resource.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
             let catalog_count = preview.manifest.catalogs.len();
             page = page.child(
                 div()
@@ -5090,10 +5151,20 @@ impl SenzoShell {
         }
 
         if let Some(error) = self.addon_error.as_deref() {
-            page = page.child(status_panel(StatusTone::Error, "ADD-ON REQUEST FAILED", "The provider could not be used", error));
+            page = page.child(status_panel(
+                StatusTone::Error,
+                "ADD-ON REQUEST FAILED",
+                "The provider could not be used",
+                error,
+            ));
         }
         if let Some(notice) = self.addon_notice.as_deref() {
-            page = page.child(status_panel(StatusTone::Info, "ADD-ON STATUS", "Provider update", notice));
+            page = page.child(status_panel(
+                StatusTone::Info,
+                "ADD-ON STATUS",
+                "Provider update",
+                notice,
+            ));
         }
 
         page = page.child(
@@ -5101,7 +5172,12 @@ impl SenzoShell {
                 .flex()
                 .items_center()
                 .justify_between()
-                .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(format!("Installed providers · {}", self.addon_state.len())))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(Theme::TEXT_PRIMARY))
+                        .child(format!("Installed providers · {}", self.addon_state.len())),
+                )
                 .child(self.addon_control(
                     "addon-refresh-all",
                     "Refresh all",
@@ -5136,11 +5212,35 @@ impl SenzoShell {
                             .flex()
                             .items_center()
                             .justify_between()
-                            .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(addon.manifest.as_ref().map(|manifest| manifest.name.clone()).unwrap_or_else(|| addon.display_address.clone())))
-                            .child(div().text_xs().text_color(rgb(if addon.enabled { Theme::ACCENT } else { Theme::TEXT_MUTED })).child(if addon.enabled { "ENABLED" } else { "DISABLED" })),
+                            .child(
+                                div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(
+                                    addon
+                                        .manifest
+                                        .as_ref()
+                                        .map(|manifest| manifest.name.clone())
+                                        .unwrap_or_else(|| addon.display_address.clone()),
+                                ),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(if addon.enabled {
+                                        Theme::ACCENT
+                                    } else {
+                                        Theme::TEXT_MUTED
+                                    }))
+                                    .child(if addon.enabled { "ENABLED" } else { "DISABLED" }),
+                            ),
                     );
                 if let Some(manifest) = addon.manifest.as_ref() {
-                    card = card.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(format!("{} · v{} · {} catalogue(s)", manifest.id, manifest.version, manifest.catalogs.len())));
+                    card = card.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
+                        format!(
+                            "{} · v{} · {} catalogue(s)",
+                            manifest.id,
+                            manifest.version,
+                            manifest.catalogs.len()
+                        ),
+                    ));
                     if !manifest.catalogs.is_empty() {
                         let mut catalogs = div().flex().flex_wrap().gap_2();
                         for (catalog_index, catalog) in manifest.catalogs.iter().enumerate() {
@@ -5152,56 +5252,87 @@ impl SenzoShell {
                                 &format!("addon-{index}-catalog-{catalog_index}"),
                                 label,
                                 70 + catalog_index as isize,
-                                cx.listener(move |this, _, _, cx| this.browse_addon_catalog(action_id.clone(), media_type.clone(), catalog_id.clone(), cx)),
+                                cx.listener(move |this, _, _, cx| {
+                                    this.browse_addon_catalog(
+                                        action_id.clone(),
+                                        media_type.clone(),
+                                        catalog_id.clone(),
+                                        cx,
+                                    )
+                                }),
                             ));
                         }
                         card = card.child(catalogs);
                     }
-                    let supports_streams = manifest.resources.iter().any(|resource| resource.name == "stream");
+                    let supports_streams = manifest
+                        .resources
+                        .iter()
+                        .any(|resource| resource.name == "stream");
                     if supports_streams {
                         let id = addon_id.clone();
                         card = card.child(
-                            div().flex().flex_wrap().gap_2()
+                            div()
+                                .flex()
+                                .flex_wrap()
+                                .gap_2()
                                 .child(self.addon_control(
                                     &format!("addon-{index}-streams"),
                                     "Find streams",
                                     95 + index as isize * 2,
-                                    cx.listener(move |this, _, _, cx| this.find_addon_streams(id.clone(), cx)),
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.find_addon_streams(id.clone(), cx)
+                                    }),
                                 ))
                                 .child(self.addon_control(
                                     &format!("addon-{index}-subtitles"),
                                     "Find subtitles",
                                     96 + index as isize * 2,
-                                    cx.listener(move |this, _, _, cx| this.find_addon_subtitles(addon_id.clone(), cx)),
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.find_addon_subtitles(addon_id.clone(), cx)
+                                    }),
                                 )),
                         );
                     }
                 } else {
-                    card = card.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(addon.last_error.clone().unwrap_or_else(|| "Manifest not loaded. Refresh to retry.".to_owned())));
+                    card =
+                        card.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
+                            addon.last_error.clone().unwrap_or_else(|| {
+                                "Manifest not loaded. Refresh to retry.".to_owned()
+                            }),
+                        ));
                 }
 
                 let enable_id = addon.id.clone();
                 let remove_id = addon.id.clone();
                 let refresh_id = addon.id.clone();
                 card = card.child(
-                    div().flex().flex_wrap().gap_2()
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap_2()
                         .child(self.addon_control(
                             &format!("addon-{index}-toggle"),
                             if addon.enabled { "Disable" } else { "Enable" },
                             110 + index as isize * 3,
-                            cx.listener(move |this, _, _, cx| this.change_addon_enabled(enable_id.clone(), !addon.enabled, cx)),
+                            cx.listener(move |this, _, _, cx| {
+                                this.change_addon_enabled(enable_id.clone(), !addon.enabled, cx)
+                            }),
                         ))
                         .child(self.addon_control(
                             &format!("addon-{index}-refresh"),
                             "Refresh manifest",
                             111 + index as isize * 3,
-                            cx.listener(move |this, _, _, cx| this.refresh_addon(refresh_id.clone(), cx)),
+                            cx.listener(move |this, _, _, cx| {
+                                this.refresh_addon(refresh_id.clone(), cx)
+                            }),
                         ))
                         .child(self.addon_control(
                             &format!("addon-{index}-remove"),
                             "Remove",
                             112 + index as isize * 3,
-                            cx.listener(move |this, _, _, cx| this.remove_addon(remove_id.clone(), cx)),
+                            cx.listener(move |this, _, _, cx| {
+                                this.remove_addon(remove_id.clone(), cx)
+                            }),
                         )),
                 );
                 installed = installed.child(card);
@@ -5228,34 +5359,95 @@ impl SenzoShell {
         );
 
         for (addon_id, catalog_id, items) in self.addon_catalog_results.iter() {
-            let title = self.addon_state.iter().find(|addon| &addon.id == addon_id)
+            let title = self
+                .addon_state
+                .iter()
+                .find(|addon| &addon.id == addon_id)
                 .and_then(|addon| addon.manifest.as_ref())
-                .and_then(|manifest| manifest.catalogs.iter().find(|catalog| &catalog.id == catalog_id))
-                .map(|catalog| catalog.name.clone()).unwrap_or_else(|| catalog_id.clone());
-            let mut section = div().flex().flex_col().gap_2()
-                .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(format!("{title} · {} title(s)", items.len())));
+                .and_then(|manifest| {
+                    manifest
+                        .catalogs
+                        .iter()
+                        .find(|catalog| &catalog.id == catalog_id)
+                })
+                .map(|catalog| catalog.name.clone())
+                .unwrap_or_else(|| catalog_id.clone());
+            let mut section = div().flex().flex_col().gap_2().child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                    .child(format!("{title} · {} title(s)", items.len())),
+            );
             for (index, item) in items.iter().take(30).enumerate() {
-                section = section.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("{}. {} · {} · {}", index + 1, item.display_title(), item.media_type, item.id)));
+                section = section.child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(Theme::TEXT_SECONDARY))
+                        .child(format!(
+                            "{}. {} · {} · {}",
+                            index + 1,
+                            item.display_title(),
+                            item.media_type,
+                            item.id
+                        )),
+                );
             }
             page = page.child(section);
         }
 
         if let Some(message) = self.addon_result_message.as_deref() {
-            page = page.child(status_panel(StatusTone::Info, "RESOURCE RESPONSE", "Provider request completed", message));
+            page = page.child(status_panel(
+                StatusTone::Info,
+                "RESOURCE RESPONSE",
+                "Provider request completed",
+                message,
+            ));
         }
         if !self.addon_stream_results.is_empty() {
-            let mut streams = div().flex().flex_col().gap_2()
-                .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(format!("Streams · {}", self.addon_stream_results.len())));
+            let mut streams = div().flex().flex_col().gap_2().child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                    .child(format!("Streams · {}", self.addon_stream_results.len())),
+            );
             for (index, stream) in self.addon_stream_results.iter().take(25).enumerate() {
-                streams = streams.child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("{}. {} {}", index + 1, stream.name.as_deref().unwrap_or("Stream"), stream.title.as_deref().or(stream.description.as_deref()).unwrap_or_default())));
+                streams = streams.child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(Theme::TEXT_SECONDARY))
+                        .child(format!(
+                            "{}. {} {}",
+                            index + 1,
+                            stream.name.as_deref().unwrap_or("Stream"),
+                            stream
+                                .title
+                                .as_deref()
+                                .or(stream.description.as_deref())
+                                .unwrap_or_default()
+                        )),
+                );
             }
             page = page.child(streams);
         }
         if !self.addon_subtitle_results.is_empty() {
-            let mut subtitles = div().flex().flex_col().gap_2()
-                .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(format!("Subtitles · {}", self.addon_subtitle_results.len())));
+            let mut subtitles = div().flex().flex_col().gap_2().child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                    .child(format!("Subtitles · {}", self.addon_subtitle_results.len())),
+            );
             for (index, subtitle) in self.addon_subtitle_results.iter().take(25).enumerate() {
-                subtitles = subtitles.child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("{}. {} · {}", index + 1, subtitle.language, subtitle.label.as_deref().unwrap_or("Subtitle"))));
+                subtitles = subtitles.child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(Theme::TEXT_SECONDARY))
+                        .child(format!(
+                            "{}. {} · {}",
+                            index + 1,
+                            subtitle.language,
+                            subtitle.label.as_deref().unwrap_or("Subtitle")
+                        )),
+                );
             }
             page = page.child(subtitles);
         }
@@ -7176,7 +7368,16 @@ pub fn run(
 
             cx.open_window(options, move |window, cx| {
                 let shell = cx.new(|cx| {
-                    SenzoShell::new(tokio, smoke_test, metadata, artwork, settings, addon_manager, window, cx)
+                    SenzoShell::new(
+                        tokio,
+                        smoke_test,
+                        metadata,
+                        artwork,
+                        settings,
+                        addon_manager,
+                        window,
+                        cx,
+                    )
                 });
                 let initial_focus = shell
                     .read(cx)
@@ -7203,16 +7404,31 @@ mod tests {
     struct TestAddonStore;
 
     impl senzo_addons::AddonStore for TestAddonStore {
-        fn list(&self, _profile_id: &str) -> Result<Vec<senzo_addons::AddonRecord>, senzo_addons::AddonStoreError> {
+        fn list(
+            &self,
+            _profile_id: &str,
+        ) -> Result<Vec<senzo_addons::AddonRecord>, senzo_addons::AddonStoreError> {
             Ok(Vec::new())
         }
-        fn insert(&self, _profile_id: &str, _record: &senzo_addons::AddonRecord) -> Result<(), senzo_addons::AddonStoreError> {
+        fn insert(
+            &self,
+            _profile_id: &str,
+            _record: &senzo_addons::AddonRecord,
+        ) -> Result<(), senzo_addons::AddonStoreError> {
             Ok(())
         }
-        fn update(&self, _profile_id: &str, _record: &senzo_addons::AddonRecord) -> Result<(), senzo_addons::AddonStoreError> {
+        fn update(
+            &self,
+            _profile_id: &str,
+            _record: &senzo_addons::AddonRecord,
+        ) -> Result<(), senzo_addons::AddonStoreError> {
             Ok(())
         }
-        fn remove(&self, _profile_id: &str, _id: &str) -> Result<(), senzo_addons::AddonStoreError> {
+        fn remove(
+            &self,
+            _profile_id: &str,
+            _id: &str,
+        ) -> Result<(), senzo_addons::AddonStoreError> {
             Ok(())
         }
     }
@@ -7221,16 +7437,20 @@ mod tests {
     struct TestAddonSecrets;
 
     impl senzo_addons::AddonSecretStore for TestAddonSecrets {
-        fn get(&self, _key: &str) -> Result<Option<String>, String> { Ok(None) }
-        fn set(&self, _key: &str, _secret: &str) -> Result<(), String> { Ok(()) }
-        fn delete(&self, _key: &str) -> Result<(), String> { Ok(()) }
+        fn get(&self, _key: &str) -> Result<Option<String>, String> {
+            Ok(None)
+        }
+        fn set(&self, _key: &str, _secret: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn delete(&self, _key: &str) -> Result<(), String> {
+            Ok(())
+        }
     }
 
     fn test_addon_manager() -> AddonManager {
         AddonManager::new(Arc::new(TestAddonStore), Arc::new(TestAddonSecrets))
     }
-
-
 
     impl SettingsRepository for TestSettingsRepository {
         fn get(&self, _key: &SettingKey) -> Result<Option<String>, RepositoryError> {
