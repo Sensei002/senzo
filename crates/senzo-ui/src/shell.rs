@@ -3616,7 +3616,7 @@ impl SenzoShell {
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         div()
             .id("senzo-sidebar")
-            .debug_selector(|| "senzo-sidebar")
+            .debug_selector(|| "senzo-sidebar".to_owned())
             .key_context("SENZO_NAVIGATION")
             .w(px(Theme::SIDEBAR_WIDTH))
             .h_full()
@@ -3716,7 +3716,7 @@ impl SenzoShell {
         let page = self.navigation.current();
         div()
             .id("senzo-header")
-            .debug_selector(|| "senzo-header")
+            .debug_selector(|| "senzo-header".to_owned())
             .w_full()
             .h(px(Theme::HEADER_HEIGHT))
             .flex()
@@ -3829,7 +3829,7 @@ impl SenzoShell {
             286.0,
             self.home_catalogue_status == HomeCatalogueStatus::Loading,
         )
-        .debug_selector(|| "home-featured-hero")
+        .debug_selector(|| "home-featured-hero".to_owned())
         .child(
             div()
                 .absolute()
@@ -4048,7 +4048,7 @@ impl SenzoShell {
             .child(
                 div()
                     .id("home-refresh-catalogues")
-                    .debug_selector(|| "home-refresh-catalogues")
+                    .debug_selector(|| "home-refresh-catalogues".to_owned())
                     .tab_index(29)
                     .cursor_pointer()
                     .rounded_md()
@@ -4760,7 +4760,7 @@ impl Render for SenzoShell {
                     .child(
                         div()
                             .id("page-content")
-                            .debug_selector(|| "page-content")
+                            .debug_selector(|| "page-content".to_owned())
                             .track_scroll(&self.page_scroll_handle)
                             .flex_1()
                             .overflow_y_scroll()
