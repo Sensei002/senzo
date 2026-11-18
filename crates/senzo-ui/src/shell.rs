@@ -4747,6 +4747,10 @@ impl Render for SenzoShell {
                 div()
                     .h_full()
                     .flex_1()
+                    // A row flex item defaults to its min-content width. Home
+                    // shelves and hero content must not force this main column
+                    // wider than the space left after the fixed sidebar.
+                    .min_w(px(0.0))
                     .flex()
                     .flex_col()
                     .child(header)
@@ -4756,6 +4760,7 @@ impl Render for SenzoShell {
                             .debug_selector(|| "page-content".to_owned())
                             .track_scroll(&self.page_scroll_handle)
                             .flex_1()
+                            .min_w(px(0.0))
                             .overflow_y_scroll()
                             .p_8()
                             .child(page),
