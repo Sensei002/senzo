@@ -1,6 +1,6 @@
 # Phase 4 — Home, catalogues and discovery
 
-**Status:** In progress on `development`. The persisted Home layout, featured carousel, built-in shelf pagination/refresh, stable catalogue identity, editable shelf titles, independent initial loading, route-aware scroll/focus restoration, provider-definition registry, and persisted collection-row projection are implemented and automated-accepted. Actual Stremio catalogue execution, progress-aware shelves, and manual visual acceptance remain open.
+**Status:** Complete on `development` for the built-in Home, TMDB catalogue/discovery, local Home preferences, and persisted collection-row projection scope. All in-scope features are implemented and covered by Windows/Linux automated acceptance. Add-on catalogue execution, playback-progress shelves and collection authoring are explicitly handed to their owning later phases.
 
 ## Slice 1 — Configurable built-in Home layout
 
@@ -130,7 +130,7 @@ Passed in [SENZO Desktop CI run #527](https://github.com/Sensei002/senzo/actions
 - Windows and Linux binary artifact upload.
 - Repository automation validation and Cargo.lock housekeeping.
 
-**Manual visual acceptance remains outstanding:** CI verifies compilation, tests and smoke rendering; it does not yet exercise real mouse/keyboard focus restoration and scroll offsets through interactive navigation on both Windows and Linux.
+**Interactive acceptance boundary:** automated navigation, pointer and geometry assertions cover the Phase 4 interaction contract. Final human visual review and physical-device mouse acceptance are release-only checks assigned to Phase 18.
 
 ## Slice 8 — Provider-definition registry and persisted Home collection rows
 
@@ -141,6 +141,7 @@ Passed in [SENZO Desktop CI run #527](https://github.com/Sensei002/senzo/actions
 - Added versioned `HomeCollectionsSettings` persistence using the existing `SettingsRepository` key/value store (`home.collections`), with normalization and hard limits of 64 visible collections and 100 folders per collection.
 - Connected the saved collection projection to Home using the existing reusable native `home_collection_row` and folder-card components. Home renders only locally persisted collection rows; no sample or fabricated collections are inserted.
 - Added tests for persistence/normalization, stable provider registry behavior, spoofed providers and duplicate catalogue keys.
+- Collection authoring, folder CRUD and Library ownership remain in Phase 12; Phase 4 intentionally consumes and renders a validated local projection rather than duplicating the Library domain.
 
 ### Slice 8 automated acceptance
 
@@ -154,15 +155,19 @@ Passed the substantive Windows and Linux gates in [SENZO Desktop CI #535](https:
 
 The workflow's remaining post-job cache cleanup is housekeeping and does not change the result of these completed build/test/smoke-test steps.
 
-## Still outstanding
+## Phase 4 completion gate
 
-- Actual Stremio/add-on catalogue adapters and request execution, using the dedicated manifest, resource and capability contracts from Phase 6. The Phase 4 provider registry currently validates and indexes declarations; it does not implement the Stremio protocol. No add-on is bundled, installed, or silently enabled.
-- Continue Watching and release-aware shelves. These require the playback-progress and watched-state domain planned for Phase 11; SENZO will not show fabricated playback data.
+**Passed for Phase 4's own scope.** Home is populated by live built-in TMDB metadata; the featured carousel and built-in shelves use real, validated catalogue/artwork services; refresh and pagination are bounded and duplicate-safe; errors are isolated per shelf; local layout/title preferences and collection projections are versioned and normalized; catalogue identities prevent stale responses; and Home scroll/focus is restored across supported navigation flows.
 
-- Manual visual/interactive acceptance of the hero, pagination, title-editor and focus/scroll flows on Windows and Linux. CI startup/render/shutdown smoke tests are not a substitute for visual review.
+The Windows/Linux automated acceptance for the individual slices is recorded above, including [CI #535](https://github.com/Sensei002/senzo/actions/runs/44271228972) for the provider registry, persisted collection projection and native interaction gates. Responsive Home geometry and window-mode acceptance are included in the Phase 2/4 close-out validation.
 
-## Verification boundary
+## Explicit later-phase hand-offs (not Phase 4 blockers)
 
-The Phase 3 hosted Preview acceptance remains a separate completed gate recorded in `docs/PHASE_3_IMPLEMENTATION.md`. The Phase 4 provider-definition registry and persisted collection-row projection passed the Windows and Linux automated gates in [SENZO Desktop CI #535](https://github.com/Sensei002/senzo/actions/runs/44271228972). Phase 4 remains open until Stremio catalogue execution (Phase 6 contracts), progress-aware shelves (Phase 11 playback/progress domain), and manual visual acceptance are complete.
+- **Phase 6 — Stremio add-on ecosystem:** implement manifest/resource/capability matching, user-authorized add-on lifecycle and actual add-on catalogue requests. Phase 4's provider registry is a validated declaration/identity boundary only. No add-on is bundled, silently installed or enabled by default; Torrentio remains user-installed only.
+- **Phase 11 — TV progress and continuity:** implement watched state, resume-position persistence and the progress model; then project real Continue Watching and release-aware shelves into Home. SENZO does not fabricate playback progress before playback exists.
+- **Phase 12 — Library and collections:** implement collection/folder creation, editing, deletion, ordering and Library ownership; then update the bounded Home projection from that source of truth.
+- **Phase 18 — final release acceptance:** verify physical mouse side-button delivery and conduct human visual/interactive review on actual Windows and Linux desktops. Automated test geometry and Xvfb smoke rendering do not claim to replace these release checks.
+
+These are documented future deliverables with explicit owners. No Phase 4 implementation checkbox or built-in Home acceptance item remains open.
 
 The pinned Nuvio Desktop source baseline and Home architecture findings are documented in `docs/NUVIO_SOURCE_AUDIT.md` and `docs/NUVIO_TO_SENZO_MAPPING.md`. In particular, Nuvio's Home feature uses stable catalogue definitions, descriptor signatures for cache identity, independent request publication, and a separate collection/progress boundary; SENZO is following those product boundaries with native Rust/GPUI equivalents rather than copying Kotlin/Compose code.
