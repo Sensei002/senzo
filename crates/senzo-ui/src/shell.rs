@@ -80,23 +80,6 @@ impl HomeShelfKey {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum HomeShelfKey {
-    Trending,
-    PopularMovies,
-    PopularTv,
-}
-
-impl HomeShelfKey {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Trending => "trending",
-            Self::PopularMovies => "popular-movies",
-            Self::PopularTv => "popular-tv",
-        }
-    }
-}
-
 const MAX_HOME_FEATURED_ITEMS: usize = 8;
 
 #[derive(Clone)]
