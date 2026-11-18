@@ -923,11 +923,19 @@ pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifes
     let id = required_string(object, "id")?;
     let name = required_string(object, "name")?;
     let version = required_string(object, "version")?;
-    let description = required_string(object, "description")?;
+    let description = object
+        .get("description")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_default()
+        .to_owned();
     validate_text("id", &id, 256)?;
     validate_text("name", &name, 256)?;
     validate_text("version", &version, 64)?;
-    validate_text("description", &description, 4096)?;
+    if !description.is_empty() {
+        validate_text("description", &description, 4096)?;
+    }
 
     let types = string_array(object.get("types"), MAX_TYPES)?;
     if types.is_empty() {
@@ -951,11 +959,24 @@ pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifes
             Value::String(value) => (value.clone(), types.clone(), id_prefixes.clone()),
             Value::Object(resource) => {
                 let name = required_string(resource, "name")?;
-                // Object-form resources define their own type scope. An omitted
-                // idPrefixes list means all IDs, rather than inheriting the global list.
+                // Resource-specific lists override manifest defaults when populated.
+                // Empty or omitted lists inherit the manifest-wide capability filters,
+                // matching the pinned Nuvio desktop implementation.
                 let local_types = string_array(resource.get("types"), MAX_TYPES)?;
                 let local_prefixes = string_array(resource.get("idPrefixes"), MAX_ID_PREFIXES)?;
-                (name, local_types, local_prefixes)
+                (
+                    name,
+                    if local_types.is_empty() {
+                        types.clone()
+                    } else {
+                        local_types
+                    },
+                    if local_prefixes.is_empty() {
+                        id_prefixes.clone()
+                    } else {
+                        local_prefixes
+                    },
+                )
             }
             _ => {
                 return Err(AddonError::InvalidManifest(
@@ -1133,7 +1154,16 @@ pub fn normalize_manifest_url(raw: &str, allow_insecure_http: bool) -> Result<Ur
     {
         return Err(AddonError::InvalidUrl);
     }
-    let mut url = Url::parse(raw).map_err(|_| AddonError::InvalidUrl)?;
+    // Accept Stremio share links and bare provider hosts as Nuvio does, while
+    // normalizing them to HTTPS before applying the same URL/SSRF policy.
+    let normalized = if let Some(rest) = raw.strip_prefix("stremio://") {
+        format!("https://{rest}")
+    } else if raw.starts_with("https://") || raw.starts_with("http://") {
+        raw.to_owned()
+    } else {
+        format!("https://{raw}")
+    };
+    let mut url = Url::parse(&normalized).map_err(|_| AddonError::InvalidUrl)?;
     validate_url_syntax(&url, allow_insecure_http)?;
     if !url.path().ends_with("/manifest.json") && url.path() != "/manifest.json" {
         let mut segments = url
@@ -1541,8 +1571,8 @@ mod tests {
         let url = Url::parse("https://addons.example/manifest.json").unwrap();
         assert!(parse_manifest(&url, "{").is_err());
         assert!(parse_manifest(&url, r#"{"name":"Missing fields"}"#).is_err());
-        let missing_description = r#"{"id":"x","name":"x","version":"1","types":["movie"],"resources":["catalog"],"catalogs":[]}"#;
-        assert!(parse_manifest(&url, missing_description).is_err());
+        let optional_description = r#"{"id":"x","name":"x","version":"1","types":["movie"],"resources":["catalog"],"catalogs":[]}"#;
+        assert!(parse_manifest(&url, optional_description).is_ok());
         let no_resources =
             r#"{"id":"x","name":"x","version":"1","types":["movie"],"resources":[]}"#;
         assert!(parse_manifest(&url, no_resources).is_err());
@@ -1560,15 +1590,18 @@ mod tests {
             "idPrefixes":["tt"],
             "resources":[
                 {"name":"stream","types":["movie"]},
-                "meta"
+                {"name":"meta","idPrefixes":["kitsu"]},
+                "catalog"
             ],
             "catalogs":[]
         }"#;
         let parsed = parse_manifest(&url, manifest).unwrap();
-        assert!(parsed.supports_resource("stream", "movie", "kitsu:123"));
+        assert!(parsed.supports_resource("stream", "movie", "tt123"));
+        assert!(!parsed.supports_resource("stream", "movie", "kitsu:123"));
         assert!(!parsed.supports_resource("stream", "series", "tt123"));
-        assert!(parsed.supports_resource("meta", "series", "tt123"));
-        assert!(!parsed.supports_resource("meta", "series", "kitsu:123"));
+        assert!(parsed.supports_resource("meta", "series", "kitsu:123"));
+        assert!(!parsed.supports_resource("meta", "series", "tt123"));
+        assert!(parsed.supports_resource("catalog", "series", "kitsu:123"));
     }
 
     #[test]
@@ -1581,6 +1614,18 @@ mod tests {
         let url = normalize_manifest_url("https://addons.example/manifest.json?token=abc", false)
             .unwrap();
         assert_eq!(url.query(), Some("token=abc"));
+        assert_eq!(
+            normalize_manifest_url("stremio://addons.example/config=abc", false)
+                .unwrap()
+                .as_str(),
+            "https://addons.example/config=abc/manifest.json"
+        );
+        assert_eq!(
+            normalize_manifest_url("addons.example/config=abc", false)
+                .unwrap()
+                .as_str(),
+            "https://addons.example/config=abc/manifest.json"
+        );
     }
 
     #[test]
@@ -1901,6 +1946,81 @@ mod tests {
             Some("tt0111161")
         );
         assert_eq!(metadata.get("type").and_then(Value::as_str), Some("movie"));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires access to the public Torrentio Stremio service"]
+    async fn live_torrentio_manifest_and_stream_compatibility() {
+        let manager = AddonManager::new(
+            Arc::new(MemoryStore::default()),
+            Arc::new(MemorySecrets::default()),
+        );
+        let preview = manager
+            .preview_addon("https://torrentio.strem.fun/manifest.json", false)
+            .await
+            .expect("public Torrentio manifest must be reachable and valid");
+        assert_eq!(preview.manifest.id, "com.stremio.torrentio.addon");
+        assert!(preview.manifest.behavior_hints.configurable);
+        assert!(
+            preview
+                .manifest
+                .supports_resource("stream", "movie", "tt0137523")
+        );
+
+        // The manifest is installed only into an ephemeral acceptance profile;
+        // this does not bundle, preinstall, or enable Torrentio in SENZO.
+        let installed = manager
+            .install_preview("live-stream-acceptance", &preview)
+            .expect("the validated Torrentio manifest must install for acceptance");
+        let result = manager
+            .fetch_streams("live-stream-acceptance", &installed.id, "movie", "tt0137523")
+            .await
+            .expect("Torrentio stream endpoint must return a Stremio stream response");
+        assert!(
+            result.streams.len() + result.rejected_items <= 250,
+            "stream response must remain within the documented item cap"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires access to the public OpenSubtitles v3 Stremio service"]
+    async fn live_opensubtitles_manifest_and_subtitle_compatibility() {
+        let manager = AddonManager::new(
+            Arc::new(MemoryStore::default()),
+            Arc::new(MemorySecrets::default()),
+        );
+        let preview = manager
+            .preview_addon("https://opensubtitles-v3.strem.io/manifest.json", false)
+            .await
+            .expect("public OpenSubtitles v3 manifest must be reachable and valid");
+        assert_eq!(preview.manifest.id, "org.stremio.opensubtitlesv3");
+        assert!(
+            preview
+                .manifest
+                .supports_resource("subtitles", "movie", "tt1254207")
+        );
+
+        let installed = manager
+            .install_preview("live-subtitle-acceptance", &preview)
+            .expect("the validated OpenSubtitles manifest must install for acceptance");
+        let extras = BTreeMap::from([
+            ("videoHash".to_owned(), "8e245d9679d31e12".to_owned()),
+            ("videoSize".to_owned(), "12909756".to_owned()),
+            ("filename".to_owned(), "breakdance.avi".to_owned()),
+        ]);
+        let result = manager
+            .fetch_subtitles(
+                "live-subtitle-acceptance",
+                &installed.id,
+                "movie",
+                "tt1254207",
+                &extras,
+            )
+            .await
+            .expect("OpenSubtitles v3 subtitle endpoint must return a Stremio subtitle response");
+        assert!(result.subtitles.iter().all(|subtitle| {
+            !subtitle.language.trim().is_empty() && !subtitle.url.trim().is_empty()
+        }));
     }
 
     #[test]
