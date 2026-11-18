@@ -732,6 +732,7 @@ impl SenzoShell {
         &mut self,
         key: HomeShelfKey,
         cards: &[HomeMediaCard],
+        start_index: usize,
         cx: &mut Context<Self>,
     ) {
         let section_index = self
@@ -744,7 +745,9 @@ impl SenzoShell {
         for (index, card) in cards.iter().enumerate() {
             let id = home_card_focus_id(key, card.media_type, card.id);
             if !self.home_card_focus_handles.contains_key(&id) {
-                let focus = cx.focus_handle().tab_index(base_tab + index as isize);
+                let focus =
+                    cx.focus_handle()
+                        .tab_index(base_tab + start_index as isize + index as isize);
                 self.home_card_focus_handles.insert(id, focus);
             }
         }
@@ -782,7 +785,6 @@ impl SenzoShell {
     }
 
     fn navigate(&mut self, page: AppPage, window: &mut Window, cx: &mut Context<Self>) {
-        let previous = self.navigation.current();
         self.remember_current_page_scroll();
         self.remember_focused_home_card(window);
         if self.navigation.navigate(page) {
@@ -792,7 +794,6 @@ impl SenzoShell {
                 .then(|| self.last_home_focus_id.clone())
                 .flatten();
             self.restore_page_position(page, focus_id, window);
-            let _ = previous;
             cx.notify();
         }
     }
@@ -1119,23 +1120,16 @@ impl SenzoShell {
                     return;
                 }
 
+                if let Ok(data) = &result {
+                    let start_index = this.home_shelf_mut(key).cards.len();
+                    this.ensure_home_card_focus_handles(key, &data.cards, start_index, cx);
+                }
+
                 let shelf = this.home_shelf_mut(key);
                 shelf.loading_more = false;
                 match result {
                     Ok(data) => {
                         append_unique_home_cards(&mut shelf.cards, data.cards);
-                        let focus_cards = shelf
-                            .cards
-                            .iter()
-                            .map(|card| HomeMediaCard {
-                                id: card.id,
-                                media_type: card.media_type,
-                                title: card.title.clone(),
-                                detail: card.detail.clone(),
-                                poster: card.poster.clone(),
-                            })
-                            .collect::<Vec<_>>();
-                        this.ensure_home_card_focus_handles(key, &focus_cards, cx);
                         shelf.page = data.page;
                         shelf.total_pages = data.total_pages;
                         shelf.load_more_error = None;
@@ -1537,7 +1531,7 @@ impl SenzoShell {
                     {
                         return;
                     }
-                    this.ensure_home_card_focus_handles(key, &data.cards, cx);
+                    this.ensure_home_card_focus_handles(key, &data.cards, 0, cx);
                     *this.home_shelf_mut(key) = HomeShelfState {
                         status: HomeCatalogueStatus::Loaded,
                         error: data.error,
@@ -1652,6 +1646,7 @@ impl SenzoShell {
         initial_title: String,
         cx: &mut Context<Self>,
     ) {
+        self.remember_current_page_scroll();
         self.person_details_cancellation.cancel();
         self.person_details = None;
         self.details_cancellation.cancel();
@@ -2275,6 +2270,7 @@ impl SenzoShell {
         initial_profile: Option<Arc<RenderImage>>,
         cx: &mut Context<Self>,
     ) {
+        self.remember_current_page_scroll();
         self.details_cancellation.cancel();
         self.details = None;
         self.person_details_cancellation.cancel();
