@@ -67,7 +67,7 @@ A phase is complete only when its documented deliverables, automated checks, and
 
 ## Phase 3 — Networking, metadata and artwork foundation
 
-<badge color="info">In progress — metadata, artwork, Home, Search, Movie/TV/Person Details and recovery UX implemented; live API deployment and Windows/Linux runtime acceptance pending</badge>
+<badge color="info">In progress — native metadata/artwork and discovery workflows implemented; final hosted Preview and cross-platform runtime acceptance underway</badge>
 
 - [x] Implement typed SENZO API client for the existing hosted route contract.
 - [x] Implement search, trending, popular, movie/TV details, external-ID, season and episode request methods.
@@ -86,13 +86,15 @@ A phase is complete only when its documented deliverables, automated checks, and
 - [x] Implement dedicated movie/TV Details workflows, including TV season and episode navigation.
 - [x] Implement dedicated person Details workflow, including profile, biography, personal facts and movie/TV filmography.
 - [x] Implement explicit retry and offline/provider-outage UX across Home, Search and Details.
-- [ ] Deploy the person profile and combined-credits route through SENZO API PR #1, then verify it on the hosted service.
+- [ ] Complete live Preview acceptance of the person profile and combined-credits route from SENZO API PR #1; the `development` Preview deployment is already present.
 - [ ] Verify live hosted Home, Search, movie/TV/person details and artwork behavior on Windows and Linux.
 - [x] Preserve TMDB credentials exclusively on the hosted API.
 
-**Current implementation gate:** The native Home, Search, Movie/TV Details, Person Details and recovery workflows are implemented on `development`. Windows/Linux desktop CI includes Rust fault-injection tests for offline connections, transient 5xx, 429 retry policy, response-cache behavior, request coalescing and cancellation. The person profile/combined-credits backend is implemented on SENZO API `development`; [API PR #1](https://github.com/Sensei002/senzo-api/pull/1) has passing CI but remains open, so the production hosted route is not yet available. The protected Vercel Preview is available for pre-release verification, but Vercel Authentication currently returns HTTP 401 to unauthenticated automation. Configure the GitHub Actions secret `VERCEL_AUTOMATION_BYPASS_SECRET` to enable the opt-in live API acceptance and native Rust metadata/artwork integration smoke on both Windows and Linux. The native smoke runner injects the bypass only in a loopback proxy; the SENZO process receives no deployment secret. Production rollout of API PR #1 remains a separate release decision.
+**Current implementation gate:** The native Home, Search, Movie/TV Details, Person Details and recovery workflows are implemented on `development`. Windows/Linux desktop CI includes Rust fault-injection tests for offline connections, transient 5xx, 429 retry policy, response-cache behavior, request coalescing and cancellation. The person profile/combined-credits backend is implemented on SENZO API `development`; [API PR #1](https://github.com/Sensei002/senzo-api/pull/1) has a successful Vercel Preview deployment and passing API CI but remains open, so the production hosted route is not yet available. The GitHub Actions repository secret `VERCEL_AUTOMATION_BYPASS_SECRET` is configured and the protected Preview bypass works; the native smoke runner injects it only in a loopback proxy, and the SENZO process receives no deployment secret. Earlier opt-in acceptance run #494 reached the Preview but reported `tmdbConfigured: false`; after the maintainer's configuration update and report that CI is green, the opt-in Windows/Linux hosted API and native metadata/artwork acceptance is being rerun now. The production rollout of API PR #1 remains a separate release decision.
 
 See docs/PHASE_3_IMPLEMENTATION.md.
+
+**Phase 3 live acceptance rerun:** `[live-api-acceptance]` — this commit intentionally triggers the protected API Preview contract checks and native Windows/Linux metadata/artwork smoke tests after the Preview environment configuration update.
 
 ## Phase 4 — Home, catalogues and discovery
 
