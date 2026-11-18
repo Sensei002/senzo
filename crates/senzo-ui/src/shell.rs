@@ -5391,11 +5391,7 @@ mod tests {
         // standard 1080p, and full-HD desktop viewport sizes. GPUI CE 0.2.2's
         // test context exposes layout bounds and input simulation rather than
         // pixel readback, so assert the real rendered geometry here.
-        for (width, height) in [
-            (1024.0, 680.0),
-            (1280.0, 720.0),
-            (1920.0, 1080.0),
-        ] {
+        for (width, height) in [(1024.0, 680.0), (1280.0, 720.0), (1920.0, 1080.0)] {
             window_cx.simulate_resize(size(px(width), px(height)));
             // The test platform reports the new native viewport immediately;
             // drain GPUI's scheduled frame before inspecting its painted bounds.
@@ -5425,8 +5421,7 @@ mod tests {
                 .debug_bounds("home-refresh-catalogues")
                 .expect("Home refresh control should remain rendered after resizing");
 
-            let sidebar_right =
-                f32::from(resized_sidebar.origin.x + resized_sidebar.size.width);
+            let sidebar_right = f32::from(resized_sidebar.origin.x + resized_sidebar.size.width);
             let page_x = f32::from(resized_page.origin.x);
             let page_right = page_x + f32::from(resized_page.size.width);
             let hero_x = f32::from(resized_hero.origin.x);
