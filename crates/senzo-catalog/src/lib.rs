@@ -1018,6 +1018,10 @@ mod tests {
             restored.collections[0].folders[0].cover_emoji.as_deref(),
             Some("🎬")
         );
+        assert_eq!(
+            restored.collections[0].folders[0].cover_artwork_path.as_deref(),
+            Some("/family/favorites.jpg")
+        );
     }
 
     struct TestCatalogProvider {
