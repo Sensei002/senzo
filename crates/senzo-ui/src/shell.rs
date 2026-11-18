@@ -1948,8 +1948,10 @@ impl SenzoShell {
             }
             while let Some(result) = jobs.join_next().await {
                 if token.is_cancelled() { return Err("Cancelled".to_owned()); }
-                if let Ok((index, Some(image))) = result {
-                    if let Some(card) = loaded.related.get_mut(index) { card.poster = Some(image); }
+                if let Ok((index, Some(image))) = result
+                    && let Some(card) = loaded.related.get_mut(index)
+                {
+                    card.poster = Some(image);
                 }
             }
 
