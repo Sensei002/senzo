@@ -943,21 +943,11 @@ pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifes
             Value::String(value) => (value.clone(), types.clone(), id_prefixes.clone()),
             Value::Object(resource) => {
                 let name = required_string(resource, "name")?;
+                // Object-form resources define their own type scope. An omitted
+                // idPrefixes list means all IDs, rather than inheriting the global list.
                 let local_types = string_array(resource.get("types"), MAX_TYPES)?;
                 let local_prefixes = string_array(resource.get("idPrefixes"), MAX_ID_PREFIXES)?;
-                (
-                    name,
-                    if local_types.is_empty() {
-                        types.clone()
-                    } else {
-                        local_types
-                    },
-                    if local_prefixes.is_empty() {
-                        id_prefixes.clone()
-                    } else {
-                        local_prefixes
-                    },
-                )
+                (name, local_types, local_prefixes)
             }
             _ => {
                 return Err(AddonError::InvalidManifest(
@@ -971,27 +961,16 @@ pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifes
                 "every resource must support at least one type".to_owned(),
             ));
         }
-        if let Some(existing) = resources
-            .iter_mut()
-            .find(|existing: &&mut AddonResource| existing.name == resource_name)
-        {
-            for media_type in resource_types {
-                if !existing.types.contains(&media_type) {
-                    existing.types.push(media_type);
-                }
-            }
-            for prefix in prefixes {
-                if !existing.id_prefixes.contains(&prefix) {
-                    existing.id_prefixes.push(prefix);
-                }
-            }
-        } else {
-            resources.push(AddonResource {
-                name: resource_name,
-                types: resource_types,
-                id_prefixes: prefixes,
-            });
+        if resources.iter().any(|existing: &AddonResource| existing.name == resource_name) {
+            return Err(AddonError::InvalidManifest(
+                "resource names must be unique".to_owned(),
+            ));
         }
+        resources.push(AddonResource {
+            name: resource_name,
+            types: resource_types,
+            id_prefixes: prefixes,
+        });
     }
 
     let catalogs_value = object
@@ -1013,6 +992,16 @@ pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifes
         let catalog_id = required_string(catalog_object, "id")?;
         validate_text("catalogue type", &media_type, 64)?;
         validate_text("catalogue id", &catalog_id, 256)?;
+        if !types.contains(&media_type) {
+            return Err(AddonError::InvalidManifest(
+                "catalogue type must be declared in the manifest types".to_owned(),
+            ));
+        }
+        if catalogs.iter().any(|catalog: &AddonCatalog| catalog.id == catalog_id) {
+            return Err(AddonError::InvalidManifest(
+                "catalogue IDs must be unique within an add-on".to_owned(),
+            ));
+        }
         let catalog_name = catalog_object
             .get("name")
             .and_then(Value::as_str)
@@ -1041,7 +1030,15 @@ pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifes
             let options_limit = property
                 .get("optionsLimit")
                 .and_then(Value::as_u64)
-                .map(|number| number as usize);
+                .map(|number| number as usize)
+                .or_else(|| (!options.is_empty()).then_some(1));
+            if options_limit.is_some_and(|limit| {
+                limit == 0 || (!options.is_empty() && limit > options.len())
+            }) {
+                return Err(AddonError::InvalidManifest(
+                    "catalogue optionsLimit is outside the declared options".to_owned(),
+                ));
+            }
             extra.push(AddonExtraProperty {
                 name: property_name,
                 is_required: property
@@ -1535,6 +1532,29 @@ mod tests {
         let no_resources =
             r#"{"id":"x","name":"x","version":"1","types":["movie"],"resources":[]}"#;
         assert!(parse_manifest(&url, no_resources).is_err());
+    }
+
+    #[test]
+    fn resource_objects_override_global_types_and_id_prefixes() {
+        let url = Url::parse("https://addons.example/manifest.json").unwrap();
+        let manifest = r#"{
+            "id":"org.example.resource-scope",
+            "version":"1.0.0",
+            "name":"Resource scope",
+            "description":"Per-resource matching rules",
+            "types":["movie","series"],
+            "idPrefixes":["tt"],
+            "resources":[
+                {"name":"stream","types":["movie"]},
+                "meta"
+            ],
+            "catalogs":[]
+        }"#;
+        let parsed = parse_manifest(&url, manifest).unwrap();
+        assert!(parsed.supports_resource("stream", "movie", "kitsu:123"));
+        assert!(!parsed.supports_resource("stream", "series", "tt123"));
+        assert!(parsed.supports_resource("meta", "series", "tt123"));
+        assert!(!parsed.supports_resource("meta", "series", "kitsu:123"));
     }
 
     #[test]
