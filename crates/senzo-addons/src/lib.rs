@@ -1173,6 +1173,7 @@ pub fn normalize_manifest_url(raw: &str, allow_insecure_http: bool) -> Result<Ur
     } else {
         format!("https://{raw}")
     };
+    let normalized = encode_unsafe_http_url_characters(&normalized);
     let mut url = Url::parse(&normalized).map_err(|_| AddonError::InvalidUrl)?;
     validate_url_syntax(&url, allow_insecure_http)?;
     if !url.path().ends_with("/manifest.json") && url.path() != "/manifest.json" {
@@ -1496,6 +1497,41 @@ fn encode_addon_path_component(value: &str) -> String {
 
 const HEX: &[u8; 16] = b"0123456789ABCDEF";
 
+fn encode_unsafe_http_url_characters(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for character in value.chars() {
+        let replacement = match character {
+            ' ' => Some("20"),
+            '"' => Some("22"),
+            '<' => Some("3C"),
+            '>' => Some("3E"),
+            '\\' => Some("5C"),
+            '^' => Some("5E"),
+            '`' => Some("60"),
+            '{' => Some("7B"),
+            '|' => Some("7C"),
+            '}' => Some("7D"),
+            _ => None,
+        };
+        if let Some(hex) = replacement {
+            encoded.push('%');
+            encoded.push_str(hex);
+        } else if character.is_control() {
+            let mut bytes = [0; 4];
+            for byte in character.encode_utf8(&mut bytes).as_bytes() {
+                encoded.push('%');
+                encoded.push(HEX[(byte >> 4) as usize] as char);
+                encoded.push(HEX[(byte & 0x0f) as usize] as char);
+            }
+        } else {
+            // Existing percent escapes pass through unchanged; this makes the
+            // operation idempotent and avoids turning %7C into %257C.
+            encoded.push(character);
+        }
+    }
+    encoded
+}
+
 fn validate_magnet_url(value: &str) -> Result<String, AddonError> {
     if value.len() > MAX_URL_LENGTH || value.chars().any(char::is_control) {
         return Err(AddonError::InvalidUrl);
@@ -1671,6 +1707,28 @@ mod tests {
                 .ends_with("/catalog/series/top/search=game%20of%20thrones&skip=100.json")
         );
         assert_eq!(url.query(), Some("token=secret"));
+    }
+
+    #[test]
+    fn manifest_url_unsafe_characters_are_encoded_without_double_encoding_escapes() {
+        let url = normalize_manifest_url(
+            "https://addons.example/config=one|two/manifest.json?token=three|four",
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://addons.example/config=one%7Ctwo/manifest.json?token=three%7Cfour"
+        );
+        let already_encoded = normalize_manifest_url(
+            "https://addons.example/config=one%7Ctwo/manifest.json",
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            already_encoded.as_str(),
+            "https://addons.example/config=one%7Ctwo/manifest.json"
+        );
     }
 
     #[test]
