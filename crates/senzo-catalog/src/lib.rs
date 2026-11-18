@@ -532,7 +532,7 @@ mod tests {
     fn catalogue_descriptors_reject_unsafe_or_unbounded_fields() {
         assert!(HomeCatalogDescriptor::new("Bad Provider", "movie", "popular", 1).is_err());
         assert!(HomeCatalogDescriptor::new("provider", "movie/type", "popular", 1).is_err());
-        assert!(HomeCatalogDescriptor::new("provider", "movie", &"x".repeat(129), 1).is_err());
+        assert!(HomeCatalogDescriptor::new("provider", "movie", "x".repeat(129), 1).is_err());
         assert!(HomeCatalogDescriptor::new("provider", "movie", "popular", 0).is_err());
     }
 
