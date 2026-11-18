@@ -63,7 +63,7 @@ enum HomeCatalogueStatus {
     Loaded,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum HomeShelfKey {
     Trending,
     PopularMovies,
