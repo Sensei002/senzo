@@ -207,7 +207,7 @@ pub struct ManagedAddon {
     pub last_error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AddonRecord {
     pub id: String,
     pub secret_key: String,
@@ -1034,12 +1034,22 @@ pub fn parse_manifest(manifest_url: &Url, payload: &str) -> Result<AddonManifest
         });
     }
 
+    // Never resolve relative artwork against a configured manifest URL: its path
+    // can contain a private configuration token that must stay in the OS keyring.
     let logo = object
         .get("logo")
         .and_then(Value::as_str)
-        .and_then(|value| manifest_url.join(value).ok())
-        .filter(|url| matches!(url.scheme(), "http" | "https"))
-        .map(|url| url.to_string());
+        .and_then(|value| Url::parse(value).ok())
+        .filter(|url| {
+            matches!(url.scheme(), "http" | "https")
+                && url.username().is_empty()
+                && url.password().is_none()
+        })
+        .map(|mut url| {
+            url.set_query(None);
+            url.set_fragment(None);
+            url.to_string()
+        });
     let behavior = object
         .get("behaviorHints")
         .and_then(Value::as_object);
@@ -1361,21 +1371,47 @@ fn build_resource_url(
             .path_segments_mut()
             .map_err(|_| AddonError::InvalidUrl)?;
         segments.pop_if_empty().pop();
-        segments.push(resource).push(media_type);
+        segments.push(resource).push(media_type).push(id);
         if extras.is_empty() {
-            segments.push(&format!("{id}.json"));
-        } else {
-            segments.push(id);
-            let extra_path = extras
-                .iter()
-                .map(|(key, value)| format!("{key}={value}"))
-                .collect::<Vec<_>>()
-                .join("&");
-            segments.push(&format!("{extra_path}.json"));
+            // Replace the ID segment with the protocol's required .json suffix.
+            segments.pop().push(&format!("{id}.json"));
         }
+    }
+    if !extras.is_empty() {
+        // Stremio represents extra arguments as one final path segment, with
+        // literal '&' and '=' separators and individually percent-encoded values.
+        let extra_path = extras
+            .iter()
+            .map(|(key, value)| {
+                format!(
+                    "{}={}",
+                    encode_addon_path_component(key),
+                    encode_addon_path_component(value)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("&");
+        let path = format!("{}/{}.json", url.path().trim_end_matches('/'), extra_path);
+        url.set_path(&path);
     }
     Ok(url)
 }
+
+fn encode_addon_path_component(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            encoded.push(byte as char);
+        } else {
+            encoded.push('%');
+            encoded.push(HEX[(byte >> 4) as usize] as char);
+            encoded.push(HEX[(byte & 0x0f) as usize] as char);
+        }
+    }
+    encoded
+}
+
+const HEX: &[u8; 16] = b"0123456789ABCDEF";
 
 fn valid_info_hash(hash: &str) -> bool {
     (hash.len() == 40 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()))

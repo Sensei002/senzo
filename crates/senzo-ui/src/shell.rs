@@ -3999,7 +3999,7 @@ impl SenzoShell {
                     } else {
                         Theme::TEXT_SECONDARY
                     }))
-                    .child(label),
+                    .child(label.into()),
             )
     }
 
@@ -4923,7 +4923,7 @@ impl SenzoShell {
     fn addon_control<F>(
         &self,
         id: &str,
-        label: &'static str,
+        label: impl Into<SharedString>,
         tab_index: isize,
         on_click: F,
     ) -> impl IntoElement + use<F>
@@ -5137,7 +5137,7 @@ impl SenzoShell {
                             .items_center()
                             .justify_between()
                             .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(addon.manifest.as_ref().map(|manifest| manifest.name.clone()).unwrap_or_else(|| addon.display_address.clone())))
-                            .child(div().text_xs().text_color(rgb(if addon.enabled { Theme::SUCCESS } else { Theme::TEXT_MUTED })).child(if addon.enabled { "ENABLED" } else { "DISABLED" })),
+                            .child(div().text_xs().text_color(rgb(if addon.enabled { Theme::ACCENT } else { Theme::TEXT_MUTED })).child(if addon.enabled { "ENABLED" } else { "DISABLED" })),
                     );
                 if let Some(manifest) = addon.manifest.as_ref() {
                     card = card.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(format!("{} · v{} · {} catalogue(s)", manifest.id, manifest.version, manifest.catalogs.len())));
@@ -5150,7 +5150,7 @@ impl SenzoShell {
                             let label = format!("Browse {}", catalog.name);
                             catalogs = catalogs.child(self.addon_control(
                                 &format!("addon-{index}-catalog-{catalog_index}"),
-                                Box::leak(label.into_boxed_str()),
+                                label,
                                 70 + catalog_index as isize,
                                 cx.listener(move |this, _, _, cx| this.browse_addon_catalog(action_id.clone(), media_type.clone(), catalog_id.clone(), cx)),
                             ));
