@@ -1790,6 +1790,54 @@ mod tests {
         assert_eq!(subtitle.label.as_deref(), Some("English"));
     }
 
+    #[tokio::test]
+    #[ignore = "requires access to the public Stremio Cinemeta service"]
+    async fn live_cinemeta_manifest_and_catalog_compatibility() {
+        let store = Arc::new(MemoryStore::default());
+        let secrets = Arc::new(MemorySecrets::default());
+        let manager = AddonManager::new(store, secrets);
+        let preview = manager
+            .preview_addon("https://v3-cinemeta.strem.io/manifest.json", false)
+            .await
+            .expect("public Cinemeta manifest must be reachable and valid");
+        assert_eq!(preview.manifest.id, "com.linvo.cinemeta");
+        assert!(preview.manifest.supports_resource("catalog", "movie", "top"));
+        assert!(preview.manifest.supports_resource("meta", "movie", "tt0111161"));
+
+        let installed = manager
+            .install_preview("live-acceptance", &preview)
+            .expect("the validated manifest must install into the acceptance profile");
+        let catalogs = manager
+            .catalogs("live-acceptance", &installed.id, "movie")
+            .expect("movie catalog declarations must be available");
+        assert!(catalogs.iter().any(|catalog| catalog.id == "top"));
+
+        let items = manager
+            .fetch_catalog(
+                "live-acceptance",
+                &installed.id,
+                "movie",
+                "top",
+                &BTreeMap::new(),
+            )
+            .await
+            .expect("Cinemeta top movie catalog must be queryable");
+        assert!(!items.is_empty(), "Cinemeta should return movie metadata");
+
+        let metadata = manager
+            .fetch_meta("live-acceptance", &installed.id, "movie", "tt0111161")
+            .await
+            .expect("Cinemeta metadata must be queryable");
+        assert_eq!(
+            metadata.get("id").and_then(Value::as_str),
+            Some("tt0111161")
+        );
+        assert_eq!(
+            metadata.get("type").and_then(Value::as_str),
+            Some("movie")
+        );
+    }
+
     #[test]
     fn catalog_items_keep_optional_title_and_unrecognized_metadata() {
         let item: AddonCatalogItem = serde_json::from_str(
