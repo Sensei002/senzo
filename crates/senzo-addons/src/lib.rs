@@ -499,7 +499,8 @@ impl AddonManager {
 
     pub fn list_addons(&self, profile_id: &str) -> Result<Vec<ManagedAddon>, AddonError> {
         validate_profile_id(profile_id)?;
-        self.store
+        let mut addons = self
+            .store
             .list(profile_id)
             .map_err(map_store_error)?
             .into_iter()
@@ -525,7 +526,14 @@ impl AddonManager {
                     last_error: record.last_error,
                 })
             })
-            .collect()
+            .collect::<Result<Vec<_>, AddonError>>()?;
+        // Keep the public manager contract independent of storage backend iteration order.
+        addons.sort_by(|left, right| {
+            left.sort_order
+                .cmp(&right.sort_order)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        Ok(addons)
     }
 
     pub fn set_enabled(
