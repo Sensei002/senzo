@@ -3820,7 +3820,7 @@ pub fn run(tokio: Handle, smoke_test: bool, metadata: MetadataClient, artwork: A
 
             cx.open_window(options, move |window, cx| {
                 let shell =
-                    cx.new(|cx| SenzoShell::new(tokio, smoke_test, metadata, artwork, settings, window, cx);
+                    cx.new(|cx| SenzoShell::new(tokio, smoke_test, metadata, artwork, settings, window, cx));
                 let initial_focus = shell
                     .read(cx)
                     .navigation_focus
