@@ -907,10 +907,8 @@ impl SenzoShell {
         };
 
         let generation = self.home_catalogue_generation;
-        let Some(descriptor_identity) = self
-            .home_catalogue_descriptor_identities
-            .get(&key)
-            .cloned()
+        let Some(descriptor_identity) =
+            self.home_catalogue_descriptor_identities.get(&key).cloned()
         else {
             self.home_shelf_mut(key).loading_more = false;
             cx.notify();
@@ -1378,14 +1376,8 @@ impl SenzoShell {
                 let token = cancellation.child_token();
                 let is_hero_source = hero_sources.contains(&key);
                 jobs.spawn(async move {
-                    load_home_shelf_initial(
-                        definition,
-                        metadata,
-                        artwork,
-                        is_hero_source,
-                        token,
-                    )
-                    .await
+                    load_home_shelf_initial(definition, metadata, artwork, is_hero_source, token)
+                        .await
                 });
             }
 

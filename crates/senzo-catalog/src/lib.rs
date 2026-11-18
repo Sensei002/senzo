@@ -140,7 +140,10 @@ impl HomeCatalogDefinition {
         if self.descriptor.provider != "senzo-tmdb" {
             return None;
         }
-        match (self.descriptor.media_type.as_str(), self.descriptor.catalog_id.as_str()) {
+        match (
+            self.descriptor.media_type.as_str(),
+            self.descriptor.catalog_id.as_str(),
+        ) {
             ("all", "trending-week") => Some(BuiltInHomeCatalog::Trending),
             ("movie", "popular") => Some(BuiltInHomeCatalog::PopularMovies),
             ("tv", "popular") => Some(BuiltInHomeCatalog::PopularTv),
@@ -170,9 +173,9 @@ fn valid_descriptor_component(value: &str, max_bytes: usize) -> bool {
         && bytes.len() <= max_bytes
         && bytes.first().is_some_and(u8::is_ascii_alphanumeric)
         && bytes.last().is_some_and(u8::is_ascii_alphanumeric)
-        && bytes.iter().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || b".-_".contains(byte)
-        })
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || b".-_".contains(byte))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
