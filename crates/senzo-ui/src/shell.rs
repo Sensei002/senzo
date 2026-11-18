@@ -783,12 +783,7 @@ impl SenzoShell {
         .detach();
     }
 
-    fn save_home_section_title(
-        &mut self,
-        key: &str,
-        raw_title: String,
-        cx: &mut Context<Self>,
-    ) {
+    fn save_home_section_title(&mut self, key: &str, raw_title: String, cx: &mut Context<Self>) {
         let trimmed = raw_title.trim();
         let current = self
             .home_settings
@@ -808,7 +803,8 @@ impl SenzoShell {
                 self.persist_home_settings(cx);
             }
             Err(error) => {
-                self.home_title_errors.insert(key.to_owned(), error.to_string());
+                self.home_title_errors
+                    .insert(key.to_owned(), error.to_string());
                 self.notification = Some(
                     "Custom titles must be 1–80 printable characters. Clear the field to restore the default title."
                         .to_owned(),
@@ -1090,13 +1086,16 @@ impl SenzoShell {
                         .text_color(rgb(Theme::TEXT_PRIMARY))
                         .child(title.clone()),
                 )
-                .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
-                    if enabled {
-                        "Visible on Home"
-                    } else {
-                        "Hidden from Home"
-                    },
-                ));
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(Theme::TEXT_MUTED))
+                        .child(if enabled {
+                            "Visible on Home"
+                        } else {
+                            "Hidden from Home"
+                        }),
+                );
             if let Some(input) = title_input {
                 section_identity = section_identity.child(
                     Input::new(input)
@@ -1113,12 +1112,8 @@ impl SenzoShell {
                 );
             }
             if let Some(error) = title_error {
-                section_identity = section_identity.child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(Theme::DANGER))
-                        .child(error),
-                );
+                section_identity = section_identity
+                    .child(div().text_xs().text_color(rgb(Theme::DANGER)).child(error));
             }
 
             let row = div()
