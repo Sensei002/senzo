@@ -362,12 +362,12 @@ mod tests {
             last_checked_at: None,
             last_error: None,
         };
-        database.create_profile("Guest").unwrap();
-        database.insert("guest", &guest).unwrap();
+        let guest_profile = database.create_profile("Guest").unwrap();
+        database.insert(&guest_profile.id, &guest).unwrap();
 
         let records = database.list("default").unwrap();
         assert_eq!(records, vec![second.clone(), first.clone()]);
-        assert_eq!(database.list("guest").unwrap(), vec![guest]);
+        assert_eq!(database.list(&guest_profile.id).unwrap(), vec![guest]);
 
         let mut updated = first.clone();
         updated.enabled = false;
@@ -376,7 +376,7 @@ mod tests {
         database.update("default", &updated).unwrap();
         assert_eq!(database.list("default").unwrap()[1], updated);
         assert!(matches!(
-            database.update("guest", &first),
+            database.update(&guest_profile.id, &first),
             Err(AddonStoreError::NotFound)
         ));
 
@@ -385,7 +385,7 @@ mod tests {
             database.remove("default", "addon-a"),
             Err(AddonStoreError::NotFound)
         ));
-        assert_eq!(database.list("guest").unwrap().len(), 1);
+        assert_eq!(database.list(&guest_profile.id).unwrap().len(), 1);
     }
 
     #[test]
