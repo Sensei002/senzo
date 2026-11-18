@@ -28,7 +28,7 @@ const MAX_RESOURCES: usize = 32;
 const MAX_TYPES: usize = 32;
 const MAX_ID_PREFIXES: usize = 64;
 const MAX_EXTRA_PROPERTIES: usize = 32;
-const MAX_EXTRA_OPTIONS: usize = 100;
+const MAX_EXTRA_OPTIONS: usize = 256;
 const MAX_EXTRA_VALUE_LENGTH: usize = 1024;
 
 #[derive(Debug, Error)]
@@ -1685,6 +1685,41 @@ mod tests {
         assert_eq!(
             request.as_str(),
             "https://torrentio.strem.fun/realdebrid=abc%7Cpremiumize=xyz/stream/movie/tt0111161.json"
+        );
+    }
+
+    #[test]
+    fn catalogue_extra_option_lists_allow_cinemeta_year_ranges_with_a_hard_cap() {
+        let url = Url::parse("https://addons.example/manifest.json").unwrap();
+        let build_manifest = |count: usize| {
+            let options = (0..count)
+                .map(|year| format!("\"{}\"",
+                    2026_i32.saturating_sub(year as i32)
+                ))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!(
+                r#"{{
+                    "id":"org.example.year-catalog",
+                    "version":"1.0.0",
+                    "name":"Year catalogue",
+                    "types":["movie"],
+                    "resources":["catalog"],
+                    "catalogs":[{{
+                        "type":"movie",
+                        "id":"year",
+                        "extra":[{{"name":"genre","options":[{options}]}}]
+                    }}]
+                }}"#
+            )
+        };
+        let accepted = parse_manifest(&url, &build_manifest(MAX_EXTRA_OPTIONS)).unwrap();
+        assert_eq!(
+            accepted.catalogs[0].extra[0].options.len(),
+            MAX_EXTRA_OPTIONS
+        );
+        assert!(
+            parse_manifest(&url, &build_manifest(MAX_EXTRA_OPTIONS + 1)).is_err()
         );
     }
 
