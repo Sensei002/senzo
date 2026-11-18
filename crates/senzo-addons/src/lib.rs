@@ -1060,6 +1060,11 @@ pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifes
             })?;
             let property_name = required_string(property, "name")?;
             validate_text("extra-property name", &property_name, 64)?;
+            if extra.iter().any(|existing: &AddonExtraProperty| existing.name == property_name) {
+                return Err(AddonError::InvalidManifest(
+                    "catalogue extra-property names must be unique".to_owned(),
+                ));
+            }
             let options = string_array(property.get("options"), MAX_EXTRA_OPTIONS)?;
             let options_limit = property
                 .get("optionsLimit")
@@ -1463,6 +1468,9 @@ fn build_resource_url(
         let path = format!("{}/{}.json", url.path().trim_end_matches('/'), extra_path);
         url.set_path(&path);
     }
+    if url.as_str().len() > MAX_URL_LENGTH {
+        return Err(AddonError::InvalidUrl);
+    }
     Ok(url)
 }
 
@@ -1656,6 +1664,42 @@ mod tests {
                 .ends_with("/catalog/series/top/search=game%20of%20thrones&skip=100.json")
         );
         assert_eq!(url.query(), Some("token=secret"));
+    }
+
+    #[test]
+    fn configured_provider_path_tokens_are_preserved_and_not_double_encoded() {
+        let manifest = Url::parse(
+            "https://torrentio.strem.fun/realdebrid=abc|premiumize=xyz/manifest.json",
+        )
+        .unwrap();
+        let request =
+            build_resource_url(&manifest, "stream", "movie", "tt0111161", &BTreeMap::new())
+                .unwrap();
+        assert_eq!(
+            request.as_str(),
+            "https://torrentio.strem.fun/realdebrid=abc%7Cpremiumize=xyz/stream/movie/tt0111161.json"
+        );
+    }
+
+    #[test]
+    fn manifest_rejects_duplicate_catalogue_extra_property_names() {
+        let url = Url::parse("https://addons.example/manifest.json").unwrap();
+        let manifest = r#"{
+            "id":"org.example.duplicate-extra",
+            "version":"1.0.0",
+            "name":"Duplicate extras",
+            "types":["movie"],
+            "resources":["catalog"],
+            "catalogs":[{
+                "type":"movie",
+                "id":"top",
+                "extra":[
+                    {"name":"genre","options":["action"]},
+                    {"name":"genre","options":["comedy"]}
+                ]
+            }]
+        }"#;
+        assert!(parse_manifest(&url, manifest).is_err());
     }
 
     #[test]
