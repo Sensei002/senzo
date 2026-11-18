@@ -83,7 +83,13 @@ fn run() -> anyhow::Result<()> {
     }
 
     let smoke_test = env::args().any(|argument| argument == "--smoke-test");
-    senzo_ui::run(runtime.handle().clone(), smoke_test, metadata, artwork, database.clone());
+    senzo_ui::run(
+        runtime.handle().clone(),
+        smoke_test,
+        metadata,
+        artwork,
+        database.clone(),
+    );
 
     drop(services);
     drop(runtime);

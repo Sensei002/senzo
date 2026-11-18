@@ -659,7 +659,8 @@ impl SenzoShell {
     }
 
     fn toggle_home_hero(&mut self, cx: &mut Context<Self>) {
-        self.home_settings.set_hero_enabled(!self.home_settings.hero_enabled);
+        self.home_settings
+            .set_hero_enabled(!self.home_settings.hero_enabled);
         self.persist_home_settings(cx);
     }
 
@@ -755,12 +756,13 @@ impl SenzoShell {
                                 .text_color(rgb(Theme::TEXT_PRIMARY))
                                 .child(title.clone()),
                         )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(Theme::TEXT_MUTED))
-                                .child(if enabled { "Visible on Home" } else { "Hidden from Home" }),
-                        ),
+                        .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
+                            if enabled {
+                                "Visible on Home"
+                            } else {
+                                "Hidden from Home"
+                            },
+                        )),
                 )
                 .child(
                     div()
@@ -772,7 +774,11 @@ impl SenzoShell {
                         .px_2()
                         .py_2()
                         .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
-                        .aria_label(if enabled { format!("Hide {}", title) } else { format!("Show {}", title) })
+                        .aria_label(if enabled {
+                            format!("Hide {}", title)
+                        } else {
+                            format!("Show {}", title)
+                        })
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.toggle_home_section(&key, cx);
                         }))
@@ -798,7 +804,12 @@ impl SenzoShell {
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.move_home_section(&up_key, -1, cx);
                     }))
-                    .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child("↑")),
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_PRIMARY))
+                            .child("↑"),
+                    ),
             );
 
             let down_key = section.key.clone();
@@ -815,7 +826,12 @@ impl SenzoShell {
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.move_home_section(&down_key, 1, cx);
                     }))
-                    .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child("↓")),
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_PRIMARY))
+                            .child("↓"),
+                    ),
             );
 
             panel = panel.child(row);
@@ -2749,11 +2765,7 @@ impl SenzoShell {
     }
 
     fn render_home_artwork(&self, cx: &mut Context<Self>) -> gpui::Div {
-        let mut content = div()
-            .w_full()
-            .flex()
-            .flex_col()
-            .gap_6();
+        let mut content = div().w_full().flex().flex_col().gap_6();
 
         for (index, preference) in self.home_settings.sections.iter().enumerate() {
             if !preference.enabled {
@@ -3175,47 +3187,42 @@ impl SenzoShell {
                 ),
         );
 
-        let mut page = div()
-            .w_full()
-            .flex()
-            .flex_col()
-            .gap_6();
+        let mut page = div().w_full().flex().flex_col().gap_6();
         if self.home_settings.hero_enabled {
             page = page.child(hero);
         }
-        page.child(self.render_home_artwork(cx))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .child(
-                        div()
-                            .text_lg()
-                            .text_color(rgb(Theme::TEXT_PRIMARY))
-                            .child("Built for your screen"),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap_3()
-                            .child(feature_tile(
-                                "DISCOVER",
-                                "Movies & TV",
-                                "A unified place for metadata, catalogues and recommendations.",
-                            ))
-                            .child(feature_tile(
-                                "ORGANIZE",
-                                "Your library",
-                                "Keep saved titles, collections and viewing progress together.",
-                            ))
-                            .child(feature_tile(
-                                "EXTEND",
-                                "Your providers",
-                                "Choose and manage compatible add-ons when you are ready.",
-                            )),
-                    ),
-            )
+        page.child(self.render_home_artwork(cx)).child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(
+                    div()
+                        .text_lg()
+                        .text_color(rgb(Theme::TEXT_PRIMARY))
+                        .child("Built for your screen"),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .gap_3()
+                        .child(feature_tile(
+                            "DISCOVER",
+                            "Movies & TV",
+                            "A unified place for metadata, catalogues and recommendations.",
+                        ))
+                        .child(feature_tile(
+                            "ORGANIZE",
+                            "Your library",
+                            "Keep saved titles, collections and viewing progress together.",
+                        ))
+                        .child(feature_tile(
+                            "EXTEND",
+                            "Your providers",
+                            "Choose and manage compatible add-ons when you are ready.",
+                        )),
+                ),
+        )
     }
 
     fn render_settings(&self, cx: &mut Context<Self>) -> gpui::Div {
@@ -3768,7 +3775,13 @@ fn bind_shell_keys(cx: &mut App) {
     ]);
 }
 
-pub fn run(tokio: Handle, smoke_test: bool, metadata: MetadataClient, artwork: ArtworkService, settings: Arc<dyn SettingsRepository>) {
+pub fn run(
+    tokio: Handle,
+    smoke_test: bool,
+    metadata: MetadataClient,
+    artwork: ArtworkService,
+    settings: Arc<dyn SettingsRepository>,
+) {
     gpui_platform::application()
         .with_quit_mode(QuitMode::LastWindowClosed)
         .run(move |cx: &mut App| {
@@ -3819,8 +3832,9 @@ pub fn run(tokio: Handle, smoke_test: bool, metadata: MetadataClient, artwork: A
             };
 
             cx.open_window(options, move |window, cx| {
-                let shell =
-                    cx.new(|cx| SenzoShell::new(tokio, smoke_test, metadata, artwork, settings, window, cx));
+                let shell = cx.new(|cx| {
+                    SenzoShell::new(tokio, smoke_test, metadata, artwork, settings, window, cx)
+                });
                 let initial_focus = shell
                     .read(cx)
                     .navigation_focus

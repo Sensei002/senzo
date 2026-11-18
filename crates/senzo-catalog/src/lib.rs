@@ -5,8 +5,8 @@
 
 use std::collections::HashSet;
 
-use serde::{Deserialize, Serialize};
 use senzo_domain::{DomainError, RepositoryError, SettingKey, SettingsRepository};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub const HOME_SETTINGS_KEY: &str = "home.catalogs";
@@ -191,9 +191,13 @@ impl HomeSettings {
             return false;
         };
         if enabled {
-            let selected = self.sections.iter().filter(|section| {
-                section.enabled && section.hero_source_enabled && section.key != key
-            }).count();
+            let selected = self
+                .sections
+                .iter()
+                .filter(|section| {
+                    section.enabled && section.hero_source_enabled && section.key != key
+                })
+                .count();
             if selected >= MAX_HERO_SOURCES || !self.sections[index].enabled {
                 return false;
             }
@@ -256,7 +260,9 @@ pub enum HomeSettingsError {
     Json(#[from] serde_json::Error),
     #[error("Home settings version {found} is newer than supported version {supported}")]
     UnsupportedVersion { found: u16, supported: u16 },
-    #[error("Home section title must be at most {MAX_HOME_SECTION_TITLE_CHARS} characters and contain no control characters")]
+    #[error(
+        "Home section title must be at most {MAX_HOME_SECTION_TITLE_CHARS} characters and contain no control characters"
+    )]
     InvalidTitle,
     #[error("Home section '{0}' does not exist")]
     UnknownSection(String),
@@ -322,7 +328,10 @@ mod tests {
         assert_eq!(settings.sections.len(), 3);
         assert_eq!(settings.sections[0].key, "trending");
         assert!(settings.sections[0].hero_source_enabled);
-        assert_eq!(settings.sections.iter().filter(|item| item.enabled).count(), 3);
+        assert_eq!(
+            settings.sections.iter().filter(|item| item.enabled).count(),
+            3
+        );
     }
 
     #[test]
@@ -331,7 +340,11 @@ mod tests {
         assert!(settings.move_section("popular-tv", -1));
         assert_eq!(settings.sections[1].key, "popular-tv");
         assert_eq!(
-            settings.sections.iter().map(|item| item.order).collect::<Vec<_>>(),
+            settings
+                .sections
+                .iter()
+                .map(|item| item.order)
+                .collect::<Vec<_>>(),
             vec![0, 1, 2]
         );
         assert!(!settings.move_section("trending", -1));
@@ -357,7 +370,9 @@ mod tests {
     #[test]
     fn custom_titles_are_trimmed_and_bounded() {
         let mut settings = HomeSettings::default();
-        settings.set_section_title("trending", Some("  My picks  ")).unwrap();
+        settings
+            .set_section_title("trending", Some("  My picks  "))
+            .unwrap();
         assert_eq!(settings.sections[0].display_title(), "My picks");
         assert!(matches!(
             settings.set_section_title("trending", Some(&"x".repeat(81))),
@@ -371,7 +386,9 @@ mod tests {
         let mut settings = HomeSettings::default();
         settings.move_section("popular-tv", -1);
         settings.set_section_enabled("popular-movies", false);
-        settings.set_section_title("trending", Some("For tonight")).unwrap();
+        settings
+            .set_section_title("trending", Some("For tonight"))
+            .unwrap();
         settings.save(&repository).unwrap();
 
         let loaded = HomeSettings::load(&repository).unwrap();
@@ -414,9 +431,31 @@ mod tests {
         }"#;
         let settings: HomeSettings = serde_json::from_str(payload).unwrap();
         let settings = settings.normalized();
-        assert_eq!(settings.sections.iter().filter(|item| item.key == "trending").count(), 1);
-        assert!(settings.sections.iter().any(|item| item.key == "popular-movies"));
-        assert!(settings.sections.iter().any(|item| item.key == "popular-tv"));
-        assert!(settings.sections.iter().any(|item| item.key == "custom:addon:catalog"));
+        assert_eq!(
+            settings
+                .sections
+                .iter()
+                .filter(|item| item.key == "trending")
+                .count(),
+            1
+        );
+        assert!(
+            settings
+                .sections
+                .iter()
+                .any(|item| item.key == "popular-movies")
+        );
+        assert!(
+            settings
+                .sections
+                .iter()
+                .any(|item| item.key == "popular-tv")
+        );
+        assert!(
+            settings
+                .sections
+                .iter()
+                .any(|item| item.key == "custom:addon:catalog")
+        );
     }
 }
