@@ -24,7 +24,7 @@ permissions:
 concurrency:
   # Phase 6 close-out uses a fresh queue key so a stale pre-close-out native
   # dependency-install job cannot block the expanded live Stremio acceptance.
-  group: senzo-desktop-phase6-verified-${{ github.workflow }}-${{ github.ref }}
+  group: senzo-desktop-phase6-final-current-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
