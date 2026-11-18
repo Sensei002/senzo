@@ -2378,7 +2378,7 @@ impl SenzoShell {
         if !d.related.is_empty() {
             let mut related = div().w_full().flex().flex_col().gap_3()
                 .child(div().text_lg().text_color(rgb(Theme::TEXT_PRIMARY)).child("You may also like"));
-            let mut cards = div().w_full().flex().gap_4().overflow_x_scroll();
+            let mut cards = div().w_full().flex().gap_4().overflow_x_scrollbar();
             for (index, card) in d.related.iter().enumerate() {
                 let id = card.id;
                 let kind = card.media_type;
@@ -3411,6 +3411,7 @@ impl SenzoShell {
         let artwork = self.artwork.clone();
         let search_type = self.search_filter.search_type();
         let search_page = self.search_page;
+        let history_query = query.clone();
         cx.notify();
 
         cx.spawn(async move |this, cx| {
@@ -3531,7 +3532,7 @@ impl SenzoShell {
                 this.search_results = cards;
                 this.search_total_results = total_results;
                 this.search_total_pages = response_total_pages;
-                this.record_search_query(&query);
+                this.record_search_query(&history_query);
                 this.search_status = if is_empty {
                     SearchStatus::Empty
                 } else {
@@ -3686,6 +3687,7 @@ impl SenzoShell {
                 );
                 let mut recent = div().flex().flex_wrap().gap_2();
                 for (index, query) in self.recent_searches.iter().cloned().enumerate() {
+                    let search_query = query.clone();
                     recent = recent.child(
                         div().id(format!("recent-search-{index}")).tab_index(31 + index as isize)
                             .rounded_md().border_1().border_color(rgb(Theme::BORDER))
@@ -3693,8 +3695,8 @@ impl SenzoShell {
                             .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
                             .aria_label(format!("Search again for {query}"))
                             .on_click(cx.listener(move |this, _, window, cx| {
-                                this.search_input.update(cx, |input, cx| input.set_value(query.clone(), window, cx));
-                                this.update_search_query(query.clone(), cx);
+                                this.search_input.update(cx, |input, cx| input.set_value(search_query.clone(), window, cx));
+                                this.update_search_query(search_query.clone(), cx);
                             }))
                             .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(query)),
                     );
