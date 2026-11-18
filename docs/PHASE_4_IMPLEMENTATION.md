@@ -71,9 +71,29 @@ Passed in [SENZO Desktop CI run #517](https://github.com/Sensei002/senzo/actions
 - GPUI native window startup/render/shutdown smoke tests on both platforms.
 - Repository automation validation and Cargo.lock housekeeping.
 
+## Slice 5 — Independent Home shelf loading and ordered hero publication
+
+- Replaced the aggregate first-load barrier with one independent metadata/artwork worker per built-in Home shelf.
+- Each shelf publishes its own loaded cards, pagination metadata, skeleton/error resolution, and poster frames as soon as that shelf finishes; a slow or unavailable catalogue no longer blocks successful shelves.
+- Shelf API errors remain isolated and visible on the affected shelf. Unexpected worker termination is converted into a retryable per-shelf error without discarding already published shelves.
+- Home refresh cancels the prior generation. Late results from a superseded generation are discarded before touching current UI state.
+- Featured artwork is cached per source for the current generation and merged by the user's selected source order, not request completion order. Later sources stay pending until earlier selected sources resolve, then the carousel expands up to the eight-item cap.
+- Preserves the currently selected featured media item when the available hero sequence is rebuilt.
+- Added a unit test proving that a later hero source resolving first cannot appear ahead of the earlier selected source.
+
+### Slice 5 automated acceptance
+
+Passed in [SENZO Desktop CI run #519](https://github.com/Sensei002/senzo/actions/runs/44256725204) on November 18, 2026:
+
+- Windows and Linux formatting, Clippy and all workspace tests.
+- Native Windows x64 and Linux release builds.
+- GPUI native window startup/render/shutdown smoke tests on both platforms.
+- Windows and Linux binary artifacts uploaded.
+- Repository automation validation and Cargo.lock housekeeping.
+
 ## Still outstanding
 
-- Provider-neutral catalogue definitions and descriptor-based request/cache identity, with independently cancellable and incrementally published initial loads for each section. Current built-in requests run concurrently and preserve per-shelf page/error state, but initial shelf publication still waits for the aggregate artwork load.
+- Provider-neutral catalogue definitions and descriptor-based request/cache identity. The built-in shelves now load and publish independently; generic provider descriptors and reusable request/cache identities remain open.
 - Reusable collection rows and add-on catalogue registration. Add-on catalogue discovery must use the dedicated Stremio manifest/capability contracts from Phase 6; no add-on is bundled or silently enabled.
 - Continue Watching and release-aware shelves. These require the playback-progress and watched-state domain planned for Phase 11; SENZO will not show fabricated playback data.
 - Focus and scroll-position preservation across Home reordering and route changes.

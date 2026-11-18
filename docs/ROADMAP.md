@@ -105,7 +105,8 @@ See docs/PHASE_3_IMPLEMENTATION.md.
 - [x] Implement built-in Home catalogue shelves, horizontal poster rails, loading skeletons, empty/error states, and title-specific Details navigation.
 - [x] Implement custom Home section titles with validation and local persistence.
 - [x] Implement built-in shelf pagination, explicit Home refresh, bounded page/item limits, duplicate-safe page merging and stable media-based card identity.
-- [ ] Implement provider-neutral catalogue definitions, descriptor-based request/cache identity, and independently cancellable/incrementally published initial shelf loading.
+- [ ] Implement provider-neutral catalogue definitions and descriptor-based request/cache identity for reusable built-in and future provider shelves.
+- [x] Implement independently cancellable initial loads and incremental publication of each built-in shelf, with isolated errors and hero ordering independent of response completion.
 - [ ] Implement reusable collection rows.
 - [ ] Implement Continue Watching and release-aware sections (dependent on the playback/progress domain in Phase 11).
 - [ ] Implement add-on-provided catalogues using the Phase 6 Stremio manifest/resource contracts; no add-on is bundled or enabled by default.
@@ -116,10 +117,11 @@ See docs/PHASE_3_IMPLEMENTATION.md.
 - Featured carousel and persisted Home layout: [CI run #510](https://github.com/Sensei002/senzo/actions/runs/44248395951).
 - Built-in pagination, refresh and stable card identity: [CI run #515](https://github.com/Sensei002/senzo/actions/runs/44253403129).
 - Editable shelf titles: [CI run #517](https://github.com/Sensei002/senzo/actions/runs/44254968935).
+- Independent built-in shelf loading and ordered hero publication: [CI run #519](https://github.com/Sensei002/senzo/actions/runs/44256725204).
 
 Each listed run passed the Windows and Linux native formatting, Clippy, workspace tests, release build and GPUI startup/render/shutdown smoke-test gates for its source commit. These automated gates do not replace manual visual acceptance.
 
-**Gate:** Home is populated by real metadata and every hero/card opens the correct destination. Provider-neutral and add-on catalogues, collection rows, independently published section loading, progress/release-aware shelves and focus/scroll preservation remain open.
+**Gate:** Home is populated by real metadata and every hero/card opens the correct destination. Provider-neutral catalogue definitions/cache identity, add-on catalogues, collection rows, progress/release-aware shelves and focus/scroll preservation remain open.
 
 ## Phase 5 — Search, details, seasons and episodes
 
