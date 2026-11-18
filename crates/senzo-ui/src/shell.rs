@@ -4586,7 +4586,9 @@ impl SenzoShell {
     }
 
     fn load_addon_registry(&mut self, cx: &mut Context<Self>) {
-        if self.addon_busy || self.addon_registry_loaded {
+        // Navigation and native-window smoke tests must not schedule background
+        // storage work on GPUI's deterministic single-threaded test scheduler.
+        if self.smoke_test || self.addon_busy || self.addon_registry_loaded {
             return;
         }
         self.addon_busy = true;
