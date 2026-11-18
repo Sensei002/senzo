@@ -969,7 +969,10 @@ pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifes
                 "every resource must support at least one type".to_owned(),
             ));
         }
-        if resources.iter().any(|existing: &AddonResource| existing.name == resource_name) {
+        if resources
+            .iter()
+            .any(|existing: &AddonResource| existing.name == resource_name)
+        {
             return Err(AddonError::InvalidManifest(
                 "resource names must be unique".to_owned(),
             ));
@@ -1005,7 +1008,10 @@ pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifes
                 "catalogue type must be declared in the manifest types".to_owned(),
             ));
         }
-        if catalogs.iter().any(|catalog: &AddonCatalog| catalog.id == catalog_id) {
+        if catalogs
+            .iter()
+            .any(|catalog: &AddonCatalog| catalog.id == catalog_id)
+        {
             return Err(AddonError::InvalidManifest(
                 "catalogue IDs must be unique within an add-on".to_owned(),
             ));
@@ -1040,9 +1046,9 @@ pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifes
                 .and_then(Value::as_u64)
                 .map(|number| number as usize)
                 .or_else(|| (!options.is_empty()).then_some(1));
-            if options_limit.is_some_and(|limit| {
-                limit == 0 || (!options.is_empty() && limit > options.len())
-            }) {
+            if options_limit
+                .is_some_and(|limit| limit == 0 || (!options.is_empty() && limit > options.len()))
+            {
                 return Err(AddonError::InvalidManifest(
                     "catalogue optionsLimit is outside the declared options".to_owned(),
                 ));
@@ -1779,7 +1785,11 @@ mod tests {
         let ordered = manager.list_addons("default").unwrap();
         assert_eq!(ordered[0].id, second.id);
         assert_eq!(ordered[1].id, first.id);
-        assert!(manager.reorder_addons("default", &[first.id.clone(), first.id.clone()]).is_err());
+        assert!(
+            manager
+                .reorder_addons("default", &[first.id.clone(), first.id.clone()])
+                .is_err()
+        );
 
         let stored = store.list("default").unwrap();
         let first_record = stored.iter().find(|record| record.id == first.id).unwrap();
@@ -1851,8 +1861,16 @@ mod tests {
             .await
             .expect("public Cinemeta manifest must be reachable and valid");
         assert_eq!(preview.manifest.id, "com.linvo.cinemeta");
-        assert!(preview.manifest.supports_resource("catalog", "movie", "top"));
-        assert!(preview.manifest.supports_resource("meta", "movie", "tt0111161"));
+        assert!(
+            preview
+                .manifest
+                .supports_resource("catalog", "movie", "top")
+        );
+        assert!(
+            preview
+                .manifest
+                .supports_resource("meta", "movie", "tt0111161")
+        );
 
         let installed = manager
             .install_preview("live-acceptance", &preview)
@@ -1882,10 +1900,7 @@ mod tests {
             metadata.get("id").and_then(Value::as_str),
             Some("tt0111161")
         );
-        assert_eq!(
-            metadata.get("type").and_then(Value::as_str),
-            Some("movie")
-        );
+        assert_eq!(metadata.get("type").and_then(Value::as_str), Some("movie"));
     }
 
     #[test]

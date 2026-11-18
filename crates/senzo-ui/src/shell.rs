@@ -14,7 +14,6 @@ use gpui::{
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::scroll::ScrollableElement;
-use serde_json::Value;
 use senzo_addons::{
     AddonCatalogItem, AddonManager, AddonPreview, AddonStream, AddonSubtitle, ManagedAddon,
 };
@@ -31,6 +30,7 @@ use senzo_metadata::{
     DiscoverRequest, DiscoverSort, EpisodeDetails, Genre, MediaItem, MediaType, MetadataClient,
     MetadataError, Person, SearchType, SeasonDetails, SeasonSummary, VideoItem,
 };
+use serde_json::Value;
 use tokio::{runtime::Handle, sync::mpsc, task::JoinSet};
 use tokio_util::sync::CancellationToken;
 
@@ -4929,11 +4929,14 @@ impl SenzoShell {
     }
 
     fn find_addon_metadata(&mut self, addon_id: String, cx: &mut Context<Self>) {
-        if self.addon_busy { return; }
+        if self.addon_busy {
+            return;
+        }
         let media_type = self.addon_media_type_input.read(cx).value().to_string();
         let media_id = self.addon_media_id_input.read(cx).value().to_string();
         if media_type.trim().is_empty() || media_id.trim().is_empty() {
-            self.addon_error = Some("Enter a media type and ID before requesting metadata.".to_owned());
+            self.addon_error =
+                Some("Enter a media type and ID before requesting metadata.".to_owned());
             cx.notify();
             return;
         }
@@ -4944,30 +4947,50 @@ impl SenzoShell {
         self.addon_meta_result = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = runtime.spawn(async move {
-                manager.fetch_meta("default", &addon_id, media_type.trim(), media_id.trim()).await
-            }).await;
+            let result = runtime
+                .spawn(async move {
+                    manager
+                        .fetch_meta("default", &addon_id, media_type.trim(), media_id.trim())
+                        .await
+                })
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.addon_busy = false;
                 match result {
                     Ok(Ok(meta)) => {
                         this.addon_meta_result = Some(meta);
-                        this.addon_result_message = Some("Metadata response validated against the requested media type and ID.".to_owned());
+                        this.addon_result_message = Some(
+                            "Metadata response validated against the requested media type and ID."
+                                .to_owned(),
+                        );
                     }
                     Ok(Err(error)) => this.addon_error = Some(error.to_string()),
-                    Err(error) => this.addon_error = Some(format!("Metadata request failed: {error}")),
+                    Err(error) => {
+                        this.addon_error = Some(format!("Metadata request failed: {error}"))
+                    }
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 
     fn move_addon(&mut self, addon_id: String, direction: isize, cx: &mut Context<Self>) {
-        if self.addon_busy { return; }
-        let mut ids = self.addon_state.iter().map(|addon| addon.id.clone()).collect::<Vec<_>>();
-        let Some(current) = ids.iter().position(|id| id == &addon_id) else { return; };
+        if self.addon_busy {
+            return;
+        }
+        let mut ids = self
+            .addon_state
+            .iter()
+            .map(|addon| addon.id.clone())
+            .collect::<Vec<_>>();
+        let Some(current) = ids.iter().position(|id| id == &addon_id) else {
+            return;
+        };
         let target = current as isize + direction;
-        if target < 0 || target >= ids.len() as isize { return; }
+        if target < 0 || target >= ids.len() as isize {
+            return;
+        }
         ids.swap(current, target as usize);
         let manager = self.addon_manager.clone();
         let runtime = self.tokio.clone();
@@ -4975,10 +4998,12 @@ impl SenzoShell {
         self.addon_error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = runtime.spawn_blocking(move || {
-                manager.reorder_addons("default", &ids)?;
-                manager.list_addons("default")
-            }).await;
+            let result = runtime
+                .spawn_blocking(move || {
+                    manager.reorder_addons("default", &ids)?;
+                    manager.list_addons("default")
+                })
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.addon_busy = false;
                 match result {
@@ -4987,11 +5012,14 @@ impl SenzoShell {
                         this.addon_notice = Some("Provider order saved.".to_owned());
                     }
                     Ok(Err(error)) => this.addon_error = Some(error.to_string()),
-                    Err(error) => this.addon_error = Some(format!("Provider reorder failed: {error}")),
+                    Err(error) => {
+                        this.addon_error = Some(format!("Provider reorder failed: {error}"))
+                    }
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 
     fn find_addon_streams(&mut self, addon_id: String, cx: &mut Context<Self>) {
@@ -5048,7 +5076,11 @@ impl SenzoShell {
         let extras_raw = self.addon_catalog_extras_input.read(cx).value().to_string();
         let extras = match parse_addon_extras(&extras_raw) {
             Ok(extras) => extras,
-            Err(error) => { self.addon_error = Some(error); cx.notify(); return; }
+            Err(error) => {
+                self.addon_error = Some(error);
+                cx.notify();
+                return;
+            }
         };
         let manager = self.addon_manager.clone();
         let runtime = self.tokio.clone();
@@ -5102,12 +5134,7 @@ impl SenzoShell {
             .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
             .hover(|style| style.bg(rgb(Theme::SURFACE_HOVER)))
             .on_click(on_click)
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(Theme::ACCENT))
-                    .child(label),
-            )
+            .child(div().text_xs().text_color(rgb(Theme::ACCENT)).child(label))
     }
 
     fn render_addons(&self, cx: &mut Context<Self>) -> gpui::Div {
@@ -5368,24 +5395,32 @@ impl SenzoShell {
                         }
                         card = card.child(catalogs);
                     }
-                    let supports_meta = addon.enabled && manifest.resources.iter().any(|resource| resource.name == "meta");
+                    let supports_meta = addon.enabled
+                        && manifest
+                            .resources
+                            .iter()
+                            .any(|resource| resource.name == "meta");
                     if supports_meta {
                         let meta_id = addon_id.clone();
                         card = card.child(self.addon_control(
                             &format!("addon-{index}-metadata"),
                             "Get metadata",
                             93 + index as isize * 3,
-                            cx.listener(move |this, _, _, cx| this.find_addon_metadata(meta_id.clone(), cx)),
+                            cx.listener(move |this, _, _, cx| {
+                                this.find_addon_metadata(meta_id.clone(), cx)
+                            }),
                         ));
                     }
-                    let supports_streams = addon.enabled && manifest
-                        .resources
-                        .iter()
-                        .any(|resource| resource.name == "stream");
-                    let supports_subtitles = addon.enabled && manifest
-                        .resources
-                        .iter()
-                        .any(|resource| resource.name == "subtitles");
+                    let supports_streams = addon.enabled
+                        && manifest
+                            .resources
+                            .iter()
+                            .any(|resource| resource.name == "stream");
+                    let supports_subtitles = addon.enabled
+                        && manifest
+                            .resources
+                            .iter()
+                            .any(|resource| resource.name == "subtitles");
                     if supports_streams || supports_subtitles {
                         let mut actions = div().flex().flex_wrap().gap_2();
                         if supports_streams {
@@ -5394,7 +5429,9 @@ impl SenzoShell {
                                 &format!("addon-{index}-streams"),
                                 "Find streams",
                                 95 + index as isize * 2,
-                                cx.listener(move |this, _, _, cx| this.find_addon_streams(id.clone(), cx)),
+                                cx.listener(move |this, _, _, cx| {
+                                    this.find_addon_streams(id.clone(), cx)
+                                }),
                             ));
                         }
                         if supports_subtitles {
@@ -5402,7 +5439,9 @@ impl SenzoShell {
                                 &format!("addon-{index}-subtitles"),
                                 "Find subtitles",
                                 96 + index as isize * 2,
-                                cx.listener(move |this, _, _, cx| this.find_addon_subtitles(addon_id.clone(), cx)),
+                                cx.listener(move |this, _, _, cx| {
+                                    this.find_addon_subtitles(addon_id.clone(), cx)
+                                }),
                             ));
                         }
                         card = card.child(actions);
@@ -5446,13 +5485,17 @@ impl SenzoShell {
                             &format!("addon-{index}-move-up"),
                             "Move up",
                             112 + index as isize * 5,
-                            cx.listener(move |this, _, _, cx| this.move_addon(move_up_id.clone(), -1, cx)),
+                            cx.listener(move |this, _, _, cx| {
+                                this.move_addon(move_up_id.clone(), -1, cx)
+                            }),
                         ))
                         .child(self.addon_control(
                             &format!("addon-{index}-move-down"),
                             "Move down",
                             113 + index as isize * 5,
-                            cx.listener(move |this, _, _, cx| this.move_addon(move_down_id.clone(), 1, cx)),
+                            cx.listener(move |this, _, _, cx| {
+                                this.move_addon(move_down_id.clone(), 1, cx)
+                            }),
                         ))
                         .child(self.addon_control(
                             &format!("addon-{index}-remove"),
@@ -5524,13 +5567,51 @@ impl SenzoShell {
         }
 
         if let Some(meta) = self.addon_meta_result.as_ref() {
-            let title = meta.get("name").or_else(|| meta.get("title")).and_then(Value::as_str).unwrap_or("Metadata");
-            let description = meta.get("description").and_then(Value::as_str).unwrap_or("No description was provided.");
+            let title = meta
+                .get("name")
+                .or_else(|| meta.get("title"))
+                .and_then(Value::as_str)
+                .unwrap_or("Metadata");
+            let description = meta
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("No description was provided.");
             page = page.child(
-                div().flex().flex_col().gap_2().rounded_lg().border_1().border_color(rgb(Theme::BORDER)).bg(rgb(Theme::SURFACE)).p_4()
-                    .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(title.to_owned()))
-                    .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child(description.to_owned()))
-                    .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(format!("{} · {}", meta.get("type").and_then(Value::as_str).unwrap_or("unknown type"), meta.get("id").and_then(Value::as_str).unwrap_or("unknown ID"))))
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(rgb(Theme::BORDER))
+                    .bg(rgb(Theme::SURFACE))
+                    .p_4()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_PRIMARY))
+                            .child(title.to_owned()),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child(description.to_owned()),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(Theme::TEXT_MUTED))
+                            .child(format!(
+                                "{} · {}",
+                                meta.get("type")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("unknown type"),
+                                meta.get("id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("unknown ID")
+                            )),
+                    ),
             );
         }
         if let Some(message) = self.addon_result_message.as_deref() {
