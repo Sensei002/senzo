@@ -4947,7 +4947,7 @@ impl SenzoShell {
                 div()
                     .text_xs()
                     .text_color(rgb(Theme::ACCENT))
-                    .child(label),
+                    .child(label.into()),
             )
     }
 
