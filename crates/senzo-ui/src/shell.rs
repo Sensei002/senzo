@@ -19,8 +19,6 @@ use senzo_catalog::{
     HomeCollection, HomeCollectionsSettings, HomeSettings, home_collection_folder_key,
     visible_home_collections,
 };
-#[cfg(test)]
-use senzo_catalog::{HomeCollectionFolder, HomeCollectionPosterShape};
 use senzo_domain::{AppPage, SettingsRepository};
 #[cfg(test)]
 use senzo_metadata::PersonCredit;
