@@ -36,7 +36,7 @@ pub enum HomeCollectionPosterShape {
 }
 
 /// One locally-owned folder that can be rendered as a tile in a Home collection row.
-/// Artwork is resolved by the UI/artwork service and is not stored in this model.
+/// Only a sanitized TMDB artwork path is stored; decoded image frames stay in the UI cache.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HomeCollectionFolder {
     pub id: String,
@@ -874,6 +874,7 @@ mod tests {
             title: "Folder".to_owned(),
             poster_shape: HomeCollectionPosterShape::Poster,
             cover_emoji: None,
+            cover_artwork_path: None,
             hide_title: false,
         };
         let collections = vec![
@@ -994,6 +995,7 @@ mod tests {
                             title: "Duplicate folder".to_owned(),
                             poster_shape: HomeCollectionPosterShape::Poster,
                             cover_emoji: None,
+                            cover_artwork_path: None,
                             hide_title: false,
                         },
                     ],
