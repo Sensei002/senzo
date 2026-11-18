@@ -22,7 +22,9 @@ permissions:
   contents: write
 
 concurrency:
-  group: senzo-desktop-${{ github.workflow }}-${{ github.ref }}
+  # Phase 6 close-out uses a fresh queue key so a stale pre-close-out native
+  # dependency-install job cannot block the expanded live Stremio acceptance.
+  group: senzo-desktop-phase6-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -177,6 +179,7 @@ jobs:
 
   live-addon-acceptance:
     name: Live Stremio add-on acceptance (${{ matrix.os }})
+    timeout-minutes: 20
     if: github.event_name == 'push' && contains(github.event.head_commit.message, '[live-addon-acceptance]')
     strategy:
       fail-fast: false
