@@ -851,9 +851,7 @@ impl SenzoShell {
                 HomeShelfKey::PopularMovies => {
                     metadata.popular_movies(page, "en-US", &cancellation).await
                 }
-                HomeShelfKey::PopularTv => {
-                    metadata.popular_tv(page, "en-US", &cancellation).await
-                }
+                HomeShelfKey::PopularTv => metadata.popular_tv(page, "en-US", &cancellation).await,
             }
             .map_err(|error| metadata_error_message(&error))?;
 
@@ -888,13 +886,8 @@ impl SenzoShell {
                 let token = cancellation.child_token();
                 let poster_path = candidate.poster_path.clone();
                 jobs.spawn(async move {
-                    let poster = load_gpui_artwork(
-                        service,
-                        poster_path,
-                        ArtworkSize::W342,
-                        token,
-                    )
-                    .await;
+                    let poster =
+                        load_gpui_artwork(service, poster_path, ArtworkSize::W342, token).await;
                     (index, poster)
                 });
             }
@@ -1226,12 +1219,7 @@ impl SenzoShell {
                     )
                 }
                 Err(error) => {
-                    home_shelf_load_data(
-                        Vec::new(),
-                        Some(metadata_error_message(&error)),
-                        0,
-                        None,
-                    )
+                    home_shelf_load_data(Vec::new(), Some(metadata_error_message(&error)), 0, None)
                 }
             };
             let mut popular_movies = match movie_response {
@@ -1243,14 +1231,9 @@ impl SenzoShell {
                         page,
                         response.total_pages,
                     )
-                },
+                }
                 Err(error) => {
-                    home_shelf_load_data(
-                        Vec::new(),
-                        Some(metadata_error_message(&error)),
-                        0,
-                        None,
-                    )
+                    home_shelf_load_data(Vec::new(), Some(metadata_error_message(&error)), 0, None)
                 }
             };
             let mut popular_tv = match tv_response {
@@ -1262,14 +1245,9 @@ impl SenzoShell {
                         page,
                         response.total_pages,
                     )
-                },
+                }
                 Err(error) => {
-                    home_shelf_load_data(
-                        Vec::new(),
-                        Some(metadata_error_message(&error)),
-                        0,
-                        None,
-                    )
+                    home_shelf_load_data(Vec::new(), Some(metadata_error_message(&error)), 0, None)
                 }
             };
 
@@ -3791,14 +3769,12 @@ impl SenzoShell {
             .items_center()
             .gap_3()
             .child(
-                div()
-                    .flex_1()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(Theme::TEXT_MUTED))
-                            .child("HOME  /  DISCOVER"),
-                    ),
+                div().flex_1().child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(Theme::TEXT_MUTED))
+                        .child("HOME  /  DISCOVER"),
+                ),
             )
             .child(
                 div()
@@ -3824,12 +3800,7 @@ impl SenzoShell {
                     ),
             );
 
-        let mut page = div()
-            .w_full()
-            .flex()
-            .flex_col()
-            .gap_6()
-            .child(home_toolbar);
+        let mut page = div().w_full().flex().flex_col().gap_6().child(home_toolbar);
         if self.home_settings.hero_enabled {
             page = page.child(hero);
         }
@@ -4704,7 +4675,10 @@ mod tests {
     fn built_in_home_pagination_caps_reported_pages_and_uses_the_requested_page() {
         assert_eq!(bounded_home_total_pages(1, Some(1)), 1);
         assert_eq!(bounded_home_total_pages(3, Some(2)), 3);
-        assert_eq!(bounded_home_total_pages(3, Some(900)), MAX_HOME_CATALOGUE_PAGES);
+        assert_eq!(
+            bounded_home_total_pages(3, Some(900)),
+            MAX_HOME_CATALOGUE_PAGES
+        );
         assert_eq!(bounded_home_total_pages(1, None), 1);
     }
 
