@@ -61,9 +61,9 @@ A phase is complete only when its documented deliverables, automated checks, and
 - [x] Implement accessibility and directional focus behavior.
 - [ ] Establish screenshot/visual regression fixtures where practical.
 
-**Automated gate:** The GPUI interaction test exercises all seven destinations, directional wraparound, Back/Forward, Escape, dialog dismissal and focus restoration. Windows and Linux CI and native startup/render/shutdown smoke tests passed in CI run #44088401293.
+**Automated gate:** The GPUI interaction test exercises all seven destinations, directional wraparound, Back/Forward, Escape, dialog dismissal and focus restoration. It now also clicks the rendered Movies navigation control and dispatches mouse Navigate Back/Forward events. Windows and Linux formatting, Clippy, workspace tests, native release builds and startup/render/shutdown smoke tests passed in [SENZO Desktop CI #535](https://github.com/Sensei002/senzo/actions/runs/44271228972).
 
-**Remaining acceptance:** Manual mouse side-button and visual review on Windows and Linux. Pixel screenshot baselines have not yet been added. See docs/PHASE_2_IMPLEMENTATION.md.
+**Remaining acceptance:** Verify physical mouse side-button delivery and review the visual layout on Windows and Linux. Pixel screenshot baselines have not yet been added. See docs/PHASE_2_IMPLEMENTATION.md.
 
 ## Phase 3 — Networking, metadata and artwork foundation
 
@@ -98,7 +98,7 @@ See docs/PHASE_3_IMPLEMENTATION.md.
 
 ## Phase 4 — Home, catalogues and discovery
 
-<badge color="info">In progress — configurable Home layout, featured carousel, built-in pagination and editable shelf titles implemented</badge>
+<badge color="info">In progress — Home layout, hero, pagination, provider-definition registry and persisted collection rows implemented</badge>
 
 - [x] Implement first-slice Home layout preferences: show/hide the three built-in catalogue sections, reorder shelves, toggle the featured hero, and persist preferences locally.
 - [x] Implement a native featured carousel that pulls backdrops from up to two enabled built-in catalogue sources, with keyboard-focusable wraparound navigation and a title-specific Details action.
@@ -106,10 +106,10 @@ See docs/PHASE_3_IMPLEMENTATION.md.
 - [x] Implement custom Home section titles with validation and local persistence.
 - [x] Implement built-in shelf pagination, explicit Home refresh, bounded page/item limits, duplicate-safe page merging and stable media-based card identity.
 - [x] Implement the provider-neutral catalogue descriptor schema and stable built-in request/cache identities, including revision-aware stale-response protection.
-- [ ] Implement reusable provider registry/adapters so add-ons and future integrations can supply catalogues through that contract.
+- [x] Implement the validated provider-definition registry and built-in TMDB adapter; actual Stremio/add-on catalogue execution remains dependent on Phase 6 manifest/resource contracts.
 - [x] Implement independently cancellable initial loads and incremental publication of each built-in shelf, with isolated errors and hero ordering independent of response completion.
 - [x] Implement stable provider/media-type/catalogue/revision descriptors and reject initial/page results whose descriptor identity is no longer active.
-- [ ] Implement reusable collection rows.
+- [x] Implement reusable native collection rows and a versioned, bounded local Home collection-settings projection.
 - [ ] Implement Continue Watching and release-aware sections (dependent on the playback/progress domain in Phase 11).
 - [ ] Implement add-on-provided catalogues using the Phase 6 Stremio manifest/resource contracts; no add-on is bundled or enabled by default.
 - [x] Implement per-page scroll-offset preservation and stable Home card/featured-action focus restoration across Back/Forward, sidebar navigation, and title/person details return.
@@ -122,10 +122,11 @@ See docs/PHASE_3_IMPLEMENTATION.md.
 - Independent built-in shelf loading and ordered hero publication: [CI run #519](https://github.com/Sensei002/senzo/actions/runs/44256725204).
 - Provider-neutral descriptor schema and stale-response identity guards: [CI run #523](https://github.com/Sensei002/senzo/actions/runs/44259302648).
 - Route-aware Home scroll/focus preservation: [CI run #527](https://github.com/Sensei002/senzo/actions/runs/44261770211).
+- Provider-definition registry, persisted collection rows, pointer-click and mouse Navigate Back/Forward interaction tests, and Windows/Linux native build/smoke gates: [SENZO Desktop CI #535](https://github.com/Sensei002/senzo/actions/runs/44271228972).
 
 Each listed run passed the Windows and Linux native formatting, Clippy, workspace tests, release build and GPUI startup/render/shutdown smoke-test gates for its source commit. These automated gates do not replace manual visual acceptance.
 
-**Gate:** Home is populated by real metadata and every hero/card opens the correct destination. Reusable provider adapters, collection rows, add-on catalogues, progress/release-aware shelves and manual visual/interactive acceptance remain open.
+**Gate:** Home is populated by real metadata and every hero/card opens the correct destination. Actual Stremio catalogue execution (Phase 6), Continue Watching/release-aware shelves (Phase 11), and manual visual/interactive acceptance remain open.
 
 ## Phase 5 — Search, details, seasons and episodes
 

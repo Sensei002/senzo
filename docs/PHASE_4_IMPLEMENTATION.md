@@ -1,6 +1,6 @@
 # Phase 4 — Home, catalogues and discovery
 
-**Status:** In progress on `development`. The persisted Home layout, featured carousel, built-in shelf pagination/refresh, stable catalogue identity, editable shelf titles, independent initial loading, and route-aware scroll/focus restoration are implemented and automated-accepted. Reusable collection rows/adapters, add-on catalogues, progress-aware shelves, and manual visual acceptance remain open.
+**Status:** In progress on `development`. The persisted Home layout, featured carousel, built-in shelf pagination/refresh, stable catalogue identity, editable shelf titles, independent initial loading, route-aware scroll/focus restoration, provider-definition registry, and persisted collection-row projection are implemented and automated-accepted. Actual Stremio catalogue execution, progress-aware shelves, and manual visual acceptance remain open.
 
 ## Slice 1 — Configurable built-in Home layout
 
@@ -132,16 +132,37 @@ Passed in [SENZO Desktop CI run #527](https://github.com/Sensei002/senzo/actions
 
 **Manual visual acceptance remains outstanding:** CI verifies compilation, tests and smoke rendering; it does not yet exercise real mouse/keyboard focus restoration and scroll offsets through interactive navigation on both Windows and Linux.
 
+## Slice 8 — Provider-definition registry and persisted Home collection rows
+
+- Added `HomeCatalogProviderAdapter` as the provider-definition boundary and `HomeCatalogProviderRegistry` for validated registration, lookup, deterministic enumeration and removal.
+- The registry rejects invalid provider IDs, provider spoofing, malformed catalogue descriptors, duplicate keys within a provider and collisions with already registered catalogue keys. Registration is validated before any definitions are published.
+- Registered the built-in TMDB Home catalogues through `BuiltInTmdbHomeCatalogProvider`; the Home loader now obtains its definitions through the same registry rather than bypassing the provider boundary.
+- This registry handles catalogue declarations and stable descriptors only. It does not pretend to execute remote provider protocols: Stremio manifests, resource capability matching, catalogue requests and add-on lifecycle remain owned by Phase 6.
+- Added versioned `HomeCollectionsSettings` persistence using the existing `SettingsRepository` key/value store (`home.collections`), with normalization and hard limits of 64 visible collections and 100 folders per collection.
+- Connected the saved collection projection to Home using the existing reusable native `home_collection_row` and folder-card components. Home renders only locally persisted collection rows; no sample or fabricated collections are inserted.
+- Added tests for persistence/normalization, stable provider registry behavior, spoofed providers and duplicate catalogue keys.
+
+### Slice 8 automated acceptance
+
+Passed the substantive Windows and Linux gates in [SENZO Desktop CI #535](https://github.com/Sensei002/senzo/actions/runs/44271228972) on November 18, 2026:
+
+- Formatting and Clippy on Windows and Linux.
+- All workspace tests on Windows and Linux, including the new registry, collection-persistence and mouse-navigation interaction tests.
+- Native Windows x64 and Linux release builds.
+- GPUI startup/render/shutdown smoke tests on Windows and Linux.
+- Windows and Linux development binaries uploaded; repository automation validation passed.
+
+The workflow's remaining post-job cache cleanup is housekeeping and does not change the result of these completed build/test/smoke-test steps.
+
 ## Still outstanding
 
-- Reusable provider registry/adapters so future add-ons, collection sources and media integrations can supply definitions through the descriptor contract.
-- Reusable collection rows and add-on catalogue registration. Add-on catalogue discovery must use the dedicated Stremio manifest/capability contracts from Phase 6; no add-on is bundled or silently enabled.
+- Actual Stremio/add-on catalogue adapters and request execution, using the dedicated manifest, resource and capability contracts from Phase 6. The Phase 4 provider registry currently validates and indexes declarations; it does not implement the Stremio protocol. No add-on is bundled, installed, or silently enabled.
 - Continue Watching and release-aware shelves. These require the playback-progress and watched-state domain planned for Phase 11; SENZO will not show fabricated playback data.
 
 - Manual visual/interactive acceptance of the hero, pagination, title-editor and focus/scroll flows on Windows and Linux. CI startup/render/shutdown smoke tests are not a substitute for visual review.
 
 ## Verification boundary
 
-The Phase 3 hosted Preview acceptance remains a separate completed gate recorded in `docs/PHASE_3_IMPLEMENTATION.md`. Phase 4 is not complete until its remaining deliverables and their relevant acceptance criteria pass. The Home changes above have been automated-accepted on both supported desktop CI targets, but that does not claim the outstanding manual visual review or deferred provider/playback integrations are complete.
+The Phase 3 hosted Preview acceptance remains a separate completed gate recorded in `docs/PHASE_3_IMPLEMENTATION.md`. The Phase 4 provider-definition registry and persisted collection-row projection passed the Windows and Linux automated gates in [SENZO Desktop CI #535](https://github.com/Sensei002/senzo/actions/runs/44271228972). Phase 4 remains open until Stremio catalogue execution (Phase 6 contracts), progress-aware shelves (Phase 11 playback/progress domain), and manual visual acceptance are complete.
 
 The pinned Nuvio Desktop source baseline and Home architecture findings are documented in `docs/NUVIO_SOURCE_AUDIT.md` and `docs/NUVIO_TO_SENZO_MAPPING.md`. In particular, Nuvio's Home feature uses stable catalogue definitions, descriptor signatures for cache identity, independent request publication, and a separate collection/progress boundary; SENZO is following those product boundaries with native Rust/GPUI equivalents rather than copying Kotlin/Compose code.

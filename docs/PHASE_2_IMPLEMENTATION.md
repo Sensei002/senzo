@@ -1,6 +1,6 @@
 # Phase 2 — Native GPUI application shell and design system
 
-**Status:** Implementation and automated CI acceptance passed. Manual visual acceptance remains pending.
+**Status:** Implementation and automated CI acceptance passed. Pointer-click and synthesized mouse Back/Forward navigation-event paths are now covered by the GPUI interaction test. Physical mouse side-button and manual visual acceptance remain pending.
 
 ## Design reference
 
@@ -21,6 +21,7 @@ The implementation adapts Nuvio Desktop's desktop navigation and application-she
 - Accessibility labels, selected/expanded state, keyboard shortcut metadata and visible keyboard-focus styling.
 - Unit tests for route history and design tokens.
 - A GPUI interaction test covering all seven destinations, directional wraparound, Back/Forward, Escape, keyboard-shortcut dialog dismissal and focus restoration.
+- The same interaction test performs a pointer click on the rendered Movies navigation item and dispatches GPUI mouse Navigate Back/Forward events, validating the route-history behavior used by physical side buttons.
 
 ## CI acceptance
 
@@ -34,6 +35,8 @@ The implementation adapts Nuvio Desktop's desktop navigation and application-she
 - [x] Linux GPUI window startup, render and shutdown smoke test under Xvfb.
 - [x] GPUI keyboard route/focus interaction test.
 - [x] Windows and Linux development binaries uploaded as workflow artifacts.
+- [x] Windows and Linux pointer-click plus mouse Navigate Back/Forward interaction assertions in [SENZO Desktop CI #535](https://github.com/Sensei002/senzo/actions/runs/44271228972).
+- [x] Windows and Linux release builds, GPUI startup/render/shutdown smoke tests and development binary uploads in [SENZO Desktop CI #535](https://github.com/Sensei002/senzo/actions/runs/44271228972).
 
 **Artifacts:**
 - `senzo-windows-x64-foundation-29397f507b2f89692f657a1266ac6eb9e3e240a8`
@@ -43,8 +46,8 @@ Download both from the [Actions run](https://github.com/Sensei002/senzo/actions/
 
 ## Remaining manual acceptance
 
-- [ ] Verify mouse-click navigation and mouse side-button Back/Forward on Windows.
-- [ ] Verify mouse-click navigation and mouse side-button Back/Forward on Linux.
+- [ ] Verify physical mouse side-button Back/Forward behavior on Windows (the GPUI Navigate event path is automated-tested; hardware delivery still needs a real desktop).
+- [ ] Verify physical mouse side-button Back/Forward behavior on Linux (the GPUI Navigate event path is automated-tested; hardware delivery still needs a real desktop).
 - [ ] Review windowed/fullscreen transitions and the complete visual layout at common desktop resolutions on both platforms.
 
 The CI smoke tests prove native startup, rendering and shutdown. The GPUI interaction test proves keyboard navigation and focus behavior. They do not replace human visual review or physical mouse testing.
