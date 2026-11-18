@@ -1,6 +1,6 @@
 # Phase 3 — Networking, metadata and artwork foundation
 
-**Status:** In progress — metadata, artwork, native Home/Search, Movie/TV/Person Details and unified retryable metadata-error UX are implemented on `development`. The Vercel `development` Preview now has `TMDB_READ_ACCESS_TOKEN` configured and rebuilt from the correct branch; `/api/health` reports `tmdbConfigured: true`, and a real TMDB-backed trending request returns HTTP 200. Final Windows/Linux desktop CI and native live acceptance are being rerun after fixing a stale test constructor call. The Person endpoint remains a development Preview integration via [API PR #1](https://github.com/Sensei002/senzo-api/pull/1); production promotion remains a separate release decision.
+**Status:** Complete. Implementation, unit/fault-injection coverage, hosted Preview contract acceptance, and compiled native metadata/artwork acceptance passed on Windows and Linux in [CI run #505](https://github.com/Sensei002/senzo/actions/runs/44244248291) on November 18, 2026. The SENZO API Person endpoint was verified on the `development` Preview; merging API PR #1 and promoting Person Details to Production remain separate release decisions.
 
 ## Scope
 
@@ -129,6 +129,36 @@ The live acceptance harness first exposed and fixed a URL-joining bug that could
 
 The Windows and Linux native build jobs now also have an opt-in Rust integration smoke mode (`senzo --metadata-smoke-test`). It runs the app's real `MetadataClient` and `ArtworkService` against the hosted Preview, including Home catalogues, all Search filters, Movie/TV/Person Details, seasons/episodes and a real TMDB image decode. `scripts/native-metadata-smoke.mjs` runs the compiled native binary through a loopback-only Node proxy that adds the Vercel bypass header upstream. The bypass secret is removed from the child process environment; the SENZO binary receives only a loopback API URL and no deployment secret. The ordinary GPUI window startup/shutdown smoke check remains separate and still runs on every normal CI build.
 
-## Remaining Phase 3 acceptance
+## Phase 3 completion acceptance
 
-Phase 3 remains open until the expanded acceptance suite passes against the protected API Preview on Windows and Linux, and native checks confirm the integrated metadata/artwork workflows plus the local Retry/stale-request regression coverage. The Preview token is now configured, the correct development deployment has been rebuilt, and direct health plus TMDB-backed API calls both pass. The latest desktop CI failure was a test call site that omitted the new `SettingsRepository` constructor argument; the test now uses a minimal in-memory repository. The next `[live-api-acceptance]` run validates hosted routes and the compiled native metadata/artwork smoke test on Windows and Linux. Offline, 429, 5xx, cache, coalescing and cancellation rules have deterministic local HTTP coverage. API PR #1 remains intentionally unmerged: production Person Details is still a separate release decision, and no production branch has been modified.
+**Final gate: passed — November 18, 2026, CI run [#505](https://github.com/Sensei002/senzo/actions/runs/44244248291).**
+
+Both Windows Server 2022 and Ubuntu 24.04 completed all native desktop checks successfully:
+
+- Rust formatting and Clippy passed with warnings denied.
+- All workspace tests passed, including metadata request validation, URL safety, cache limits/eviction, cancellation, retries, 429/5xx behavior, request coalescing and offline recovery.
+- Native release builds passed.
+- GPUI native application startup, render and shutdown smoke tests passed.
+- The compiled native `MetadataClient` and `ArtworkService` integration passed against the protected Vercel Preview.
+
+The native integration reported these successful checks on **both** platforms:
+
+- Hosted API health and server-side TMDB configuration.
+- Trending, popular movie and popular TV Home catalogues.
+- Multi-search, movie-only Search and TV-only Search.
+- Movie Details, credits, videos, images and external IDs.
+- TV Details, credits, videos, images, external IDs, season metadata and episode details.
+- Person Details for TMDB person 287, including profile data and combined filmography credits.
+- A live TMDB poster download and JPEG decode to a 342 × 513 RGBA8 image.
+
+The separate live hosted API contract acceptance job also passed on Windows and Linux. It exercises the protected API routes and artwork CDN bounds/signature validation. The repository automation and URL-safety tests passed as well.
+
+### Preview and credential boundary
+
+The Vercel `senzo-api` Preview variable `TMDB_READ_ACCESS_TOKEN` is scoped to the `development` branch. Deployment `dpl_53fYJS1zxuVR8BwSUjo6oqFKZ97f` is the correct development deployment. Its health endpoint reports `tmdbConfigured: true`, and live TMDB-backed requests return HTTP 200. The token remains exclusively on the hosted API; it is not present in SENZO desktop binaries or GitHub Actions. The separate GitHub Actions `VERCEL_AUTOMATION_BYPASS_SECRET` is only used by the loopback test proxy to reach the protected Preview.
+
+### Release boundary
+
+SENZO API [PR #1](https://github.com/Sensei002/senzo-api/pull/1) remains the development implementation of the Person details/combined-credits route and was successfully validated through its Preview. It has not been merged or promoted to Production. Production rollout is a separate release decision and does not invalidate the completed development Preview acceptance. No `main` branch or production deployment was changed.
+
+**Phase 3 exit criteria are satisfied. Phase 4 is now the active next phase.**

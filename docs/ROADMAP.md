@@ -67,7 +67,7 @@ A phase is complete only when its documented deliverables, automated checks, and
 
 ## Phase 3 — Networking, metadata and artwork foundation
 
-<badge color="info">In progress — implementation complete; cross-platform Preview acceptance rerun is underway</badge>
+<badge>Complete</badge>
 
 - [x] Implement typed SENZO API client for the existing hosted route contract.
 - [x] Implement search, trending, popular, movie/TV details, external-ID, season and episode request methods.
@@ -86,15 +86,15 @@ A phase is complete only when its documented deliverables, automated checks, and
 - [x] Implement dedicated movie/TV Details workflows, including TV season and episode navigation.
 - [x] Implement dedicated person Details workflow, including profile, biography, personal facts and movie/TV filmography.
 - [x] Implement explicit retry and offline/provider-outage UX across Home, Search and Details.
-- [ ] Complete live Preview acceptance of the person profile and combined-credits route from SENZO API PR #1; the `development` Preview deployment is already present.
-- [ ] Verify live hosted Home, Search, movie/TV/person details and artwork behavior on Windows and Linux.
+- [x] Complete live Preview acceptance of the person profile and combined-credits route from SENZO API PR #1 on the protected `development` Preview.
+- [x] Verify live hosted Home, Search, movie/TV/person details and artwork behavior on Windows and Linux using the compiled native client.
 - [x] Preserve TMDB credentials exclusively on the hosted API.
 
-**Current implementation gate:** The native Home, Search, Movie/TV Details, Person Details and recovery workflows are implemented on `development`. Windows/Linux desktop CI includes fault-injection tests for offline connections, transient 5xx, 429 retry policy, response-cache behavior, request coalescing and cancellation. The person profile/combined-credits backend is implemented on SENZO API `development`; [API PR #1](https://github.com/Sensei002/senzo-api/pull/1) has a successful Vercel Preview deployment and passing API CI but remains open, so production promotion remains a separate release decision. The GitHub Actions repository secret `VERCEL_AUTOMATION_BYPASS_SECRET` is configured and the protected Preview bypass works; the native smoke runner injects it only in a loopback proxy, and the SENZO process receives no deployment secret. `TMDB_READ_ACCESS_TOKEN` is now configured in the Vercel `senzo-api` Preview environment for branch `development`. The correct branch deployment `dpl_53fYJS1zxuVR8BwSUjo6oqFKZ97f` reports `tmdbConfigured: true`, and a live `/api/tmdb/trending/all/week` request returns HTTP 200 with TMDB metadata. CI run #503 had executed before the correct Preview redeploy and still saw the previous missing-token instance. The latest desktop failure is a stale test call site omitting the new `SettingsRepository` constructor argument; this is fixed on `development` and the cross-platform acceptance suite is being rerun.
+**Completion gate — passed:** CI run [#505](https://github.com/Sensei002/senzo/actions/runs/44244248291) passed all Windows and Linux native jobs, both protected live hosted API acceptance jobs, and repository automation validation. Both platforms passed formatting, Clippy, workspace tests, release builds, native GPUI startup/render/shutdown smoke tests, and the compiled native metadata/artwork smoke test. Native acceptance verified all three Home catalogues; multi/movie/TV Search; Movie and TV details with credits, videos, images and external IDs; TV season and episode; Person Details with combined filmography; and a real TMDB poster download/decode (342 × 513 JPEG). The live hosted acceptance jobs also passed on Windows and Linux. The Preview's server-side `TMDB_READ_ACCESS_TOKEN` is confirmed by `/api/health` (`tmdbConfigured: true`) and successful live TMDB-backed requests. The person endpoint remains in SENZO API `development` via [API PR #1](https://github.com/Sensei002/senzo-api/pull/1); production promotion/merge is a separate release decision and was not needed for this Preview acceptance. No `main` branch or production deployment was changed.
 
 See docs/PHASE_3_IMPLEMENTATION.md.
 
-**Phase 3 live acceptance rerun:** `[live-api-acceptance]` — this marker triggers the protected API Preview contract checks and native Windows/Linux metadata/artwork smoke tests after the Preview token was configured and the GPUI test constructor was corrected.
+**Phase 3 completion record:** November 18, 2026 — all automated and live Preview acceptance gates passed in [SENZO Desktop CI run #505](https://github.com/Sensei002/senzo/actions/runs/44244248291). Phase 4 can now continue from its existing first-slice baseline.
 
 ## Phase 4 — Home, catalogues and discovery
 
