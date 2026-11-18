@@ -1,6 +1,8 @@
 # Phase 5 — Search, details, seasons and episodes
 
-**Status:** Implementation committed to `development`; final Windows/Linux and live hosted API acceptance is pending.
+**Status:** Complete on `development`.
+
+**Completion record:** November 18, 2026 — [SENZO Desktop CI run #569](https://github.com/Sensei002/senzo/actions/runs/44364656528) passed every required job: Windows and Linux native validation, both live hosted API acceptance jobs, repository automation validation, and Cargo.lock housekeeping.
 
 **Reference baseline:** Nuvio Desktop commit `65061186dde35fc0a0f90b05d380f2318133f227`, audited in `docs/NUVIO_SOURCE_AUDIT.md` and mapped in `docs/NUVIO_TO_SENZO_MAPPING.md`. This is a Rust/GPUI implementation of the upstream workflows and boundaries, not a Kotlin/Compose port.
 
@@ -57,4 +59,4 @@
 
 ## Completion acceptance
 
-This document will be changed to **Complete** and linked to the final CI run only after Windows and Linux checks, live hosted API acceptance, native smoke tests and lockfile housekeeping have all passed for the final Phase 5 commit.
+**Completion gate — passed:** [SENZO Desktop CI run #569](https://github.com/Sensei002/senzo/actions/runs/44364656528) completed successfully for the final Phase 5 implementation commit. Windows and Linux both passed formatting, Clippy, workspace tests, native release builds, startup/render/shutdown smoke tests, and compiled native metadata/artwork integration. The live hosted API acceptance matrix passed on both Windows and Linux. Repository automation validation and Cargo.lock housekeeping also passed. Phase 5 is complete; Phase 6 can begin.
