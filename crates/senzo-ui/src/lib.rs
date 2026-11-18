@@ -2,6 +2,7 @@
 
 mod artwork;
 pub mod components;
+mod discovery;
 mod navigation;
 mod shell;
 mod theme;
