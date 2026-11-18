@@ -4874,6 +4874,7 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use senzo_catalog::{HomeCollectionFolder, HomeCollectionPosterShape};
     use senzo_domain::{RepositoryError, SettingKey};
 
     struct TestSettingsRepository;
