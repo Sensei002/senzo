@@ -9,8 +9,8 @@ use std::{
 use gpui::{
     App, Bounds, ColorExt, Context, Entity, FocusHandle, Image, ImageFormat, KeyBinding, Menu,
     MenuItem, MouseButton, NavigationDirection, QuitMode, Render, RenderImage, SharedString,
-    Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div, img,
-    prelude::*, px, rgb, size,
+    ScrollHandle, Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, actions,
+    div, img, point, prelude::*, px, rgb, size,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
@@ -268,6 +268,15 @@ fn home_media_type_key(media_type: MediaType) -> &'static str {
     }
 }
 
+fn home_card_focus_id(key: HomeShelfKey, media_type: MediaType, id: u64) -> String {
+    format!(
+        "home-{}-{}-{}",
+        key.as_str(),
+        home_media_type_key(media_type),
+        id
+    )
+}
+
 fn append_unique_home_cards(
     existing: &mut Vec<HomeMediaCard>,
     incoming: Vec<HomeMediaCard>,
@@ -423,6 +432,11 @@ pub(crate) struct SenzoShell {
     home_title_inputs: HashMap<String, Entity<InputState>>,
     _home_title_subscriptions: Vec<Subscription>,
     home_title_errors: HashMap<String, String>,
+    home_card_focus_handles: HashMap<String, FocusHandle>,
+    last_home_focus_id: Option<String>,
+    home_return_focus_id: Option<String>,
+    page_scroll_handle: ScrollHandle,
+    page_scroll_offsets: HashMap<AppPage, gpui::Point<gpui::Pixels>>,
     search_input: Entity<InputState>,
     _search_input_subscription: Subscription,
     search_filter: SearchFilter,
@@ -607,6 +621,12 @@ impl SenzoShell {
             tracing::warn!(error = %error, "could not load persisted Home layout; using defaults");
             HomeSettings::default()
         });
+        let home_featured_info_focus = cx.focus_handle();
+        let mut home_card_focus_handles = HashMap::new();
+        home_card_focus_handles.insert(
+            "home-featured-more-info".to_owned(),
+            home_featured_info_focus,
+        );
         let mut home_title_inputs = HashMap::new();
         let mut home_title_subscriptions = Vec::new();
         for section in &home_settings.sections {
@@ -654,6 +674,11 @@ impl SenzoShell {
             home_title_inputs,
             _home_title_subscriptions: home_title_subscriptions,
             home_title_errors: HashMap::new(),
+            home_card_focus_handles,
+            last_home_focus_id: None,
+            home_return_focus_id: None,
+            page_scroll_handle: ScrollHandle::new(),
+            page_scroll_offsets: HashMap::new(),
             search_input,
             _search_input_subscription: search_input_subscription,
             search_filter: SearchFilter::All,
@@ -683,6 +708,73 @@ impl SenzoShell {
         }
     }
 
+    fn remember_current_page_scroll(&mut self) {
+        self.page_scroll_offsets
+            .insert(self.navigation.current(), self.page_scroll_handle.offset());
+    }
+
+    fn focused_home_card_id(&self, window: &Window) -> Option<String> {
+        self.home_card_focus_handles
+            .iter()
+            .find(|(_, handle)| handle.is_focused(window))
+            .map(|(id, _)| id.clone())
+    }
+
+    fn remember_focused_home_card(&mut self, window: &Window) {
+        if self.navigation.current() == AppPage::Home {
+            if let Some(id) = self.focused_home_card_id(window) {
+                self.last_home_focus_id = Some(id);
+            }
+        }
+    }
+
+    fn ensure_home_card_focus_handles(
+        &mut self,
+        key: HomeShelfKey,
+        cards: &[HomeMediaCard],
+        cx: &mut Context<Self>,
+    ) {
+        let section_index = self
+            .home_settings
+            .sections
+            .iter()
+            .position(|section| section.key == key.as_str())
+            .unwrap_or(0);
+        let base_tab = 100 + (section_index as isize * 50);
+        for (index, card) in cards.iter().enumerate() {
+            let id = home_card_focus_id(key, card.media_type, card.id);
+            if !self.home_card_focus_handles.contains_key(&id) {
+                let focus = cx.focus_handle().tab_index(base_tab + index as isize);
+                self.home_card_focus_handles.insert(id, focus);
+            }
+        }
+    }
+
+    fn restore_page_position(
+        &self,
+        page: AppPage,
+        focus_id: Option<String>,
+        window: &mut Window,
+    ) {
+        let offset = self
+            .page_scroll_offsets
+            .get(&page)
+            .copied()
+            .unwrap_or_else(|| point(px(0.0), px(0.0)));
+        let scroll_handle = self.page_scroll_handle.clone();
+        let focus_handle = focus_id
+            .as_ref()
+            .and_then(|id| self.home_card_focus_handles.get(id))
+            .cloned();
+
+        window.on_next_frame(move |window, cx| {
+            scroll_handle.set_offset(offset);
+            if let Some(focus_handle) = focus_handle {
+                window.focus(&focus_handle, cx);
+            }
+        });
+    }
+
     fn focus_page(&self, page: AppPage, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(handle) = self.navigation_focus.get(&page) {
             window.focus(handle, cx);
@@ -690,9 +782,17 @@ impl SenzoShell {
     }
 
     fn navigate(&mut self, page: AppPage, window: &mut Window, cx: &mut Context<Self>) {
+        let previous = self.navigation.current();
+        self.remember_current_page_scroll();
+        self.remember_focused_home_card(window);
         if self.navigation.navigate(page) {
             self.menu_open = false;
             self.focus_page(page, window, cx);
+            let focus_id = (page == AppPage::Home)
+                .then(|| self.last_home_focus_id.clone())
+                .flatten();
+            self.restore_page_position(page, focus_id, window);
+            let _ = previous;
             cx.notify();
         }
     }
@@ -730,16 +830,22 @@ impl SenzoShell {
             return;
         }
         if self.details.is_some() {
-            self.close_details(cx);
+            self.close_details(window, cx);
             return;
         }
         if self.person_details.is_some() {
-            self.close_person_details(cx);
+            self.close_person_details(window, cx);
             return;
         }
+        self.remember_current_page_scroll();
+        self.remember_focused_home_card(window);
         if self.navigation.back() {
             let page = self.navigation.current();
             self.focus_page(page, window, cx);
+            let focus_id = (page == AppPage::Home)
+                .then(|| self.last_home_focus_id.clone())
+                .flatten();
+            self.restore_page_position(page, focus_id, window);
             cx.notify();
         }
     }
@@ -748,9 +854,15 @@ impl SenzoShell {
         if self.dialog.is_some() || self.menu_open {
             return;
         }
+        self.remember_current_page_scroll();
+        self.remember_focused_home_card(window);
         if self.navigation.can_go_forward() && self.navigation.forward() {
             let page = self.navigation.current();
             self.focus_page(page, window, cx);
+            let focus_id = (page == AppPage::Home)
+                .then(|| self.last_home_focus_id.clone())
+                .flatten();
+            self.restore_page_position(page, focus_id, window);
             cx.notify();
         }
     }
@@ -1012,6 +1124,18 @@ impl SenzoShell {
                 match result {
                     Ok(data) => {
                         append_unique_home_cards(&mut shelf.cards, data.cards);
+                        let focus_cards = shelf
+                            .cards
+                            .iter()
+                            .map(|card| HomeMediaCard {
+                                id: card.id,
+                                media_type: card.media_type,
+                                title: card.title.clone(),
+                                detail: card.detail.clone(),
+                                poster: card.poster.clone(),
+                            })
+                            .collect::<Vec<_>>();
+                        this.ensure_home_card_focus_handles(key, &focus_cards, cx);
                         shelf.page = data.page;
                         shelf.total_pages = data.total_pages;
                         shelf.load_more_error = None;
@@ -1413,6 +1537,7 @@ impl SenzoShell {
                     {
                         return;
                     }
+                    this.ensure_home_card_focus_handles(key, &data.cards, cx);
                     *this.home_shelf_mut(key) = HomeShelfState {
                         status: HomeCatalogueStatus::Loaded,
                         error: data.error,
@@ -1497,8 +1622,12 @@ impl SenzoShell {
         media_type: MediaType,
         title: String,
         poster: Option<Arc<RenderImage>>,
+        focus_id: String,
         cx: &mut Context<Self>,
     ) {
+        self.remember_current_page_scroll();
+        self.home_return_focus_id = Some(focus_id);
+        self.last_home_focus_id = self.home_return_focus_id.clone();
         match media_type {
             MediaType::Person => self.load_person_details(id, title, poster, cx),
             MediaType::Movie | MediaType::Tv => self.load_details(id, media_type, title, cx),
@@ -1748,9 +1877,12 @@ impl SenzoShell {
         self.load_details(id, media_type, title, cx);
     }
 
-    fn close_details(&mut self, cx: &mut Context<Self>) {
+    fn close_details(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.details_cancellation.cancel();
         self.details = None;
+        let page = self.navigation.current();
+        let focus_id = self.home_return_focus_id.take();
+        self.restore_page_position(page, focus_id, window);
         cx.notify();
     }
 
@@ -1829,7 +1961,7 @@ impl SenzoShell {
                 .bg(rgb(Theme::SURFACE))
                 .px_3()
                 .py_2()
-                .on_click(cx.listener(|this, _, _, cx| this.close_details(cx)))
+                .on_click(cx.listener(|this, _, window, cx| this.close_details(window, cx)))
                 .child(
                     div()
                         .text_sm()
@@ -2337,9 +2469,12 @@ impl SenzoShell {
         self.load_person_details(page.id, page.name.clone(), page.profile.clone(), cx);
     }
 
-    fn close_person_details(&mut self, cx: &mut Context<Self>) {
+    fn close_person_details(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.person_details_cancellation.cancel();
         self.person_details = None;
+        let page = self.navigation.current();
+        let focus_id = self.home_return_focus_id.take();
+        self.restore_page_position(page, focus_id, window);
         cx.notify();
     }
 
@@ -2411,7 +2546,7 @@ impl SenzoShell {
                 .py_2()
                 .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
                 .aria_label("Back to search results")
-                .on_click(cx.listener(|this, _, _, cx| this.close_person_details(cx)))
+                .on_click(cx.listener(|this, _, window, cx| this.close_person_details(window, cx)))
                 .child(
                     div()
                         .text_sm()
@@ -3141,25 +3276,27 @@ impl SenzoShell {
                 let media_type = card.media_type;
                 let media_title = card.title.clone();
                 let poster = card.poster.clone();
+                let focus_id = home_card_focus_id(key, card.media_type, card.id);
+                let focus = self.home_card_focus_handles.get(&focus_id);
+                let mut card_element = div()
+                    .id(focus_id.clone())
+                    .tab_index(tab_start + index as isize)
+                    .cursor_pointer()
+                    .rounded_lg()
+                    .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                    .aria_label(format!("Open {}", card.title));
+                if let Some(focus) = focus {
+                    card_element = card_element.track_focus(focus);
+                }
                 row = row.child(
-                    div()
-                        .id(format!(
-                            "home-{}-{}-{}",
-                            key.as_str(),
-                            home_media_type_key(card.media_type),
-                            card.id
-                        ))
-                        .tab_index(tab_start + index as isize)
-                        .cursor_pointer()
-                        .rounded_lg()
-                        .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
-                        .aria_label(format!("Open {}", card.title))
+                    card_element
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.open_home_card(
                                 id,
                                 media_type,
                                 media_title.clone(),
                                 poster.clone(),
+                                focus_id.clone(),
                                 cx,
                             );
                         }))
@@ -3770,6 +3907,11 @@ impl SenzoShell {
             hero_actions = hero_actions.child(
                 div()
                     .id("home-featured-more-info")
+                    .track_focus(
+                        self.home_card_focus_handles
+                            .get("home-featured-more-info")
+                            .expect("featured focus handle exists"),
+                    )
                     .tab_index(34)
                     .rounded_md()
                     .border_1()
@@ -3787,6 +3929,7 @@ impl SenzoShell {
                             featured_type,
                             featured_name.clone(),
                             featured_poster.clone(),
+                            "home-featured-more-info".to_owned(),
                             cx,
                         );
                     }))
@@ -4515,6 +4658,7 @@ impl Render for SenzoShell {
                     .child(
                         div()
                             .id("page-content")
+                            .track_scroll(&self.page_scroll_handle)
                             .flex_1()
                             .overflow_y_scroll()
                             .p_8()
@@ -4847,6 +4991,18 @@ mod tests {
             MAX_HOME_CATALOGUE_PAGES
         );
         assert_eq!(bounded_home_total_pages(1, None), 1);
+    }
+
+    #[test]
+    fn home_card_focus_identity_is_stable_across_reordering_and_pagination() {
+        let first = home_card_focus_id(HomeShelfKey::Trending, MediaType::Movie, 42);
+        let after_reorder = home_card_focus_id(HomeShelfKey::Trending, MediaType::Movie, 42);
+        let second = home_card_focus_id(HomeShelfKey::Trending, MediaType::Movie, 43);
+        let tv_collision = home_card_focus_id(HomeShelfKey::Trending, MediaType::Tv, 42);
+
+        assert_eq!(first, after_reorder);
+        assert_ne!(first, second);
+        assert_ne!(first, tv_collision);
     }
 
     #[test]
