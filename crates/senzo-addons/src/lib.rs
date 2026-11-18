@@ -1475,7 +1475,19 @@ fn build_resource_url(
         let path = format!("{}/{}.json", url.path().trim_end_matches('/'), extra_path);
         url.set_path(&path);
     }
-0    let mut encoded = String::with_capacity(value.len());
+
+    // URL path mutation can restore characters such as "|" to their literal
+    // form. Re-apply Nuvio's idempotent escaping to the fully composed URL.
+    let encoded_url = encode_unsafe_http_url_characters(url.as_str());
+    let url = Url::parse(&encoded_url).map_err(|_| AddonError::InvalidUrl)?;
+    if url.as_str().len() > MAX_URL_LENGTH {
+        return Err(AddonError::InvalidUrl);
+    }
+    Ok(url)
+}
+
+fn encode_addon_path_component(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
     for byte in value.bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
             encoded.push(byte as char);
@@ -1498,12 +1510,12 @@ fn encode_unsafe_http_url_characters(value: &str) -> String {
             '"' => Some("22"),
             '<' => Some("3C"),
             '>' => Some("3E"),
-            '\\' => Some("5C"),
             '^' => Some("5E"),
-            '`' => Some("60"),
             '{' => Some("7B"),
             '|' => Some("7C"),
             '}' => Some("7D"),
+            c if c as u32 == 92 => Some("5C"),
+            c if c as u32 == 96 => Some("60"),
             _ => None,
         };
         if let Some(hex) = replacement {
