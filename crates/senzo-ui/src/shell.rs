@@ -14,7 +14,7 @@ use gpui::{
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
-use senzo_catalog::HomeSettings;
+use senzo_catalog::{BuiltInHomeCatalog as HomeShelfKey, HomeCatalogDefinition, HomeSettings};
 use senzo_domain::{AppPage, SettingsRepository};
 #[cfg(test)]
 use senzo_metadata::PersonCredit;
@@ -63,23 +63,6 @@ enum HomeCatalogueStatus {
     Loaded,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum HomeShelfKey {
-    Trending,
-    PopularMovies,
-    PopularTv,
-}
-
-impl HomeShelfKey {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Trending => "trending",
-            Self::PopularMovies => "popular-movies",
-            Self::PopularTv => "popular-tv",
-        }
-    }
-}
-
 const MAX_HOME_FEATURED_ITEMS: usize = 8;
 const MAX_HOME_SHELF_ITEMS: usize = 120;
 const MAX_HOME_CATALOGUE_PAGES: u32 = 500;
@@ -111,12 +94,7 @@ fn selected_home_hero_sources(settings: &HomeSettings) -> Vec<HomeShelfKey> {
         .sections
         .iter()
         .filter(|section| section.enabled && section.hero_source_enabled)
-        .filter_map(|section| match section.key.as_str() {
-            "trending" => Some(HomeShelfKey::Trending),
-            "popular-movies" => Some(HomeShelfKey::PopularMovies),
-            "popular-tv" => Some(HomeShelfKey::PopularTv),
-            _ => None,
-        })
+        .filter_map(|section| HomeShelfKey::from_key(&section.key))
         .take(2)
         .collect()
 }
@@ -195,6 +173,7 @@ struct HomeShelfLoadData {
 }
 
 struct HomeShelfPageData {
+    descriptor_identity: String,
     page: u32,
     total_pages: u32,
     cards: Vec<HomeMediaCard>,
@@ -202,6 +181,7 @@ struct HomeShelfPageData {
 
 struct HomeShelfInitialResult {
     key: HomeShelfKey,
+    descriptor_identity: String,
     data: HomeShelfLoadData,
     featured: Vec<HomeFeaturedCard>,
 }
@@ -432,6 +412,7 @@ pub(crate) struct SenzoShell {
     home_cancellation: CancellationToken,
     home_catalogue_generation: u64,
     home_catalogue_status: HomeCatalogueStatus,
+    home_catalogue_descriptor_identities: HashMap<HomeShelfKey, String>,
     home_trending: HomeShelfState,
     home_popular_movies: HomeShelfState,
     home_popular_tv: HomeShelfState,
@@ -662,6 +643,7 @@ impl SenzoShell {
             home_cancellation: CancellationToken::new(),
             home_catalogue_generation: 0,
             home_catalogue_status: HomeCatalogueStatus::NotRequested,
+            home_catalogue_descriptor_identities: HashMap::new(),
             home_trending: HomeShelfState::default(),
             home_popular_movies: HomeShelfState::default(),
             home_popular_tv: HomeShelfState::default(),
@@ -925,6 +907,15 @@ impl SenzoShell {
         };
 
         let generation = self.home_catalogue_generation;
+        let Some(descriptor_identity) = self
+            .home_catalogue_descriptor_identities
+            .get(&key)
+            .cloned()
+        else {
+            self.home_shelf_mut(key).loading_more = false;
+            cx.notify();
+            return;
+        };
         let metadata = self.metadata.clone();
         let artwork = self.artwork.clone();
         let cancellation = self.home_cancellation.child_token();
@@ -992,6 +983,7 @@ impl SenzoShell {
             }
 
             Ok::<_, String>(HomeShelfPageData {
+                descriptor_identity,
                 page,
                 total_pages,
                 cards,
@@ -1013,6 +1005,11 @@ impl SenzoShell {
                 shelf.loading_more = false;
                 match result {
                     Ok(data) => {
+                        if this.home_catalogue_descriptor_identities.get(&key)
+                            != Some(&data.descriptor_identity)
+                        {
+                            return;
+                        }
                         append_unique_home_cards(&mut shelf.cards, data.cards);
                         shelf.page = data.page;
                         shelf.total_pages = data.total_pages;
@@ -1343,6 +1340,16 @@ impl SenzoShell {
             shelf.load_more_error = None;
         }
 
+        let definitions = HomeCatalogDefinition::built_ins();
+        self.home_catalogue_descriptor_identities = definitions
+            .iter()
+            .filter_map(|definition| {
+                definition
+                    .built_in_catalog()
+                    .map(|catalog| (catalog, definition.cache_identity()))
+            })
+            .collect();
+
         let metadata = self.metadata.clone();
         let artwork = self.artwork.clone();
         let hero_sources = if self.home_settings.hero_enabled {
@@ -1359,17 +1366,23 @@ impl SenzoShell {
         let (sender, mut receiver) = mpsc::unbounded_channel::<HomeShelfInitialResult>();
         let task = self.tokio.spawn(async move {
             let mut jobs = JoinSet::new();
-            for key in [
-                HomeShelfKey::Trending,
-                HomeShelfKey::PopularMovies,
-                HomeShelfKey::PopularTv,
-            ] {
+            for definition in definitions {
+                let Some(key) = definition.built_in_catalog() else {
+                    continue;
+                };
                 let metadata = metadata.clone();
                 let artwork = artwork.clone();
                 let token = cancellation.child_token();
                 let is_hero_source = hero_sources.contains(&key);
                 jobs.spawn(async move {
-                    load_home_shelf_initial(key, metadata, artwork, is_hero_source, token).await
+                    load_home_shelf_initial(
+                        definition,
+                        metadata,
+                        artwork,
+                        is_hero_source,
+                        token,
+                    )
+                    .await
                 });
             }
 
@@ -1396,9 +1409,15 @@ impl SenzoShell {
 
                     let HomeShelfInitialResult {
                         key,
+                        descriptor_identity,
                         data,
                         featured,
                     } = result;
+                    if this.home_catalogue_descriptor_identities.get(&key)
+                        != Some(&descriptor_identity)
+                    {
+                        return;
+                    }
                     *this.home_shelf_mut(key) = HomeShelfState {
                         status: HomeCatalogueStatus::Loaded,
                         error: data.error,
@@ -4261,12 +4280,14 @@ impl SenzoShell {
 }
 
 async fn load_home_shelf_initial(
-    key: HomeShelfKey,
+    definition: HomeCatalogDefinition,
     metadata: MetadataClient,
     artwork: ArtworkService,
     is_hero_source: bool,
     cancellation: CancellationToken,
 ) -> Option<HomeShelfInitialResult> {
+    let key = definition.built_in_catalog()?;
+    let descriptor_identity = definition.cache_identity();
     let response = match key {
         HomeShelfKey::Trending => metadata.trending(1, "en-US", &cancellation).await,
         HomeShelfKey::PopularMovies => metadata.popular_movies(1, "en-US", &cancellation).await,
@@ -4376,6 +4397,7 @@ async fn load_home_shelf_initial(
 
     Some(HomeShelfInitialResult {
         key,
+        descriptor_identity,
         data,
         featured,
     })

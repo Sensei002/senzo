@@ -14,6 +14,166 @@ pub const HOME_SETTINGS_VERSION: u16 = 1;
 pub const MAX_HOME_SECTIONS: usize = 32;
 pub const MAX_HOME_SECTION_TITLE_CHARS: usize = 80;
 pub const MAX_HERO_SOURCES: usize = 2;
+pub const BUILT_IN_HOME_CATALOGUE_DESCRIPTOR_VERSION: u32 = 1;
+
+/// Provider-neutral identity of a catalogue request. Its revision is part of
+/// the identity so changing a provider's request contract invalidates stale
+/// request/cache entries without changing a user's stable section key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HomeCatalogDescriptor {
+    pub provider: String,
+    pub media_type: String,
+    pub catalog_id: String,
+    pub revision: u32,
+}
+
+impl HomeCatalogDescriptor {
+    pub fn new(
+        provider: impl Into<String>,
+        media_type: impl Into<String>,
+        catalog_id: impl Into<String>,
+        revision: u32,
+    ) -> Result<Self, HomeCatalogDefinitionError> {
+        let descriptor = Self {
+            provider: provider.into(),
+            media_type: media_type.into(),
+            catalog_id: catalog_id.into(),
+            revision,
+        };
+        if !valid_descriptor_component(&descriptor.provider, 48)
+            || !valid_descriptor_component(&descriptor.media_type, 24)
+            || !valid_descriptor_component(&descriptor.catalog_id, 128)
+            || descriptor.revision == 0
+        {
+            return Err(HomeCatalogDefinitionError::InvalidDescriptor);
+        }
+        Ok(descriptor)
+    }
+
+    /// Length-prefixed identity is deterministic and safe from delimiter ambiguity.
+    pub fn identity(&self) -> String {
+        format!(
+            "v{}|p{}:{}|t{}:{}|c{}:{}",
+            self.revision,
+            self.provider.len(),
+            self.provider,
+            self.media_type.len(),
+            self.media_type,
+            self.catalog_id.len(),
+            self.catalog_id
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BuiltInHomeCatalog {
+    Trending,
+    PopularMovies,
+    PopularTv,
+}
+
+impl BuiltInHomeCatalog {
+    pub const ALL: [Self; 3] = [Self::Trending, Self::PopularMovies, Self::PopularTv];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Trending => "trending",
+            Self::PopularMovies => "popular-movies",
+            Self::PopularTv => "popular-tv",
+        }
+    }
+
+    pub const fn default_title(self) -> &'static str {
+        match self {
+            Self::Trending => "Trending this week",
+            Self::PopularMovies => "Popular movies",
+            Self::PopularTv => "Popular TV shows",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        match key {
+            "trending" => Some(Self::Trending),
+            "popular-movies" => Some(Self::PopularMovies),
+            "popular-tv" => Some(Self::PopularTv),
+            _ => None,
+        }
+    }
+}
+
+/// Runtime definition of one Home shelf. The descriptor, not the display
+/// title or order, determines the request/cache identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HomeCatalogDefinition {
+    pub key: String,
+    pub default_title: String,
+    pub descriptor: HomeCatalogDescriptor,
+    pub supports_pagination: bool,
+}
+
+impl HomeCatalogDefinition {
+    pub fn built_in(catalog: BuiltInHomeCatalog) -> Self {
+        let (media_type, catalog_id) = match catalog {
+            BuiltInHomeCatalog::Trending => ("all", "trending-week"),
+            BuiltInHomeCatalog::PopularMovies => ("movie", "popular"),
+            BuiltInHomeCatalog::PopularTv => ("tv", "popular"),
+        };
+        Self {
+            key: catalog.as_str().to_owned(),
+            default_title: catalog.default_title().to_owned(),
+            descriptor: HomeCatalogDescriptor {
+                provider: "senzo-tmdb".to_owned(),
+                media_type: media_type.to_owned(),
+                catalog_id: catalog_id.to_owned(),
+                revision: BUILT_IN_HOME_CATALOGUE_DESCRIPTOR_VERSION,
+            },
+            supports_pagination: true,
+        }
+    }
+
+    pub fn built_ins() -> [Self; 3] {
+        BuiltInHomeCatalog::ALL.map(Self::built_in)
+    }
+
+    pub fn built_in_catalog(&self) -> Option<BuiltInHomeCatalog> {
+        if self.descriptor.provider != "senzo-tmdb" {
+            return None;
+        }
+        match (self.descriptor.media_type.as_str(), self.descriptor.catalog_id.as_str()) {
+            ("all", "trending-week") => Some(BuiltInHomeCatalog::Trending),
+            ("movie", "popular") => Some(BuiltInHomeCatalog::PopularMovies),
+            ("tv", "popular") => Some(BuiltInHomeCatalog::PopularTv),
+            _ => None,
+        }
+    }
+
+    pub fn cache_identity(&self) -> String {
+        format!(
+            "home:{}|{}|pagination={}",
+            self.key,
+            self.descriptor.identity(),
+            self.supports_pagination
+        )
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum HomeCatalogDefinitionError {
+    #[error("Home catalogue descriptor contains an invalid or oversized field")]
+    InvalidDescriptor,
+}
+
+fn valid_descriptor_component(value: &str, max_bytes: usize) -> bool {
+    let bytes = value.as_bytes();
+    !bytes.is_empty()
+        && bytes.len() <= max_bytes
+        && bytes.first().is_some_and(u8::is_ascii_alphanumeric)
+        && bytes.last().is_some_and(u8::is_ascii_alphanumeric)
+        && bytes.iter().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || b".-_".contains(byte)
+        })
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -319,6 +479,58 @@ mod tests {
             values.insert(key.as_str().to_owned(), value.to_owned());
             Ok(())
         }
+    }
+
+    #[test]
+    fn built_in_catalogue_definitions_have_stable_keys_and_cache_identities() {
+        let definitions = HomeCatalogDefinition::built_ins();
+        assert_eq!(
+            definitions.map(|definition| definition.key),
+            ["trending", "popular-movies", "popular-tv"]
+        );
+        assert_eq!(
+            definitions[0].built_in_catalog(),
+            Some(BuiltInHomeCatalog::Trending)
+        );
+        assert_eq!(
+            definitions[1].built_in_catalog(),
+            Some(BuiltInHomeCatalog::PopularMovies)
+        );
+        assert_eq!(
+            definitions[2].built_in_catalog(),
+            Some(BuiltInHomeCatalog::PopularTv)
+        );
+        assert_eq!(
+            HomeCatalogDefinition::built_in(BuiltInHomeCatalog::Trending).cache_identity(),
+            HomeCatalogDefinition::built_in(BuiltInHomeCatalog::Trending).cache_identity()
+        );
+        assert_ne!(
+            HomeCatalogDefinition::built_in(BuiltInHomeCatalog::Trending).cache_identity(),
+            HomeCatalogDefinition::built_in(BuiltInHomeCatalog::PopularMovies).cache_identity()
+        );
+    }
+
+    #[test]
+    fn catalogue_descriptor_identity_changes_with_revision_and_source_fields() {
+        let base = HomeCatalogDescriptor::new("provider-a", "movie", "popular", 1).unwrap();
+        let same = HomeCatalogDescriptor::new("provider-a", "movie", "popular", 1).unwrap();
+        let newer = HomeCatalogDescriptor::new("provider-a", "movie", "popular", 2).unwrap();
+        let other_provider =
+            HomeCatalogDescriptor::new("provider-b", "movie", "popular", 1).unwrap();
+        let other_type = HomeCatalogDescriptor::new("provider-a", "tv", "popular", 1).unwrap();
+
+        assert_eq!(base.identity(), same.identity());
+        assert_ne!(base.identity(), newer.identity());
+        assert_ne!(base.identity(), other_provider.identity());
+        assert_ne!(base.identity(), other_type.identity());
+    }
+
+    #[test]
+    fn catalogue_descriptors_reject_unsafe_or_unbounded_fields() {
+        assert!(HomeCatalogDescriptor::new("Bad Provider", "movie", "popular", 1).is_err());
+        assert!(HomeCatalogDescriptor::new("provider", "movie/type", "popular", 1).is_err());
+        assert!(HomeCatalogDescriptor::new("provider", "movie", &"x".repeat(129), 1).is_err());
+        assert!(HomeCatalogDescriptor::new("provider", "movie", "popular", 0).is_err());
     }
 
     #[test]
