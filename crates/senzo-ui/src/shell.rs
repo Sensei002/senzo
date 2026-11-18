@@ -5382,6 +5382,90 @@ mod tests {
             "Home toolbar control must remain within the main viewport"
         );
 
+        // Structural visual-regression fixtures at the supported minimum,
+        // standard 1080p, and full-HD desktop viewport sizes. GPUI CE 0.2.2's
+        // test context exposes layout bounds and input simulation rather than
+        // pixel readback, so assert the real rendered geometry here.
+        for (width, height) in [
+            (1024.0, 680.0),
+            (1280.0, 720.0),
+            (1920.0, 1080.0),
+        ] {
+            window_cx.simulate_resize(size(px(width), px(height)));
+            let viewport = window_cx.update(|window, _| window.viewport_size());
+            assert!(
+                (f32::from(viewport.width) - width).abs() < 1.0
+                    && (f32::from(viewport.height) - height).abs() < 1.0,
+                "GPUI test window should adopt the requested {width}x{height} viewport"
+            );
+
+            let resized_sidebar = window_cx
+                .debug_bounds("senzo-sidebar")
+                .expect("sidebar should remain rendered after resizing");
+            let resized_header = window_cx
+                .debug_bounds("senzo-header")
+                .expect("header should remain rendered after resizing");
+            let resized_page = window_cx
+                .debug_bounds("page-content")
+                .expect("page viewport should remain rendered after resizing");
+            let resized_hero = window_cx
+                .debug_bounds("home-featured-hero")
+                .expect("Home hero should remain rendered after resizing");
+            let resized_refresh = window_cx
+                .debug_bounds("home-refresh-catalogues")
+                .expect("Home refresh control should remain rendered after resizing");
+
+            let sidebar_right =
+                f32::from(resized_sidebar.origin.x + resized_sidebar.size.width);
+            let page_x = f32::from(resized_page.origin.x);
+            let page_right = page_x + f32::from(resized_page.size.width);
+            let hero_x = f32::from(resized_hero.origin.x);
+            let hero_right = hero_x + f32::from(resized_hero.size.width);
+            let refresh_x = f32::from(resized_refresh.origin.x);
+            let refresh_right = refresh_x + f32::from(resized_refresh.size.width);
+
+            assert!(
+                (f32::from(resized_sidebar.size.width) - Theme::SIDEBAR_WIDTH).abs() < 1.0,
+                "sidebar token should remain stable at {width}x{height}"
+            );
+            assert!(
+                (f32::from(resized_header.size.height) - Theme::HEADER_HEIGHT).abs() < 1.0,
+                "header token should remain stable at {width}x{height}"
+            );
+            assert!(
+                (page_x - sidebar_right).abs() < 1.0,
+                "page should begin directly after the sidebar at {width}x{height}"
+            );
+            assert!(
+                page_right <= width + 1.0 && f32::from(resized_page.size.height) > 0.0,
+                "page viewport should remain within the window at {width}x{height}"
+            );
+            assert!(
+                hero_x >= page_x && hero_right <= page_right + 1.0,
+                "featured hero should remain inside the page viewport at {width}x{height}"
+            );
+            assert!(
+                refresh_x >= page_x && refresh_right <= page_right + 1.0,
+                "Home refresh control should remain inside the page viewport at {width}x{height}"
+            );
+        }
+        window_cx.simulate_resize(size(px(1280.0), px(720.0)));
+
+        // Verify both documented keyboard paths enter and leave fullscreen.
+        let initial_fullscreen = window_cx.update(|window, _| window.is_fullscreen());
+        window_cx.simulate_keystrokes("f11");
+        assert_ne!(
+            window_cx.update(|window, _| window.is_fullscreen()),
+            initial_fullscreen,
+            "F11 should toggle fullscreen"
+        );
+        window_cx.simulate_keystrokes("alt-enter");
+        assert_eq!(
+            window_cx.update(|window, _| window.is_fullscreen()),
+            initial_fullscreen,
+            "Alt+Enter should restore the previous window mode"
+        );
+
         for expected in [
             AppPage::Movies,
             AppPage::TvShows,
