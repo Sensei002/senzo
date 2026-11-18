@@ -5936,8 +5936,8 @@ mod tests {
                 cx,
             );
             shell.home_catalogue_status = HomeCatalogueStatus::Loaded;
-            shell.movie_discovery.status = DiscoveryStatus::Loaded;
-            shell.tv_discovery.status = DiscoveryStatus::Loaded;
+            shell.movie_discovery.status = DiscoveryStatus::Empty;
+            shell.tv_discovery.status = DiscoveryStatus::Empty;
             let home_focus = shell
                 .navigation_focus
                 .get(&AppPage::Home)
