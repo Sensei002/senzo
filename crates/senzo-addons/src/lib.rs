@@ -1896,6 +1896,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn refresh_failure_keeps_the_last_valid_manifest_and_enabled_state() {
+        let store = Arc::new(MemoryStore::default());
+        let secrets = Arc::new(MemorySecrets::default());
+        let manager = AddonManager::new(store.clone(), secrets.clone());
+        let manifest_url = "https://addons.example/manifest.json";
+        let parsed_url = Url::parse(manifest_url).unwrap();
+        let preview = AddonPreview {
+            manifest_url: manifest_url.to_owned(),
+            display_address: redacted_url(&parsed_url),
+            manifest: parse_manifest(&parsed_url, MANIFEST).unwrap(),
+            allow_insecure_http: false,
+        };
+        let installed = manager.install_preview("default", &preview).unwrap();
+        let original_record = store.list("default").unwrap().remove(0);
+
+        // A private destination is rejected before any network request is sent.
+        secrets
+            .set(&original_record.secret_key, "https://localhost/manifest.json")
+            .unwrap();
+        assert!(
+            manager
+                .refresh_addon("default", &installed.id)
+                .await
+                .is_err()
+        );
+
+        let refreshed_record = store.list("default").unwrap().remove(0);
+        assert!(refreshed_record.enabled);
+        assert_eq!(refreshed_record.manifest_json, original_record.manifest_json);
+        assert!(refreshed_record.last_error.is_some());
+        let listed = manager.list_addons("default").unwrap();
+        assert_eq!(listed.len(), 1);
+        assert!(listed[0].enabled);
+        assert_eq!(
+            listed[0].manifest.as_ref().map(|manifest| manifest.id.as_str()),
+            Some("org.example.addon")
+        );
+    }
+
+    #[tokio::test]
     #[ignore = "requires access to the public Stremio Cinemeta service"]
     async fn live_cinemeta_manifest_and_catalog_compatibility() {
         let store = Arc::new(MemoryStore::default());
