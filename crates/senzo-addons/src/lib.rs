@@ -1519,9 +1519,10 @@ fn encode_unsafe_http_url_characters(value: &str) -> String {
         } else if character.is_control() {
             let mut bytes = [0; 4];
             for byte in character.encode_utf8(&mut bytes).as_bytes() {
+                let value = *byte;
                 encoded.push('%');
-                encoded.push(HEX[(byte >> 4) as usize] as char);
-                encoded.push(HEX[(byte & 0x0f) as usize] as char);
+                encoded.push(HEX[(value >> 4) as usize] as char);
+                encoded.push(HEX[(value & 0x0f) as usize] as char);
             }
         } else {
             // Existing percent escapes pass through unchanged; this makes the
