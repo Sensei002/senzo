@@ -91,6 +91,25 @@ Passed in [SENZO Desktop CI run #519](https://github.com/Sensei002/senzo/actions
 - Windows and Linux binary artifacts uploaded.
 - Repository automation validation and Cargo.lock housekeeping.
 
+## Slice 6 — Provider-neutral catalogue descriptors and request identity
+
+- Added `HomeCatalogDescriptor` with provider, media type, catalogue ID and descriptor revision. Fields are bounded and restricted to safe identifier characters.
+- Added the canonical `BuiltInHomeCatalog` key type and `HomeCatalogDefinition` metadata for the three TMDB-backed Home sources.
+- Added deterministic, delimiter-safe descriptor/cache identities. Display title and shelf ordering do not affect the identity; provider, media type, catalogue ID, revision and pagination capability do.
+- The GPUI Home loader now resolves built-in requests through the shared catalogue definitions rather than maintaining a duplicate local key enum.
+- Initial and paginated results carry their descriptor identity. Results are applied only while that identity still matches the active shelf contract, preventing stale data from being appended after a catalogue definition changes.
+- Added tests for stable built-in keys, deterministic identities, revision/provider/media-type changes and invalid/oversized descriptor fields.
+- This slice establishes the neutral definition/identity contract only. It does not claim that add-on, media-server or arbitrary provider adapters are implemented; those remain tied to their dedicated integration phases.
+
+### Slice 6 automated acceptance
+
+Passed in [SENZO Desktop CI run #523](https://github.com/Sensei002/senzo/actions/runs/44259302648) on November 18, 2026:
+
+- Windows and Linux formatting, Clippy and all workspace tests.
+- Native Windows x64 and Linux release builds.
+- GPUI native window startup/render/shutdown smoke tests on both platforms.
+- Repository automation validation, Windows/Linux artifact upload and Cargo.lock housekeeping.
+
 ## Still outstanding
 
 - Provider-neutral catalogue definitions and descriptor-based request/cache identity. The built-in shelves now load and publish independently; generic provider descriptors and reusable request/cache identities remain open.
