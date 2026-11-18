@@ -1064,7 +1064,10 @@ pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifes
             })?;
             let property_name = required_string(property, "name")?;
             validate_text("extra-property name", &property_name, 64)?;
-            if extra.iter().any(|existing: &AddonExtraProperty| existing.name == property_name) {
+            if extra
+                .iter()
+                .any(|existing: &AddonExtraProperty| existing.name == property_name)
+            {
                 return Err(AddonError::InvalidManifest(
                     "catalogue extra-property names must be unique".to_owned(),
                 ));
@@ -1739,10 +1742,9 @@ mod tests {
 
     #[test]
     fn configured_provider_path_tokens_are_preserved_and_not_double_encoded() {
-        let manifest = Url::parse(
-            "https://torrentio.strem.fun/realdebrid=abc|premiumize=xyz/manifest.json",
-        )
-        .unwrap();
+        let manifest =
+            Url::parse("https://torrentio.strem.fun/realdebrid=abc|premiumize=xyz/manifest.json")
+                .unwrap();
         let request =
             build_resource_url(&manifest, "stream", "movie", "tt0111161", &BTreeMap::new())
                 .unwrap();
@@ -1757,9 +1759,7 @@ mod tests {
         let url = Url::parse("https://addons.example/manifest.json").unwrap();
         let build_manifest = |count: usize| {
             let options = (0..count)
-                .map(|year| format!("\"{}\"",
-                    2026_i32.saturating_sub(year as i32)
-                ))
+                .map(|year| format!("\"{}\"", 2026_i32.saturating_sub(year as i32)))
                 .collect::<Vec<_>>()
                 .join(",");
             format!(
@@ -1782,9 +1782,7 @@ mod tests {
             accepted.catalogs[0].extra[0].options.len(),
             MAX_EXTRA_OPTIONS
         );
-        assert!(
-            parse_manifest(&url, &build_manifest(MAX_EXTRA_OPTIONS + 1)).is_err()
-        );
+        assert!(parse_manifest(&url, &build_manifest(MAX_EXTRA_OPTIONS + 1)).is_err());
     }
 
     #[test]
@@ -2109,7 +2107,10 @@ mod tests {
 
         // A private destination is rejected before any network request is sent.
         secrets
-            .set(&original_record.secret_key, "https://localhost/manifest.json")
+            .set(
+                &original_record.secret_key,
+                "https://localhost/manifest.json",
+            )
             .unwrap();
         assert!(
             manager
@@ -2120,13 +2121,19 @@ mod tests {
 
         let refreshed_record = store.list("default").unwrap().remove(0);
         assert!(refreshed_record.enabled);
-        assert_eq!(refreshed_record.manifest_json, original_record.manifest_json);
+        assert_eq!(
+            refreshed_record.manifest_json,
+            original_record.manifest_json
+        );
         assert!(refreshed_record.last_error.is_some());
         let listed = manager.list_addons("default").unwrap();
         assert_eq!(listed.len(), 1);
         assert!(listed[0].enabled);
         assert_eq!(
-            listed[0].manifest.as_ref().map(|manifest| manifest.id.as_str()),
+            listed[0]
+                .manifest
+                .as_ref()
+                .map(|manifest| manifest.id.as_str()),
             Some("org.example.addon")
         );
     }
@@ -2209,7 +2216,12 @@ mod tests {
             .install_preview("live-stream-acceptance", &preview)
             .expect("the validated Torrentio manifest must install for acceptance");
         let result = manager
-            .fetch_streams("live-stream-acceptance", &installed.id, "movie", "tt0137523")
+            .fetch_streams(
+                "live-stream-acceptance",
+                &installed.id,
+                "movie",
+                "tt0137523",
+            )
             .await
             .expect("Torrentio stream endpoint must return a Stremio stream response");
         assert!(
