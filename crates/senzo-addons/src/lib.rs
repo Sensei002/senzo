@@ -1164,6 +1164,8 @@ pub fn normalize_manifest_url(raw: &str, allow_insecure_http: bool) -> Result<Ur
         format!("https://{rest}")
     } else if raw.starts_with("https://") || raw.starts_with("http://") {
         raw.to_owned()
+    } else if raw.contains("://") {
+        return Err(AddonError::InvalidUrl);
     } else {
         format!("https://{raw}")
     };
@@ -1648,6 +1650,7 @@ mod tests {
             normalize_manifest_url("https://user:pass@addons.example/manifest.json", true).is_err()
         );
         assert!(normalize_manifest_url("file:///etc/passwd", true).is_err());
+        assert!(normalize_manifest_url("ftp://addons.example/manifest.json", true).is_err());
     }
 
     #[test]
