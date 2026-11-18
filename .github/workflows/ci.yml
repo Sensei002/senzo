@@ -193,7 +193,7 @@ jobs:
       - name: Resolve workspace lockfile
         run: cargo generate-lockfile
       - name: Verify public Stremio manifest and catalogue compatibility
-        run: cargo test -p senzo-addons live_cinemeta_manifest_and_catalog_compatibility -- --ignored --nocapture
+        run: cargo test -p senzo-addons live_ -- --ignored --nocapture
 
   lockfile:
     name: Commit resolved Cargo.lock
