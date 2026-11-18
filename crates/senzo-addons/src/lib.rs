@@ -7,7 +7,6 @@
 use std::{
     collections::BTreeMap,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
-    str::FromStr,
     sync::Arc,
     time::Duration,
 };
@@ -322,14 +321,13 @@ impl AddonHttpClient {
         let mut url = initial_url;
         for redirect_count in 0..=MAX_REDIRECTS {
             let addresses = resolve_public_destination(&url).await?;
-            let host = url.host_str().ok_or(AddonError::InvalidUrl)?;
             let mut builder = Client::builder()
                 .timeout(Duration::from_secs(18))
                 .connect_timeout(Duration::from_secs(5))
                 .redirect(Policy::none())
                 .no_proxy()
                 .user_agent(concat!("SENZO/", env!("CARGO_PKG_VERSION")));
-            if host.parse::<IpAddr>().is_err() {
+            if let Some(Host::Domain(host)) = url.host() {
                 builder = builder.resolve_to_addrs(host, &addresses);
             }
             let client = builder.build().map_err(|_| AddonError::Network)?;
@@ -1655,6 +1653,32 @@ mod tests {
         assert!(!listed[0].display_address.contains("private"));
         manager.remove_addon("default", &first.id).unwrap();
         assert!(manager.list_addons("default").unwrap().is_empty());
+    }
+
+    #[test]
+    fn stremio_stream_and_subtitle_objects_decode_expected_protocol_fields() {
+        let stream: AddonStream = serde_json::from_value(serde_json::json!({
+            "name": "Example provider",
+            "title": "1080p",
+            "infoHash": "0123456789abcdef0123456789abcdef01234567",
+            "fileIdx": 4,
+            "behaviorHints": { "notWebReady": true },
+            "providerSpecific": "preserved"
+        })).unwrap();
+        assert_eq!(stream.info_hash.as_deref(), Some("0123456789abcdef0123456789abcdef01234567"));
+        assert_eq!(stream.file_idx, Some(4));
+        assert_eq!(stream.extra.get("providerSpecific").and_then(Value::as_str), Some("preserved"));
+
+        let subtitle: AddonSubtitle = serde_json::from_value(serde_json::json!({
+            "id": "subtitle-1",
+            "url": "https://subtitles.example/en.srt",
+            "lang": "eng",
+            "label": "English",
+            "type": "srt"
+        })).unwrap();
+        assert_eq!(subtitle.language, "eng");
+        assert_eq!(subtitle.mime_type.as_deref(), Some("srt"));
+        assert_eq!(subtitle.label.as_deref(), Some("English"));
     }
 
     #[test]
