@@ -14,7 +14,8 @@ use gpui::{
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
-use senzo_domain::AppPage;
+use senzo_catalog::HomeSettings;
+use senzo_domain::{AppPage, SettingsRepository};
 #[cfg(test)]
 use senzo_metadata::PersonCredit;
 use senzo_metadata::{
@@ -304,6 +305,8 @@ pub(crate) struct SenzoShell {
     tokio: Handle,
     metadata: MetadataClient,
     artwork: ArtworkService,
+    settings: Arc<dyn SettingsRepository>,
+    home_settings: HomeSettings,
     home_cancellation: CancellationToken,
     home_catalogue_status: HomeCatalogueStatus,
     home_trending: HomeShelfState,
@@ -473,6 +476,7 @@ impl SenzoShell {
         smoke_test: bool,
         metadata: MetadataClient,
         artwork: ArtworkService,
+        settings: Arc<dyn SettingsRepository>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -490,6 +494,10 @@ impl SenzoShell {
                 this.update_search_query(input.read(cx).value().to_string(), cx);
             }
         });
+        let home_settings = HomeSettings::load(settings.as_ref()).unwrap_or_else(|error| {
+            tracing::warn!(error = %error, "could not load persisted Home layout; using defaults");
+            HomeSettings::default()
+        });
 
         Self {
             navigation: NavigationStack::new(),
@@ -498,6 +506,8 @@ impl SenzoShell {
             tokio,
             metadata,
             artwork,
+            settings,
+            home_settings,
             home_cancellation: CancellationToken::new(),
             home_catalogue_status: HomeCatalogueStatus::NotRequested,
             home_trending: HomeShelfState::default(),
@@ -637,6 +647,182 @@ impl SenzoShell {
         .detach();
     }
 
+    fn persist_home_settings(&mut self, cx: &mut Context<Self>) {
+        match self.home_settings.save(self.settings.as_ref()) {
+            Ok(()) => self.notification = Some("Home layout saved locally.".to_owned()),
+            Err(error) => {
+                tracing::error!(error = %error, "could not persist Home layout");
+                self.notification = Some("Could not save the Home layout.".to_owned());
+            }
+        }
+        cx.notify();
+    }
+
+    fn toggle_home_hero(&mut self, cx: &mut Context<Self>) {
+        self.home_settings.set_hero_enabled(!self.home_settings.hero_enabled);
+        self.persist_home_settings(cx);
+    }
+
+    fn toggle_home_section(&mut self, key: &str, cx: &mut Context<Self>) {
+        let enabled = self
+            .home_settings
+            .sections
+            .iter()
+            .find(|section| section.key == key)
+            .is_some_and(|section| section.enabled);
+        if self.home_settings.set_section_enabled(key, !enabled) {
+            self.persist_home_settings(cx);
+        }
+    }
+
+    fn move_home_section(&mut self, key: &str, direction: isize, cx: &mut Context<Self>) {
+        if self.home_settings.move_section(key, direction) {
+            self.persist_home_settings(cx);
+        }
+    }
+
+    fn render_home_layout_settings(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let hero_enabled = self.home_settings.hero_enabled;
+        let mut panel = div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .rounded_lg()
+            .border_1()
+            .border_color(rgb(Theme::BORDER))
+            .bg(rgb(Theme::SURFACE))
+            .p_4()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                    .child("HOME LAYOUT"),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(Theme::TEXT_MUTED))
+                    .child("Choose which catalogue shelves appear and arrange their order. Preferences are saved locally."),
+            )
+            .child(
+                div()
+                    .id("settings-home-hero-toggle")
+                    .tab_index(42)
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(Theme::SURFACE_RAISED))
+                    .px_3()
+                    .py_3()
+                    .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                    .aria_label(if hero_enabled { "Disable Home hero" } else { "Enable Home hero" })
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.toggle_home_hero(cx);
+                    }))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_PRIMARY))
+                            .child(if hero_enabled { "Featured hero  ·  ON" } else { "Featured hero  ·  OFF" }),
+                    ),
+            );
+
+        for (index, section) in self.home_settings.sections.iter().enumerate() {
+            let key = section.key.clone();
+            let title = section.display_title().to_owned();
+            let enabled = section.enabled;
+            let base_tab = 50 + (index as isize * 3);
+
+            let row = div()
+                .w_full()
+                .flex()
+                .items_center()
+                .gap_2()
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(Theme::BORDER))
+                .bg(rgb(Theme::SURFACE_RAISED))
+                .p_2()
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(rgb(Theme::TEXT_PRIMARY))
+                                .child(title.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(Theme::TEXT_MUTED))
+                                .child(if enabled { "Visible on Home" } else { "Hidden from Home" }),
+                        ),
+                )
+                .child(
+                    div()
+                        .id(format!("settings-home-toggle-{}", key))
+                        .tab_index(base_tab)
+                        .cursor_pointer()
+                        .rounded_md()
+                        .bg(rgb(Theme::ACCENT_DARK))
+                        .px_2()
+                        .py_2()
+                        .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                        .aria_label(if enabled { format!("Hide {}", title) } else { format!("Show {}", title) })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.toggle_home_section(&key, cx);
+                        }))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(Theme::ACCENT))
+                                .child(if enabled { "HIDE" } else { "SHOW" }),
+                        ),
+                );
+
+            let up_key = section.key.clone();
+            let row = row.child(
+                div()
+                    .id(format!("settings-home-up-{}", up_key))
+                    .tab_index(base_tab + 1)
+                    .cursor_pointer()
+                    .rounded_md()
+                    .px_2()
+                    .py_2()
+                    .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                    .aria_label(format!("Move {} up", title))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.move_home_section(&up_key, -1, cx);
+                    }))
+                    .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child("↑")),
+            );
+
+            let down_key = section.key.clone();
+            let row = row.child(
+                div()
+                    .id(format!("settings-home-down-{}", down_key))
+                    .tab_index(base_tab + 2)
+                    .cursor_pointer()
+                    .rounded_md()
+                    .px_2()
+                    .py_2()
+                    .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                    .aria_label(format!("Move {} down", title))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.move_home_section(&down_key, 1, cx);
+                    }))
+                    .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child("↓")),
+            );
+
+            panel = panel.child(row);
+        }
+
+        panel
+    }
     fn load_home_catalogue(&mut self, cx: &mut Context<Self>) {
         let all_shelves_recovered = [
             &self.home_trending,
@@ -2563,32 +2749,32 @@ impl SenzoShell {
     }
 
     fn render_home_artwork(&self, cx: &mut Context<Self>) -> gpui::Div {
-        div()
+        let mut content = div()
             .w_full()
             .flex()
             .flex_col()
-            .gap_6()
-            .child(self.render_home_shelf(
-                HomeShelfKey::Trending,
-                "Trending this week",
-                &self.home_trending,
-                100,
+            .gap_6();
+
+        for (index, preference) in self.home_settings.sections.iter().enumerate() {
+            if !preference.enabled {
+                continue;
+            }
+            let (key, shelf) = match preference.key.as_str() {
+                "trending" => (HomeShelfKey::Trending, &self.home_trending),
+                "popular-movies" => (HomeShelfKey::PopularMovies, &self.home_popular_movies),
+                "popular-tv" => (HomeShelfKey::PopularTv, &self.home_popular_tv),
+                _ => continue,
+            };
+            content = content.child(self.render_home_shelf(
+                key,
+                preference.display_title(),
+                shelf,
+                100 + (index as isize * 50),
                 cx,
-            ))
-            .child(self.render_home_shelf(
-                HomeShelfKey::PopularMovies,
-                "Popular movies",
-                &self.home_popular_movies,
-                150,
-                cx,
-            ))
-            .child(self.render_home_shelf(
-                HomeShelfKey::PopularTv,
-                "Popular TV shows",
-                &self.home_popular_tv,
-                200,
-                cx,
-            ))
+            ));
+        }
+
+        content
     }
 
     fn nav_item(&self, page: AppPage, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -2989,13 +3175,15 @@ impl SenzoShell {
                 ),
         );
 
-        div()
+        let mut page = div()
             .w_full()
             .flex()
             .flex_col()
-            .gap_6()
-            .child(hero)
-            .child(self.render_home_artwork(cx))
+            .gap_6();
+        if self.home_settings.hero_enabled {
+            page = page.child(hero);
+        }
+        page.child(self.render_home_artwork(cx))
             .child(
                 div()
                     .flex()
@@ -3041,6 +3229,7 @@ impl SenzoShell {
                 "Settings",
                 "Everyday controls will stay simple, with advanced options kept separate.",
             ))
+            .child(self.render_home_layout_settings(cx))
             .child(
                 div()
                     .flex()
@@ -3579,7 +3768,7 @@ fn bind_shell_keys(cx: &mut App) {
     ]);
 }
 
-pub fn run(tokio: Handle, smoke_test: bool, metadata: MetadataClient, artwork: ArtworkService) {
+pub fn run(tokio: Handle, smoke_test: bool, metadata: MetadataClient, artwork: ArtworkService, settings: Arc<dyn SettingsRepository>) {
     gpui_platform::application()
         .with_quit_mode(QuitMode::LastWindowClosed)
         .run(move |cx: &mut App| {
@@ -3631,7 +3820,7 @@ pub fn run(tokio: Handle, smoke_test: bool, metadata: MetadataClient, artwork: A
 
             cx.open_window(options, move |window, cx| {
                 let shell =
-                    cx.new(|cx| SenzoShell::new(tokio, smoke_test, metadata, artwork, window, cx));
+                    cx.new(|cx| SenzoShell::new(tokio, smoke_test, metadata, artwork, settings, window, cx);
                 let initial_focus = shell
                     .read(cx)
                     .navigation_focus

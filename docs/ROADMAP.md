@@ -98,6 +98,9 @@ See docs/PHASE_3_IMPLEMENTATION.md.
 
 ## Phase 4 — Home, catalogues and discovery
 
+<badge color="info">In progress — first slice adds locally persisted configurable built-in Home sections</badge>
+
+- [x] Implement first-slice Home layout preferences: show/hide the three built-in catalogue sections, reorder shelves, toggle the featured hero, and persist preferences locally.
 - [ ] Implement Home data orchestration and configurable sections.
 - [ ] Implement cinematic hero and backdrop carousel.
 - [ ] Implement catalog shelves, poster rails, collection rows and skeleton states.
