@@ -396,6 +396,17 @@ impl AddonHttpClient {
         resolve_public_destination(&url).await?;
         Ok(url.to_string())
     }
+
+    async fn validate_stream_url(&self, value: &str) -> Result<String, AddonError> {
+        if value.len() > MAX_URL_LENGTH || value.chars().any(char::is_control) {
+            return Err(AddonError::InvalidUrl);
+        }
+        let parsed = Url::parse(value).map_err(|_| AddonError::InvalidUrl)?;
+        if parsed.scheme() == "magnet" {
+            return validate_magnet_url(value);
+        }
+        self.validate_media_url(value).await
+    }
 }
 
 #[derive(Clone)]
@@ -725,8 +736,14 @@ impl AddonManager {
             .get_text(request_url, allow_http, MAX_RESOURCE_BYTES)
             .await?;
         let value: Value = serde_json::from_str(&text).map_err(|_| AddonError::InvalidResponse)?;
-        let meta = value.get("meta").filter(|meta| meta.is_object()).cloned();
-        meta.ok_or(AddonError::InvalidResponse)
+        let meta = value.get("meta").filter(|meta| meta.is_object()).cloned()
+            .ok_or(AddonError::InvalidResponse)?;
+        let returned_id = meta.get("id").and_then(Value::as_str);
+        let returned_type = meta.get("type").and_then(Value::as_str);
+        if returned_id != Some(media_id) || returned_type != Some(media_type) {
+            return Err(AddonError::InvalidResponse);
+        }
+        Ok(meta)
     }
 
     pub async fn fetch_streams(
@@ -763,7 +780,7 @@ impl AddonManager {
                 continue;
             };
             if let Some(url) = stream.url.as_deref() {
-                match self.http.validate_media_url(url).await {
+                match self.http.validate_stream_url(url).await {
                     Ok(valid) => stream.url = Some(valid),
                     Err(_) => {
                         rejected_items += 1;
@@ -957,7 +974,21 @@ pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifes
                 "every resource must support at least one type".to_owned(),
             ));
         }
-        if !resources.iter().any(|existing: &AddonResource| existing.name == resource_name) {
+        if let Some(existing) = resources
+            .iter_mut()
+            .find(|existing: &&mut AddonResource| existing.name == resource_name)
+        {
+            for media_type in resource_types {
+                if !existing.types.contains(&media_type) {
+                    existing.types.push(media_type);
+                }
+            }
+            for prefix in prefixes {
+                if !existing.id_prefixes.contains(&prefix) {
+                    existing.id_prefixes.push(prefix);
+                }
+            }
+        } else {
             resources.push(AddonResource {
                 name: resource_name,
                 types: resource_types,
@@ -1400,6 +1431,27 @@ fn encode_addon_path_component(value: &str) -> String {
 
 const HEX: &[u8; 16] = b"0123456789ABCDEF";
 
+fn validate_magnet_url(value: &str) -> Result<String, AddonError> {
+    if value.len() > MAX_URL_LENGTH || value.chars().any(char::is_control) {
+        return Err(AddonError::InvalidUrl);
+    }
+    let url = Url::parse(value).map_err(|_| AddonError::InvalidUrl)?;
+    if url.scheme() != "magnet" || url.fragment().is_some() {
+        return Err(AddonError::InvalidUrl);
+    }
+    let has_valid_v1_hash = url.query_pairs().any(|(key, value)| {
+        key == "xt"
+            && value
+                .strip_prefix("urn:btih:")
+                .is_some_and(valid_info_hash)
+    });
+    if !has_valid_v1_hash {
+        return Err(AddonError::InvalidUrl);
+    }
+    // This is retained as source metadata only. Torrent transport is deliberately deferred.
+    Ok(url.to_string())
+}
+
 fn valid_info_hash(hash: &str) -> bool {
     (hash.len() == 40 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()))
         || (hash.len() == 32
@@ -1566,6 +1618,15 @@ mod tests {
         assert!(is_public_ip("8.8.8.8".parse().unwrap()));
         assert!(is_public_ip("1.1.1.1".parse().unwrap()));
         assert!(is_public_ip("2606:4700:4700::1111".parse().unwrap()));
+    }
+
+    #[test]
+    fn magnet_stream_metadata_requires_a_valid_btih_hash_without_starting_transport() {
+        let valid = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Example";
+        assert_eq!(validate_magnet_url(valid).unwrap(), valid);
+        assert!(validate_magnet_url("magnet:?dn=missing-hash").is_err());
+        assert!(validate_magnet_url("magnet:?xt=urn:btih:not-a-hash").is_err());
+        assert!(validate_magnet_url("file:///tmp/movie.mkv").is_err());
     }
 
     #[test]
