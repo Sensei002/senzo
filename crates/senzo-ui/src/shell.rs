@@ -899,16 +899,12 @@ impl SenzoShell {
                 )
             } else {
                 row.child(
-                    div()
-                        .rounded_md()
-                        .px_2()
-                        .py_2()
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(Theme::TEXT_MUTED))
-                                .child("HERO OFF"),
-                        ),
+                    div().rounded_md().px_2().py_2().child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(Theme::TEXT_MUTED))
+                            .child("HERO OFF"),
+                    ),
                 )
             };
 
@@ -1125,10 +1121,7 @@ impl SenzoShell {
                     HomeShelfKey::PopularMovies => &popular_movies,
                     HomeShelfKey::PopularTv => &popular_tv,
                 };
-                let poster = shelf
-                    .cards
-                    .get(index)
-                    .and_then(|card| card.poster.clone());
+                let poster = shelf.cards.get(index).and_then(|card| card.poster.clone());
                 featured.push(HomeFeaturedCard {
                     id: candidate.id,
                     media_type: candidate.media_type,
