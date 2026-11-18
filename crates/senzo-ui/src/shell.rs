@@ -516,6 +516,14 @@ struct DetailsPage {
     error: Option<String>,
 }
 
+struct ShellServices {
+    tokio: Handle,
+    metadata: MetadataClient,
+    artwork: ArtworkService,
+    settings: Arc<dyn SettingsRepository>,
+    addon_manager: AddonManager,
+}
+
 pub(crate) struct SenzoShell {
     navigation: NavigationStack,
     navigation_focus: HashMap<AppPage, FocusHandle>,
@@ -527,6 +535,7 @@ pub(crate) struct SenzoShell {
     addon_media_id_input: Entity<InputState>,
     addon_catalog_extras_input: Entity<InputState>,
     addon_state: Vec<ManagedAddon>,
+    addon_registry_loaded: bool,
     addon_preview: Option<AddonPreview>,
     addon_allow_http: bool,
     addon_busy: bool,
@@ -750,15 +759,18 @@ fn person_credit_candidates(person: &Person, media_type: MediaType) -> Vec<Perso
 
 impl SenzoShell {
     pub(crate) fn new(
-        tokio: Handle,
+        services: ShellServices,
         smoke_test: bool,
-        metadata: MetadataClient,
-        artwork: ArtworkService,
-        settings: Arc<dyn SettingsRepository>,
-        addon_manager: AddonManager,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let ShellServices {
+            tokio,
+            metadata,
+            artwork,
+            settings,
+            addon_manager,
+        } = services;
         let navigation_focus = AppPage::ALL
             .iter()
             .enumerate()
@@ -782,12 +794,6 @@ impl SenzoShell {
             InputState::new(window, cx)
                 .placeholder("Optional catalogue extras: genre=action&skip=0")
         });
-        let addon_state = addon_manager
-            .list_addons("default")
-            .unwrap_or_else(|error| {
-                tracing::warn!(error = %error, "could not load installed add-ons");
-                Vec::new()
-            });
         let search_input_subscription = cx.subscribe(&search_input, |this, input, event, cx| {
             if matches!(event, InputEvent::Change) {
                 this.update_search_query(input.read(cx).value().to_string(), cx);
@@ -850,7 +856,8 @@ impl SenzoShell {
             addon_media_type_input,
             addon_media_id_input,
             addon_catalog_extras_input,
-            addon_state,
+            addon_state: Vec::new(),
+            addon_registry_loaded: false,
             addon_preview: None,
             addon_allow_http: false,
             addon_busy: false,
@@ -997,7 +1004,9 @@ impl SenzoShell {
         self.remember_focused_home_card(window);
         if self.navigation.navigate(page) {
             self.menu_open = false;
-            if page == AppPage::Movies {
+            if page == AppPage::Addons {
+                self.load_addon_registry(cx);
+            } else if page == AppPage::Movies {
                 self.ensure_discovery_loaded(MediaType::Movie, cx);
             } else if page == AppPage::TvShows {
                 self.ensure_discovery_loaded(MediaType::Tv, cx);
@@ -1055,6 +1064,9 @@ impl SenzoShell {
         self.remember_focused_home_card(window);
         if self.navigation.back() {
             let page = self.navigation.current();
+            if page == AppPage::Addons {
+                self.load_addon_registry(cx);
+            }
             self.focus_page(page, window, cx);
             let focus_id = (page == AppPage::Home)
                 .then(|| self.last_home_focus_id.clone())
@@ -1072,6 +1084,9 @@ impl SenzoShell {
         self.remember_focused_home_card(window);
         if self.navigation.can_go_forward() && self.navigation.forward() {
             let page = self.navigation.current();
+            if page == AppPage::Addons {
+                self.load_addon_registry(cx);
+            }
             self.focus_page(page, window, cx);
             let focus_id = (page == AppPage::Home)
                 .then(|| self.last_home_focus_id.clone())
@@ -4571,7 +4586,7 @@ impl SenzoShell {
     }
 
     fn load_addon_registry(&mut self, cx: &mut Context<Self>) {
-        if self.addon_busy {
+        if self.addon_busy || self.addon_registry_loaded {
             return;
         }
         self.addon_busy = true;
@@ -4586,7 +4601,10 @@ impl SenzoShell {
             let _ = this.update(cx, |this, cx| {
                 this.addon_busy = false;
                 match result {
-                    Ok(Ok(addons)) => this.addon_state = addons,
+                    Ok(Ok(addons)) => {
+                        this.addon_state = addons;
+                        this.addon_registry_loaded = true;
+                    }
                     Ok(Err(error)) => this.addon_error = Some(error.to_string()),
                     Err(error) => {
                         this.addon_error = Some(format!("Add-on registry task failed: {error}"))
@@ -7487,12 +7505,14 @@ pub fn run(
             cx.open_window(options, move |window, cx| {
                 let shell = cx.new(|cx| {
                     SenzoShell::new(
-                        tokio,
+                        ShellServices {
+                            tokio,
+                            metadata,
+                            artwork,
+                            settings,
+                            addon_manager,
+                        },
                         smoke_test,
-                        metadata,
-                        artwork,
-                        settings,
-                        addon_manager,
                         window,
                         cx,
                     )
@@ -7988,12 +8008,14 @@ mod tests {
 
         let (shell, window_cx) = cx.add_window_view(|window, cx| {
             let mut shell = SenzoShell::new(
-                runtime.handle().clone(),
+                ShellServices {
+                    tokio: runtime.handle().clone(),
+                    metadata,
+                    artwork,
+                    settings: Arc::new(TestSettingsRepository),
+                    addon_manager: test_addon_manager(),
+                },
                 true,
-                metadata,
-                artwork,
-                Arc::new(TestSettingsRepository),
-                test_addon_manager(),
                 window,
                 cx,
             );
