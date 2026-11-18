@@ -1475,14 +1475,7 @@ fn build_resource_url(
         let path = format!("{}/{}.json", url.path().trim_end_matches('/'), extra_path);
         url.set_path(&path);
     }
-    if url.as_str().len() > MAX_URL_LENGTH {
-        return Err(AddonError::InvalidUrl);
-    }
-    Ok(url)
-}
-
-fn encode_addon_path_component(value: &str) -> String {
-    let mut encoded = String::with_capacity(value.len());
+0    let mut encoded = String::with_capacity(value.len());
     for byte in value.bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
             encoded.push(byte as char);
