@@ -98,18 +98,19 @@ See docs/PHASE_3_IMPLEMENTATION.md.
 
 ## Phase 4 — Home, catalogues and discovery
 
-<badge color="info">In progress — first slice adds locally persisted configurable built-in Home sections</badge>
+<badge color="info">In progress — persisted Home layout and native featured carousel implemented</badge>
 
 - [x] Implement first-slice Home layout preferences: show/hide the three built-in catalogue sections, reorder shelves, toggle the featured hero, and persist preferences locally.
+- [x] Implement a native featured carousel that pulls backdrops from up to two enabled built-in catalogue sources, with keyboard-focusable wraparound navigation and a title-specific Details action.
 - [ ] Implement Home data orchestration and configurable sections.
-- [ ] Implement cinematic hero and backdrop carousel.
+- [x] Implement cinematic hero and backdrop carousel with user-selected built-in catalogue sources (up to eight items, wraparound controls).
 - [ ] Implement catalog shelves, poster rails, collection rows and skeleton states.
 - [ ] Implement Continue Watching and release-aware sections.
 - [ ] Implement add-on-provided catalogues.
 - [ ] Implement pagination, refresh and stable section identity.
 - [ ] Implement focus/scroll preservation across routes.
 
-**Gate:** Home is populated by real metadata and every hero/card opens the correct destination.
+**Gate:** Home is populated by real metadata and every hero/card opens the correct destination. The native featured carousel is implemented; generic/add-on catalogues, independent section orchestration, pagination/refresh, Continue Watching and focus/scroll preservation remain open.
 
 ## Phase 5 — Search, details, seasons and episodes
 

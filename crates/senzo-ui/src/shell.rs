@@ -80,13 +80,66 @@ impl HomeShelfKey {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HomeShelfKey {
+    Trending,
+    PopularMovies,
+    PopularTv,
+}
+
+impl HomeShelfKey {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Trending => "trending",
+            Self::PopularMovies => "popular-movies",
+            Self::PopularTv => "popular-tv",
+        }
+    }
+}
+
+const MAX_HOME_FEATURED_ITEMS: usize = 8;
+
+#[derive(Clone)]
 struct HomeMediaCandidate {
     id: u64,
     media_type: MediaType,
     title: String,
     detail: String,
+    overview: Option<String>,
     poster_path: String,
     backdrop_path: Option<String>,
+}
+
+struct HomeFeaturedCard {
+    id: u64,
+    media_type: MediaType,
+    title: String,
+    detail: String,
+    overview: Option<String>,
+    poster: Option<Arc<RenderImage>>,
+    backdrop: Arc<RenderImage>,
+}
+
+fn selected_home_hero_sources(settings: &HomeSettings) -> Vec<HomeShelfKey> {
+    settings
+        .sections
+        .iter()
+        .filter(|section| section.enabled && section.hero_source_enabled)
+        .filter_map(|section| match section.key.as_str() {
+            "trending" => Some(HomeShelfKey::Trending),
+            "popular-movies" => Some(HomeShelfKey::PopularMovies),
+            "popular-tv" => Some(HomeShelfKey::PopularTv),
+            _ => None,
+        })
+        .take(2)
+        .collect()
+}
+
+fn next_home_featured_index(current: usize, item_count: usize, direction: isize) -> usize {
+    if item_count == 0 {
+        return 0;
+    }
+    (current as isize + direction.signum()).rem_euclid(item_count as isize) as usize
 }
 
 struct HomeMediaCard {
@@ -123,8 +176,7 @@ struct HomeCatalogueData {
     trending: HomeShelfLoadData,
     popular_movies: HomeShelfLoadData,
     popular_tv: HomeShelfLoadData,
-    featured_backdrop: Option<Arc<RenderImage>>,
-    featured_title: Option<String>,
+    featured: Vec<HomeFeaturedCard>,
 }
 
 fn home_media_candidates(
@@ -159,6 +211,7 @@ fn home_media_candidates(
                 media_type,
                 title: title.to_owned(),
                 detail,
+                overview: media.overview,
                 poster_path,
                 backdrop_path: media.backdrop_path,
             })
@@ -312,8 +365,8 @@ pub(crate) struct SenzoShell {
     home_trending: HomeShelfState,
     home_popular_movies: HomeShelfState,
     home_popular_tv: HomeShelfState,
-    home_featured_backdrop: Option<Arc<RenderImage>>,
-    home_featured_title: Option<String>,
+    home_featured_items: Vec<HomeFeaturedCard>,
+    home_featured_index: usize,
     search_input: Entity<InputState>,
     _search_input_subscription: Subscription,
     search_filter: SearchFilter,
@@ -513,8 +566,8 @@ impl SenzoShell {
             home_trending: HomeShelfState::default(),
             home_popular_movies: HomeShelfState::default(),
             home_popular_tv: HomeShelfState::default(),
-            home_featured_backdrop: None,
-            home_featured_title: None,
+            home_featured_items: Vec::new(),
+            home_featured_index: 0,
             search_input,
             _search_input_subscription: search_input_subscription,
             search_filter: SearchFilter::All,
@@ -676,6 +729,35 @@ impl SenzoShell {
         }
     }
 
+    fn toggle_home_hero_source(&mut self, key: &str, cx: &mut Context<Self>) {
+        let enabled = self
+            .home_settings
+            .sections
+            .iter()
+            .find(|section| section.key == key)
+            .is_some_and(|section| section.hero_source_enabled);
+        if self.home_settings.set_hero_source_enabled(key, !enabled) {
+            self.persist_home_settings(cx);
+            self.refresh_home_catalogue(cx);
+        } else {
+            self.notification =
+                Some("Home supports up to two enabled hero catalogue sources.".to_owned());
+            cx.notify();
+        }
+    }
+
+    fn refresh_home_catalogue(&mut self, cx: &mut Context<Self>) {
+        self.home_cancellation.cancel();
+        self.home_cancellation = CancellationToken::new();
+        self.home_catalogue_status = HomeCatalogueStatus::NotRequested;
+        self.home_trending = HomeShelfState::default();
+        self.home_popular_movies = HomeShelfState::default();
+        self.home_popular_tv = HomeShelfState::default();
+        self.home_featured_items.clear();
+        self.home_featured_index = 0;
+        self.load_home_catalogue(cx);
+    }
+
     fn move_home_section(&mut self, key: &str, direction: isize, cx: &mut Context<Self>) {
         if self.home_settings.move_section(key, direction) {
             self.persist_home_settings(cx);
@@ -704,7 +786,7 @@ impl SenzoShell {
                 div()
                     .text_xs()
                     .text_color(rgb(Theme::TEXT_MUTED))
-                    .child("Choose which catalogue shelves appear and arrange their order. Preferences are saved locally."),
+                    .child("Choose visible shelves, arrange their order, and select up to two sources for the featured carousel. Preferences are saved locally."),
             )
             .child(
                 div()
@@ -732,7 +814,8 @@ impl SenzoShell {
             let key = section.key.clone();
             let title = section.display_title().to_owned();
             let enabled = section.enabled;
-            let base_tab = 50 + (index as isize * 3);
+            let hero_source_enabled = section.hero_source_enabled;
+            let base_tab = 50 + (index as isize * 4);
 
             let row = div()
                 .w_full()
@@ -789,6 +872,60 @@ impl SenzoShell {
                                 .child(if enabled { "HIDE" } else { "SHOW" }),
                         ),
                 );
+
+            let row = if enabled {
+                let hero_key = section.key.clone();
+                row.child(
+                    div()
+                        .id(format!("settings-home-hero-source-{}", hero_key))
+                        .tab_index(base_tab + 3)
+                        .cursor_pointer()
+                        .rounded_md()
+                        .bg(rgb(if hero_source_enabled {
+                            Theme::ACCENT_DARK
+                        } else {
+                            Theme::SURFACE
+                        }))
+                        .px_2()
+                        .py_2()
+                        .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                        .aria_label(if hero_source_enabled {
+                            format!("Remove {} from featured hero sources", title)
+                        } else {
+                            format!("Use {} as a featured hero source", title)
+                        })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.toggle_home_hero_source(&hero_key, cx);
+                        }))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(if hero_source_enabled {
+                                    Theme::ACCENT
+                                } else {
+                                    Theme::TEXT_SECONDARY
+                                }))
+                                .child(if hero_source_enabled {
+                                    "HERO ON"
+                                } else {
+                                    "HERO OFF"
+                                }),
+                        ),
+                )
+            } else {
+                row.child(
+                    div()
+                        .rounded_md()
+                        .px_2()
+                        .py_2()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(Theme::TEXT_MUTED))
+                                .child("HERO OFF"),
+                        ),
+                )
+            };
 
             let up_key = section.key.clone();
             let row = row.child(
@@ -865,6 +1002,7 @@ impl SenzoShell {
 
         let metadata = self.metadata.clone();
         let artwork = self.artwork.clone();
+        let hero_sources = selected_home_hero_sources(&self.home_settings);
         let cancellation = self.home_cancellation.child_token();
         let task = self.tokio.spawn(async move {
             let (trending_response, movie_response, tv_response) = tokio::join!(
@@ -900,10 +1038,31 @@ impl SenzoShell {
                 }
             };
 
-            let featured_index = trending
-                .candidates
+            let mut featured_candidates = Vec::with_capacity(MAX_HOME_FEATURED_ITEMS);
+            for key in hero_sources {
+                let candidates = match key {
+                    HomeShelfKey::Trending => &trending.candidates,
+                    HomeShelfKey::PopularMovies => &popular_movies.candidates,
+                    HomeShelfKey::PopularTv => &popular_tv.candidates,
+                };
+                for (index, candidate) in candidates.iter().enumerate() {
+                    if candidate.backdrop_path.is_none() {
+                        continue;
+                    }
+                    featured_candidates.push((key, index, candidate.clone()));
+                    if featured_candidates.len() >= MAX_HOME_FEATURED_ITEMS {
+                        break;
+                    }
+                }
+                if featured_candidates.len() >= MAX_HOME_FEATURED_ITEMS {
+                    break;
+                }
+            }
+            let featured_indices = featured_candidates
                 .iter()
-                .position(|candidate| candidate.backdrop_path.is_some());
+                .map(|(key, index, _)| (*key, *index))
+                .collect::<Vec<_>>();
+
             let mut jobs = JoinSet::new();
             for (key, candidates) in [
                 (HomeShelfKey::Trending, &trending.candidates),
@@ -914,12 +1073,11 @@ impl SenzoShell {
                     let service = artwork.clone();
                     let task_token = cancellation.child_token();
                     let poster_path = candidate.poster_path.clone();
-                    let backdrop_path =
-                        if key == HomeShelfKey::Trending && Some(index) == featured_index {
-                            candidate.backdrop_path.clone()
-                        } else {
-                            None
-                        };
+                    let backdrop_path = if featured_indices.contains(&(key, index)) {
+                        candidate.backdrop_path.clone()
+                    } else {
+                        None
+                    };
                     jobs.spawn(async move {
                         let poster = load_gpui_artwork(
                             service.clone(),
@@ -945,7 +1103,7 @@ impl SenzoShell {
                 }
             }
 
-            let mut featured_backdrop = None;
+            let mut featured_backdrops = HashMap::new();
             while let Some(result) = jobs.join_next().await {
                 if cancellation.is_cancelled() {
                     return Err("Cancelled".to_owned());
@@ -959,8 +1117,8 @@ impl SenzoShell {
                     if let Some(card) = shelf.cards.get_mut(index) {
                         card.poster = poster;
                     }
-                    if key == HomeShelfKey::Trending && Some(index) == featured_index {
-                        featured_backdrop = backdrop;
+                    if let Some(backdrop) = backdrop {
+                        featured_backdrops.insert((key, index), backdrop);
                     }
                 }
             }
@@ -969,16 +1127,36 @@ impl SenzoShell {
                 return Err("Cancelled".to_owned());
             }
 
-            let featured_title = featured_index
-                .and_then(|index| trending.cards.get(index).map(|card| card.title.clone()))
-                .or_else(|| trending.cards.first().map(|card| card.title.clone()));
+            let mut featured = Vec::with_capacity(featured_candidates.len());
+            for (key, index, candidate) in featured_candidates {
+                let Some(backdrop) = featured_backdrops.remove(&(key, index)) else {
+                    continue;
+                };
+                let shelf = match key {
+                    HomeShelfKey::Trending => &trending,
+                    HomeShelfKey::PopularMovies => &popular_movies,
+                    HomeShelfKey::PopularTv => &popular_tv,
+                };
+                let poster = shelf
+                    .cards
+                    .get(index)
+                    .and_then(|card| card.poster.clone());
+                featured.push(HomeFeaturedCard {
+                    id: candidate.id,
+                    media_type: candidate.media_type,
+                    title: candidate.title,
+                    detail: candidate.detail,
+                    overview: candidate.overview,
+                    poster,
+                    backdrop,
+                });
+            }
 
             Ok::<_, String>(HomeCatalogueData {
                 trending,
                 popular_movies,
                 popular_tv,
-                featured_backdrop,
-                featured_title,
+                featured,
             })
         });
 
@@ -1008,8 +1186,8 @@ impl SenzoShell {
                             error: data.popular_tv.error,
                             cards: data.popular_tv.cards,
                         };
-                        this.home_featured_backdrop = data.featured_backdrop;
-                        this.home_featured_title = data.featured_title;
+                        this.home_featured_items = data.featured;
+                        this.home_featured_index = 0;
                         this.home_catalogue_status = HomeCatalogueStatus::Loaded;
                     }
                     Err(message) => {
@@ -1022,8 +1200,8 @@ impl SenzoShell {
                             shelf.error = Some(message.clone());
                             shelf.cards.clear();
                         }
-                        this.home_featured_backdrop = None;
-                        this.home_featured_title = None;
+                        this.home_featured_items.clear();
+                        this.home_featured_index = 0;
                         this.home_catalogue_status = HomeCatalogueStatus::Loaded;
                     }
                 }
@@ -1031,6 +1209,15 @@ impl SenzoShell {
             });
         })
         .detach();
+    }
+
+    fn step_home_featured(&mut self, direction: isize, cx: &mut Context<Self>) {
+        self.home_featured_index = next_home_featured_index(
+            self.home_featured_index,
+            self.home_featured_items.len(),
+            direction,
+        );
+        cx.notify();
     }
 
     fn open_home_card(
@@ -3080,23 +3267,23 @@ impl SenzoShell {
     }
 
     fn render_home(&self, cx: &mut Context<Self>) -> gpui::Div {
-        let featured_title = self
-            .home_featured_title
-            .as_deref()
-            .or_else(|| {
-                self.home_trending
-                    .cards
-                    .first()
-                    .map(|card| card.title.as_str())
-            })
+        let featured = self.home_featured_items.get(self.home_featured_index);
+        let featured_title = featured
+            .map(|item| item.title.as_str())
             .unwrap_or("Your entertainment. Your space.");
-        let featured_eyebrow = if self.home_catalogue_status == HomeCatalogueStatus::Loaded {
-            "TRENDING THIS WEEK"
-        } else {
-            "NATIVE MEDIA CENTER"
-        };
+        let featured_eyebrow = featured
+            .map(|item| item.detail.as_str())
+            .unwrap_or("NATIVE MEDIA CENTER");
+        let featured_description = featured
+            .and_then(|item| item.overview.as_deref())
+            .filter(|overview| !overview.trim().is_empty())
+            .unwrap_or(
+                "Discover films and series from the catalogues you have enabled for your Home screen.",
+            )
+            .to_owned();
+        let featured_backdrop = featured.map(|item| item.backdrop.clone());
         let mut hero = backdrop_surface(
-            self.home_featured_backdrop.clone(),
+            featured_backdrop,
             286.0,
             self.home_catalogue_status == HomeCatalogueStatus::Loading,
         )
@@ -3106,86 +3293,190 @@ impl SenzoShell {
                 .inset_0()
                 .bg(rgb(Theme::BACKGROUND).opacity(0.76)),
         );
-        hero = hero.child(
+
+        let mut hero_content = div()
+            .absolute()
+            .inset_0()
+            .flex()
+            .flex_col()
+            .justify_end()
+            .gap_3()
+            .p_6()
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(Theme::ACCENT))
+                    .child(featured_eyebrow.to_owned()),
+            )
+            .child(
+                div()
+                    .text_2xl()
+                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                    .child(featured_title.to_owned()),
+            )
+            .child(
+                div()
+                    .max_w(px(720.0))
+                    .text_sm()
+                    .text_color(rgb(Theme::TEXT_SECONDARY))
+                    .child(featured_description),
+            );
+
+        if self.home_featured_items.len() > 1 {
+            let count = self.home_featured_items.len();
+            let indicator = format!(
+                "FEATURED  {} / {}",
+                self.home_featured_index.saturating_add(1),
+                count
+            );
+            hero_content = hero_content.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .id("home-featured-previous")
+                            .tab_index(32)
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(Theme::BORDER_STRONG))
+                            .bg(rgb(Theme::SURFACE_RAISED))
+                            .px_3()
+                            .py_2()
+                            .cursor_pointer()
+                            .focus_visible(|style| {
+                                style.border_1().border_color(rgb(Theme::ACCENT))
+                            })
+                            .aria_label("Show previous featured title")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.step_home_featured(-1, cx);
+                            }))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                                    .child("‹"),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child(indicator),
+                    )
+                    .child(
+                        div()
+                            .id("home-featured-next")
+                            .tab_index(33)
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(Theme::BORDER_STRONG))
+                            .bg(rgb(Theme::SURFACE_RAISED))
+                            .px_3()
+                            .py_2()
+                            .cursor_pointer()
+                            .focus_visible(|style| {
+                                style.border_1().border_color(rgb(Theme::ACCENT))
+                            })
+                            .aria_label("Show next featured title")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.step_home_featured(1, cx);
+                            }))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                                    .child("›"),
+                            ),
+                    ),
+            );
+        }
+
+        let mut hero_actions = div().flex().gap_3().child(
             div()
-                .absolute()
-                .inset_0()
-                .flex()
-                .flex_col()
-                .justify_end()
-                .gap_3()
-                .p_6()
+                .id("home-explore-movies")
+                .tab_index(30)
+                .rounded_md()
+                .bg(rgb(Theme::ACCENT))
+                .px_4()
+                .py_3()
+                .cursor_pointer()
+                .hover(|style| style.bg(rgb(0x67E8F9)))
+                .focus_visible(|style| style.border_1().border_color(rgb(Theme::TEXT_PRIMARY)))
+                .aria_label("Browse movies")
+                .on_click(cx.listener(|this, _event, window, cx| {
+                    this.navigate(AppPage::Movies, window, cx);
+                }))
                 .child(
                     div()
-                        .text_xs()
-                        .text_color(rgb(Theme::ACCENT))
-                        .child(featured_eyebrow),
-                )
-                .child(
-                    div()
-                        .text_2xl()
-                        .text_color(rgb(Theme::TEXT_PRIMARY))
-                        .child(featured_title.to_owned()),
-                )
-                .child(
-                    div()
-                        .max_w(px(720.0))
                         .text_sm()
-                        .text_color(rgb(Theme::TEXT_SECONDARY))
-                        .child("Real catalogue artwork, validated and decoded by SENZO's native Rust pipeline, rendered directly by GPUI."),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .gap_3()
-                        .child(
-                            div()
-                                .id("home-explore-movies")
-                                .tab_index(30)
-                                .rounded_md()
-                                .bg(rgb(Theme::ACCENT))
-                                .px_4()
-                                .py_3()
-                                .cursor_pointer()
-                                .hover(|style| style.bg(rgb(0x67E8F9)))
-                                .focus_visible(|style| style.border_1().border_color(rgb(Theme::TEXT_PRIMARY)))
-                                .aria_label("Browse movies")
-                                .on_click(cx.listener(|this, _event, window, cx| {
-                                    this.navigate(AppPage::Movies, window, cx);
-                                }))
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(rgb(Theme::BACKGROUND))
-                                        .child("Explore movies"),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .id("home-open-addons")
-                                .tab_index(31)
-                                .rounded_md()
-                                .border_1()
-                                .border_color(rgb(Theme::BORDER_STRONG))
-                                .bg(rgb(Theme::SURFACE_RAISED))
-                                .px_4()
-                                .py_3()
-                                .cursor_pointer()
-                                .hover(|style| style.bg(rgb(Theme::SURFACE_HOVER)))
-                                .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
-                                .aria_label("Open add-ons")
-                                .on_click(cx.listener(|this, _event, window, cx| {
-                                    this.navigate(AppPage::Addons, window, cx);
-                                }))
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(rgb(Theme::TEXT_PRIMARY))
-                                        .child("Manage add-ons"),
-                                ),
-                        ),
+                        .text_color(rgb(Theme::BACKGROUND))
+                        .child("Explore movies"),
                 ),
         );
+        hero_actions = hero_actions.child(
+            div()
+                .id("home-open-addons")
+                .tab_index(31)
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(Theme::BORDER_STRONG))
+                .bg(rgb(Theme::SURFACE_RAISED))
+                .px_4()
+                .py_3()
+                .cursor_pointer()
+                .hover(|style| style.bg(rgb(Theme::SURFACE_HOVER)))
+                .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                .aria_label("Open add-ons")
+                .on_click(cx.listener(|this, _event, window, cx| {
+                    this.navigate(AppPage::Addons, window, cx);
+                }))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(Theme::TEXT_PRIMARY))
+                        .child("Manage add-ons"),
+                ),
+        );
+        if let Some(featured) = featured {
+            let featured_id = featured.id;
+            let featured_type = featured.media_type;
+            let featured_name = featured.title.clone();
+            let featured_poster = featured.poster.clone();
+            hero_actions = hero_actions.child(
+                div()
+                    .id("home-featured-more-info")
+                    .tab_index(34)
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(Theme::BORDER_STRONG))
+                    .bg(rgb(Theme::SURFACE_RAISED))
+                    .px_4()
+                    .py_3()
+                    .cursor_pointer()
+                    .hover(|style| style.bg(rgb(Theme::SURFACE_HOVER)))
+                    .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                    .aria_label(format!("More information about {}", featured_name))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.open_home_card(
+                            featured_id,
+                            featured_type,
+                            featured_name.clone(),
+                            featured_poster.clone(),
+                            cx,
+                        );
+                    }))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_PRIMARY))
+                            .child("More info"),
+                    ),
+            );
+        }
+        hero_content = hero_content.child(hero_actions);
+        hero = hero.child(hero_content);
 
         let mut page = div().w_full().flex().flex_col().gap_6();
         if self.home_settings.hero_enabled {
@@ -4056,6 +4347,36 @@ mod tests {
         assert_eq!(candidates[0].detail, "MOVIE · 2024");
         assert_eq!(candidates[1].media_type, MediaType::Person);
         assert_eq!(candidates[1].poster_path, "/person.jpg");
+    }
+
+    #[test]
+    fn home_hero_sources_follow_enabled_preferences_and_saved_order() {
+        let mut settings = HomeSettings::default();
+        assert_eq!(
+            selected_home_hero_sources(&settings),
+            vec![HomeShelfKey::Trending]
+        );
+
+        assert!(settings.set_hero_source_enabled("popular-movies", true));
+        assert!(settings.move_section("popular-movies", -1));
+        assert_eq!(
+            selected_home_hero_sources(&settings),
+            vec![HomeShelfKey::PopularMovies, HomeShelfKey::Trending]
+        );
+
+        assert!(settings.set_section_enabled("popular-movies", false));
+        assert_eq!(
+            selected_home_hero_sources(&settings),
+            vec![HomeShelfKey::Trending]
+        );
+    }
+
+    #[test]
+    fn featured_carousel_navigation_wraps_in_both_directions() {
+        assert_eq!(next_home_featured_index(0, 3, -1), 2);
+        assert_eq!(next_home_featured_index(2, 3, 1), 0);
+        assert_eq!(next_home_featured_index(1, 3, 0), 1);
+        assert_eq!(next_home_featured_index(0, 0, 1), 0);
     }
 
     #[test]
