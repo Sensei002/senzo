@@ -954,10 +954,16 @@ mod tests {
             "/safe\\\\image.jpg",
             "/safe/line\nbreak.jpg",
         ] {
-            assert!(!valid_collection_artwork_path(path), "unexpectedly accepted {path:?}");
+            assert!(
+                !valid_collection_artwork_path(path),
+                "unexpectedly accepted {path:?}"
+            );
         }
         assert!(valid_collection_artwork_path("/abc123/folder-cover.webp"));
-        assert!(!valid_collection_artwork_path(&format!("/{}", "a".repeat(MAX_HOME_COLLECTION_ARTWORK_PATH_CHARS))));
+        assert!(!valid_collection_artwork_path(&format!(
+            "/{}",
+            "a".repeat(MAX_HOME_COLLECTION_ARTWORK_PATH_CHARS)
+        )));
     }
 
     #[test]
@@ -1019,7 +1025,9 @@ mod tests {
             Some("🎬")
         );
         assert_eq!(
-            restored.collections[0].folders[0].cover_artwork_path.as_deref(),
+            restored.collections[0].folders[0]
+                .cover_artwork_path
+                .as_deref(),
             Some("/family/favorites.jpg")
         );
     }

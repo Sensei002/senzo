@@ -15,15 +15,15 @@ use gpui::{
 use gpui_component::input::{Input, InputEvent, InputState};
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_catalog::{
-    home_collection_folder_key, visible_home_collections,
     BuiltInHomeCatalog as HomeShelfKey, HomeCatalogDefinition, HomeCatalogProviderRegistry,
-    HomeCollection, HomeCollectionsSettings, HomeSettings,
+    HomeCollection, HomeCollectionsSettings, HomeSettings, home_collection_folder_key,
+    visible_home_collections,
 };
+#[cfg(test)]
+use senzo_catalog::{HomeCollectionFolder, HomeCollectionPosterShape};
 use senzo_domain::{AppPage, SettingsRepository};
 #[cfg(test)]
 use senzo_metadata::PersonCredit;
-#[cfg(test)]
-use senzo_catalog::{HomeCollectionFolder, HomeCollectionPosterShape};
 use senzo_metadata::{
     MediaItem, MediaType, MetadataClient, MetadataError, Person, SearchType, SeasonDetails,
     SeasonSummary,
@@ -1468,13 +1468,7 @@ impl SenzoShell {
                 let service = artwork.clone();
                 let token = cancellation.child_token();
                 jobs.spawn(async move {
-                    let image = load_gpui_artwork(
-                        service,
-                        path,
-                        ArtworkSize::W342,
-                        token,
-                    )
-                    .await;
+                    let image = load_gpui_artwork(service, path, ArtworkSize::W342, token).await;
                     (key, image)
                 });
             }
@@ -3508,7 +3502,10 @@ impl SenzoShell {
         // Collections are local-first. The Library domain owns collection creation;
         // Home only projects saved rows and never inserts sample data.
         for collection in &self.home_collections {
-            content = content.child(home_collection_row(collection, &self.home_collection_artwork));
+            content = content.child(home_collection_row(
+                collection,
+                &self.home_collection_artwork,
+            ));
         }
 
         content
@@ -4625,9 +4622,7 @@ async fn load_home_shelf_initial(
     })
 }
 
-fn home_collection_artwork_requests(
-    collections: &[HomeCollection],
-) -> Vec<(String, String)> {
+fn home_collection_artwork_requests(collections: &[HomeCollection]) -> Vec<(String, String)> {
     visible_home_collections(collections)
         .into_iter()
         .flat_map(|collection| {
@@ -5234,9 +5229,15 @@ mod tests {
 
         let requests = home_collection_artwork_requests(std::slice::from_ref(&collection));
         assert_eq!(requests.len(), 2);
-        assert_eq!(requests[0].0, home_collection_folder_key("collection", "cover").unwrap());
+        assert_eq!(
+            requests[0].0,
+            home_collection_folder_key("collection", "cover").unwrap()
+        );
         assert_eq!(requests[0].1, "/covers/one.jpg");
-        assert_eq!(requests[1].0, home_collection_folder_key("collection", "second").unwrap());
+        assert_eq!(
+            requests[1].0,
+            home_collection_folder_key("collection", "second").unwrap()
+        );
 
         let first_collection = HomeCollection {
             id: "first".to_owned(),
@@ -5344,7 +5345,10 @@ mod tests {
         let refresh_x = f32::from(refresh.origin.x);
         let refresh_width = f32::from(refresh.size.width);
 
-        assert!(sidebar_x.abs() < 1.0, "sidebar should anchor to the left edge");
+        assert!(
+            sidebar_x.abs() < 1.0,
+            "sidebar should anchor to the left edge"
+        );
         assert!(
             (sidebar_width - Theme::SIDEBAR_WIDTH).abs() < 1.0,
             "sidebar width should match the native design token"
