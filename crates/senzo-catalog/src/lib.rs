@@ -485,8 +485,11 @@ mod tests {
     fn built_in_catalogue_definitions_have_stable_keys_and_cache_identities() {
         let definitions = HomeCatalogDefinition::built_ins();
         assert_eq!(
-            definitions.map(|definition| definition.key),
-            ["trending", "popular-movies", "popular-tv"]
+            definitions
+                .iter()
+                .map(|definition| definition.key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["trending", "popular-movies", "popular-tv"]
         );
         assert_eq!(
             definitions[0].built_in_catalog(),

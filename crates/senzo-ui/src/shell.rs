@@ -1001,15 +1001,18 @@ impl SenzoShell {
                     return;
                 }
 
+                if let Ok(data) = &result
+                    && this.home_catalogue_descriptor_identities.get(&key)
+                        != Some(&data.descriptor_identity)
+                {
+                    this.home_shelf_mut(key).loading_more = false;
+                    return;
+                }
+
                 let shelf = this.home_shelf_mut(key);
                 shelf.loading_more = false;
                 match result {
                     Ok(data) => {
-                        if this.home_catalogue_descriptor_identities.get(&key)
-                            != Some(&data.descriptor_identity)
-                        {
-                            return;
-                        }
                         append_unique_home_cards(&mut shelf.cards, data.cards);
                         shelf.page = data.page;
                         shelf.total_pages = data.total_pages;
