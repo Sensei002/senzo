@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/senzo-app",
+    "crates/senzo-catalog",
     "crates/senzo-artwork",
     "crates/senzo-diagnostics",
     "crates/senzo-domain",
