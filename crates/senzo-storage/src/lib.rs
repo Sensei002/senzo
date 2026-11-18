@@ -7,10 +7,11 @@ use std::{
 };
 
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
+use senzo_addons::{AddonRecord, AddonStore, AddonStoreError};
 use senzo_domain::{Profile, ProfileRepository, RepositoryError, SettingKey, SettingsRepository};
 use thiserror::Error;
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 2;
+pub const CURRENT_SCHEMA_VERSION: i64 = 3;
 
 const MIGRATIONS: &[(i64, &str)] = &[
     (
@@ -29,6 +30,25 @@ const MIGRATIONS: &[(i64, &str)] = &[
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     INSERT OR IGNORE INTO profiles (id, name) VALUES ('default', 'Default');",
+    ),
+    (
+        3,
+        "CREATE TABLE installed_addons (
+            id TEXT NOT NULL,
+            profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            secret_key TEXT NOT NULL UNIQUE,
+            manifest_json TEXT,
+            allow_insecure_http INTEGER NOT NULL DEFAULT 0,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            last_checked_at TEXT,
+            last_error TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(profile_id, id)
+        );
+        CREATE INDEX installed_addons_profile_order_idx
+            ON installed_addons(profile_id, sort_order, created_at);",
     ),
 ];
 
@@ -129,6 +149,105 @@ fn read_schema_version(connection: &Connection) -> Result<i64, rusqlite::Error> 
     )
 }
 
+
+impl AddonStore for SqliteDatabase {
+    fn list(&self, profile_id: &str) -> Result<Vec<AddonRecord>, AddonStoreError> {
+        let connection = self.connection.lock().map_err(|_| {
+            AddonStoreError::Unavailable("database lock is poisoned".to_owned())
+        })?;
+        let mut statement = connection.prepare(
+            "SELECT id, secret_key, manifest_json, allow_insecure_http, enabled,
+                    sort_order, last_checked_at, last_error
+             FROM installed_addons
+             WHERE profile_id = ?1
+             ORDER BY sort_order ASC, created_at ASC, id ASC",
+        ).map_err(|error| AddonStoreError::Unavailable(error.to_string()))?;
+        let records = statement
+            .query_map([profile_id], |row| {
+                Ok(AddonRecord {
+                    id: row.get(0)?,
+                    secret_key: row.get(1)?,
+                    manifest_json: row.get(2)?,
+                    allow_insecure_http: row.get::<_, i64>(3)? != 0,
+                    enabled: row.get::<_, i64>(4)? != 0,
+                    sort_order: row.get(5)?,
+                    last_checked_at: row.get(6)?,
+                    last_error: row.get(7)?,
+                })
+            })
+            .map_err(|error| AddonStoreError::Unavailable(error.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| AddonStoreError::Unavailable(error.to_string()))?;
+        Ok(records)
+    }
+
+    fn insert(&self, profile_id: &str, record: &AddonRecord) -> Result<(), AddonStoreError> {
+        let connection = self.connection.lock().map_err(|_| {
+            AddonStoreError::Unavailable("database lock is poisoned".to_owned())
+        })?;
+        connection.execute(
+            "INSERT INTO installed_addons
+             (id, profile_id, secret_key, manifest_json, allow_insecure_http, enabled,
+              sort_order, last_checked_at, last_error)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            (
+                &record.id,
+                profile_id,
+                &record.secret_key,
+                &record.manifest_json,
+                i64::from(record.allow_insecure_http),
+                i64::from(record.enabled),
+                record.sort_order,
+                &record.last_checked_at,
+                &record.last_error,
+            ),
+        ).map_err(|error| AddonStoreError::Unavailable(error.to_string()))?;
+        Ok(())
+    }
+
+    fn update(&self, profile_id: &str, record: &AddonRecord) -> Result<(), AddonStoreError> {
+        let connection = self.connection.lock().map_err(|_| {
+            AddonStoreError::Unavailable("database lock is poisoned".to_owned())
+        })?;
+        let changed = connection.execute(
+            "UPDATE installed_addons
+             SET manifest_json = ?1, allow_insecure_http = ?2, enabled = ?3,
+                 sort_order = ?4, last_checked_at = ?5, last_error = ?6,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE profile_id = ?7 AND id = ?8 AND secret_key = ?9",
+            (
+                &record.manifest_json,
+                i64::from(record.allow_insecure_http),
+                i64::from(record.enabled),
+                record.sort_order,
+                &record.last_checked_at,
+                &record.last_error,
+                profile_id,
+                &record.id,
+                &record.secret_key,
+            ),
+        ).map_err(|error| AddonStoreError::Unavailable(error.to_string()))?;
+        if changed == 0 {
+            return Err(AddonStoreError::NotFound);
+        }
+        Ok(())
+    }
+
+    fn remove(&self, profile_id: &str, id: &str) -> Result<(), AddonStoreError> {
+        let connection = self.connection.lock().map_err(|_| {
+            AddonStoreError::Unavailable("database lock is poisoned".to_owned())
+        })?;
+        let changed = connection.execute(
+            "DELETE FROM installed_addons WHERE profile_id = ?1 AND id = ?2",
+            (profile_id, id),
+        ).map_err(|error| AddonStoreError::Unavailable(error.to_string()))?;
+        if changed == 0 {
+            return Err(AddonStoreError::NotFound);
+        }
+        Ok(())
+    }
+}
+
 impl SettingsRepository for SqliteDatabase {
     fn get(&self, key: &SettingKey) -> Result<Option<String>, RepositoryError> {
         let connection = self.lock()?;
@@ -205,6 +324,68 @@ mod tests {
         let database = SqliteDatabase::in_memory().unwrap();
         assert_eq!(database.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
         assert_eq!(database.list_profiles().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn addon_records_are_persisted_in_profile_scoped_order() {
+        let database = SqliteDatabase::in_memory().unwrap();
+        let first = AddonRecord {
+            id: "addon-a".to_owned(),
+            secret_key: "senzo.addon.default.a".to_owned(),
+            manifest_json: Some(r#"{"id":"provider.a"}"#.to_owned()),
+            allow_insecure_http: false,
+            enabled: true,
+            sort_order: 1,
+            last_checked_at: Some("100".to_owned()),
+            last_error: None,
+        };
+        let second = AddonRecord {
+            id: "addon-b".to_owned(),
+            secret_key: "senzo.addon.default.b".to_owned(),
+            manifest_json: None,
+            allow_insecure_http: true,
+            enabled: false,
+            sort_order: 0,
+            last_checked_at: None,
+            last_error: Some("temporary failure".to_owned()),
+        };
+        database.insert("default", &first).unwrap();
+        database.insert("default", &second).unwrap();
+
+        let guest = AddonRecord {
+            id: "addon-a".to_owned(),
+            secret_key: "senzo.addon.guest.a".to_owned(),
+            manifest_json: None,
+            allow_insecure_http: false,
+            enabled: false,
+            sort_order: 0,
+            last_checked_at: None,
+            last_error: None,
+        };
+        database.create_profile("Guest").unwrap();
+        database.insert("guest", &guest).unwrap();
+
+        let records = database.list("default").unwrap();
+        assert_eq!(records, vec![second.clone(), first.clone()]);
+        assert_eq!(database.list("guest").unwrap(), vec![guest]);
+
+        let mut updated = first.clone();
+        updated.enabled = false;
+        updated.sort_order = 3;
+        updated.last_error = Some("refresh failed".to_owned());
+        database.update("default", &updated).unwrap();
+        assert_eq!(database.list("default").unwrap()[1], updated);
+        assert!(matches!(
+            database.update("guest", &first),
+            Err(AddonStoreError::NotFound)
+        ));
+
+        database.remove("default", "addon-a").unwrap();
+        assert!(matches!(
+            database.remove("default", "addon-a"),
+            Err(AddonStoreError::NotFound)
+        ));
+        assert_eq!(database.list("guest").unwrap().len(), 1);
     }
 
     #[test]

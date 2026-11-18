@@ -1,6 +1,7 @@
 use std::{env, sync::Arc};
 
 use anyhow::{Context, ensure};
+use senzo_addons::{AddonManager, AddonSecretStore};
 use senzo_artwork::{ArtworkConfig, ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_domain::{ProfileRepository, SettingsRepository};
 use senzo_metadata::{
@@ -13,12 +14,29 @@ use senzo_storage::SqliteDatabase;
 use tokio::runtime::{Builder, Runtime};
 use tokio_util::sync::CancellationToken;
 
+struct PlatformAddonSecrets(Arc<dyn CredentialStore>);
+
+impl AddonSecretStore for PlatformAddonSecrets {
+    fn get(&self, key: &str) -> Result<Option<String>, String> {
+        self.0.get(key).map_err(|error| error.to_string())
+    }
+
+    fn set(&self, key: &str, secret: &str) -> Result<(), String> {
+        self.0.set(key, secret).map_err(|error| error.to_string())
+    }
+
+    fn delete(&self, key: &str) -> Result<(), String> {
+        self.0.delete(key).map_err(|error| error.to_string())
+    }
+}
+
 struct AppServices {
     _settings: Arc<dyn SettingsRepository>,
     _profiles: Arc<dyn ProfileRepository>,
     _metadata: MetadataClient,
     _artwork: ArtworkService,
     _credentials: Arc<dyn CredentialStore>,
+    _addon_manager: AddonManager,
 }
 
 fn main() {
@@ -56,12 +74,20 @@ fn run() -> anyhow::Result<()> {
     )
     .context("initialize the bounded native artwork cache")?;
 
+    let credentials: Arc<dyn CredentialStore> =
+        Arc::new(KeyringCredentialStore::new("SENZO Desktop"));
+    let addon_manager = AddonManager::new(
+        database.clone(),
+        Arc::new(PlatformAddonSecrets(credentials.clone())),
+    );
+
     let services = AppServices {
         _settings: database.clone(),
         _profiles: database.clone(),
         _metadata: metadata.clone(),
         _artwork: artwork.clone(),
-        _credentials: Arc::new(KeyringCredentialStore::new("SENZO Desktop")),
+        _credentials: credentials,
+        _addon_manager: addon_manager.clone(),
     };
 
     let schema_version = database
@@ -92,6 +118,7 @@ fn run() -> anyhow::Result<()> {
         metadata,
         artwork,
         database.clone(),
+        addon_manager,
     );
 
     drop(services);

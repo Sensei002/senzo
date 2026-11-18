@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use reqwest::{Client, StatusCode, redirect::Policy};
+use reqwest::{Client, redirect::Policy};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
@@ -1211,10 +1211,6 @@ fn is_public_ipv6(ip: Ipv6Addr) -> bool {
         && !(segments[0] == 0x2001 && segments[1] == 0x0db8)
         && !(segments[0] == 0x2001 && segments[1] == 0x0000)
         && segments[0] != 0x2002
-}
-
-fn parse_manifest_url(url: &str, allow_http: bool) -> Result<Url, AddonError> {
-    normalize_manifest_url(url, allow_http)
 }
 
 fn required_string(
