@@ -344,6 +344,7 @@ pub(crate) struct SenzoShell {
     settings: Arc<dyn SettingsRepository>,
     home_settings: HomeSettings,
     home_cancellation: CancellationToken,
+    home_catalogue_generation: u64,
     home_catalogue_status: HomeCatalogueStatus,
     home_trending: HomeShelfState,
     home_popular_movies: HomeShelfState,
@@ -545,6 +546,7 @@ impl SenzoShell {
             settings,
             home_settings,
             home_cancellation: CancellationToken::new(),
+            home_catalogue_generation: 0,
             home_catalogue_status: HomeCatalogueStatus::NotRequested,
             home_trending: HomeShelfState::default(),
             home_popular_movies: HomeShelfState::default(),
@@ -973,6 +975,8 @@ impl SenzoShell {
             return;
         }
 
+        self.home_catalogue_generation = self.home_catalogue_generation.wrapping_add(1);
+        let generation = self.home_catalogue_generation;
         self.home_catalogue_status = HomeCatalogueStatus::Loading;
         for shelf in [
             &mut self.home_trending,
@@ -987,6 +991,7 @@ impl SenzoShell {
         let artwork = self.artwork.clone();
         let hero_sources = selected_home_hero_sources(&self.home_settings);
         let cancellation = self.home_cancellation.child_token();
+        let completion_cancellation = cancellation.clone();
         let task = self.tokio.spawn(async move {
             let (trending_response, movie_response, tv_response) = tokio::join!(
                 metadata.trending(1, "en-US", &cancellation),
@@ -1149,7 +1154,9 @@ impl SenzoShell {
                     .to_owned())
             });
             let _ = this.update(cx, |this, cx| {
-                if this.home_cancellation.is_cancelled() {
+                if this.home_catalogue_generation != generation
+                    || completion_cancellation.is_cancelled()
+                {
                     return;
                 }
                 match result {
