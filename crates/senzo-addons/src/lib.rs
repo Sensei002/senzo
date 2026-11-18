@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 use tokio::{net::lookup_host, time::timeout};
-use url::Url;
+use url::{Host, Url};
 use uuid::Uuid;
 
 const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
@@ -391,14 +391,10 @@ impl AddonHttpClient {
             return Err(AddonError::InvalidUrl);
         }
         let url = Url::parse(value).map_err(|_| AddonError::InvalidUrl)?;
-        if !matches!(url.scheme(), "http" | "https")
-            || url.host_str().is_none()
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || url.fragment().is_some()
-        {
+        if !matches!(url.scheme(), "http" | "https") {
             return Err(AddonError::InvalidUrl);
         }
+        validate_host_syntax(&url)?;
         resolve_public_destination(&url).await?;
         Ok(url.to_string())
     }
@@ -895,7 +891,7 @@ impl AddonManager {
     }
 }
 
-pub fn parse_manifest(manifest_url: &Url, payload: &str) -> Result<AddonManifest, AddonError> {
+pub fn parse_manifest(_manifest_url: &Url, payload: &str) -> Result<AddonManifest, AddonError> {
     if payload.len() > MAX_MANIFEST_BYTES {
         return Err(AddonError::ResponseTooLarge(MAX_MANIFEST_BYTES));
     }
@@ -974,7 +970,7 @@ pub fn parse_manifest(manifest_url: &Url, payload: &str) -> Result<AddonManifest
         .get("catalogs")
         .and_then(Value::as_array)
         .cloned()
-        .unwrap_or_default();
+        .ok_or_else(|| AddonError::InvalidManifest("catalogs must be an array".to_owned()))?;
     if catalogs_value.len() > MAX_CATALOGS {
         return Err(AddonError::InvalidManifest("catalogue count exceeds the limit".to_owned()));
     }
@@ -1080,13 +1076,7 @@ pub fn parse_manifest(manifest_url: &Url, payload: &str) -> Result<AddonManifest
         id,
         version,
         name,
-        description: object
-            .get("description")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .chars()
-            .take(4096)
-            .collect(),
+        description,
         logo,
         resources,
         types,
@@ -1134,51 +1124,48 @@ fn validate_url_syntax(url: &Url, allow_insecure_http: bool) -> Result<(), Addon
         "http" => return Err(AddonError::InsecureTransportNotApproved),
         _ => return Err(AddonError::InvalidUrl),
     }
-    if url.host_str().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.fragment().is_some()
-    {
+    validate_host_syntax(url)
+}
+
+fn validate_host_syntax(url: &Url) -> Result<(), AddonError> {
+    if !url.username().is_empty() || url.password().is_some() || url.fragment().is_some() {
         return Err(AddonError::InvalidUrl);
     }
-    let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
-    if host == "localhost"
-        || host.ends_with(".localhost")
-        || host.ends_with(".local")
-        || host.ends_with(".internal")
-        || host.ends_with(".lan")
-        || host.ends_with(".home")
-        || host.ends_with(".test")
-    {
-        return Err(AddonError::BlockedDestination);
-    }
-    if let Ok(address) = host.parse::<IpAddr>() {
-        if !is_public_ip(address) {
-            return Err(AddonError::BlockedDestination);
+    match url.host().ok_or(AddonError::InvalidUrl)? {
+        Host::Ipv4(address) if !is_public_ip(IpAddr::V4(address)) => Err(AddonError::BlockedDestination),
+        Host::Ipv6(address) if !is_public_ip(IpAddr::V6(address)) => Err(AddonError::BlockedDestination),
+        Host::Domain(host) => {
+            let host = host.to_ascii_lowercase();
+            if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local")
+                || host.ends_with(".internal") || host.ends_with(".lan") || host.ends_with(".home")
+                || host.ends_with(".test")
+            {
+                return Err(AddonError::BlockedDestination);
+            }
+            Ok(())
         }
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 async fn resolve_public_destination(url: &Url) -> Result<Vec<SocketAddr>, AddonError> {
-    let host = url.host_str().ok_or(AddonError::InvalidUrl)?;
+    validate_host_syntax(url)?;
     let port = url.port_or_known_default().ok_or(AddonError::InvalidUrl)?;
-    if let Ok(address) = IpAddr::from_str(host) {
-        if !is_public_ip(address) {
-            return Err(AddonError::BlockedDestination);
+    match url.host().ok_or(AddonError::InvalidUrl)? {
+        Host::Ipv4(address) => Ok(vec![SocketAddr::new(IpAddr::V4(address), port)]),
+        Host::Ipv6(address) => Ok(vec![SocketAddr::new(IpAddr::V6(address), port)]),
+        Host::Domain(host) => {
+            let resolved = timeout(Duration::from_secs(4), lookup_host((host, port)))
+                .await
+                .map_err(|_| AddonError::DnsResolution)?
+                .map_err(|_| AddonError::DnsResolution)?
+                .collect::<Vec<_>>();
+            if resolved.is_empty() || resolved.iter().any(|address| !is_public_ip(address.ip())) {
+                return Err(AddonError::BlockedDestination);
+            }
+            Ok(resolved)
         }
-        return Ok(vec![SocketAddr::new(address, port)]);
     }
-
-    let resolved = timeout(Duration::from_secs(4), lookup_host((host, port)))
-        .await
-        .map_err(|_| AddonError::DnsResolution)?
-        .map_err(|_| AddonError::DnsResolution)?
-        .collect::<Vec<_>>();
-    if resolved.is_empty() || resolved.iter().any(|address| !is_public_ip(address.ip())) {
-        return Err(AddonError::BlockedDestination);
-    }
-    Ok(resolved)
 }
 
 fn is_public_ip(address: IpAddr) -> bool {
