@@ -5325,7 +5325,7 @@ impl SenzoShell {
                             manifest.catalogs.len()
                         ),
                     ));
-                    if !manifest.catalogs.is_empty() {
+                    if addon.enabled && !manifest.catalogs.is_empty() {
                         let mut catalogs = div().flex().flex_wrap().gap_2();
                         for (catalog_index, catalog) in manifest.catalogs.iter().enumerate() {
                             let action_id = addon_id.clone();
@@ -5358,34 +5358,34 @@ impl SenzoShell {
                             cx.listener(move |this, _, _, cx| this.find_addon_metadata(meta_id.clone(), cx)),
                         ));
                     }
-                    let supports_streams = manifest
+                    let supports_streams = addon.enabled && manifest
                         .resources
                         .iter()
                         .any(|resource| resource.name == "stream");
-                    if supports_streams {
-                        let id = addon_id.clone();
-                        card = card.child(
-                            div()
-                                .flex()
-                                .flex_wrap()
-                                .gap_2()
-                                .child(self.addon_control(
-                                    &format!("addon-{index}-streams"),
-                                    "Find streams",
-                                    95 + index as isize * 2,
-                                    cx.listener(move |this, _, _, cx| {
-                                        this.find_addon_streams(id.clone(), cx)
-                                    }),
-                                ))
-                                .child(self.addon_control(
-                                    &format!("addon-{index}-subtitles"),
-                                    "Find subtitles",
-                                    96 + index as isize * 2,
-                                    cx.listener(move |this, _, _, cx| {
-                                        this.find_addon_subtitles(addon_id.clone(), cx)
-                                    }),
-                                )),
-                        );
+                    let supports_subtitles = addon.enabled && manifest
+                        .resources
+                        .iter()
+                        .any(|resource| resource.name == "subtitles");
+                    if supports_streams || supports_subtitles {
+                        let mut actions = div().flex().flex_wrap().gap_2();
+                        if supports_streams {
+                            let id = addon_id.clone();
+                            actions = actions.child(self.addon_control(
+                                &format!("addon-{index}-streams"),
+                                "Find streams",
+                                95 + index as isize * 2,
+                                cx.listener(move |this, _, _, cx| this.find_addon_streams(id.clone(), cx)),
+                            ));
+                        }
+                        if supports_subtitles {
+                            actions = actions.child(self.addon_control(
+                                &format!("addon-{index}-subtitles"),
+                                "Find subtitles",
+                                96 + index as isize * 2,
+                                cx.listener(move |this, _, _, cx| this.find_addon_subtitles(addon_id.clone(), cx)),
+                            ));
+                        }
+                        card = card.child(actions);
                     }
                 } else {
                     card =
