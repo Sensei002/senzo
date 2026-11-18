@@ -132,11 +132,16 @@ impl HomeSettings {
             sections.push(section);
         }
 
-        for mut section in Self::default().sections {
-            if seen.insert(section.key.clone()) {
-                if sections.len() == MAX_HOME_SECTIONS {
-                    sections.pop();
-                }
+        let defaults = Self::default().sections;
+        let missing_defaults = defaults
+            .iter()
+            .filter(|section| !seen.contains(&section.key))
+            .count();
+        sections.truncate(MAX_HOME_SECTIONS.saturating_sub(missing_defaults));
+        seen = sections.iter().map(|section| section.key.clone()).collect();
+
+        for mut section in defaults {
+            if seen.insert(section.key.clone()) && sections.len() < MAX_HOME_SECTIONS {
                 section.order = sections
                     .iter()
                     .map(|item| item.order)
@@ -371,6 +376,29 @@ mod tests {
 
         let loaded = HomeSettings::load(&repository).unwrap();
         assert_eq!(loaded, settings);
+    }
+
+    #[test]
+    fn normalization_restores_missing_builtins_even_when_preferences_reach_the_capacity_limit() {
+        let settings = HomeSettings {
+            schema_version: HOME_SETTINGS_VERSION,
+            hero_enabled: true,
+            sections: (0..MAX_HOME_SECTIONS)
+                .map(|index| HomeSectionPreference {
+                    key: format!("addon:catalog-{index}"),
+                    title: None,
+                    enabled: true,
+                    hero_source_enabled: false,
+                    order: index as u32,
+                })
+                .collect(),
+        };
+
+        let normalized = settings.normalized();
+        assert_eq!(normalized.sections.len(), MAX_HOME_SECTIONS);
+        for key in ["trending", "popular-movies", "popular-tv"] {
+            assert!(normalized.sections.iter().any(|section| section.key == key));
+        }
     }
 
     #[test]
