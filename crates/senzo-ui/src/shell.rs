@@ -3712,7 +3712,7 @@ impl SenzoShell {
             )
     }
 
-    fn render_header(&self, cx: &mut Context<Self>) -> gpui::Div {
+    fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let page = self.navigation.current();
         div()
             .id("senzo-header")
@@ -5316,40 +5316,53 @@ mod tests {
             .debug_bounds("home-refresh-catalogues")
             .expect("Home catalogue refresh control should be present in the rendered shell");
 
-        assert!(sidebar.origin.x.0.abs() < 1.0, "sidebar should anchor to the left edge");
+        let sidebar_x = f32::from(sidebar.origin.x);
+        let sidebar_width = f32::from(sidebar.size.width);
+        let header_y = f32::from(header.origin.y);
+        let header_height = f32::from(header.size.height);
+        let page_x = f32::from(page.origin.x);
+        let page_width = f32::from(page.size.width);
+        let page_height = f32::from(page.size.height);
+        let hero_x = f32::from(hero.origin.x);
+        let hero_y = f32::from(hero.origin.y);
+        let hero_width = f32::from(hero.size.width);
+        let hero_height = f32::from(hero.size.height);
+        let shelf_width = f32::from(shelf.size.width);
+        let refresh_x = f32::from(refresh.origin.x);
+        let refresh_width = f32::from(refresh.size.width);
+
+        assert!(sidebar_x.abs() < 1.0, "sidebar should anchor to the left edge");
         assert!(
-            (sidebar.size.width.0 - Theme::SIDEBAR_WIDTH).abs() < 1.0,
+            (sidebar_width - Theme::SIDEBAR_WIDTH).abs() < 1.0,
             "sidebar width should match the native design token"
         );
         assert!(
-            (header.size.height.0 - Theme::HEADER_HEIGHT).abs() < 1.0,
+            (header_height - Theme::HEADER_HEIGHT).abs() < 1.0,
             "header height should match the native design token"
         );
         assert!(
-            (page.origin.x.0 - (sidebar.origin.x.0 + sidebar.size.width.0)).abs() < 1.0,
+            (page_x - (sidebar_x + sidebar_width)).abs() < 1.0,
             "main viewport should begin immediately after the persistent sidebar"
         );
-        assert!(page.size.width.0 > 0.0 && page.size.height.0 > 0.0);
+        assert!(page_width > 0.0 && page_height > 0.0);
         assert!(
-            (hero.size.height.0 - 286.0).abs() < 1.0,
+            (hero_height - 286.0).abs() < 1.0,
             "featured hero should retain its 286px cinematic height"
         );
         assert!(
-            hero.size.width.0 > 0.0 && hero.size.width.0 < page.size.width.0,
+            hero_width > 0.0 && hero_width < page_width && hero_x >= page_x,
             "hero should fit inside the padded main viewport"
         );
         assert!(
-            hero.origin.y.0 >= header.origin.y.0 + header.size.height.0,
+            hero_y >= header_y + header_height,
             "Home hero must start below the persistent header"
         );
         assert!(
-            shelf.size.width.0 > 0.0 && shelf.size.width.0 <= page.size.width.0,
+            shelf_width > 0.0 && shelf_width <= page_width,
             "horizontal shelf rail must remain within the main viewport"
         );
         assert!(
-            refresh.origin.x.0 >= page.origin.x.0
-                && refresh.origin.x.0 + refresh.size.width.0
-                    <= page.origin.x.0 + page.size.width.0,
+            refresh_x >= page_x && refresh_x + refresh_width <= page_x + page_width,
             "Home toolbar control must remain within the main viewport"
         );
 
