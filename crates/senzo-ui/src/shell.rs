@@ -22,6 +22,8 @@ use senzo_catalog::{
 use senzo_domain::{AppPage, SettingsRepository};
 #[cfg(test)]
 use senzo_metadata::PersonCredit;
+#[cfg(test)]
+use senzo_catalog::{HomeCollectionFolder, HomeCollectionPosterShape};
 use senzo_metadata::{
     MediaItem, MediaType, MetadataClient, MetadataError, Person, SearchType, SeasonDetails,
     SeasonSummary,
