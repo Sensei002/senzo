@@ -3838,6 +3838,19 @@ pub fn run(tokio: Handle, smoke_test: bool, metadata: MetadataClient, artwork: A
 #[cfg(test)]
 mod tests {
     use super::*;
+    use senzo_domain::{RepositoryError, SettingKey};
+
+    struct TestSettingsRepository;
+
+    impl SettingsRepository for TestSettingsRepository {
+        fn get(&self, _key: &SettingKey) -> Result<Option<String>, RepositoryError> {
+            Ok(None)
+        }
+
+        fn set(&self, _key: &SettingKey, _value: &str) -> Result<(), RepositoryError> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn search_filters_map_to_the_hosted_metadata_contract() {
@@ -4086,6 +4099,7 @@ mod tests {
                 false,
                 metadata,
                 artwork,
+                Arc::new(TestSettingsRepository),
                 window,
                 cx,
             );
