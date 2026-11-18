@@ -31,10 +31,6 @@ pub(crate) fn record_search_history(current: &[String], query: &str) -> Vec<Stri
     updated
 }
 
-pub(crate) fn remove_search_history_entry(current: &[String], query: &str) -> Vec<String> {
-    current.iter().filter(|entry| !entry.eq_ignore_ascii_case(query)).cloned().collect()
-}
-
 pub(crate) const fn media_identity(media_type: MediaType, id: u64) -> (u8, u64) {
     let kind = match media_type {
         MediaType::Movie => 1, MediaType::Tv => 2, MediaType::Person => 3, MediaType::Other => 4,
