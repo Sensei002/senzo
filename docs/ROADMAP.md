@@ -140,14 +140,18 @@ See docs/PHASE_4_IMPLEMENTATION.md for the slice-by-slice implementation and acc
 
 ## Phase 5 — Search, details, seasons and episodes
 
-- [ ] Implement movie/TV search, discover filters and search history.
-- [ ] Implement movie, series and person detail views.
-- [ ] Implement cast/crew, ratings, production, trailers and related titles.
-- [ ] Implement season and episode browsing, specials and episode artwork.
-- [ ] Implement episode identity and metadata mapping.
-- [ ] Implement navigation between related media and back-stack restoration.
+<badge color="success">Complete</badge>
 
-**Gate:** Movie and TV discovery flows work end-to-end without playback yet.
+- [x] Implement movie/TV search, discover filters and search history.
+- [x] Implement movie, series and person detail views.
+- [x] Implement cast/crew, ratings, production, trailers and related titles.
+- [x] Implement season and episode browsing, specials and episode artwork.
+- [x] Implement episode identity and metadata mapping.
+- [x] Implement navigation between related media and back-stack restoration.
+
+**Completion gate — passed:** [SENZO Desktop CI run #569](https://github.com/Sensei002/senzo/actions/runs/44364656528) passed all six jobs, including Windows and Linux native formatting, Clippy, workspace tests, release builds, startup/render/shutdown smoke tests, live hosted API acceptance on both platforms, repository automation validation, and Cargo.lock housekeeping. Playback remains explicitly outside Phase 5; it is addressed by later playback phases.
+
+See docs/PHASE_5_IMPLEMENTATION.md.
 
 ## Phase 6 — Stremio add-on ecosystem
 
@@ -334,4 +338,4 @@ See docs/PHASE_4_IMPLEMENTATION.md for the slice-by-slice implementation and acc
 **Gate:** Nuvio desktop parity inventory is closed or every remaining difference is explicitly documented and accepted.
 
 
-**Current sequencing (November 18, 2026):** Phases 0–4 are complete on `development`. Phase 5 is the next implementation phase. Phase 6 owns Stremio add-on catalogue execution, Phase 11 owns playback progress/Continue Watching, Phase 12 owns collection authoring and Library integration, and Phase 18 owns final physical-device/visual release acceptance.
+**Current sequencing (November 18, 2026):** Phases 0–5 are complete on `development`. Phase 6 is next. Phase 6 owns Stremio add-on catalogue execution, Phase 11 owns playback progress/Continue Watching, Phase 12 owns collection authoring and Library integration, and Phase 18 owns final physical-device/visual release acceptance.
