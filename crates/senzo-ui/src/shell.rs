@@ -721,10 +721,10 @@ impl SenzoShell {
     }
 
     fn remember_focused_home_card(&mut self, window: &Window) {
-        if self.navigation.current() == AppPage::Home {
-            if let Some(id) = self.focused_home_card_id(window) {
-                self.last_home_focus_id = Some(id);
-            }
+        if self.navigation.current() == AppPage::Home
+            && let Some(id) = self.focused_home_card_id(window)
+        {
+            self.last_home_focus_id = Some(id);
         }
     }
 
@@ -744,12 +744,10 @@ impl SenzoShell {
         let base_tab = 100 + (section_index as isize * 50);
         for (index, card) in cards.iter().enumerate() {
             let id = home_card_focus_id(key, card.media_type, card.id);
-            if !self.home_card_focus_handles.contains_key(&id) {
-                let focus = cx
-                    .focus_handle()
-                    .tab_index(base_tab + start_index as isize + index as isize);
-                self.home_card_focus_handles.insert(id, focus);
-            }
+            self.home_card_focus_handles.entry(id).or_insert_with(|| {
+                cx.focus_handle()
+                    .tab_index(base_tab + start_index as isize + index as isize)
+            });
         }
     }
 
