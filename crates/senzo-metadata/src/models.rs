@@ -16,6 +16,26 @@ pub enum SearchType {
     Tv,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiscoverSort {
+    Popularity,
+    Rating,
+    Newest,
+    Revenue,
+}
+
+impl DiscoverSort {
+    pub const fn as_api_value(self, media_type: MediaType) -> &'static str {
+        match (self, media_type) {
+            (Self::Popularity, _) => "popularity.desc",
+            (Self::Rating, _) => "vote_average.desc",
+            (Self::Newest, MediaType::Tv) => "first_air_date.desc",
+            (Self::Newest, _) => "primary_release_date.desc",
+            (Self::Revenue, _) => "revenue.desc",
+        }
+    }
+}
+
 impl SearchType {
     pub const fn as_api_value(self) -> &'static str {
         match self {
@@ -109,6 +129,8 @@ pub struct MovieDetails {
     pub videos: Option<Videos>,
     pub images: Option<Images>,
     pub external_ids: Option<ExternalIds>,
+    pub recommendations: Option<MediaListResponse>,
+    pub similar: Option<MediaListResponse>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -135,17 +157,29 @@ pub struct TvDetails {
     pub seasons: Vec<SeasonSummary>,
     #[serde(default)]
     pub production_companies: Vec<ProductionCompany>,
+    #[serde(default)]
+    pub production_countries: Vec<ProductionCountry>,
+    #[serde(default)]
+    pub networks: Vec<ProductionCompany>,
     pub aggregate_credits: Option<Credits>,
     pub credits: Option<Credits>,
     pub videos: Option<Videos>,
     pub images: Option<Images>,
     pub external_ids: Option<ExternalIds>,
+    pub recommendations: Option<MediaListResponse>,
+    pub similar: Option<MediaListResponse>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Genre {
     pub id: u64,
     pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GenreListResponse {
+    #[serde(default)]
+    pub genres: Vec<Genre>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

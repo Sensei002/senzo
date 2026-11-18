@@ -11,8 +11,8 @@ use url::{Host, Url};
 use crate::{
     cache::MetadataCache,
     models::{
-        ApiHealth, EpisodeDetails, ExternalIds, MediaListResponse, MovieDetails, Person,
-        SearchType, SeasonDetails, TvDetails,
+        ApiHealth, DiscoverSort, EpisodeDetails, ExternalIds, GenreListResponse, MediaListResponse,
+        MediaType, MovieDetails, Person, SearchType, SeasonDetails, TvDetails,
     },
 };
 
@@ -176,6 +176,71 @@ impl MetadataClient {
         cancellation: &CancellationToken,
     ) -> Result<MediaListResponse, MetadataError> {
         self.popular("tv", page, language, cancellation).await
+    }
+
+    pub async fn genres(
+        &self,
+        media_type: MediaType,
+        language: &str,
+        cancellation: &CancellationToken,
+    ) -> Result<GenreListResponse, MetadataError> {
+        let segment = match media_type {
+            MediaType::Movie => "movie",
+            MediaType::Tv => "tv",
+            _ => return Err(MetadataError::InvalidInput("genres require movie or TV media type")),
+        };
+        validate_language(language)?;
+        self.get_json(
+            &format!("api/tmdb/genre/{segment}/list"),
+            &[("language", language)],
+            Duration::from_secs(86_400),
+            cancellation,
+        )
+        .await
+    }
+
+    pub async fn discover(
+        &self,
+        media_type: MediaType,
+        genre_id: Option<u64>,
+        year: Option<u32>,
+        sort: DiscoverSort,
+        page: u32,
+        language: &str,
+        cancellation: &CancellationToken,
+    ) -> Result<MediaListResponse, MetadataError> {
+        let (segment, year_key) = match media_type {
+            MediaType::Movie => ("movie", "primary_release_year"),
+            MediaType::Tv => ("tv", "first_air_date_year"),
+            _ => return Err(MetadataError::InvalidInput("discover requires movie or TV media type")),
+        };
+        if genre_id.is_some_and(|id| !(1..=10_000).contains(&id)) {
+            return Err(MetadataError::InvalidInput("genre ID must be between 1 and 10000"));
+        }
+        if year.is_some_and(|value| !(1870..=2100).contains(&value)) {
+            return Err(MetadataError::InvalidInput("year must be between 1870 and 2100"));
+        }
+        validate_page(page)?;
+        validate_language(language)?;
+
+        let page = page.to_string();
+        let sort_by = sort.as_api_value(media_type);
+        let genre = genre_id.map(|id| id.to_string());
+        let year = year.map(|value| value.to_string());
+        let mut query = vec![("page", page.as_str()), ("language", language), ("sort_by", sort_by)];
+        if let Some(genre) = genre.as_deref() {
+            query.push(("with_genres", genre));
+        }
+        if let Some(year) = year.as_deref() {
+            query.push((year_key, year));
+        }
+        self.get_json(
+            &format!("api/tmdb/discover/{segment}"),
+            &query,
+            Duration::from_secs(300),
+            cancellation,
+        )
+        .await
     }
 
     pub async fn movie(
@@ -525,6 +590,66 @@ fn validate_language(language: &str) -> Result<(), MetadataError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn discover_sort_maps_to_media_specific_tmdb_fields() {
+        assert_eq!(DiscoverSort::Popularity.as_api_value(MediaType::Movie), "popularity.desc");
+        assert_eq!(DiscoverSort::Newest.as_api_value(MediaType::Movie), "primary_release_date.desc");
+        assert_eq!(DiscoverSort::Newest.as_api_value(MediaType::Tv), "first_air_date.desc");
+    }
+
+    #[tokio::test]
+    async fn requests_filtered_movie_discovery_with_validated_query_fields() {
+        let (base, server) = start_server(r#"{"page":2,"results":[],"total_pages":3,"total_results":0}"#).await;
+        let client = MetadataClient::new(
+            HttpClient::new(Default::default()).unwrap(),
+            MetadataClientConfig { base_url: base, ..Default::default() },
+        ).unwrap();
+        let response = client.discover(
+            MediaType::Movie, Some(28), Some(2024), DiscoverSort::Newest, 2, "en-US",
+            &CancellationToken::new(),
+        ).await.unwrap();
+        let request = server.await.unwrap();
+        assert_eq!(response.page, 2);
+        assert!(request.starts_with("GET /api/tmdb/discover/movie?"));
+        assert!(request.contains("with_genres=28"));
+        assert!(request.contains("primary_release_year=2024"));
+        assert!(request.contains("sort_by=primary_release_date.desc"));
+        assert!(!request.to_ascii_lowercase().contains("authorization:"));
+    }
+
+    #[tokio::test]
+    async fn requests_movie_genres_from_the_hosted_api() {
+        let (base, server) = start_server(r#"{"genres":[{"id":28,"name":"Action"}]}"#).await;
+        let client = MetadataClient::new(
+            HttpClient::new(Default::default()).unwrap(),
+            MetadataClientConfig { base_url: base, ..Default::default() },
+        ).unwrap();
+        let response = client.genres(MediaType::Movie, "en-US", &CancellationToken::new()).await.unwrap();
+        let request = server.await.unwrap();
+        assert_eq!(response.genres[0].name, "Action");
+        assert!(request.starts_with("GET /api/tmdb/genre/movie/list?"));
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_discover_filters_before_network_access() {
+        let client = MetadataClient::new(
+            HttpClient::new(Default::default()).unwrap(),
+            MetadataClientConfig { base_url: "http://127.0.0.1:3000".to_owned(), ..Default::default() },
+        ).unwrap();
+        assert!(matches!(
+            client.discover(MediaType::Movie, Some(0), None, DiscoverSort::Popularity, 1, "en-US", &CancellationToken::new()).await,
+            Err(MetadataError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            client.discover(MediaType::Tv, None, Some(2200), DiscoverSort::Popularity, 1, "en-US", &CancellationToken::new()).await,
+            Err(MetadataError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            client.genres(MediaType::Person, "en-US", &CancellationToken::new()).await,
+            Err(MetadataError::InvalidInput(_))
+        ));
+    }
 
     #[test]
     fn rejects_remote_cleartext_and_url_credentials() {
