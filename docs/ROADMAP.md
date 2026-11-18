@@ -67,7 +67,7 @@ A phase is complete only when its documented deliverables, automated checks, and
 
 ## Phase 3 — Networking, metadata and artwork foundation
 
-<badge color="info">In progress — native metadata/artwork and discovery workflows implemented; final hosted Preview and cross-platform runtime acceptance underway</badge>
+<badge color="info">In progress — implementation complete; cross-platform Preview acceptance rerun is underway</badge>
 
 - [x] Implement typed SENZO API client for the existing hosted route contract.
 - [x] Implement search, trending, popular, movie/TV details, external-ID, season and episode request methods.
@@ -90,11 +90,11 @@ A phase is complete only when its documented deliverables, automated checks, and
 - [ ] Verify live hosted Home, Search, movie/TV/person details and artwork behavior on Windows and Linux.
 - [x] Preserve TMDB credentials exclusively on the hosted API.
 
-**Current implementation gate:** The native Home, Search, Movie/TV Details, Person Details and recovery workflows are implemented on `development`. Windows/Linux desktop CI includes Rust fault-injection tests for offline connections, transient 5xx, 429 retry policy, response-cache behavior, request coalescing and cancellation. The person profile/combined-credits backend is implemented on SENZO API `development`; [API PR #1](https://github.com/Sensei002/senzo-api/pull/1) has a successful Vercel Preview deployment and passing API CI but remains open, so the production hosted route is not yet available. The GitHub Actions repository secret `VERCEL_AUTOMATION_BYPASS_SECRET` is configured and the protected Preview bypass works; the native smoke runner injects it only in a loopback proxy, and the SENZO process receives no deployment secret. Earlier opt-in acceptance run #494 reached the Preview but reported `tmdbConfigured: false`; after the maintainer's configuration update and report that CI is green, the opt-in Windows/Linux hosted API and native metadata/artwork acceptance is being rerun now. The production rollout of API PR #1 remains a separate release decision.
+**Current implementation gate:** The native Home, Search, Movie/TV Details, Person Details and recovery workflows are implemented on `development`. Windows/Linux desktop CI includes fault-injection tests for offline connections, transient 5xx, 429 retry policy, response-cache behavior, request coalescing and cancellation. The person profile/combined-credits backend is implemented on SENZO API `development`; [API PR #1](https://github.com/Sensei002/senzo-api/pull/1) has a successful Vercel Preview deployment and passing API CI but remains open, so production promotion remains a separate release decision. The GitHub Actions repository secret `VERCEL_AUTOMATION_BYPASS_SECRET` is configured and the protected Preview bypass works; the native smoke runner injects it only in a loopback proxy, and the SENZO process receives no deployment secret. `TMDB_READ_ACCESS_TOKEN` is now configured in the Vercel `senzo-api` Preview environment for branch `development`. The correct branch deployment `dpl_53fYJS1zxuVR8BwSUjo6oqFKZ97f` reports `tmdbConfigured: true`, and a live `/api/tmdb/trending/all/week` request returns HTTP 200 with TMDB metadata. CI run #503 had executed before the correct Preview redeploy and still saw the previous missing-token instance. The latest desktop failure is a stale test call site omitting the new `SettingsRepository` constructor argument; this is fixed on `development` and the cross-platform acceptance suite is being rerun.
 
 See docs/PHASE_3_IMPLEMENTATION.md.
 
-**Phase 3 live acceptance rerun:** `[live-api-acceptance]` — this commit intentionally triggers the protected API Preview contract checks and native Windows/Linux metadata/artwork smoke tests after the Preview environment configuration update.
+**Phase 3 live acceptance rerun:** `[live-api-acceptance]` — this marker triggers the protected API Preview contract checks and native Windows/Linux metadata/artwork smoke tests after the Preview token was configured and the GPUI test constructor was corrected.
 
 ## Phase 4 — Home, catalogues and discovery
 
