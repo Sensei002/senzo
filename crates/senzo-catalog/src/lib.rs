@@ -22,6 +22,7 @@ pub const BUILT_IN_HOME_CATALOGUE_DESCRIPTOR_VERSION: u32 = 1;
 pub const MAX_HOME_COLLECTION_ID_CHARS: usize = 128;
 pub const MAX_HOME_COLLECTION_TITLE_CHARS: usize = 80;
 pub const MAX_HOME_COLLECTION_COVER_EMOJI_CHARS: usize = 16;
+pub const MAX_HOME_COLLECTION_ARTWORK_PATH_CHARS: usize = 512;
 pub const MAX_HOME_COLLECTIONS: usize = 64;
 pub const MAX_HOME_COLLECTION_FOLDERS: usize = 100;
 
@@ -44,6 +45,10 @@ pub struct HomeCollectionFolder {
     pub poster_shape: HomeCollectionPosterShape,
     #[serde(default)]
     pub cover_emoji: Option<String>,
+    /// TMDB image path only (for example "/abc123/folder-cover.jpg").
+    /// Full URLs and arbitrary hosts are rejected before persistence.
+    #[serde(default)]
+    pub cover_artwork_path: Option<String>,
     #[serde(default)]
     pub hide_title: bool,
 }
@@ -96,12 +101,19 @@ pub fn visible_home_collections(collections: &[HomeCollection]) -> Vec<HomeColle
                         && !value.chars().any(char::is_control))
                     .then(|| value.to_owned())
                 });
+                let cover_artwork_path = folder
+                    .cover_artwork_path
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|path| valid_collection_artwork_path(path))
+                    .map(str::to_owned);
 
                 Some(HomeCollectionFolder {
                     id: folder_id.to_owned(),
                     title: folder_title.to_owned(),
                     poster_shape: folder.poster_shape,
                     cover_emoji,
+                    cover_artwork_path,
                     hide_title: folder.hide_title,
                 })
             })
@@ -120,6 +132,27 @@ pub fn visible_home_collections(collections: &[HomeCollection]) -> Vec<HomeColle
     }
 
     visible
+}
+
+fn valid_collection_artwork_path(value: &str) -> bool {
+    let Some(path) = value.strip_prefix('/') else {
+        return false;
+    };
+    if value.len() > MAX_HOME_COLLECTION_ARTWORK_PATH_CHARS
+        || path.is_empty()
+        || path.chars().any(char::is_control)
+    {
+        return false;
+    }
+
+    path.split('/').all(|segment| {
+        !segment.is_empty()
+            && segment != "."
+            && segment != ".."
+            && segment
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    })
 }
 
 fn valid_collection_text(value: &str, max_chars: usize) -> bool {
@@ -796,6 +829,7 @@ mod tests {
             title: "Folder".to_owned(),
             poster_shape: HomeCollectionPosterShape::Poster,
             cover_emoji: None,
+            cover_artwork_path: None,
             hide_title: false,
         };
         let collections = vec![
@@ -871,6 +905,7 @@ mod tests {
                     title: "  Action  ".to_owned(),
                     poster_shape: HomeCollectionPosterShape::Landscape,
                     cover_emoji: Some("  🎬  ".to_owned()),
+                    cover_artwork_path: Some("/abc123/collection-cover.jpg".to_owned()),
                     hide_title: false,
                 },
                 HomeCollectionFolder {
@@ -878,6 +913,7 @@ mod tests {
                     title: "Duplicate".to_owned(),
                     poster_shape: HomeCollectionPosterShape::Poster,
                     cover_emoji: None,
+                    cover_artwork_path: None,
                     hide_title: false,
                 },
                 HomeCollectionFolder {
@@ -885,6 +921,7 @@ mod tests {
                     title: "Invalid".to_owned(),
                     poster_shape: HomeCollectionPosterShape::Square,
                     cover_emoji: None,
+                    cover_artwork_path: Some("https://evil.example/image.jpg".to_owned()),
                     hide_title: false,
                 },
             ],
@@ -896,9 +933,30 @@ mod tests {
         assert_eq!(visible[0].folders[0].title, "Action");
         assert_eq!(visible[0].folders[0].cover_emoji.as_deref(), Some("🎬"));
         assert_eq!(
+            visible[0].folders[0].cover_artwork_path.as_deref(),
+            Some("/abc123/collection-cover.jpg")
+        );
+        assert_eq!(
             visible[0].folders[0].poster_shape,
             HomeCollectionPosterShape::Landscape
         );
+    }
+
+    #[test]
+    fn collection_cover_artwork_paths_reject_urls_traversal_and_unsafe_characters() {
+        for path in [
+            "https://image.tmdb.org/t/p/w500/image.jpg",
+            "//image.tmdb.org/image.jpg",
+            "/../private.jpg",
+            "/safe/../../private.jpg",
+            "/safe/image.jpg?redirect=evil",
+            "/safe\\\\image.jpg",
+            "/safe/line\nbreak.jpg",
+        ] {
+            assert!(!valid_collection_artwork_path(path), "unexpectedly accepted {path:?}");
+        }
+        assert!(valid_collection_artwork_path("/abc123/folder-cover.webp"));
+        assert!(!valid_collection_artwork_path(&format!("/{}", "a".repeat(MAX_HOME_COLLECTION_ARTWORK_PATH_CHARS))));
     }
 
     #[test]
@@ -928,6 +986,7 @@ mod tests {
                             title: "Movies".to_owned(),
                             poster_shape: HomeCollectionPosterShape::Poster,
                             cover_emoji: Some("🎬".to_owned()),
+                            cover_artwork_path: Some("/family/favorites.jpg".to_owned()),
                             hide_title: false,
                         },
                         HomeCollectionFolder {

@@ -71,6 +71,7 @@ enum HomeCatalogueStatus {
 const MAX_HOME_FEATURED_ITEMS: usize = 8;
 const MAX_HOME_SHELF_ITEMS: usize = 120;
 const MAX_HOME_CATALOGUE_PAGES: u32 = 500;
+const MAX_HOME_COLLECTION_ARTWORK_ITEMS: usize = 120;
 
 #[derive(Clone)]
 struct HomeMediaCandidate {
@@ -424,6 +425,9 @@ pub(crate) struct SenzoShell {
     settings: Arc<dyn SettingsRepository>,
     home_settings: HomeSettings,
     home_collections: Vec<HomeCollection>,
+    home_collection_artwork: HashMap<String, Arc<RenderImage>>,
+    home_collection_artwork_requested: bool,
+    home_collection_artwork_cancellation: CancellationToken,
     home_cancellation: CancellationToken,
     home_catalogue_generation: u64,
     home_catalogue_status: HomeCatalogueStatus,
@@ -673,6 +677,9 @@ impl SenzoShell {
             settings,
             home_settings,
             home_collections,
+            home_collection_artwork: HashMap::new(),
+            home_collection_artwork_requested: false,
+            home_collection_artwork_cancellation: CancellationToken::new(),
             home_cancellation: CancellationToken::new(),
             home_catalogue_generation: 0,
             home_catalogue_status: HomeCatalogueStatus::NotRequested,
@@ -1435,6 +1442,65 @@ impl SenzoShell {
                     .position(|item| item.id == id && item.media_type == media_type)
             })
             .unwrap_or(0);
+    }
+
+    fn load_home_collection_artwork(&mut self, cx: &mut Context<Self>) {
+        if self.home_collection_artwork_requested {
+            return;
+        }
+        self.home_collection_artwork_requested = true;
+
+        let requests = home_collection_artwork_requests(&self.home_collections);
+        if requests.is_empty() {
+            return;
+        }
+
+        let artwork = self.artwork.clone();
+        let cancellation = self.home_collection_artwork_cancellation.child_token();
+        let completion_cancellation = cancellation.clone();
+        let (sender, mut receiver) = mpsc::unbounded_channel::<(String, Arc<RenderImage>)>();
+        let task = self.tokio.spawn(async move {
+            let mut jobs = JoinSet::new();
+            for (key, path) in requests {
+                let service = artwork.clone();
+                let token = cancellation.child_token();
+                jobs.spawn(async move {
+                    let image = load_gpui_artwork(
+                        service,
+                        path,
+                        ArtworkSize::W342,
+                        token,
+                    )
+                    .await;
+                    (key, image)
+                });
+            }
+
+            while let Some(result) = jobs.join_next().await {
+                if cancellation.is_cancelled() {
+                    break;
+                }
+                if let Ok((key, Some(image))) = result
+                    && sender.send((key, image)).is_err()
+                {
+                    break;
+                }
+            }
+        });
+
+        cx.spawn(async move |this, cx| {
+            while let Some((key, image)) = receiver.recv().await {
+                let _ = this.update(cx, |this, cx| {
+                    if completion_cancellation.is_cancelled() {
+                        return;
+                    }
+                    this.home_collection_artwork.insert(key, image);
+                    cx.notify();
+                });
+            }
+            let _ = task.await;
+        })
+        .detach();
     }
 
     fn load_home_catalogue(&mut self, cx: &mut Context<Self>) {
@@ -3437,9 +3503,8 @@ impl SenzoShell {
 
         // Collections are local-first. The Library domain owns collection creation;
         // Home only projects saved rows and never inserts sample data.
-        let collection_artwork = HashMap::new();
         for collection in &self.home_collections {
-            content = content.child(home_collection_row(collection, &collection_artwork));
+            content = content.child(home_collection_row(collection, &self.home_collection_artwork));
         }
 
         content
@@ -4551,6 +4616,23 @@ async fn load_home_shelf_initial(
     })
 }
 
+fn home_collection_artwork_requests(
+    collections: &[HomeCollection],
+) -> Vec<(String, String)> {
+    visible_home_collections(collections)
+        .into_iter()
+        .flat_map(|collection| {
+            let collection_id = collection.id;
+            collection.folders.into_iter().filter_map(move |folder| {
+                let path = folder.cover_artwork_path?;
+                let key = home_collection_folder_key(&collection_id, &folder.id)?;
+                Some((key, path))
+            })
+        })
+        .take(MAX_HOME_COLLECTION_ARTWORK_ITEMS)
+        .collect()
+}
+
 async fn load_gpui_artwork(
     artwork: ArtworkService,
     file_path: String,
@@ -4572,6 +4654,7 @@ async fn load_gpui_artwork(
 impl Drop for SenzoShell {
     fn drop(&mut self) {
         self.home_cancellation.cancel();
+        self.home_collection_artwork_cancellation.cancel();
         self.search_cancellation.cancel();
         self.details_cancellation.cancel();
         self.person_details_cancellation.cancel();
@@ -4580,11 +4663,11 @@ impl Drop for SenzoShell {
 
 impl Render for SenzoShell {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if !self.smoke_test
-            && self.navigation.current() == AppPage::Home
-            && self.home_catalogue_status == HomeCatalogueStatus::NotRequested
-        {
-            self.load_home_catalogue(cx);
+        if !self.smoke_test && self.navigation.current() == AppPage::Home {
+            self.load_home_collection_artwork(cx);
+            if self.home_catalogue_status == HomeCatalogueStatus::NotRequested {
+                self.load_home_catalogue(cx);
+            }
         }
 
         if self.smoke_test && !self.smoke_test_scheduled {
@@ -5116,6 +5199,49 @@ mod tests {
                 message: "not found".to_owned(),
             })
             .contains("could not be found")
+        );
+    }
+
+    #[test]
+    fn home_collection_artwork_requests_use_stable_keys_and_a_hard_cap() {
+        let make_folder = |id: String, cover_artwork_path: Option<String>| HomeCollectionFolder {
+            id,
+            title: "Folder".to_owned(),
+            poster_shape: HomeCollectionPosterShape::Poster,
+            cover_emoji: None,
+            cover_artwork_path,
+            hide_title: false,
+        };
+        let collection = HomeCollection {
+            id: "collection".to_owned(),
+            title: "Collection".to_owned(),
+            folders: vec![
+                make_folder("cover".to_owned(), Some("/covers/one.jpg".to_owned())),
+                make_folder("emoji-only".to_owned(), None),
+                make_folder("second".to_owned(), Some("/covers/two.jpg".to_owned())),
+            ],
+        };
+
+        let requests = home_collection_artwork_requests(std::slice::from_ref(&collection));
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].0, home_collection_folder_key("collection", "cover").unwrap());
+        assert_eq!(requests[0].1, "/covers/one.jpg");
+        assert_eq!(requests[1].0, home_collection_folder_key("collection", "second").unwrap());
+
+        let many = HomeCollection {
+            folders: (0..(MAX_HOME_COLLECTION_ARTWORK_ITEMS + 10))
+                .map(|index| {
+                    make_folder(
+                        format!("folder-{index}"),
+                        Some(format!("/covers/{index}.jpg")),
+                    )
+                })
+                .collect(),
+            ..collection
+        };
+        assert_eq!(
+            home_collection_artwork_requests(&[many]).len(),
+            MAX_HOME_COLLECTION_ARTWORK_ITEMS
         );
     }
 
