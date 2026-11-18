@@ -3396,6 +3396,7 @@ impl SenzoShell {
             .child(
                 div()
                     .id(format!("home-{}-shelf-scroll", key.as_str()))
+                    .debug_selector(|| format!("home-{}-shelf-scroll", key.as_str()))
                     .w_full()
                     .overflow_x_scroll()
                     .child(content),
@@ -3615,6 +3616,7 @@ impl SenzoShell {
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         div()
             .id("senzo-sidebar")
+            .debug_selector(|| "senzo-sidebar")
             .key_context("SENZO_NAVIGATION")
             .w(px(Theme::SIDEBAR_WIDTH))
             .h_full()
@@ -3713,6 +3715,8 @@ impl SenzoShell {
     fn render_header(&self, cx: &mut Context<Self>) -> gpui::Div {
         let page = self.navigation.current();
         div()
+            .id("senzo-header")
+            .debug_selector(|| "senzo-header")
             .w_full()
             .h(px(Theme::HEADER_HEIGHT))
             .flex()
@@ -3825,6 +3829,7 @@ impl SenzoShell {
             286.0,
             self.home_catalogue_status == HomeCatalogueStatus::Loading,
         )
+        .debug_selector(|| "home-featured-hero")
         .child(
             div()
                 .absolute()
@@ -4043,6 +4048,7 @@ impl SenzoShell {
             .child(
                 div()
                     .id("home-refresh-catalogues")
+                    .debug_selector(|| "home-refresh-catalogues")
                     .tab_index(29)
                     .cursor_pointer()
                     .rounded_md()
@@ -4754,6 +4760,7 @@ impl Render for SenzoShell {
                     .child(
                         div()
                             .id("page-content")
+                            .debug_selector(|| "page-content")
                             .track_scroll(&self.page_scroll_handle)
                             .flex_1()
                             .overflow_y_scroll()
@@ -5289,6 +5296,62 @@ mod tests {
         });
 
         window_cx.update(|_, app| bind_shell_keys(app));
+
+        let sidebar = window_cx
+            .debug_bounds("senzo-sidebar")
+            .expect("sidebar should be present in the rendered shell");
+        let header = window_cx
+            .debug_bounds("senzo-header")
+            .expect("header should be present in the rendered shell");
+        let page = window_cx
+            .debug_bounds("page-content")
+            .expect("main page viewport should be present in the rendered shell");
+        let hero = window_cx
+            .debug_bounds("home-featured-hero")
+            .expect("Home featured hero should be present in the rendered shell");
+        let shelf = window_cx
+            .debug_bounds("home-trending-shelf-scroll")
+            .expect("built-in Home shelf rail should be present in the rendered shell");
+        let refresh = window_cx
+            .debug_bounds("home-refresh-catalogues")
+            .expect("Home catalogue refresh control should be present in the rendered shell");
+
+        assert!(sidebar.origin.x.0.abs() < 1.0, "sidebar should anchor to the left edge");
+        assert!(
+            (sidebar.size.width.0 - Theme::SIDEBAR_WIDTH).abs() < 1.0,
+            "sidebar width should match the native design token"
+        );
+        assert!(
+            (header.size.height.0 - Theme::HEADER_HEIGHT).abs() < 1.0,
+            "header height should match the native design token"
+        );
+        assert!(
+            (page.origin.x.0 - (sidebar.origin.x.0 + sidebar.size.width.0)).abs() < 1.0,
+            "main viewport should begin immediately after the persistent sidebar"
+        );
+        assert!(page.size.width.0 > 0.0 && page.size.height.0 > 0.0);
+        assert!(
+            (hero.size.height.0 - 286.0).abs() < 1.0,
+            "featured hero should retain its 286px cinematic height"
+        );
+        assert!(
+            hero.size.width.0 > 0.0 && hero.size.width.0 < page.size.width.0,
+            "hero should fit inside the padded main viewport"
+        );
+        assert!(
+            hero.origin.y.0 >= header.origin.y.0 + header.size.height.0,
+            "Home hero must start below the persistent header"
+        );
+        assert!(
+            shelf.size.width.0 > 0.0 && shelf.size.width.0 <= page.size.width.0,
+            "horizontal shelf rail must remain within the main viewport"
+        );
+        assert!(
+            refresh.origin.x.0 >= page.origin.x.0
+                && refresh.origin.x.0 + refresh.size.width.0
+                    <= page.origin.x.0 + page.size.width.0,
+            "Home toolbar control must remain within the main viewport"
+        );
 
         for expected in [
             AppPage::Movies,
