@@ -16,6 +16,129 @@ pub const MAX_HOME_SECTION_TITLE_CHARS: usize = 80;
 pub const MAX_HERO_SOURCES: usize = 2;
 pub const BUILT_IN_HOME_CATALOGUE_DESCRIPTOR_VERSION: u32 = 1;
 
+pub const MAX_HOME_COLLECTION_ID_CHARS: usize = 128;
+pub const MAX_HOME_COLLECTION_TITLE_CHARS: usize = 80;
+pub const MAX_HOME_COLLECTION_COVER_EMOJI_CHARS: usize = 16;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum HomeCollectionPosterShape {
+    #[default]
+    Poster,
+    Landscape,
+    Square,
+}
+
+/// One locally-owned folder that can be rendered as a tile in a Home collection row.
+/// Artwork is resolved by the UI/artwork service and is not stored in this model.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HomeCollectionFolder {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub poster_shape: HomeCollectionPosterShape,
+    #[serde(default)]
+    pub cover_emoji: Option<String>,
+    #[serde(default)]
+    pub hide_title: bool,
+}
+
+/// User-owned collection displayed as a horizontally scrolling Home row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HomeCollection {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub folders: Vec<HomeCollectionFolder>,
+}
+
+/// Return renderable collections in source order. Invalid/empty collections,
+/// empty folders, and duplicate collection/folder IDs are ignored. The first
+/// valid occurrence wins, preserving deterministic ordering.
+pub fn visible_home_collections(collections: &[HomeCollection]) -> Vec<HomeCollection> {
+    let mut collection_ids = HashSet::new();
+    let mut visible = Vec::new();
+
+    for collection in collections {
+        let id = collection.id.trim();
+        let title = collection.title.trim();
+        if !valid_collection_text(id, MAX_HOME_COLLECTION_ID_CHARS)
+            || !valid_collection_text(title, MAX_HOME_COLLECTION_TITLE_CHARS)
+            || !collection_ids.insert(id.to_owned())
+        {
+            continue;
+        }
+
+        let mut folder_ids = HashSet::new();
+        let folders = collection
+            .folders
+            .iter()
+            .filter_map(|folder| {
+                let folder_id = folder.id.trim();
+                let folder_title = folder.title.trim();
+                if !valid_collection_text(folder_id, MAX_HOME_COLLECTION_ID_CHARS)
+                    || !valid_collection_text(folder_title, MAX_HOME_COLLECTION_TITLE_CHARS)
+                    || !folder_ids.insert(folder_id.to_owned())
+                {
+                    return None;
+                }
+
+                let cover_emoji = folder.cover_emoji.as_deref().and_then(|value| {
+                    let value = value.trim();
+                    (!value.is_empty()
+                        && value.chars().count() <= MAX_HOME_COLLECTION_COVER_EMOJI_CHARS
+                        && !value.chars().any(char::is_control))
+                    .then(|| value.to_owned())
+                });
+
+                Some(HomeCollectionFolder {
+                    id: folder_id.to_owned(),
+                    title: folder_title.to_owned(),
+                    poster_shape: folder.poster_shape,
+                    cover_emoji,
+                    hide_title: folder.hide_title,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        if folders.is_empty() {
+            continue;
+        }
+
+        visible.push(HomeCollection {
+            id: id.to_owned(),
+            title: title.to_owned(),
+            folders,
+        });
+    }
+
+    visible
+}
+
+fn valid_collection_text(value: &str, max_chars: usize) -> bool {
+    !value.is_empty()
+        && value.chars().count() <= max_chars
+        && !value.chars().any(char::is_control)
+}
+
+/// Stable, delimiter-safe element identity for a folder tile.
+pub fn home_collection_folder_key(collection_id: &str, folder_id: &str) -> Option<String> {
+    let collection_id = collection_id.trim();
+    let folder_id = folder_id.trim();
+    if !valid_collection_text(collection_id, MAX_HOME_COLLECTION_ID_CHARS)
+        || !valid_collection_text(folder_id, MAX_HOME_COLLECTION_ID_CHARS)
+    {
+        return None;
+    }
+    Some(format!(
+        "home-collection-c{}:{}-f{}:{}",
+        collection_id.len(),
+        collection_id,
+        folder_id.len(),
+        folder_id
+    ))
+}
+
 /// Provider-neutral identity of a catalogue request. Its revision is part of
 /// the identity so changing a provider's request contract invalidates stale
 /// request/cache entries without changing a user's stable section key.
@@ -482,6 +605,100 @@ mod tests {
             values.insert(key.as_str().to_owned(), value.to_owned());
             Ok(())
         }
+    }
+
+    #[test]
+    fn visible_home_collections_ignore_duplicate_ids_and_empty_collections() {
+        let folder = HomeCollectionFolder {
+            id: "folder".to_owned(),
+            title: "Folder".to_owned(),
+            poster_shape: HomeCollectionPosterShape::Poster,
+            cover_emoji: None,
+            hide_title: false,
+        };
+        let collections = vec![
+            HomeCollection {
+                id: "duplicate".to_owned(),
+                title: " First ".to_owned(),
+                folders: vec![folder.clone()],
+            },
+            HomeCollection {
+                id: "empty".to_owned(),
+                title: "Empty".to_owned(),
+                folders: Vec::new(),
+            },
+            HomeCollection {
+                id: "duplicate".to_owned(),
+                title: "Second".to_owned(),
+                folders: vec![folder.clone()],
+            },
+            HomeCollection {
+                id: "other".to_owned(),
+                title: "Other".to_owned(),
+                folders: vec![folder],
+            },
+        ];
+
+        let visible = visible_home_collections(&collections);
+        assert_eq!(
+            visible.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(),
+            vec!["duplicate", "other"]
+        );
+        assert_eq!(visible[0].title, "First");
+        assert_eq!(visible[0].folders.len(), 1);
+    }
+
+    #[test]
+    fn collection_folder_rows_drop_invalid_and_duplicate_folders() {
+        let collection = HomeCollection {
+            id: "mine".to_owned(),
+            title: "My collection".to_owned(),
+            folders: vec![
+                HomeCollectionFolder {
+                    id: "folder".to_owned(),
+                    title: "  Action  ".to_owned(),
+                    poster_shape: HomeCollectionPosterShape::Landscape,
+                    cover_emoji: Some("  🎬  ".to_owned()),
+                    hide_title: false,
+                },
+                HomeCollectionFolder {
+                    id: "folder".to_owned(),
+                    title: "Duplicate".to_owned(),
+                    poster_shape: HomeCollectionPosterShape::Poster,
+                    cover_emoji: None,
+                    hide_title: false,
+                },
+                HomeCollectionFolder {
+                    id: "bad\nfolder".to_owned(),
+                    title: "Invalid".to_owned(),
+                    poster_shape: HomeCollectionPosterShape::Square,
+                    cover_emoji: None,
+                    hide_title: false,
+                },
+            ],
+        };
+
+        let visible = visible_home_collections(&[collection]);
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].folders.len(), 1);
+        assert_eq!(visible[0].folders[0].title, "Action");
+        assert_eq!(visible[0].folders[0].cover_emoji.as_deref(), Some("🎬"));
+        assert_eq!(
+            visible[0].folders[0].poster_shape,
+            HomeCollectionPosterShape::Landscape
+        );
+    }
+
+    #[test]
+    fn collection_folder_keys_are_stable_and_delimiter_safe() {
+        let first = home_collection_folder_key("collection:a", "folder:b").unwrap();
+        let same = home_collection_folder_key("collection:a", "folder:b").unwrap();
+        let different = home_collection_folder_key("collection", "a:folder:b").unwrap();
+
+        assert_eq!(first, same);
+        assert_ne!(first, different);
+        assert!(home_collection_folder_key("", "folder").is_none());
+        assert!(home_collection_folder_key("collection", "bad\nfolder").is_none());
     }
 
     #[test]
