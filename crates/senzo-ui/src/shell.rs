@@ -896,10 +896,10 @@ impl SenzoShell {
                 if cancellation.is_cancelled() {
                     return Err("Cancelled".to_owned());
                 }
-                if let Ok((index, poster)) = result {
-                    if let Some(card) = cards.get_mut(index) {
-                        card.poster = poster;
-                    }
+                if let Ok((index, poster)) = result
+                    && let Some(card) = cards.get_mut(index)
+                {
+                    card.poster = poster;
                 }
             }
 
