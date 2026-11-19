@@ -257,37 +257,135 @@ impl DebridManager {
             size_bytes: file.get("size").and_then(Value::as_u64), headers: BTreeMap::new() })
     }
 
-    async fn resolve_real_debrid(&self, token: &str, magnet: &str, filename: Option<&str>, season: Option<u32>, episode: Option<u32>) -> Result<ResolvedDebridSource, DebridError> {
-        let response = self.client.post("https://api.real-debrid.com/rest/1.0/torrents/addMagnet")
-            .bearer_auth(token).form(&[("magnet", magnet)])
-            .send().await.map_err(|e| DebridError::Network(e.without_url().to_string()))?;
+    async fn resolve_real_debrid(
+        &self,
+        token: &str,
+        magnet: &str,
+        filename: Option<&str>,
+        season: Option<u32>,
+        episode: Option<u32>,
+    ) -> Result<ResolvedDebridSource, DebridError> {
+        let response = self
+            .client
+            .post("https://api.real-debrid.com/rest/1.0/torrents/addMagnet")
+            .bearer_auth(token)
+            .form(&[("magnet", magnet)])
+            .send()
+            .await
+            .map_err(|error| DebridError::Network(error.without_url().to_string()))?;
         let added = read_json(response).await?;
-        let id = value_string(&added, "id").ok_or(DebridError::InvalidResponse)?;
-        let selected = self.client.post(format!("https://api.real-debrid.com/rest/1.0/torrents/selectFiles/{}", path_segment(id)))
-            .bearer_auth(token).form(&[("files", "all")])
-            .send().await.map_err(|e| DebridError::Network(e.without_url().to_string()))?;
-        if !selected.status().is_success() { return Err(DebridError::HttpStatus(selected.status().as_u16())); }
-        for _ in 0..MAX_POLL_ATTEMPTS {
-            let url = format!("https://api.real-debrid.com/rest/1.0/torrents/info/{}", path_segment(id));
-            let info = self.request_json(Method::GET, &url, Some(token), None).await?;
-            let files = info.get("files").and_then(Value::as_array).ok_or(DebridError::InvalidResponse)?;
-            let file = select_video_file(files, filename, season, episode, |f| value_string(f, "path")).ok_or(DebridError::FileNotFound)?;
-            if let Some(links) = info.get("links").and_then(Value::as_array) {
-                let link = links.get(file.get("id").and_then(Value::as_u64).unwrap_or(0) as usize)
-                    .or_else(|| links.first()).and_then(Value::as_str).ok_or(DebridError::InvalidResponse)?;
-                let response = self.client.post("https://api.real-debrid.com/rest/1.0/unrestrict/link")
-                    .bearer_auth(token).form(&[("link", link)]).send().await
-                    .map_err(|e| DebridError::Network(e.without_url().to_string()))?;
-                let resolved = read_json(response).await?;
-                let url = value_string(&resolved, "download").filter(|v| valid_http_url(v)).ok_or(DebridError::InvalidResponse)?;
-                return Ok(ResolvedDebridSource { provider: DebridProviderId::RealDebrid,
-                    title: value_string(&resolved, "filename").unwrap_or("Real-Debrid stream").to_owned(),
-                    url: url.to_owned(), size_bytes: resolved.get("filesize").and_then(Value::as_u64), headers: BTreeMap::new() });
-            }
-            if matches!(value_string(&info, "status"), Some("error" | "magnet_error")) { return Err(DebridError::FileNotFound); }
-            tokio::time::sleep(Duration::from_millis(900)).await;
+        let id = value_string(&added, "id")
+            .ok_or(DebridError::InvalidResponse)?
+            .to_owned();
+
+        // Select the exact file ID returned by /torrents/info. The links array
+        // after selection only contains links for the selected file(s).
+        let result = self
+            .resolve_real_debrid_file(token, &id, filename, season, episode)
+            .await;
+        if result.is_err() {
+            let delete_url = format!(
+                "https://api.real-debrid.com/rest/1.0/torrents/delete/{}",
+                path_segment(&id)
+            );
+            let _ = self
+                .client
+                .delete(delete_url)
+                .bearer_auth(token)
+                .send()
+                .await;
         }
-        Err(DebridError::Timeout)
+        result
+    }
+
+    async fn resolve_real_debrid_file(
+        &self,
+        token: &str,
+        torrent_id: &str,
+        filename: Option<&str>,
+        season: Option<u32>,
+        episode: Option<u32>,
+    ) -> Result<ResolvedDebridSource, DebridError> {
+        let info_url = format!(
+            "https://api.real-debrid.com/rest/1.0/torrents/info/{}",
+            path_segment(torrent_id)
+        );
+        let info = self.request_json(Method::GET, &info_url, Some(token), None).await?;
+        let files = info
+            .get("files")
+            .and_then(Value::as_array)
+            .ok_or(DebridError::InvalidResponse)?;
+        let file = select_video_file(files, filename, season, episode, |value| {
+            value_string(value, "path")
+        })
+        .ok_or(DebridError::FileNotFound)?;
+        let file_id = file
+            .get("id")
+            .and_then(Value::as_u64)
+            .ok_or(DebridError::InvalidResponse)?;
+
+        let select_url = format!(
+            "https://api.real-debrid.com/rest/1.0/torrents/selectFiles/{}",
+            path_segment(torrent_id)
+        );
+        let selected = self
+            .client
+            .post(select_url)
+            .bearer_auth(token)
+            .form(&[("files", file_id.to_string())])
+            .send()
+            .await
+            .map_err(|error| DebridError::Network(error.without_url().to_string()))?;
+        if !selected.status().is_success() {
+            return Err(DebridError::HttpStatus(selected.status().as_u16()));
+        }
+
+        let mut original_link = None;
+        for _ in 0..MAX_POLL_ATTEMPTS {
+            let info = self
+                .request_json(Method::GET, &info_url, Some(token), None)
+                .await?;
+            if let Some(link) = info
+                .get("links")
+                .and_then(Value::as_array)
+                .and_then(|links| links.first())
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+            {
+                original_link = Some(link.to_owned());
+                break;
+            }
+            if matches!(
+                value_string(&info, "status"),
+                Some("error" | "magnet_error" | "dead" | "virus")
+            ) {
+                return Err(DebridError::FileNotFound);
+            }
+            tokio::time::sleep(Duration::from_millis(750)).await;
+        }
+        let original_link = original_link.ok_or(DebridError::Timeout)?;
+
+        let response = self
+            .client
+            .post("https://api.real-debrid.com/rest/1.0/unrestrict/link")
+            .bearer_auth(token)
+            .form(&[("link", original_link)])
+            .send()
+            .await
+            .map_err(|error| DebridError::Network(error.without_url().to_string()))?;
+        let resolved = read_json(response).await?;
+        let url = value_string(&resolved, "download")
+            .filter(|value| valid_http_url(value))
+            .ok_or(DebridError::InvalidResponse)?;
+        Ok(ResolvedDebridSource {
+            provider: DebridProviderId::RealDebrid,
+            title: value_string(&resolved, "filename")
+                .unwrap_or("Real-Debrid stream")
+                .to_owned(),
+            url: url.to_owned(),
+            size_bytes: resolved.get("filesize").and_then(Value::as_u64),
+            headers: BTreeMap::new(),
+        })
     }
 
     fn load_token(&self, profile_id: &str, provider: DebridProviderId) -> Result<String, DebridError> {
@@ -348,20 +446,45 @@ fn is_nonempty(value: &Value) -> bool {
     match value { Value::Null => false, Value::Array(v) => !v.is_empty(), Value::Object(v) => !v.is_empty(), Value::Bool(v) => *v, _ => true }
 }
 
-fn select_video_file<'a, F>(files: &'a [Value], filename: Option<&str>, season: Option<u32>, episode: Option<u32>, name: F) -> Option<&'a Value>
-where F: Fn(&'a Value) -> Option<&'a str> {
-    let videos = files.iter().filter(|file| name(file).is_some_and(is_video_name)).collect::<Vec<_>>();
-    if videos.is_empty() { return None; }
-    if let Some(hint) = filename.map(normalize_file_name)
-        && let Some(file) = videos.iter().find(|file| name(file).is_some_and(|n| normalize_file_name(n).contains(&hint)))
-    {
-        return Some(*file);
+fn select_video_file<'a, F>(
+    files: &'a [Value],
+    filename: Option<&str>,
+    season: Option<u32>,
+    episode: Option<u32>,
+    name: F,
+) -> Option<&'a Value>
+where
+    F: Fn(&'a Value) -> Option<&'a str>,
+{
+    let videos = files
+        .iter()
+        .filter(|file| name(file).is_some_and(is_video_name))
+        .collect::<Vec<_>>();
+    if videos.is_empty() {
+        return None;
     }
+
     if let (Some(season), Some(episode)) = (season, episode) {
-        let sxe = format!("s{season:02}e{episode:02}");
-        let x = format!("{season}x{episode:02}");
-        if let Some(file) = videos.iter().find(|file| name(file).is_some_and(|n| { let n = normalize_file_name(n); n.contains(&sxe) || n.contains(&x) })) { return Some(*file); }
+        let markers = [
+            format!("s{season:02}e{episode:02}"),
+            format!("{season}x{episode:02}"),
+        ];
+        return videos.into_iter().find(|file| {
+            name(file).is_some_and(|value| {
+                let normalized = normalize_file_name(value);
+                markers.iter().any(|marker| normalized.contains(marker))
+            })
+        });
     }
+
+    if let Some(hint) = filename.map(normalize_file_name).filter(|hint| !hint.is_empty()) {
+        if let Some(file) = videos.iter().find(|file| {
+            name(file).is_some_and(|value| normalize_file_name(value).contains(&hint))
+        }) {
+            return Some(*file);
+        }
+    }
+
     videos.into_iter().next()
 }
 fn normalize_file_name(value: &str) -> String { value.to_ascii_lowercase().chars().filter(|c| c.is_ascii_alphanumeric()).collect() }
@@ -394,6 +517,22 @@ mod tests {
         let files = vec![json!({"path":"movie.mkv"}), json!({"path":"Show.S02E03.1080p.mkv"})];
         let selected = select_video_file(&files, None, Some(2), Some(3), |v| value_string(v, "path"));
         assert_eq!(value_string(selected.unwrap(), "path"), Some("Show.S02E03.1080p.mkv"));
+    }
+
+    #[test]
+    fn episode_resolution_never_falls_back_to_a_different_episode() {
+        let files = vec![
+            json!({"id": 1, "path": "Show.S02E01.1080p.mkv"}),
+            json!({"id": 7, "path": "Show.S02E03.1080p.mkv"}),
+        ];
+        let selected = select_video_file(
+            &files,
+            Some("Show S02E03 1080p"),
+            Some(2),
+            Some(4),
+            |value| value_string(value, "path"),
+        );
+        assert!(selected.is_none());
     }
 
     #[test]
