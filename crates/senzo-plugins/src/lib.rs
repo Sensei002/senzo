@@ -5,10 +5,12 @@
 //! DNS-pinned to globally routable addresses, redirect-revalidated and response-bounded.
 
 use std::{
+    cell::RefCell,
     collections::BTreeMap,
     io::Read,
     net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
     path::PathBuf,
+    rc::Rc,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -845,6 +847,134 @@ fn is_public_ip(ip: IpAddr) -> bool {
 }
 
 
+
+#[derive(Default)]
+struct DomState {
+    documents: BTreeMap<String, kuchiki::NodeRef>,
+    elements: BTreeMap<String, kuchiki::NodeRef>,
+    document_order: Vec<String>,
+    next_id: u64,
+}
+
+fn register_cheerio_bridge(globals: &rquickjs::Object<'_>) -> rquickjs::Result<()> {
+    use kuchiki::traits::TendrilSink;
+
+    let state = Rc::new(RefCell::new(DomState::default()));
+    let load_state = state.clone();
+    globals.set("__cheerio_load", Func::from(move |html: String| -> String {
+        if html.len() > MAX_FETCH_BYTES { return String::new(); }
+        let document = kuchiki::parse_html().one(html);
+        let mut state = load_state.borrow_mut();
+        let id = format!("doc_{}", state.next_id);
+        state.next_id = state.next_id.wrapping_add(1);
+        state.documents.insert(id.clone(), document);
+        state.document_order.push(id.clone());
+        while state.document_order.len() > 8 {
+            let expired = state.document_order.remove(0);
+            state.documents.remove(&expired);
+            state.elements.retain(|key, _| !key.starts_with(&format!("{expired}:")));
+        }
+        id
+    }))?;
+
+    let select_state = state.clone();
+    globals.set("__cheerio_select", Func::from(move |doc_id: String, selector: String| -> String {
+        let document = select_state.borrow().documents.get(&doc_id).cloned();
+        let Some(document) = document else { return "[]".to_owned(); };
+        let nodes = match document.select(&selector) {
+            Ok(selection) => selection.map(|element| element.as_node().clone()).collect::<Vec<_>>(),
+            Err(_) => Vec::new(),
+        };
+        serde_json::to_string(&store_dom_elements(&select_state, &doc_id, nodes)).unwrap_or_else(|_| "[]".to_owned())
+    }))?;
+
+    let find_state = state.clone();
+    globals.set("__cheerio_find", Func::from(move |doc_id: String, element_id: String, selector: String| -> String {
+        let root = find_state.borrow().elements.get(&element_id).cloned();
+        let Some(root) = root else { return "[]".to_owned(); };
+        let nodes = match root.select(&selector) {
+            Ok(selection) => selection.map(|element| element.as_node().clone()).collect::<Vec<_>>(),
+            Err(_) => Vec::new(),
+        };
+        serde_json::to_string(&store_dom_elements(&find_state, &doc_id, nodes)).unwrap_or_else(|_| "[]".to_owned())
+    }))?;
+
+    let text_state = state.clone();
+    globals.set("__cheerio_text", Func::from(move |_doc_id: String, element_ids: String| -> String {
+        let state = text_state.borrow();
+        element_ids.split(',').filter_map(|id| state.elements.get(id))
+            .map(kuchiki::NodeRef::text_contents).collect::<Vec<_>>().join(" ")
+    }))?;
+
+    let html_state = state.clone();
+    globals.set("__cheerio_html", Func::from(move |doc_id: String, element_id: String| -> String {
+        let state = html_state.borrow();
+        if element_id.is_empty() {
+            state.documents.get(&doc_id).map(ToString::to_string).unwrap_or_default()
+        } else {
+            state.elements.get(&element_id).map(ToString::to_string).unwrap_or_default()
+        }
+    }))?;
+
+    let inner_state = state.clone();
+    globals.set("__cheerio_inner_html", Func::from(move |_doc_id: String, element_id: String| -> String {
+        let state = inner_state.borrow();
+        let Some(node) = state.elements.get(&element_id) else { return String::new(); };
+        node.children().map(|child| child.to_string()).collect::<String>()
+    }))?;
+
+    let attr_state = state.clone();
+    globals.set("__cheerio_attr", Func::from(move |_doc_id: String, element_id: String, name: String| -> String {
+        let state = attr_state.borrow();
+        state.elements.get(&element_id)
+            .and_then(|node| node.as_element())
+            .and_then(|element| element.attributes.borrow().get(&name).map(str::to_owned))
+            .unwrap_or_else(|| "__UNDEFINED__".to_owned())
+    }))?;
+
+    let next_state = state.clone();
+    globals.set("__cheerio_next", Func::from(move |doc_id: String, element_id: String| -> String {
+        let node = next_state.borrow().elements.get(&element_id).cloned();
+        let Some(node) = node else { return "__NONE__".to_owned(); };
+        let mut sibling = node.next_sibling();
+        while let Some(candidate) = sibling {
+            if candidate.as_element().is_some() {
+                return store_dom_elements(&next_state, &doc_id, vec![candidate])
+                    .into_iter().next().unwrap_or_else(|| "__NONE__".to_owned());
+            }
+            sibling = candidate.next_sibling();
+        }
+        "__NONE__".to_owned()
+    }))?;
+
+    let previous_state = state.clone();
+    globals.set("__cheerio_prev", Func::from(move |doc_id: String, element_id: String| -> String {
+        let node = previous_state.borrow().elements.get(&element_id).cloned();
+        let Some(node) = node else { return "__NONE__".to_owned(); };
+        let mut sibling = node.previous_sibling();
+        while let Some(candidate) = sibling {
+            if candidate.as_element().is_some() {
+                return store_dom_elements(&previous_state, &doc_id, vec![candidate])
+                    .into_iter().next().unwrap_or_else(|| "__NONE__".to_owned());
+            }
+            sibling = candidate.previous_sibling();
+        }
+        "__NONE__".to_owned()
+    }))?;
+
+    Ok(())
+}
+
+fn store_dom_elements(state: &Rc<RefCell<DomState>>, doc_id: &str, nodes: Vec<kuchiki::NodeRef>) -> Vec<String> {
+    let mut state = state.borrow_mut();
+    nodes.into_iter().map(|node| {
+        let id = format!("{doc_id}:element:{}", state.next_id);
+        state.next_id = state.next_id.wrapping_add(1);
+        state.elements.insert(id.clone(), node);
+        id
+    }).collect()
+}
+
 fn parse_url_json(raw_url: &str) -> String {
     let result = Url::parse(raw_url).ok().map(|url| {
         let protocol = format!("{}:", url.scheme());
@@ -922,6 +1052,7 @@ fn run_javascript(
             if Instant::now() + delay <= sleep_deadline { std::thread::sleep(delay); }
         }))?;
         globals.set("__parse_url", Func::from(|raw_url: String| parse_url_json(&raw_url)))?;
+        register_cheerio_bridge(&globals)?;
         ctx.eval::<(), _>(JS_POLYFILLS)?;
         let mut script = String::from(
             "var module = { exports: {} }; var exports = module.exports;\
@@ -1183,7 +1314,88 @@ globalThis.fetch = async function(rawUrl, options) {
     arrayBuffer: async function(){var value=await text();return new TextEncoder().encode(value).buffer;}
   };
 };
+var cheerio = {
+  load: function(html) {
+    var docId = __cheerio_load(String(html));
+    var $ = function(selector, context) {
+      if (selector && selector._elementIds) return selector;
+      var ids = [];
+      if (context && context._elementIds) {
+        context._elementIds.forEach(function(id) {
+          ids = ids.concat(JSON.parse(__cheerio_find(docId, id, String(selector))));
+        });
+      } else {
+        ids = JSON.parse(__cheerio_select(docId, String(selector)));
+      }
+      return createCheerioWrapper(ids);
+    };
+    $.html = function(element) {
+      return element && element._elementIds && element._elementIds.length
+        ? __cheerio_html(docId, element._elementIds[0]) : __cheerio_html(docId, '');
+    };
+    function createCheerioWrapper(ids) {
+      var wrapper = {
+        _elementIds: ids, length: ids.length,
+        each: function(callback) {
+          ids.forEach(function(id, index) {
+            var item = createCheerioWrapper([id]);
+            callback.call(item, index, item);
+          });
+          return wrapper;
+        },
+        find: function(selector) {
+          var found = [];
+          ids.forEach(function(id) { found = found.concat(JSON.parse(__cheerio_find(docId,id,String(selector)))); });
+          return createCheerioWrapper(found);
+        },
+        text: function() { return ids.length ? __cheerio_text(docId, ids.join(',')) : ''; },
+        html: function() { return ids.length ? __cheerio_inner_html(docId, ids[0]) : null; },
+        attr: function(name) {
+          if (!ids.length) return undefined;
+          var value = __cheerio_attr(docId, ids[0], String(name));
+          return value === '__UNDEFINED__' ? undefined : value;
+        },
+        first: function() { return createCheerioWrapper(ids.length ? [ids[0]] : []); },
+        last: function() { return createCheerioWrapper(ids.length ? [ids[ids.length - 1]] : []); },
+        next: function() {
+          return createCheerioWrapper(ids.map(function(id) { return __cheerio_next(docId,id); }).filter(function(id) { return id !== '__NONE__'; }));
+        },
+        prev: function() {
+          return createCheerioWrapper(ids.map(function(id) { return __cheerio_prev(docId,id); }).filter(function(id) { return id !== '__NONE__'; }));
+        },
+        eq: function(index) { return createCheerioWrapper(index >= 0 && index < ids.length ? [ids[index]] : []); },
+        get: function(index) {
+          if (typeof index === 'number') return index >= 0 && index < ids.length ? createCheerioWrapper([ids[index]]) : undefined;
+          return ids.map(function(id) { return createCheerioWrapper([id]); });
+        },
+        map: function(callback) {
+          var values = [];
+          ids.forEach(function(id, index) {
+            var item = createCheerioWrapper([id]);
+            var value = callback.call(item, index, item);
+            if (value !== undefined && value !== null) values.push(value);
+          });
+          return { length: values.length, get: function(index) { return typeof index === 'number' ? values[index] : values; }, toArray: function() { return values; } };
+        },
+        filter: function(callback) {
+          if (typeof callback !== 'function') return wrapper;
+          var values = ids.filter(function(id, index) {
+            var item = createCheerioWrapper([id]);
+            return callback.call(item, index, item);
+          });
+          return createCheerioWrapper(values);
+        },
+        children: function(selector) { return this.find(selector || '*'); },
+        parent: function() { return createCheerioWrapper([]); },
+        toArray: function() { return ids.map(function(id) { return createCheerioWrapper([id]); }); }
+      };
+      return wrapper;
+    }
+    return $;
+  }
+};
 globalThis.require = function(moduleName) {
+  if (moduleName === 'cheerio' || moduleName === 'cheerio-without-node-native' || moduleName === 'react-native-cheerio') return cheerio;
   throw new Error("Module '" + String(moduleName) + "' is not available in SENZO's bounded plugin runtime");
 };
 "#;
@@ -1462,6 +1674,27 @@ mod tests {
         assert!(settings.contains("token"));
     }
 
+
+
+    #[test]
+    fn quickjs_cheerio_compatibility_supports_repository_scraper_selectors() {
+        let code = r#"
+          module.exports.getStreams = async function() {
+            var cheerio = require('cheerio');
+            var $ = cheerio.load('<div class="result"><a href="https://cdn.example/video.mp4">Movie Source</a></div>');
+            var link = $('.result a').first();
+            return [{ title: link.text(), url: link.attr('href') }];
+          };
+        "#;
+        let input = ScraperInput {
+            tmdb_id: "603".into(), media_type: "movie".into(), season: None, episode: None
+        };
+        let raw = run_javascript(code, "cheerio-fixture", "{}", input, PluginHttp, Duration::from_secs(2), false).unwrap();
+        let streams = parse_streams(&raw, "cheerio-fixture").unwrap();
+        assert_eq!(streams.len(), 1);
+        assert_eq!(streams[0].title, "Movie Source");
+        assert_eq!(streams[0].target, StreamTarget::Http("https://cdn.example/video.mp4".to_owned()));
+    }
 
     #[test]
     fn quickjs_compatibility_includes_url_headers_abort_and_timer_apis() {
