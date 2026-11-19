@@ -155,17 +155,19 @@ See docs/PHASE_5_IMPLEMENTATION.md.
 
 ## Phase 6 — Stremio add-on ecosystem
 
-- [ ] Implement manifest parsing and validation.
-- [ ] Implement explicit install/preview/confirm/remove/enable/disable workflows.
-- [ ] Implement profile-scoped add-on registry and ordering.
-- [ ] Implement catalog, metadata, stream and subtitle resources.
-- [ ] Implement resource/type/ID-prefix capability matching.
-- [ ] Implement request transport, timeouts, response limits and safe redirects.
-- [ ] Implement manifest refresh and failure isolation.
-- [ ] Implement add-on configuration and catalog extras.
-- [ ] Validate compatibility with real user-provided manifests.
+- [x] Implement manifest parsing and validation.
+- [x] Implement explicit install/preview/confirm/remove/enable/disable workflows.
+- [x] Implement profile-scoped add-on registry and ordering.
+- [x] Implement catalog, metadata, stream and subtitle resources.
+- [x] Implement resource/type/ID-prefix capability matching.
+- [x] Implement request transport, timeouts, response limits and safe redirects.
+- [x] Implement manifest refresh and failure isolation.
+- [x] Implement add-on configuration and catalog extras.
+- [x] Validate compatibility with live public Stremio providers on Windows and Linux.
 
-**Gate:** User can install an add-on, browse its catalogue and retrieve streams/subtitles. Torrentio remains user-installed only.
+**Gate:** Passed in [CI run #616](https://github.com/Sensei002/senzo/actions/runs/44401216814). Windows Server 2022 and Ubuntu 24.04 native checks and live Cinemeta, Torrentio, and OpenSubtitles v3 acceptance all passed. Torrentio remains user-installed only.
+
+**Implementation report:** [docs/PHASE_6_IMPLEMENTATION.md](PHASE_6_IMPLEMENTATION.md).
 
 ## Phase 7 — Nuvio plugin/scraper runtime
 
