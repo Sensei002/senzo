@@ -399,7 +399,7 @@ fn validate_headers(headers:&std::collections::BTreeMap<String,String>)->Result<
     if headers.len()>MAX_HEADERS{return Err(MpvError::InvalidHeaders);}
     let mut total=0usize;let mut v=Vec::with_capacity(headers.len());
     for(k,value)in headers{
-        if k.is_empty()||k.len()>128||!k.bytes().all(|b|b.is_ascii_alphanumeric()||b"!#$%&'*+-.^_|~".contains(&b))
+        if k.is_empty()||k.len()>128||!k.bytes().all(|b|b.is_ascii_alphanumeric()||b"!#$%&'*+-.^_`|~".contains(&b))
             ||value.len()>4096||value.chars().any(|c|c.is_control()&&c!='\t'){return Err(MpvError::InvalidHeaders);}
         total=total.saturating_add(k.len()).saturating_add(value.len());if total>MAX_HEADER_BYTES{return Err(MpvError::InvalidHeaders);}
         v.push((k.clone(),value.trim().to_owned()));
