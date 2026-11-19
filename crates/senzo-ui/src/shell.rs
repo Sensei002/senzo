@@ -37,6 +37,7 @@ use senzo_sources::{
     Source, SourceAggregator, SourceDiscoveryResult, SourceRequest, SourceSort, SourceTarget,
     sort_sources,
 };
+use senzo_player::{MpvConfig, MpvPlayer, PlaybackStatus};
 use serde_json::Value;
 use tokio::{runtime::Handle, sync::mpsc, task::JoinSet};
 use tokio_util::sync::CancellationToken;
@@ -576,6 +577,8 @@ pub(crate) struct SenzoShell {
     debrid_manager: DebridManager,
     media_server_manager: MediaServerManager,
     source_aggregator: SourceAggregator,
+    mpv_player: Option<MpvPlayer>,
+    playback_error: Option<String>,
     debrid_provider_input: Entity<InputState>,
     debrid_api_key_input: Entity<InputState>,
     server_provider_input: Entity<InputState>,
@@ -976,6 +979,8 @@ impl SenzoShell {
             debrid_manager,
             media_server_manager,
             source_aggregator,
+            mpv_player: None,
+            playback_error: None,
             plugin_repository_input,
             plugin_settings_input,
             plugin_tmdb_id_input,
@@ -1133,6 +1138,7 @@ impl SenzoShell {
     }
 
     fn navigate(&mut self, page: AppPage, window: &mut Window, cx: &mut Context<Self>) {
+        self.stop_playback();
         self.remember_current_page_scroll();
         self.remember_focused_home_card(window);
         if self.navigation.navigate(page) {
@@ -2601,6 +2607,39 @@ impl SenzoShell {
         cx.notify();
     }
 
+    fn play_source(
+        &mut self,
+        url: String,
+        headers: std::collections::BTreeMap<String, String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.playback_error = None;
+        if self.mpv_player.is_none() {
+            match MpvPlayer::spawn(MpvConfig::default()) {
+                Ok(player) => self.mpv_player = Some(player),
+                Err(error) => {
+                    self.playback_error = Some(error.to_string());
+                    cx.notify();
+                    return;
+                }
+            }
+        }
+        if let Some(player) = self.mpv_player.as_ref()
+            && let Err(error) = player.load(&url, &headers)
+        {
+            self.playback_error = Some(error.to_string());
+        }
+        cx.notify();
+    }
+
+    fn stop_playback(&mut self) {
+        if let Some(player) = self.mpv_player.as_ref()
+            && let Err(error) = player.request_stop()
+        {
+            self.playback_error = Some(error.to_string());
+        }
+    }
+
     fn resolve_detail_torrent(
         &mut self,
         source: Source,
@@ -2662,6 +2701,7 @@ impl SenzoShell {
     }
 
     fn close_details(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.stop_playback();
         self.details_cancellation.cancel();
         self.details = None;
         if let Some(previous) = self.detail_history.pop() {
@@ -3789,6 +3829,23 @@ impl SenzoShell {
                         ),
                     );
                 }
+                if let SourceTarget::Http(url) = &source.target {
+                    let playback_url = url.clone();
+                    let playback_headers = source.headers.clone();
+                    card = card.child(
+                        div()
+                            .id(format!("play-source-{}", source.id))
+                            .cursor_pointer()
+                            .rounded_md()
+                            .bg(rgb(Theme::ACCENT_DARK))
+                            .px_2()
+                            .py_2()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.play_source(playback_url.clone(), playback_headers.clone(), cx);
+                            }))
+                            .child(div().text_xs().text_color(rgb(Theme::ACCENT)).child("PLAY IN MPV")),
+                    );
+                }
                 if source.is_torrent()
                     && let Ok(accounts) = self.debrid_manager.accounts("default")
                 {
@@ -3842,19 +3899,46 @@ impl SenzoShell {
         if let Some(resolved) = details.resolved_debrid_source.as_ref() {
             panel = panel.child(status_panel(StatusTone::Info, "DIRECT SOURCE READY",
                 &format!("Resolved by {}", resolved.provider.name()),
-                "The direct URL is prepared and will be handed to the native playback service in its playback phase."));
+                "The selected source is ready for native MPV."));
             panel = panel.child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(Theme::TEXT_MUTED))
-                    .child(format!(
-                        "{} · {}",
-                        resolved.title,
-                        details
-                            .resolver_source_title
-                            .as_deref()
-                            .unwrap_or("Selected torrent")
-                    )),
+                div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(format!(
+                    "{} · {}",
+                    resolved.title,
+                    details.resolver_source_title.as_deref().unwrap_or("Selected torrent")
+                )),
+            );
+            let resolved_url = resolved.url.clone();
+            let resolved_headers = resolved.headers.clone();
+            panel = panel.child(
+                div().id("play-resolved-torrent").cursor_pointer().rounded_md()
+                    .bg(rgb(Theme::ACCENT_DARK)).px_3().py_2()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.play_source(resolved_url.clone(), resolved_headers.clone(), cx);
+                    }))
+                    .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child("PLAY RESOLVED SOURCE")),
+            );
+        }
+        if let Some(error) = self.playback_error.as_deref() {
+            panel = panel.child(status_panel(StatusTone::Error, "NATIVE PLAYBACK", "Could not start MPV", error));
+        }
+        if let Some(player) = self.mpv_player.as_ref() {
+            let snapshot = player.snapshot();
+            let status = match snapshot.status {
+                PlaybackStatus::Idle => "Idle",
+                PlaybackStatus::Loading => "Loading",
+                PlaybackStatus::Playing => "Playing",
+                PlaybackStatus::Paused => "Paused",
+                PlaybackStatus::Stopped => "Stopped",
+                PlaybackStatus::Ended => "Ended",
+                PlaybackStatus::Error => "Error",
+            };
+            panel = panel.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED))
+                .child(format!("MPV: {status} · volume {:.0}% · speed {:.2}x", snapshot.volume_percent, snapshot.speed)));
+            panel = panel.child(
+                div().id("stop-native-playback").cursor_pointer().rounded_md()
+                    .bg(rgb(Theme::SURFACE_RAISED)).px_3().py_2()
+                    .on_click(cx.listener(|this, _, _, cx| { this.stop_playback(); cx.notify(); }))
+                    .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child("STOP PLAYBACK")),
             );
         }
         let failed = result
@@ -3886,6 +3970,7 @@ impl SenzoShell {
         initial_profile: Option<Arc<RenderImage>>,
         cx: &mut Context<Self>,
     ) {
+        self.stop_playback();
         self.remember_current_page_scroll();
         self.details_cancellation.cancel();
         self.details = None;

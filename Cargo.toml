@@ -15,6 +15,7 @@ members = [
     "crates/senzo-platform",
     "crates/senzo-storage",
     "crates/senzo-ui",
+    "crates/senzo-player",
 ]
 default-members = ["crates/senzo-app"]
 resolver = "2"
@@ -46,3 +47,4 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 url = "2"
 uuid = { version = "1", features = ["v4"] }
+libloading = "0.8"
