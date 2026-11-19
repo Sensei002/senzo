@@ -96,6 +96,7 @@ impl MediaServerCredentialStore for PlatformMediaServerSecrets {
 struct AppServices {
     _settings: Arc<dyn SettingsRepository>,
     _profiles: Arc<dyn ProfileRepository>,
+    _playback_progress: Arc<dyn senzo_domain::PlaybackProgressRepository>,
     _metadata: MetadataClient,
     _artwork: ArtworkService,
     _credentials: Arc<dyn CredentialStore>,
@@ -174,6 +175,7 @@ fn run() -> anyhow::Result<()> {
     let services = AppServices {
         _settings: database.clone(),
         _profiles: database.clone(),
+        _playback_progress: database.clone(),
         _metadata: metadata.clone(),
         _artwork: artwork.clone(),
         _credentials: credentials,
@@ -228,6 +230,7 @@ fn run() -> anyhow::Result<()> {
             metadata,
             artwork,
             settings: database.clone(),
+            playback_progress: database.clone(),
             addon_manager,
             plugin_manager,
             debrid_manager,
