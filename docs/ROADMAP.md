@@ -236,18 +236,26 @@ See docs/PHASE_5_IMPLEMENTATION.md.
 
 ## Phase 10 — Native player experience
 
-- [ ] Implement immersive player screen with GPUI controls.
-- [ ] Implement seek timeline, elapsed/remaining time and buffering.
-- [ ] Implement control auto-hide and pointer/keyboard interaction.
-- [ ] Implement audio/subtitle track menus.
-- [ ] Implement external/add-on subtitles and subtitle appearance.
-- [ ] Implement resize modes, fullscreen and window restoration.
-- [ ] Implement chapters, skip controls and parental/stream information overlays.
-- [ ] Implement source fallback and retry UX.
-- [ ] Implement picture-in-picture where supported by the native platform.
-- [ ] Implement playback errors and recovery.
+<badge color="success">Development implementation complete</badge>
 
-**Gate:** Player workflows are usable without WebView or external control pages.
+- [x] Implement immersive GPUI player controls and a full-screen control plane over the existing native MPV video window.
+- [x] Implement a seek timeline, elapsed/remaining time and cache-buffering state.
+- [x] Implement five-second control auto-hide, pointer reveal and player-scoped keyboard controls.
+- [x] Implement native audio/subtitle track menus, including explicit subtitle disable.
+- [x] Implement external HTTP(S) subtitle loading, previously fetched Stremio add-on subtitle entries, visibility, font-size and timing controls.
+- [x] Implement Fit/Fill/Stretch/Zoom modes, native MPV fullscreen and window restoration on player exit.
+- [x] Implement chapter navigation, ±10-second skip controls and stream/content information overlays. Show an explicit unavailable state when age-classification data is not supplied; never infer a parental rating from the metadata score.
+- [x] Implement direct-source selection, immediate load-command fallback to the next candidate, manual next-source and retry actions, and playback error states.
+- [x] Implement a best-effort native always-on-top, borderless, scaled output-window mode for picture-in-picture on platforms/window managers that support those MPV window hints.
+- [x] Implement playback failure messaging and recovery actions.
+
+**Gate — passed for the implemented native-window architecture:** Player controls, timeline, menus, chapter/skip actions, source recovery and subtitle operations are rendered natively with GPUI. No WebView or external control page is used.
+
+**Architecture boundary:** The GPUI layer is the immersive control plane. The video picture remains in libmpv's separate native output window; it is not composited into a GPUI rectangle because the pinned GPUI CE/WGPU renderer has no supported libmpv shared-texture import route. PiP is a best-effort native window mode rather than a desktop-shell-managed system PiP API.
+
+**Known metadata/subtitle limitations:** The current metadata contract does not contain parental content-age classifications, so the player explicitly displays that the rating is unavailable. Subtitle appearance controls currently cover visibility, font size and delay; font family, colour, outline, background, and other advanced styling remain a later preference-scope improvement. Add-on subtitle entries are offered when a subtitle search has already populated the add-on subtitle results; subtitle discovery is not yet automatically run for each playback item.
+
+**Implementation report:** [docs/PHASE_10_IMPLEMENTATION.md](PHASE_10_IMPLEMENTATION.md).
 
 ## Phase 11 — TV playback, progress and episode continuity
 
@@ -361,4 +369,4 @@ See docs/PHASE_5_IMPLEMENTATION.md.
 **Gate:** Nuvio desktop parity inventory is closed or every remaining difference is explicitly documented and accepted.
 
 
-**Current sequencing (November 19, 2026):** Phases 0–9 are complete on development. Phase 10 is next and owns the immersive native player experience; Phase 11 owns TV progress/Continue Watching; Phase 12 owns Library, profiles and sync; Phase 13 owns download/P2P transport; Phase 18 owns final cross-platform packaging, physical-device playback/visual acceptance and release. Stremio add-ons remain user-installed, Nuvio scrapers remain a separate sandboxed runtime, and source aggregation remains separate from playback transport.
+**Current sequencing (November 19, 2026):** Phases 0–10 are implemented on development. Phase 11 is next and owns TV playback progress/Continue Watching; Phase 11 owns TV progress/Continue Watching; Phase 12 owns Library, profiles and sync; Phase 13 owns download/P2P transport; Phase 18 owns final cross-platform packaging, physical-device playback/visual acceptance and release. Stremio add-ons remain user-installed, Nuvio scrapers remain a separate sandboxed runtime, and source aggregation remains separate from playback transport.

@@ -125,6 +125,19 @@ pub struct PlayerDiagnostic {
     pub message: String,
 }
 #[derive(Debug, Clone, PartialEq)]
+pub struct PlaybackChapter {
+    pub index: usize,
+    pub start_seconds: f64,
+    pub title: Option<String>,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResizeMode {
+    Fit,
+    Fill,
+    Stretch,
+    Zoom,
+}
+#[derive(Debug, Clone, PartialEq)]
 pub struct PlaybackSnapshot {
     pub status: PlaybackStatus,
     pub media_title: Option<String>,
@@ -138,7 +151,10 @@ pub struct PlaybackSnapshot {
     pub audio_codec: Option<String>,
     pub video_width: Option<i64>,
     pub video_height: Option<i64>,
+    pub buffering: bool,
+    pub buffered_percent: f64,
     pub tracks: Vec<MediaTrack>,
+    pub chapters: Vec<PlaybackChapter>,
     pub diagnostics: Vec<PlayerDiagnostic>,
 }
 impl Default for PlaybackSnapshot {
@@ -156,7 +172,10 @@ impl Default for PlaybackSnapshot {
             audio_codec: None,
             video_width: None,
             video_height: None,
+            buffering: false,
+            buffered_percent: 100.0,
             tracks: Vec::new(),
+            chapters: Vec::new(),
             diagnostics: Vec::new(),
         }
     }
@@ -187,6 +206,11 @@ enum Command {
     Select {
         kind: TrackKind,
         id: Option<i64>,
+        reply: SyncSender<Result<(), MpvError>>,
+    },
+    AddSubtitle {
+        url: String,
+        headers: Vec<(String, String)>,
         reply: SyncSender<Result<(), MpvError>>,
     },
     Stop(Option<SyncSender<Result<(), MpvError>>>),
@@ -320,6 +344,54 @@ impl MpvPlayer {
     }
     pub fn select_subtitle_track(&self, id: Option<i64>) -> Result<(), MpvError> {
         self.select(TrackKind::Subtitle, id)
+    }
+    pub fn add_external_subtitle(
+        &self,
+        url: &str,
+        headers: &std::collections::BTreeMap<String, String>,
+    ) -> Result<(), MpvError> {
+        let url = validate_url(url)?;
+        let headers = validate_headers(headers)?;
+        self.request(|reply| Command::AddSubtitle { url, headers, reply })
+    }
+    pub fn set_subtitle_font_size(&self, size: u32) -> Result<(), MpvError> {
+        if !(12..=72).contains(&size) {
+            return Err(MpvError::InvalidValue);
+        }
+        self.set("options/sub-font-size", &size.to_string())
+    }
+    pub fn set_subtitle_delay(&self, seconds: f64) -> Result<(), MpvError> {
+        if !seconds.is_finite() || !(-60.0..=60.0).contains(&seconds) {
+            return Err(MpvError::InvalidValue);
+        }
+        self.set("sub-delay", &format!("{seconds:.3}"))
+    }
+    pub fn set_subtitles_visible(&self, visible: bool) -> Result<(), MpvError> {
+        self.set("sub-visibility", if visible { "yes" } else { "no" })
+    }
+    pub fn set_resize_mode(&self, mode: ResizeMode) -> Result<(), MpvError> {
+        let (keep_aspect, panscan) = match mode {
+            ResizeMode::Fit => ("yes", "0"),
+            ResizeMode::Fill => ("yes", "1"),
+            ResizeMode::Stretch => ("no", "0"),
+            ResizeMode::Zoom => ("yes", "1"),
+        };
+        self.set("options/keepaspect", keep_aspect)?;
+        self.set("options/panscan", panscan)
+    }
+    pub fn set_fullscreen(&self, fullscreen: bool) -> Result<(), MpvError> {
+        self.set("fullscreen", if fullscreen { "yes" } else { "no" })
+    }
+    pub fn set_picture_in_picture(&self, enabled: bool) -> Result<(), MpvError> {
+        self.set("ontop", if enabled { "yes" } else { "no" })?;
+        self.set("options/border", if enabled { "no" } else { "yes" })?;
+        self.set("window-scale", if enabled { "0.42" } else { "1.0" })
+    }
+    pub fn seek_chapter(&self, index: usize) -> Result<(), MpvError> {
+        if index > 100_000 {
+            return Err(MpvError::InvalidValue);
+        }
+        self.set("chapter", &index.to_string())
     }
     fn select(&self, kind: TrackKind, id: Option<i64>) -> Result<(), MpvError> {
         validate_track_id(id)?;
@@ -594,6 +666,17 @@ fn process(
             let value = id.map_or_else(|| "no".to_owned(), |v| v.to_string());
             send_reply(api.set(ctx, prop, &value), reply, snapshot, listeners)
         }
+        Command::AddSubtitle { url, headers, reply } => {
+            let value = headers
+                .iter()
+                .map(|(key, value)| format!("{key}: {}", mpv_escape(value)))
+                .collect::<Vec<_>>()
+                .join(",");
+            let result = api
+                .set(ctx, HTTP_HEADER_OPTION_PROPERTY, &value)
+                .and_then(|_| api.cmd(ctx, &["sub-add", &url, "select"]));
+            send_reply(result, reply, snapshot, listeners)
+        }
         Command::Stop(reply) => {
             if matches!(
                 *state,
@@ -745,13 +828,41 @@ fn update_snapshot(
     next.audio_codec = api.string(ctx, "audio-codec");
     next.video_width = api.int(ctx, "width");
     next.video_height = api.int(ctx, "height");
+    next.buffered_percent = api
+        .double(ctx, "cache-buffering-state")
+        .unwrap_or(100.0)
+        .clamp(0.0, 100.0);
+    next.buffering = api.flag(ctx, "paused-for-cache").unwrap_or(false)
+        || (matches!(state, PlaybackStatus::Loading | PlaybackStatus::Playing)
+            && next.buffered_percent < 100.0);
     next.tracks = tracks(api, ctx);
+    next.chapters = chapters(api, ctx);
     if let Ok(mut current) = snapshot.write()
         && *current != next
     {
         *current = next.clone();
         emit(listeners, PlayerEvent::Snapshot(next));
     }
+}
+fn chapters(api: &Api, ctx: *mut c_void) -> Vec<PlaybackChapter> {
+    let count = api
+        .int(ctx, "chapter-list/count")
+        .unwrap_or(0)
+        .clamp(0, 512) as usize;
+    (0..count)
+        .filter_map(|index| {
+            let base = format!("chapter-list/{index}");
+            let start_seconds = api.double(ctx, &format!("{base}/time"))?;
+            if !start_seconds.is_finite() || start_seconds < 0.0 {
+                return None;
+            }
+            Some(PlaybackChapter {
+                index,
+                start_seconds,
+                title: api.string(ctx, &format!("{base}/title")),
+            })
+        })
+        .collect()
 }
 fn tracks(api: &Api, ctx: *mut c_void) -> Vec<MediaTrack> {
     let count = api

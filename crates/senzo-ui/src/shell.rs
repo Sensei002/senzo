@@ -12,7 +12,10 @@ use gpui::{
     SharedString, Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div,
     img, point, prelude::*, px, rgb, size,
 };
-use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::{
+    input::{Input, InputEvent, InputState},
+    slider::{Slider, SliderEvent, SliderState},
+};
 use gpui_component::scroll::ScrollableElement;
 use senzo_addons::{
     AddonCatalogItem, AddonManager, AddonPreview, AddonStream, AddonSubtitle, ManagedAddon,
@@ -32,7 +35,7 @@ use senzo_metadata::{
     DiscoverRequest, DiscoverSort, EpisodeDetails, Genre, MediaItem, MediaType, MetadataClient,
     MetadataError, Person, SearchType, SeasonDetails, SeasonSummary, VideoItem,
 };
-use senzo_player::{MpvConfig, MpvPlayer, PlaybackStatus, TrackKind};
+use senzo_player::{MpvConfig, MpvPlayer, PlaybackStatus, ResizeMode, TrackKind};
 use senzo_plugins::{PluginManager, PluginState, PluginStream, ScraperInput};
 use senzo_sources::{
     Source, SourceAggregator, SourceDiscoveryResult, SourceRequest, SourceSort, SourceTarget,
@@ -66,9 +69,41 @@ actions!(
         ShowShortcuts,
         ShowAbout,
         ShowWhatsNew,
+        PlayerTogglePlayback,
+        PlayerSeekBack,
+        PlayerSeekForward,
+        PlayerVolumeDown,
+        PlayerVolumeUp,
+        PlayerToggleMute,
+        PlayerToggleFullscreen,
+        PlayerCycleResize,
+        PlayerShowAudio,
+        PlayerShowSubtitles,
+        PlayerShowChapters,
+        PlayerShowInfo,
+        PlayerShowSources,
+        PlayerRetry,
+        PlayerNextSource,
+        PlayerTogglePip,
         Quit
     ]
 );
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlayerPanel {
+    Audio,
+    Subtitles,
+    Chapters,
+    StreamInfo,
+    Sources,
+}
+
+#[derive(Clone)]
+struct PlaybackSourceCandidate {
+    url: String,
+    headers: BTreeMap<String, String>,
+    title: String,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DialogKind {
@@ -580,8 +615,24 @@ pub(crate) struct SenzoShell {
     mpv_player: Option<MpvPlayer>,
     playback_start_cancel: CancellationToken,
     playback_refresh_cancel: CancellationToken,
+    playback_controls_timer: CancellationToken,
     playback_loading: bool,
     playback_error: Option<String>,
+    playback_open: bool,
+    playback_controls_visible: bool,
+    playback_panel: Option<PlayerPanel>,
+    playback_sources: Vec<PlaybackSourceCandidate>,
+    playback_source_index: usize,
+    playback_resize_mode: ResizeMode,
+    playback_fullscreen: bool,
+    playback_picture_in_picture: bool,
+    playback_subtitles_visible: bool,
+    playback_subtitle_font_size: u32,
+    playback_subtitle_delay_seconds: f64,
+    playback_scrubbing: bool,
+    subtitle_url_input: Entity<InputState>,
+    playback_timeline: Entity<SliderState>,
+    _playback_timeline_subscription: Subscription,
     debrid_provider_input: Entity<InputState>,
     debrid_api_key_input: Entity<InputState>,
     server_provider_input: Entity<InputState>,
@@ -636,6 +687,9 @@ pub(crate) struct SenzoShell {
     page_scroll_offsets: HashMap<AppPage, gpui::Point<gpui::Pixels>>,
     search_input: Entity<InputState>,
     _search_input_subscription: Subscription,
+    subtitle_url_input: Entity<InputState>,
+    playback_timeline: Entity<SliderState>,
+    _playback_timeline_subscription: Subscription,
     search_filter: SearchFilter,
     search_query: String,
     recent_searches: Vec<String>,
@@ -685,6 +739,18 @@ fn parse_addon_extras(raw: &str) -> Result<BTreeMap<String, String>, String> {
         }
     }
     Ok(extras)
+}
+
+fn format_playback_time(seconds: f64) -> String {
+    let total = if seconds.is_finite() { seconds.max(0.0) as u64 } else { 0 };
+    let hours = total / 3600;
+    let minutes = (total % 3600) / 60;
+    let remaining = total % 60;
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{remaining:02}")
+    } else {
+        format!("{minutes}:{remaining:02}")
+    }
 }
 
 fn metadata_error_message(error: &MetadataError) -> String {
@@ -845,6 +911,30 @@ impl SenzoShell {
         let search_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search movies, TV shows, and people")
         });
+        let subtitle_url_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("https://subtitles.example/subtitle.srt")
+        });
+        let playback_timeline = cx.new(|_| SliderState::new());
+        let playback_timeline_subscription =
+            cx.subscribe(&playback_timeline, |this, state, event, cx| {
+                if let SliderEvent::Change(_) = event {
+                    this.playback_scrubbing = true;
+                    return;
+                }
+                if let SliderEvent::Release(value) = event {
+                    this.playback_scrubbing = false;
+                    let Some(duration) = this
+                        .mpv_player
+                        .as_ref()
+                        .and_then(|player| player.snapshot().duration_seconds)
+                    else {
+                        return;
+                    };
+                    let target = duration * (value.end().clamp(0.0, 100.0) as f64 / 100.0);
+                    this.seek_playback_absolute(target, cx);
+                }
+            });
         let addon_url_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("https://provider.example/manifest.json")
         });
@@ -985,8 +1075,24 @@ impl SenzoShell {
             mpv_player: None,
             playback_start_cancel: CancellationToken::new(),
             playback_refresh_cancel: CancellationToken::new(),
+            playback_controls_timer: CancellationToken::new(),
             playback_loading: false,
             playback_error: None,
+            playback_open: false,
+            playback_controls_visible: true,
+            playback_panel: None,
+            playback_sources: Vec::new(),
+            playback_source_index: 0,
+            playback_resize_mode: ResizeMode::Fit,
+            playback_fullscreen: false,
+            playback_picture_in_picture: false,
+            playback_subtitles_visible: true,
+            playback_subtitle_font_size: 36,
+            playback_subtitle_delay_seconds: 0.0,
+            playback_scrubbing: false,
+            subtitle_url_input,
+            playback_timeline,
+            _playback_timeline_subscription: playback_timeline_subscription,
             plugin_repository_input,
             plugin_settings_input,
             plugin_tmdb_id_input,
@@ -1197,6 +1303,10 @@ impl SenzoShell {
             let page = self.navigation.current();
             self.focus_page(page, window, cx);
             cx.notify();
+            return;
+        }
+        if self.playback_open {
+            self.close_player(window, cx);
             return;
         }
         if self.details.is_some() {
@@ -2619,9 +2729,58 @@ impl SenzoShell {
         headers: std::collections::BTreeMap<String, String>,
         cx: &mut Context<Self>,
     ) {
+        let mut sources = self
+            .details
+            .as_ref()
+            .and_then(|details| details.source_result.as_ref())
+            .map(|result| {
+                result
+                    .groups
+                    .iter()
+                    .flat_map(|group| group.sources.iter())
+                    .filter_map(|source| match &source.target {
+                        SourceTarget::Http(source_url) => Some(PlaybackSourceCandidate {
+                            url: source_url.clone(),
+                            headers: source.headers.clone(),
+                            title: source.title.clone(),
+                        }),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if !sources.iter().any(|source| source.url == url) {
+            sources.insert(
+                0,
+                PlaybackSourceCandidate {
+                    url: url.clone(),
+                    headers: headers.clone(),
+                    title: "Resolved source".to_owned(),
+                },
+            );
+        }
+        self.playback_source_index = sources
+            .iter()
+            .position(|source| source.url == url)
+            .unwrap_or(0);
+        self.playback_sources = sources;
+        self.playback_open = true;
+        self.playback_panel = None;
+        self.playback_error = None;
+        self.reveal_playback_controls(cx);
+        self.start_playback_url(url, headers, cx);
+    }
+
+    fn start_playback_url(
+        &mut self,
+        url: String,
+        headers: BTreeMap<String, String>,
+        cx: &mut Context<Self>,
+    ) {
         if self.playback_loading {
             return;
         }
+        self.playback_open = true;
         self.playback_error = None;
         self.playback_loading = true;
         self.playback_start_cancel.cancel();
@@ -2655,7 +2814,12 @@ impl SenzoShell {
                     }
                     Ok(Ok((player, Err(error)))) => {
                         this.mpv_player = Some(player);
-                        this.playback_error = Some(error.to_string());
+                        if this.playback_source_index + 1 < this.playback_sources.len() {
+                            this.playback_error = Some(format!("{error}; trying the next direct source"));
+                            this.try_next_playback_source(cx);
+                        } else {
+                            this.playback_error = Some(error.to_string());
+                        }
                     }
                     Ok(Err(error)) => this.playback_error = Some(error.to_string()),
                     Err(error) => {
@@ -2810,9 +2974,144 @@ impl SenzoShell {
         self.playback_start_cancel.cancel();
         self.playback_loading = false;
         self.playback_refresh_cancel.cancel();
-        if let Some(player) = self.mpv_player.as_ref() {
-            let _ = player.request_stop();
+        self.playback_controls_timer.cancel();
+        self.playback_open = false;
+        self.playback_controls_visible = false;
+        self.playback_panel = None;
+        let restore_pip = self.playback_picture_in_picture;
+        let restore_fullscreen = self.playback_fullscreen;
+        self.playback_picture_in_picture = false;
+        self.playback_fullscreen = false;
+        if let Some(player) = self.mpv_player.clone() {
+            let runtime = self.tokio.clone();
+            drop(runtime.spawn_blocking(move || {
+                if restore_pip {
+                    let _ = player.set_picture_in_picture(false);
+                }
+                if restore_fullscreen {
+                    let _ = player.set_fullscreen(false);
+                }
+                let _ = player.stop(Duration::from_secs(6));
+            }));
         }
+    }
+
+    fn close_player(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.stop_playback();
+        self.playback_scrubbing = false;
+        self.playback_fullscreen = false;
+        self.playback_picture_in_picture = false;
+        window.focus(
+            self.navigation_focus
+                .get(&self.navigation.current())
+                .expect("current page focus handle exists"),
+            cx,
+        );
+        cx.notify();
+    }
+
+    fn reveal_playback_controls(&mut self, cx: &mut Context<Self>) {
+        self.playback_controls_visible = true;
+        self.playback_controls_timer.cancel();
+        let cancel = CancellationToken::new();
+        self.playback_controls_timer = cancel.clone();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_secs(5))
+                .await;
+            if cancel.is_cancelled() {
+                return;
+            }
+            let _ = this.update(cx, |this, cx| {
+                if this.playback_open
+                    && !matches!(this.playback_panel, Some(PlayerPanel::Audio | PlayerPanel::Subtitles))
+                {
+                    this.playback_controls_visible = false;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn seek_playback_absolute(&mut self, seconds: f64, cx: &mut Context<Self>) {
+        self.run_player_command(move |player| player.seek_absolute(seconds), cx);
+    }
+
+    fn retry_playback(&mut self, cx: &mut Context<Self>) {
+        let Some(source) = self.playback_sources.get(self.playback_source_index).cloned() else {
+            return;
+        };
+        self.start_playback_url(source.url, source.headers, cx);
+    }
+
+    fn try_next_playback_source(&mut self, cx: &mut Context<Self>) {
+        let next = self.playback_source_index.saturating_add(1);
+        let Some(source) = self.playback_sources.get(next).cloned() else {
+            self.playback_error = Some("No additional direct sources are available. Refresh source discovery and try again.".to_owned());
+            cx.notify();
+            return;
+        };
+        self.playback_source_index = next;
+        self.start_playback_url(source.url, source.headers, cx);
+    }
+
+    fn toggle_player_fullscreen(&mut self, cx: &mut Context<Self>) {
+        let next = !self.playback_fullscreen;
+        self.playback_fullscreen = next;
+        self.run_player_command(move |player| player.set_fullscreen(next), cx);
+    }
+
+    fn toggle_player_picture_in_picture(&mut self, cx: &mut Context<Self>) {
+        let next = !self.playback_picture_in_picture;
+        self.playback_picture_in_picture = next;
+        self.run_player_command(move |player| player.set_picture_in_picture(next), cx);
+    }
+
+    fn cycle_player_resize_mode(&mut self, cx: &mut Context<Self>) {
+        self.playback_resize_mode = match self.playback_resize_mode {
+            ResizeMode::Fit => ResizeMode::Fill,
+            ResizeMode::Fill => ResizeMode::Stretch,
+            ResizeMode::Stretch => ResizeMode::Zoom,
+            ResizeMode::Zoom => ResizeMode::Fit,
+        };
+        let mode = self.playback_resize_mode;
+        self.run_player_command(move |player| player.set_resize_mode(mode), cx);
+    }
+
+    fn adjust_subtitle_font_size(&mut self, delta: i32, cx: &mut Context<Self>) {
+        self.playback_subtitle_font_size =
+            (self.playback_subtitle_font_size as i32 + delta).clamp(12, 72) as u32;
+        let size = self.playback_subtitle_font_size;
+        self.run_player_command(move |player| player.set_subtitle_font_size(size), cx);
+    }
+
+    fn adjust_subtitle_delay(&mut self, delta: f64, cx: &mut Context<Self>) {
+        self.playback_subtitle_delay_seconds =
+            (self.playback_subtitle_delay_seconds + delta).clamp(-60.0, 60.0);
+        let delay = self.playback_subtitle_delay_seconds;
+        self.run_player_command(move |player| player.set_subtitle_delay(delay), cx);
+    }
+
+    fn toggle_subtitle_visibility(&mut self, cx: &mut Context<Self>) {
+        self.playback_subtitles_visible = !self.playback_subtitles_visible;
+        let visible = self.playback_subtitles_visible;
+        self.run_player_command(move |player| player.set_subtitles_visible(visible), cx);
+    }
+
+    fn add_external_subtitle(&mut self, cx: &mut Context<Self>) {
+        let url = self.subtitle_url_input.read(cx).value().trim().to_owned();
+        if url.is_empty() {
+            self.playback_error = Some("Enter a direct HTTP(S) subtitle URL first.".to_owned());
+            cx.notify();
+            return;
+        }
+        self.playback_error = None;
+        self.run_player_command(
+            move |player| player.add_external_subtitle(&url, &BTreeMap::new()),
+            cx,
+        );
     }
 
     fn resolve_detail_torrent(
@@ -4312,6 +4611,906 @@ impl SenzoShell {
                 .child(format!("{failed} provider adapter(s) reported an error. Successful providers remain available.")));
         }
         panel
+    }
+
+
+    fn render_player_screen(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let snapshot = self
+            .mpv_player
+            .as_ref()
+            .map(MpvPlayer::snapshot)
+            .unwrap_or_default();
+        let duration = snapshot.duration_seconds.unwrap_or(0.0).max(0.0);
+        let position = snapshot
+            .position_seconds
+            .unwrap_or(0.0)
+            .clamp(0.0, duration);
+        let percent = if duration > 0.0 {
+            (position / duration * 100.0) as f32
+        } else {
+            0.0
+        };
+        if !self.playback_scrubbing {
+            let current = self.playback_timeline.read(cx).value().end();
+            if (current - percent).abs() > 0.5 {
+                let timeline = self.playback_timeline.clone();
+                timeline.update(cx, |state, window, cx| {
+                    state.set_value(percent, window, cx);
+                });
+            }
+        }
+
+        let status = if self.playback_loading {
+            "CONNECTING"
+        } else if snapshot.buffering && snapshot.status == PlaybackStatus::Playing {
+            "BUFFERING"
+        } else {
+            match snapshot.status {
+                PlaybackStatus::Idle => "READY",
+                PlaybackStatus::Loading => "LOADING",
+                PlaybackStatus::Playing => "PLAYING",
+                PlaybackStatus::Paused => "PAUSED",
+                PlaybackStatus::Stopped => "STOPPED",
+                PlaybackStatus::Ended => "ENDED",
+                PlaybackStatus::Error => "PLAYBACK ERROR",
+            }
+        };
+        let is_paused = snapshot.paused || snapshot.status == PlaybackStatus::Ended;
+        let title = self
+            .details
+            .as_ref()
+            .map(|details| details.title.as_str())
+            .unwrap_or("Now Playing");
+        let source_title = self
+            .playback_sources
+            .get(self.playback_source_index)
+            .map(|source| source.title.as_str())
+            .unwrap_or("Direct source");
+        let stream_title = snapshot
+            .media_title
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(source_title);
+
+        let mut root = div()
+            .id("immersive-player-screen")
+            .key_context("SENZO_PLAYER")
+            .absolute()
+            .inset_0()
+            .flex()
+            .flex_col()
+            .justify_between()
+            .bg(rgb(0x050607))
+            .text_color(rgb(Theme::TEXT_PRIMARY))
+            .on_mouse_move(cx.listener(|this, _event, _window, cx| {
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerTogglePlayback, _window, cx| {
+                this.toggle_pause_playback(cx);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerSeekBack, _window, cx| {
+                this.seek_playback(-10.0, cx);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerSeekForward, _window, cx| {
+                this.seek_playback(10.0, cx);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerVolumeDown, _window, cx| {
+                this.adjust_playback_volume(-5.0, cx);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerVolumeUp, _window, cx| {
+                this.adjust_playback_volume(5.0, cx);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerToggleMute, _window, cx| {
+                this.toggle_playback_mute(cx);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerToggleFullscreen, _window, cx| {
+                this.toggle_player_fullscreen(cx);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerCycleResize, _window, cx| {
+                this.cycle_player_resize_mode(cx);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerShowAudio, _window, cx| {
+                this.playback_panel = Some(PlayerPanel::Audio);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerShowSubtitles, _window, cx| {
+                this.playback_panel = Some(PlayerPanel::Subtitles);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerShowChapters, _window, cx| {
+                this.playback_panel = Some(PlayerPanel::Chapters);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerShowInfo, _window, cx| {
+                this.playback_panel = Some(PlayerPanel::StreamInfo);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerShowSources, _window, cx| {
+                this.playback_panel = Some(PlayerPanel::Sources);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerRetry, _window, cx| {
+                this.retry_playback(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerNextSource, _window, cx| {
+                this.try_next_playback_source(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerTogglePip, _window, cx| {
+                this.toggle_player_picture_in_picture(cx);
+                this.reveal_playback_controls(cx);
+            }));
+
+        if self.playback_controls_visible {
+            let mut header = div()
+                .w_full()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .bg(rgb(0x101418))
+                .px_5()
+                .py_3()
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(Theme::ACCENT))
+                                .child("SENZO · NATIVE PLAYER"),
+                        )
+                        .child(
+                            div()
+                                .text_lg()
+                                .text_color(rgb(Theme::TEXT_PRIMARY))
+                                .child(title.to_owned()),
+                        ),
+                );
+            let panel_specs = [
+                (PlayerPanel::Audio, "AUDIO"),
+                (PlayerPanel::Subtitles, "SUBTITLES"),
+                (PlayerPanel::Chapters, "CHAPTERS"),
+                (PlayerPanel::StreamInfo, "INFO"),
+                (PlayerPanel::Sources, "SOURCES"),
+            ];
+            let mut nav = div().flex().flex_wrap().items_center().gap_2();
+            for (panel, label) in panel_specs {
+                let selected = self.playback_panel == Some(panel);
+                nav = nav.child(
+                    div()
+                        .id(format!("player-panel-{}", label.to_ascii_lowercase()))
+                        .cursor_pointer()
+                        .rounded_md()
+                        .bg(rgb(if selected {
+                            Theme::ACCENT_DARK
+                        } else {
+                            Theme::SURFACE_RAISED
+                        }))
+                        .px_3()
+                        .py_2()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.playback_panel = if this.playback_panel == Some(panel) {
+                                None
+                            } else {
+                                Some(panel)
+                            };
+                            this.reveal_playback_controls(cx);
+                        }))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(if selected {
+                                    Theme::ACCENT
+                                } else {
+                                    Theme::TEXT_SECONDARY
+                                }))
+                                .child(label),
+                        ),
+                );
+            }
+            nav = nav.child(
+                div()
+                    .id("player-resize-mode")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(Theme::SURFACE_RAISED))
+                    .px_3()
+                    .py_2()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.cycle_player_resize_mode(cx);
+                        this.reveal_playback_controls(cx);
+                    }))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child(self.playback_resize_label()),
+                    ),
+            );
+            nav = nav.child(
+                div()
+                    .id("player-pip")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(Theme::SURFACE_RAISED))
+                    .px_3()
+                    .py_2()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.toggle_player_picture_in_picture(cx);
+                        this.reveal_playback_controls(cx);
+                    }))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child(if self.playback_picture_in_picture {
+                                "RESTORE"
+                            } else {
+                                "PIP"
+                            }),
+                    ),
+            );
+            nav = nav.child(
+                div()
+                    .id("player-fullscreen")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(Theme::SURFACE_RAISED))
+                    .px_3()
+                    .py_2()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.toggle_player_fullscreen(cx);
+                        this.reveal_playback_controls(cx);
+                    }))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child(if self.playback_fullscreen {
+                                "WINDOWED"
+                            } else {
+                                "FULLSCREEN"
+                            }),
+                    ),
+            );
+            nav = nav.child(
+                div()
+                    .id("player-close")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(Theme::DANGER))
+                    .px_3()
+                    .py_2()
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.close_player(window, cx);
+                    }))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(Theme::TEXT_PRIMARY))
+                            .child("CLOSE"),
+                    ),
+            );
+            header = header.child(nav);
+            root = root.child(header);
+        }
+
+        let mut stage = div()
+            .flex_1()
+            .w_full()
+            .min_h(px(0.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                div()
+                    .w_full()
+                    .max_w(px(840.0))
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(rgb(Theme::BORDER))
+                    .bg(rgb(0x101418))
+                    .p_5()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(Theme::ACCENT))
+                            .child("NATIVE VIDEO OUTPUT"),
+                    )
+                    .child(
+                        div()
+                            .text_2xl()
+                            .text_color(rgb(Theme::TEXT_PRIMARY))
+                            .child(stream_title.to_owned()),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child(format!(
+                                "{} · {} · {}",
+                                status,
+                                snapshot.video_codec.as_deref().unwrap_or("Video pending"),
+                                match (snapshot.video_width, snapshot.video_height) {
+                                    (Some(width), Some(height)) => format!("{width}×{height}"),
+                                    _ => "Waiting for video dimensions".to_owned(),
+                                }
+                            )),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_MUTED))
+                            .child("MPV renders the picture in its own native window. SENZO keeps playback controls in this GPUI player."),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .text_xs()
+                            .text_color(rgb(Theme::TEXT_MUTED))
+                            .child(if snapshot.buffering {
+                                format!("BUFFERING · {:.0}% CACHED", snapshot.buffered_percent)
+                            } else {
+                                format!(
+                                    "{} · VOLUME {:.0}% · SPEED {:.2}×",
+                                    status, snapshot.volume_percent, snapshot.speed
+                                )
+                            }),
+                    ),
+            );
+        if self.playback_loading {
+            stage = stage.child(status_panel(
+                StatusTone::Loading,
+                "STARTING VIDEO",
+                "Opening native MPV output",
+                "The selected source is loading on the dedicated playback worker.",
+            ));
+        }
+        if snapshot.status == PlaybackStatus::Error || self.playback_error.is_some() {
+            stage = stage.child(status_panel(
+                StatusTone::Error,
+                "PLAYBACK FAILED",
+                "The selected source could not continue",
+                self.playback_error
+                    .as_deref()
+                    .unwrap_or("The native player reported a playback error."),
+            ));
+            stage = stage.child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .child(
+                        div()
+                            .id("player-retry")
+                            .cursor_pointer()
+                            .rounded_md()
+                            .bg(rgb(Theme::ACCENT_DARK))
+                            .px_3()
+                            .py_2()
+                            .on_click(cx.listener(|this, _, _, cx| this.retry_playback(cx)))
+                            .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child("RETRY")),
+                    )
+                    .child(
+                        div()
+                            .id("player-next-source")
+                            .cursor_pointer()
+                            .rounded_md()
+                            .bg(rgb(Theme::SURFACE_RAISED))
+                            .px_3()
+                            .py_2()
+                            .on_click(cx.listener(|this, _, _, cx| this.try_next_playback_source(cx)))
+                            .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child("TRY NEXT SOURCE")),
+                    ),
+            );
+        }
+        root = root.child(stage);
+
+        if let Some(panel) = self.playback_panel {
+            let mut body = div()
+                .w_full()
+                .max_h(px(300.0))
+                .overflow_y_scroll()
+                .bg(rgb(0x11171B))
+                .border_1()
+                .border_color(rgb(Theme::BORDER))
+                .p_4()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(
+                            div()
+                                .text_lg()
+                                .text_color(rgb(Theme::TEXT_PRIMARY))
+                                .child(match panel {
+                                    PlayerPanel::Audio => "Audio tracks",
+                                    PlayerPanel::Subtitles => "Subtitles",
+                                    PlayerPanel::Chapters => "Chapters",
+                                    PlayerPanel::StreamInfo => "Stream information",
+                                    PlayerPanel::Sources => "Playback sources",
+                                }),
+                        )
+                        .child(
+                            div()
+                                .id("player-panel-close")
+                                .cursor_pointer()
+                                .rounded_md()
+                                .bg(rgb(Theme::SURFACE_RAISED))
+                                .px_3()
+                                .py_1()
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.playback_panel = None;
+                                    this.reveal_playback_controls(cx);
+                                }))
+                                .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child("CLOSE")),
+                        ),
+                );
+
+            match panel {
+                PlayerPanel::Audio => {
+                    let tracks = snapshot
+                        .tracks
+                        .iter()
+                        .filter(|track| track.kind == TrackKind::Audio)
+                        .collect::<Vec<_>>();
+                    if tracks.is_empty() {
+                        body = body.child(status_panel(
+                            StatusTone::Info,
+                            "AUDIO",
+                            "No audio tracks reported",
+                            "The active source has not exposed audio-track metadata.",
+                        ));
+                    }
+                    for track in tracks {
+                        let id = track.id;
+                        let selected = track.selected;
+                        let label = format!(
+                            "{}{}{}",
+                            track.language.as_deref().unwrap_or("Unknown language"),
+                            track.title.as_deref().map(|value| format!(" · {value}")).unwrap_or_default(),
+                            track.codec.as_deref().map(|value| format!(" · {value}")).unwrap_or_default()
+                        );
+                        body = body.child(
+                            div()
+                                .id(format!("player-audio-track-{id}"))
+                                .cursor_pointer()
+                                .rounded_md()
+                                .bg(rgb(if selected { Theme::ACCENT_DARK } else { Theme::SURFACE_RAISED }))
+                                .px_3()
+                                .py_2()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.select_playback_track(TrackKind::Audio, id, cx);
+                                    this.reveal_playback_controls(cx);
+                                }))
+                                .child(div().text_sm().text_color(rgb(if selected { Theme::ACCENT } else { Theme::TEXT_SECONDARY })).child(label)),
+                        );
+                    }
+                }
+                PlayerPanel::Subtitles => {
+                    let tracks = snapshot
+                        .tracks
+                        .iter()
+                        .filter(|track| track.kind == TrackKind::Subtitle)
+                        .collect::<Vec<_>>();
+                    let mut row = div().flex().flex_wrap().items_center().gap_2();
+                    let subtitle_actions = [
+                        ("player-subtitles-none", "NONE", "none"),
+                        ("subtitle-visible", if self.playback_subtitles_visible { "HIDE" } else { "SHOW" }, "visible"),
+                        ("subtitle-size-down", "A−", "smaller"),
+                        ("subtitle-size-up", "A+", "larger"),
+                        ("subtitle-delay-down", "DELAY −0.25s", "delay-down"),
+                        ("subtitle-delay-up", "DELAY +0.25s", "delay-up"),
+                    ];
+                    for (id, label, action) in subtitle_actions {
+                        row = row.child(
+                            div()
+                                .id(id)
+                                .cursor_pointer()
+                                .rounded_md()
+                                .bg(rgb(Theme::SURFACE_RAISED))
+                                .px_3()
+                                .py_2()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    match action {
+                                        "none" => {
+                                            this.run_player_command(|player| player.select_subtitle_track(None), cx);
+                                            this.playback_subtitles_visible = false;
+                                        }
+                                        "visible" => this.toggle_subtitle_visibility(cx),
+                                        "smaller" => this.adjust_subtitle_font_size(-2, cx),
+                                        "larger" => this.adjust_subtitle_font_size(2, cx),
+                                        "delay-down" => this.adjust_subtitle_delay(-0.25, cx),
+                                        "delay-up" => this.adjust_subtitle_delay(0.25, cx),
+                                        _ => {}
+                                    }
+                                    this.reveal_playback_controls(cx);
+                                }))
+                                .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child(label)),
+                        );
+                    }
+                    body = body.child(row);
+                    body = body.child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(Theme::TEXT_MUTED))
+                            .child(format!(
+                                "Font size {} · subtitle delay {:.2}s",
+                                self.playback_subtitle_font_size,
+                                self.playback_subtitle_delay_seconds
+                            )),
+                    );
+                    for track in tracks {
+                        let id = track.id;
+                        let selected = track.selected;
+                        let label = format!(
+                            "{}{}{}",
+                            track.language.as_deref().unwrap_or("Unknown language"),
+                            track.title.as_deref().map(|value| format!(" · {value}")).unwrap_or_default(),
+                            track.codec.as_deref().map(|value| format!(" · {value}")).unwrap_or_default()
+                        );
+                        body = body.child(
+                            div()
+                                .id(format!("player-subtitle-track-{id}"))
+                                .cursor_pointer()
+                                .rounded_md()
+                                .bg(rgb(if selected { Theme::ACCENT_DARK } else { Theme::SURFACE_RAISED }))
+                                .px_3()
+                                .py_2()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.select_playback_track(TrackKind::Subtitle, id, cx);
+                                    this.playback_subtitles_visible = true;
+                                    this.reveal_playback_controls(cx);
+                                }))
+                                .child(div().text_sm().text_color(rgb(if selected { Theme::ACCENT } else { Theme::TEXT_SECONDARY })).child(label)),
+                        );
+                    }
+                    for subtitle in self.addon_subtitle_results.iter() {
+                        let subtitle_url = subtitle.url.clone();
+                        let label = format!(
+                            "ADD-ON · {} · {}",
+                            subtitle.language,
+                            subtitle.label.as_deref().unwrap_or(subtitle.mime_type.as_deref().unwrap_or("Subtitle"))
+                        );
+                        let identity = subtitle.id.as_deref().unwrap_or(&subtitle.url).to_owned();
+                        body = body.child(
+                            div()
+                                .id(format!("player-addon-subtitle-{identity}"))
+                                .cursor_pointer()
+                                .rounded_md()
+                                .bg(rgb(Theme::SURFACE_RAISED))
+                                .px_3()
+                                .py_2()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    let url = subtitle_url.clone();
+                                    this.run_player_command(
+                                        move |player| player.add_external_subtitle(&url, &BTreeMap::new()),
+                                        cx,
+                                    );
+                                    this.playback_subtitles_visible = true;
+                                    this.reveal_playback_controls(cx);
+                                }))
+                                .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(label)),
+                        );
+                    }
+                    body = body.child(
+                        Input::new(&self.subtitle_url_input)
+                            .w_full()
+                            .bg(rgb(Theme::SURFACE))
+                            .border_1()
+                            .border_color(rgb(Theme::BORDER))
+                            .rounded_md(),
+                    );
+                    body = body.child(
+                        div()
+                            .id("player-add-external-subtitle")
+                            .cursor_pointer()
+                            .rounded_md()
+                            .bg(rgb(Theme::ACCENT_DARK))
+                            .px_3()
+                            .py_2()
+                            .on_click(cx.listener(|this, _, _, cx| this.add_external_subtitle(cx)))
+                            .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child("ADD HTTP(S) SUBTITLE")),
+                    );
+                    body = body.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child("External subtitles can be added from a direct HTTP(S) URL, including an add-on subtitle URL. Appearance controls currently cover size, visibility and timing."));
+                }
+                PlayerPanel::Chapters => {
+                    if snapshot.chapters.is_empty() {
+                        body = body.child(status_panel(
+                            StatusTone::Info,
+                            "CHAPTERS",
+                            "No chapter markers found",
+                            "This media source did not expose chapter metadata.",
+                        ));
+                    }
+                    for chapter in &snapshot.chapters {
+                        let seconds = chapter.start_seconds;
+                        let label = chapter.title.as_deref().filter(|value| !value.trim().is_empty()).unwrap_or("Chapter");
+                        body = body.child(
+                            div()
+                                .id(format!("player-chapter-{}", chapter.index))
+                                .cursor_pointer()
+                                .rounded_md()
+                                .bg(rgb(Theme::SURFACE_RAISED))
+                                .px_3()
+                                .py_2()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.seek_playback_absolute(seconds, cx);
+                                    this.playback_panel = None;
+                                    this.reveal_playback_controls(cx);
+                                }))
+                                .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("{} · {}", format_playback_time(seconds), label))),
+                        );
+                    }
+                }
+                PlayerPanel::StreamInfo => {
+                    let resolution = match (snapshot.video_width, snapshot.video_height) {
+                        (Some(width), Some(height)) => format!("{width}×{height}"),
+                        _ => "Not available".to_owned(),
+                    };
+                    body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("Source: {source_title}")));
+                    body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("Resolution: {resolution}")));
+                    body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("Video codec: {}", snapshot.video_codec.as_deref().unwrap_or("Unknown"))));
+                    body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("Audio codec: {}", snapshot.audio_codec.as_deref().unwrap_or("Unknown"))));
+                    body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!(
+                        "Audio tracks: {} · Subtitle tracks: {}",
+                        snapshot.tracks.iter().filter(|track| track.kind == TrackKind::Audio).count(),
+                        snapshot.tracks.iter().filter(|track| track.kind == TrackKind::Subtitle).count()
+                    )));
+                    if let Some(details) = self.details.as_ref() {
+                        if let Some(release) = details.release_date.as_deref() {
+                            body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("Release: {release}")));
+                        }
+                        if !details.genres.is_empty() {
+                            body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("Genres: {}", details.genres.join(" · "))));
+                        }
+                        if let Some(overview) = details.overview.as_deref().filter(|value| !value.trim().is_empty()) {
+                            body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(overview.to_owned()));
+                        }
+                        if let Some(rating) = details.rating {
+                            body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("Metadata rating: {rating:.1}/10 (not a content-age classification)")));
+                        }
+                    }
+                    body = body.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child("Content-age guidance is unavailable from the current metadata contract; SENZO does not infer a parental rating."));
+                }
+                PlayerPanel::Sources => {
+                    body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!(
+                        "Source {}/{} · {source_title}",
+                        self.playback_source_index + 1,
+                        self.playback_sources.len().max(1)
+                    )));
+                    body = body.child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .id("player-source-retry")
+                                    .cursor_pointer()
+                                    .rounded_md()
+                                    .bg(rgb(Theme::ACCENT_DARK))
+                                    .px_3()
+                                    .py_2()
+                                    .on_click(cx.listener(|this, _, _, cx| this.retry_playback(cx)))
+                                    .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child("RETRY CURRENT SOURCE")),
+                            )
+                            .child(
+                                div()
+                                    .id("player-source-next")
+                                    .cursor_pointer()
+                                    .rounded_md()
+                                    .bg(rgb(Theme::SURFACE_RAISED))
+                                    .px_3()
+                                    .py_2()
+                                    .on_click(cx.listener(|this, _, _, cx| this.try_next_playback_source(cx)))
+                                    .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child("TRY NEXT SOURCE")),
+                            ),
+                    );
+                    for (index, source) in self.playback_sources.iter().enumerate() {
+                        let source_index = index;
+                        let url = source.url.clone();
+                        let headers = source.headers.clone();
+                        let label = format!(
+                            "{}{}",
+                            source.title,
+                            if index == self.playback_source_index {
+                                " · ACTIVE"
+                            } else {
+                                ""
+                            }
+                        );
+                        body = body.child(
+                            div()
+                                .id(format!("player-source-{index}"))
+                                .cursor_pointer()
+                                .rounded_md()
+                                .bg(rgb(if index == self.playback_source_index { Theme::ACCENT_DARK } else { Theme::SURFACE_RAISED }))
+                                .px_3()
+                                .py_2()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.playback_source_index = source_index;
+                                    this.start_playback_url(url.clone(), headers.clone(), cx);
+                                    this.reveal_playback_controls(cx);
+                                }))
+                                .child(div().text_sm().text_color(rgb(if index == self.playback_source_index { Theme::ACCENT } else { Theme::TEXT_SECONDARY })).child(label)),
+                        );
+                    }
+                }
+            }
+            root = root.child(body);
+        }
+
+        if self.playback_controls_visible {
+            let remaining = (duration - position).max(0.0);
+            let mut footer = div()
+                .w_full()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .bg(rgb(0x101418))
+                .px_5()
+                .py_4()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(format_playback_time(position)))
+                        .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(format!("-{}", format_playback_time(remaining)))),
+                )
+                .child(
+                    Slider::new(&self.playback_timeline)
+                        .accessibility_label("Playback timeline")
+                        .tab_index(200)
+                        .w_full()
+                        .h(px(24.0)),
+                );
+
+            let mut controls = div().w_full().flex().flex_wrap().items_center().justify_center().gap_2();
+            controls = controls.child(
+                div()
+                    .id("player-seek-back")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(Theme::SURFACE_RAISED))
+                    .px_4()
+                    .py_3()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.seek_playback(-10.0, cx);
+                        this.reveal_playback_controls(cx);
+                    }))
+                    .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child("−10s")),
+            );
+            controls = controls.child(
+                div()
+                    .id("player-play-pause")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(Theme::ACCENT_DARK))
+                    .px_4()
+                    .py_3()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.toggle_pause_playback(cx);
+                        this.reveal_playback_controls(cx);
+                    }))
+                    .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child(if is_paused { "PLAY" } else { "PAUSE" })),
+            );
+            controls = controls.child(
+                div()
+                    .id("player-seek-forward")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(Theme::SURFACE_RAISED))
+                    .px_4()
+                    .py_3()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.seek_playback(10.0, cx);
+                        this.reveal_playback_controls(cx);
+                    }))
+                    .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child("+10s")),
+            );
+            controls = controls.child(
+                div()
+                    .id("player-volume-down")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(Theme::SURFACE_RAISED))
+                    .px_3()
+                    .py_3()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.adjust_playback_volume(-5.0, cx);
+                        this.reveal_playback_controls(cx);
+                    }))
+                    .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child("VOL −")),
+            );
+            controls = controls.child(
+                div()
+                    .id("player-volume-up")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(Theme::SURFACE_RAISED))
+                    .px_3()
+                    .py_3()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.adjust_playback_volume(5.0, cx);
+                        this.reveal_playback_controls(cx);
+                    }))
+                    .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child("VOL +")),
+            );
+            controls = controls.child(
+                div()
+                    .id("player-mute")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(Theme::SURFACE_RAISED))
+                    .px_3()
+                    .py_3()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.toggle_playback_mute(cx);
+                        this.reveal_playback_controls(cx);
+                    }))
+                    .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(if snapshot.muted { "UNMUTE" } else { "MUTE" })),
+            );
+            controls = controls.child(
+                div()
+                    .id("player-speed")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(Theme::SURFACE_RAISED))
+                    .px_3()
+                    .py_3()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.toggle_playback_speed(cx);
+                        this.reveal_playback_controls(cx);
+                    }))
+                    .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("{:.2}×", snapshot.speed))),
+            );
+            footer = footer.child(controls);
+            root = root.child(footer);
+        } else {
+            root = root.child(
+                div()
+                    .w_full()
+                    .flex()
+                    .justify_center()
+                    .p_3()
+                    .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child("Move the pointer or press Space to reveal player controls · Esc to return")),
+            );
+        }
+
+        root
+    }
+
+    fn playback_resize_label(&self) -> &'static str {
+        match self.playback_resize_mode {
+            ResizeMode::Fit => "FIT",
+            ResizeMode::Fill => "FILL",
+            ResizeMode::Stretch => "STRETCH",
+            ResizeMode::Zoom => "ZOOM",
+        }
     }
 
     fn open_person_details(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -9660,11 +10859,12 @@ impl Drop for SenzoShell {
         self.search_cancellation.cancel();
         self.details_cancellation.cancel();
         self.person_details_cancellation.cancel();
+        self.playback_controls_timer.cancel();
     }
 }
 
 impl Render for SenzoShell {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.smoke_test && self.navigation.current() == AppPage::Home {
             self.load_home_collection_artwork(cx);
             if self.home_catalogue_status == HomeCatalogueStatus::NotRequested {
@@ -9704,9 +10904,13 @@ impl Render for SenzoShell {
             .on_action(cx.listener(|this, _: &GoForward, window, cx| {
                 this.go_forward(window, cx);
             }))
-            .on_action(|_: &ToggleFullscreen, window, _cx| {
-                window.toggle_fullscreen();
-            })
+            .on_action(cx.listener(|this, _: &ToggleFullscreen, window, cx| {
+                if this.playback_open {
+                    this.toggle_player_fullscreen(cx);
+                } else {
+                    window.toggle_fullscreen();
+                }
+            }))
             .on_action(|_: &FocusNext, window, cx| {
                 window.focus_next(cx);
             })
@@ -9732,6 +10936,68 @@ impl Render for SenzoShell {
                         .to_owned(),
                 );
                 cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &PlayerTogglePlayback, _window, cx| {
+                this.toggle_pause_playback(cx);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerSeekBack, _window, cx| {
+                this.seek_playback(-10.0, cx);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerSeekForward, _window, cx| {
+                this.seek_playback(10.0, cx);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerVolumeDown, _window, cx| {
+                this.adjust_playback_volume(-5.0, cx);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerVolumeUp, _window, cx| {
+                this.adjust_playback_volume(5.0, cx);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerToggleMute, _window, cx| {
+                this.toggle_playback_mute(cx);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerToggleFullscreen, _window, cx| {
+                this.toggle_player_fullscreen(cx);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerCycleResize, _window, cx| {
+                this.cycle_player_resize_mode(cx);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerShowAudio, _window, cx| {
+                this.playback_panel = Some(PlayerPanel::Audio);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerShowSubtitles, _window, cx| {
+                this.playback_panel = Some(PlayerPanel::Subtitles);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerShowChapters, _window, cx| {
+                this.playback_panel = Some(PlayerPanel::Chapters);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerShowInfo, _window, cx| {
+                this.playback_panel = Some(PlayerPanel::StreamInfo);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerShowSources, _window, cx| {
+                this.playback_panel = Some(PlayerPanel::Sources);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerRetry, _window, cx| {
+                this.retry_playback(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerNextSource, _window, cx| {
+                this.try_next_playback_source(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerTogglePip, _window, cx| {
+                this.toggle_player_picture_in_picture(cx);
+                this.reveal_playback_controls(cx);
             }))
             .on_action(|_: &Quit, _window, cx| cx.quit())
             .on_mouse_down(
@@ -9776,6 +11042,9 @@ impl Render for SenzoShell {
         if self.notification.is_some() {
             root = root.child(self.render_notification(cx));
         }
+        if self.playback_open {
+            root = root.child(self.render_player_screen(window, cx));
+        }
 
         root
     }
@@ -9794,6 +11063,20 @@ fn bind_shell_keys(cx: &mut App) {
         KeyBinding::new("down", MoveNavigationDown, Some("SENZO_NAVIGATION")),
         KeyBinding::new("enter", ActivateNavigation, Some("SENZO_NAVIGATION")),
         KeyBinding::new("space", ActivateNavigation, Some("SENZO_NAVIGATION")),
+        KeyBinding::new("space", PlayerTogglePlayback, Some("SENZO_PLAYER")),
+        KeyBinding::new("left", PlayerSeekBack, Some("SENZO_PLAYER")),
+        KeyBinding::new("right", PlayerSeekForward, Some("SENZO_PLAYER")),
+        KeyBinding::new("down", PlayerVolumeDown, Some("SENZO_PLAYER")),
+        KeyBinding::new("up", PlayerVolumeUp, Some("SENZO_PLAYER")),
+        KeyBinding::new("m", PlayerToggleMute, Some("SENZO_PLAYER")),
+        KeyBinding::new("f", PlayerToggleFullscreen, Some("SENZO_PLAYER")),
+        KeyBinding::new("r", PlayerCycleResize, Some("SENZO_PLAYER")),
+        KeyBinding::new("a", PlayerShowAudio, Some("SENZO_PLAYER")),
+        KeyBinding::new("s", PlayerShowSubtitles, Some("SENZO_PLAYER")),
+        KeyBinding::new("c", PlayerShowChapters, Some("SENZO_PLAYER")),
+        KeyBinding::new("i", PlayerShowInfo, Some("SENZO_PLAYER")),
+        KeyBinding::new("o", PlayerShowSources, Some("SENZO_PLAYER")),
+        KeyBinding::new("p", PlayerTogglePip, Some("SENZO_PLAYER")),
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("ctrl-q", Quit, None),
         KeyBinding::new("cmd-shift-/", ShowShortcuts, None),
