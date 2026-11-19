@@ -182,7 +182,7 @@ impl Default for PlaybackSnapshot {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlayerEvent {
-    Snapshot(PlaybackSnapshot),
+    Snapshot(Box<PlaybackSnapshot>),
     Diagnostic(PlayerDiagnostic),
 }
 
@@ -574,7 +574,7 @@ fn worker_main(
     }
     if let Ok(mut s) = snapshot.write() {
         s.status = PlaybackStatus::Stopped;
-        emit(&listeners, PlayerEvent::Snapshot(s.clone()));
+        emit(&listeners, PlayerEvent::Snapshot(Box::new(s.clone())));
     }
 }
 
@@ -841,7 +841,7 @@ fn update_snapshot(
         && *current != next
     {
         *current = next.clone();
-        emit(listeners, PlayerEvent::Snapshot(next));
+        emit(listeners, PlayerEvent::Snapshot(Box::new(next)));
     }
 }
 fn chapters(api: &Api, ctx: *mut c_void) -> Vec<PlaybackChapter> {
@@ -901,7 +901,7 @@ fn set_state(
         && s.status != state
     {
         s.status = state;
-        emit(listeners, PlayerEvent::Snapshot(s.clone()));
+        emit(listeners, PlayerEvent::Snapshot(Box::new(s.clone())));
     }
 }
 fn diagnostic(
