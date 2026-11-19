@@ -1714,6 +1714,21 @@ if (typeof TextEncoder === 'undefined') {
 if (typeof TextDecoder === 'undefined') {
   globalThis.TextDecoder = function(){};
   TextDecoder.prototype.decode = function(bytes) {
+    if (bytes == null) bytes = new Uint8Array(0);
+    if (bytes instanceof ArrayBuffer) {
+      bytes = new Uint8Array(bytes);
+    } else if (
+      typeof ArrayBuffer !== 'undefined' &&
+      typeof ArrayBuffer.isView === 'function' &&
+      ArrayBuffer.isView(bytes)
+    ) {
+      bytes = new Uint8Array(bytes.buffer, bytes.byteOffset || 0, bytes.byteLength);
+    } else if (Array.isArray(bytes)) {
+      bytes = new Uint8Array(bytes);
+    }
+    if (!bytes || typeof bytes.length !== 'number') {
+      throw new TypeError('TextDecoder input must be an ArrayBuffer or an ArrayBuffer view');
+    }
     var value = '';
     for (var i = 0; i < bytes.length; i++) value += String.fromCharCode(bytes[i]);
     return decodeURIComponent(escape(value));
@@ -2593,6 +2608,37 @@ mod tests {
         assert!(raw.contains(":8:36"), "crypto fixture random/UUID result: {raw}");
         assert!(raw.contains("AES192-GCM fixture"), "crypto fixture AES-GCM result: {raw}");
         assert!(raw.contains("0,255,254,128"), "crypto fixture binary base64 result: {raw}");
+    }
+
+    #[test]
+    fn quickjs_textdecoder_supports_arraybuffers_and_typed_array_views() {
+        let code = r#"
+          module.exports.getStreams = async function() {
+            var bytes = new Uint8Array([0x53, 0x45, 0x4e, 0x5a, 0x4f]);
+            var decodedBuffer = new TextDecoder().decode(bytes.buffer);
+            var decodedView = new TextDecoder().decode(bytes.subarray(1, 4));
+            return [{
+              title: decodedBuffer + ':' + decodedView,
+              url: 'https://fixture.example/text-decoder.mp4'
+            }];
+          };
+        "#;
+        let raw = run_javascript(
+            code,
+            "text-decoder-fixture",
+            "{}",
+            ScraperInput {
+                tmdb_id: "603".into(),
+                media_type: "movie".into(),
+                season: None,
+                episode: None,
+            },
+            PluginHttp,
+            Duration::from_secs(3),
+            false,
+        )
+        .unwrap();
+        assert!(raw.contains("SENZO:ENZ"), "TextDecoder fixture result: {raw}");
     }
 
     #[test]
