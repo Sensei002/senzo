@@ -3095,6 +3095,13 @@ impl SenzoShell {
         let current_season = current_episode.season_number;
         let current_number = current_episode.episode_number;
         let show_id = details.id;
+        let target_release_date = details.selected_season.as_ref().and_then(|season| {
+            season.episodes.iter()
+                .find(|episode| direction > 0 && episode.episode_number == current_number.saturating_add(1)
+                    || direction < 0 && episode.episode_number.saturating_add(1) == current_number)
+                .and_then(|episode| episode.air_date.clone())
+        });
+        let season_summaries = details.seasons.clone();
         let same_season_target = details.selected_season.as_ref().and_then(|season| {
             let mut numbers = season.episodes.iter().map(|episode| episode.episode_number).collect::<Vec<_>>();
             numbers.sort_unstable();
@@ -3103,12 +3110,19 @@ impl SenzoShell {
             else { position.checked_sub(1).and_then(|index| numbers.get(index).copied()) }
         });
         if let Some(target_episode) = same_season_target {
+            if let Some(date) = target_release_date.as_deref().filter(|date| date.len() >= 10)
+                && date > current_utc_date().as_str()
+            {
+                self.notification = Some(format!("The next episode releases on {date}."));
+                cx.notify();
+                return;
+            }
             self.autoplay_next_pending = autoplay;
             self.autoplay_next_target = autoplay.then_some((show_id, current_season, target_episode));
             self.load_detail_episode(current_season, target_episode, cx);
             return;
         }
-        let mut seasons = details.seasons.iter().map(|season| season.season_number)
+        let mut seasons = season_summaries.iter().map(|season| season.season_number)
             .filter(|number| *number > 0).collect::<Vec<_>>();
         seasons.sort_unstable();
         seasons.dedup();
@@ -3152,6 +3166,27 @@ impl SenzoShell {
                             cx.notify();
                             return;
                         };
+                        let release_date = season.episodes.iter()
+                            .find(|episode| episode.episode_number == target_episode)
+                            .and_then(|episode| episode.air_date.as_deref());
+                        if let Some(date) = release_date.filter(|date| date.len() >= 10)
+                            && date > current_utc_date().as_str()
+                        {
+                            if let Some(details) = this.details.as_mut().filter(|details| details.id == show_id) {
+                                details.selected_season_number = Some(target_season);
+                                details.selected_season = Some(season);
+                                details.selected_season_poster = poster;
+                                details.selected_episode = None;
+                                details.selected_episode_identity = None;
+                                details.selected_episode_artwork = None;
+                                details.season_loading = false;
+                                details.season_error = None;
+                            }
+                            this.autoplay_next_pending = false;
+                            this.notification = Some(format!("The next episode releases on {date}."));
+                            cx.notify();
+                            return;
+                        }
                         if let Some(details) = this.details.as_mut().filter(|details| details.id == show_id) {
                             details.selected_season_number = Some(target_season);
                             details.selected_season = Some(season);
@@ -12324,6 +12359,50 @@ mod tests {
         fn set(&self, _key: &SettingKey, _value: &str) -> Result<(), RepositoryError> {
             Ok(())
         }
+    }
+
+    #[test]
+    fn named_mpv_chapters_expose_intro_recap_and_credits_skip_targets() {
+        let mut snapshot = PlaybackSnapshot::default();
+        snapshot.position_seconds = Some(12.0);
+        snapshot.duration_seconds = Some(180.0);
+        snapshot.chapters = vec![
+            senzo_player::PlaybackChapter {
+                index: 0,
+                start_seconds: 0.0,
+                title: Some("Intro".to_owned()),
+            },
+            senzo_player::PlaybackChapter {
+                index: 1,
+                start_seconds: 30.0,
+                title: Some("Episode".to_owned()),
+            },
+        ];
+        assert_eq!(
+            chapter_skip_target(&snapshot),
+            Some(("SKIP INTRO".to_owned(), 30.0))
+        );
+
+        snapshot.position_seconds = Some(145.0);
+        snapshot.chapters = vec![
+            senzo_player::PlaybackChapter {
+                index: 0,
+                start_seconds: 0.0,
+                title: Some("Episode".to_owned()),
+            },
+            senzo_player::PlaybackChapter {
+                index: 1,
+                start_seconds: 140.0,
+                title: Some("Credits".to_owned()),
+            },
+        ];
+        assert_eq!(
+            chapter_skip_target(&snapshot),
+            Some(("SKIP CREDITS".to_owned(), 180.0))
+        );
+
+        snapshot.chapters[1].title = Some("Scene two".to_owned());
+        assert_eq!(chapter_skip_target(&snapshot), None);
     }
 
     #[test]
