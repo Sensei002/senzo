@@ -3185,8 +3185,8 @@ impl SenzoShell {
                         };
                         let release_date = season.episodes.iter()
                             .find(|episode| episode.episode_number == target_episode)
-                            .and_then(|episode| episode.air_date.as_deref());
-                        if let Some(date) = release_date.filter(|date| date.len() >= 10)
+                            .and_then(|episode| episode.air_date.clone());
+                        if let Some(date) = release_date.as_deref().filter(|date| date.len() >= 10)
                             && date > current_utc_date().as_str()
                         {
                             if let Some(details) = this.details.as_mut().filter(|details| details.id == show_id) {
@@ -12298,6 +12298,57 @@ mod tests {
     use senzo_domain::{RepositoryError, SettingKey};
 
     struct TestSettingsRepository;
+
+    struct TestPlaybackProgressRepository;
+
+    impl PlaybackProgressRepository for TestPlaybackProgressRepository {
+        fn get_playback_progress(
+            &self,
+            _profile_id: &str,
+            _media_id: &str,
+            _media_kind: MediaKind,
+            _season_number: Option<u32>,
+            _episode_number: Option<u32>,
+        ) -> Result<Option<PlaybackProgress>, RepositoryError> {
+            Ok(None)
+        }
+
+        fn save_playback_progress(
+            &self,
+            _progress: &PlaybackProgress,
+        ) -> Result<(), RepositoryError> {
+            Ok(())
+        }
+
+        fn list_continue_watching(
+            &self,
+            _profile_id: &str,
+            _limit: usize,
+        ) -> Result<Vec<PlaybackProgress>, RepositoryError> {
+            Ok(Vec::new())
+        }
+
+        fn list_recent_completed_series(
+            &self,
+            _profile_id: &str,
+            _limit: usize,
+        ) -> Result<Vec<PlaybackProgress>, RepositoryError> {
+            Ok(Vec::new())
+        }
+
+        fn is_watched(&self, _item: &WatchedItem) -> Result<bool, RepositoryError> {
+            Ok(false)
+        }
+
+        fn set_watched(
+            &self,
+            _item: &WatchedItem,
+            _watched: bool,
+        ) -> Result<(), RepositoryError> {
+            Ok(())
+        }
+    }
+
     #[derive(Default)]
     struct TestAddonStore;
 
@@ -12887,6 +12938,7 @@ mod tests {
                     metadata,
                     artwork,
                     settings: Arc::new(TestSettingsRepository),
+                    playback_progress: Arc::new(TestPlaybackProgressRepository),
                     addon_manager: test_addon_manager(),
                     plugin_manager: test_plugin_manager(),
                     debrid_manager: test_debrid_manager(),
