@@ -689,7 +689,7 @@ mod tests {
         ];
         let selected = select_video_file(
             &files,
-            &DebridFileHint { file_index: Some(0), season: Some(1), episode: Some(2) },
+            &DebridFileHint { file_index: Some(0), season: Some(1), episode: Some(2), ..Default::default() },
             |value| value_string(value, "path"),
         );
         assert_eq!(value_string(selected.unwrap(), "path"), Some("Show.1x02.mkv"));
