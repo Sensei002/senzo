@@ -174,7 +174,13 @@ impl MpvPlayer {
         let Some(worker)=self.worker.take() else{return Ok(());};
         let (reply,rx)=mpsc::sync_channel(1);
         let send=self.tx.send(Command::Shutdown(Some(reply))).map_err(|_|MpvError::WorkerStopped);
-        let result=match send{Ok(())=>rx.recv_timeout(Duration::from_secs(8)).map_err(|_|MpvError::Timeout)?,Err(e)=>Err(e)};
+        let result=match send{
+            Ok(())=>match rx.recv_timeout(Duration::from_secs(8)){
+                Ok(result)=>result,
+                Err(_)=>Err(MpvError::Timeout),
+            },
+            Err(error)=>Err(error),
+        };
         let joined=worker.join();
         if joined.is_err()&&result.is_ok(){return Err(MpvError::WorkerStopped);}
         result
@@ -319,7 +325,10 @@ fn tracks(api:&Api,ctx:*mut c_void)->Vec<MediaTrack>{
     } result
 }
 fn set_state(snapshot:&Arc<RwLock<PlaybackSnapshot>>,listeners:&Arc<Mutex<Vec<Sender<PlayerEvent>>>>,state:PlaybackStatus){
-    if let Ok(mut s)=snapshot.write(){if s.status!=state{s.status=state;emit(listeners,PlayerEvent::Snapshot(s.clone()));}}
+    if let Ok(mut s)=snapshot.write() && s.status!=state{
+        s.status=state;
+        emit(listeners,PlayerEvent::Snapshot(s.clone()));
+    }
 }
 fn diagnostic(snapshot:&Arc<RwLock<PlaybackSnapshot>>,listeners:&Arc<Mutex<Vec<Sender<PlayerEvent>>>>,
     level:DiagnosticLevel,message:&str){

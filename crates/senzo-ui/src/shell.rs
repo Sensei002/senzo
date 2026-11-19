@@ -37,7 +37,7 @@ use senzo_sources::{
     Source, SourceAggregator, SourceDiscoveryResult, SourceRequest, SourceSort, SourceTarget,
     sort_sources,
 };
-use senzo_player::{MpvConfig, MpvPlayer, PlaybackStatus};
+use senzo_player::{MpvConfig, MpvPlayer, PlaybackStatus, TrackKind};
 use serde_json::Value;
 use tokio::{runtime::Handle, sync::mpsc, task::JoinSet};
 use tokio_util::sync::CancellationToken;
@@ -578,6 +578,7 @@ pub(crate) struct SenzoShell {
     media_server_manager: MediaServerManager,
     source_aggregator: SourceAggregator,
     mpv_player: Option<MpvPlayer>,
+    playback_refresh_cancel: CancellationToken,
     playback_error: Option<String>,
     debrid_provider_input: Entity<InputState>,
     debrid_api_key_input: Entity<InputState>,
@@ -980,6 +981,7 @@ impl SenzoShell {
             media_server_manager,
             source_aggregator,
             mpv_player: None,
+            playback_refresh_cancel: CancellationToken::new(),
             playback_error: None,
             plugin_repository_input,
             plugin_settings_input,
@@ -2624,6 +2626,33 @@ impl SenzoShell {
                 }
             }
         }
+
+        self.playback_refresh_cancel.cancel();
+        let refresh_cancel = CancellationToken::new();
+        self.playback_refresh_cancel = refresh_cancel.clone();
+        let background_cancel = refresh_cancel.clone();
+        let (refresh_tx, mut refresh_rx) = mpsc::unbounded_channel::<()>();
+        self.tokio.spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_millis(250));
+            loop {
+                tokio::select! {
+                    _ = background_cancel.cancelled() => break,
+                    _ = ticker.tick() => {
+                        if refresh_tx.send(()).is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+        cx.spawn(async move |this, cx| {
+            while refresh_rx.recv().await.is_some() {
+                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    break;
+                }
+            }
+        }).detach();
+
         if let Some(player) = self.mpv_player.as_ref()
             && let Err(error) = player.load(&url, &headers)
         {
@@ -2632,7 +2661,70 @@ impl SenzoShell {
         cx.notify();
     }
 
+    fn toggle_pause_playback(&mut self, cx: &mut Context<Self>) {
+        let result = self.mpv_player.as_ref().map(|player| {
+            if player.snapshot().paused { player.play() } else { player.pause() }
+        });
+        if let Some(Err(error)) = result {
+            self.playback_error = Some(error.to_string());
+        }
+        cx.notify();
+    }
+
+    fn seek_playback(&mut self, seconds: f64, cx: &mut Context<Self>) {
+        if let Some(player) = self.mpv_player.as_ref()
+            && let Err(error) = player.seek_relative(seconds)
+        {
+            self.playback_error = Some(error.to_string());
+        }
+        cx.notify();
+    }
+
+    fn adjust_playback_volume(&mut self, delta: f64, cx: &mut Context<Self>) {
+        if let Some(player) = self.mpv_player.as_ref() {
+            let volume = (player.snapshot().volume_percent + delta).clamp(0.0, 100.0);
+            if let Err(error) = player.set_volume(volume) {
+                self.playback_error = Some(error.to_string());
+            }
+        }
+        cx.notify();
+    }
+
+    fn toggle_playback_mute(&mut self, cx: &mut Context<Self>) {
+        if let Some(player) = self.mpv_player.as_ref() {
+            let muted = player.snapshot().muted;
+            if let Err(error) = player.set_muted(!muted) {
+                self.playback_error = Some(error.to_string());
+            }
+        }
+        cx.notify();
+    }
+
+    fn toggle_playback_speed(&mut self, cx: &mut Context<Self>) {
+        if let Some(player) = self.mpv_player.as_ref() {
+            let speed = if (player.snapshot().speed - 1.0).abs() < 0.01 { 1.25 } else { 1.0 };
+            if let Err(error) = player.set_speed(speed) {
+                self.playback_error = Some(error.to_string());
+            }
+        }
+        cx.notify();
+    }
+
+    fn select_playback_track(&mut self, kind: TrackKind, id: i64, cx: &mut Context<Self>) {
+        if let Some(player) = self.mpv_player.as_ref() {
+            let result = match kind {
+                TrackKind::Audio => player.select_audio_track(Some(id)),
+                TrackKind::Subtitle => player.select_subtitle_track(Some(id)),
+            };
+            if let Err(error) = result {
+                self.playback_error = Some(error.to_string());
+            }
+        }
+        cx.notify();
+    }
+
     fn stop_playback(&mut self) {
+        self.playback_refresh_cancel.cancel();
         if let Some(player) = self.mpv_player.as_ref()
             && let Err(error) = player.request_stop()
         {
@@ -2750,6 +2842,7 @@ impl SenzoShell {
         title: String,
         cx: &mut Context<Self>,
     ) {
+        self.stop_playback();
         if !matches!(media_type, MediaType::Movie | MediaType::Tv) {
             return;
         }
@@ -3932,8 +4025,74 @@ impl SenzoShell {
                 PlaybackStatus::Ended => "Ended",
                 PlaybackStatus::Error => "Error",
             };
-            panel = panel.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED))
-                .child(format!("MPV: {status} · volume {:.0}% · speed {:.2}x", snapshot.volume_percent, snapshot.speed)));
+            let position = snapshot.position_seconds.unwrap_or(0.0);
+            let duration = snapshot.duration_seconds.unwrap_or(0.0);
+            panel = panel.child(
+                div().text_xs().text_color(rgb(Theme::TEXT_MUTED))
+                    .child(format!(
+                        "MPV: {status} · {:.0}/{:.0}s · volume {:.0}% · speed {:.2}x",
+                        position, duration, snapshot.volume_percent, snapshot.speed
+                    )),
+            );
+            let controls = [
+                ("pause", if snapshot.paused { "PLAY" } else { "PAUSE" }),
+                ("back", "−10s"),
+                ("forward", "+10s"),
+                ("volume-down", "VOL−"),
+                ("volume-up", "VOL+"),
+                ("mute", if snapshot.muted { "UNMUTE" } else { "MUTE" }),
+                ("speed", if (snapshot.speed - 1.0).abs() < 0.01 { "1.25×" } else { "1.0×" }),
+            ];
+            let mut control_row = div().flex().flex_wrap().gap_2().items_center();
+            for (action, label) in controls {
+                control_row = control_row.child(
+                    div().id(format!("mpv-control-{action}")).cursor_pointer()
+                        .rounded_md().bg(rgb(Theme::SURFACE_RAISED)).px_2().py_2()
+                        .on_click(cx.listener(move |this, _, _, cx| match action {
+                            "pause" => this.toggle_pause_playback(cx),
+                            "back" => this.seek_playback(-10.0, cx),
+                            "forward" => this.seek_playback(10.0, cx),
+                            "volume-down" => this.adjust_playback_volume(-5.0, cx),
+                            "volume-up" => this.adjust_playback_volume(5.0, cx),
+                            "mute" => this.toggle_playback_mute(cx),
+                            "speed" => this.toggle_playback_speed(cx),
+                            _ => {}
+                        }))
+                        .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child(label)),
+                );
+            }
+            panel = panel.child(control_row);
+
+            let audio_tracks = snapshot.tracks.iter().filter(|track| track.kind == TrackKind::Audio).collect::<Vec<_>>();
+            let subtitle_tracks = snapshot.tracks.iter().filter(|track| track.kind == TrackKind::Subtitle).collect::<Vec<_>>();
+            for (kind, tracks) in [(TrackKind::Audio, audio_tracks), (TrackKind::Subtitle, subtitle_tracks)] {
+                if tracks.is_empty() { continue; }
+                panel = panel.child(
+                    div().text_xs().text_color(rgb(Theme::TEXT_MUTED))
+                        .child(if kind == TrackKind::Audio { "AUDIO TRACKS" } else { "SUBTITLE TRACKS" }),
+                );
+                let mut track_row = div().flex().flex_wrap().gap_2().items_center();
+                for track in tracks {
+                    let id = track.id;
+                    let selected = track.selected;
+                    let text = format!(
+                        "{}{}{}",
+                        track.language.as_deref().unwrap_or("und"),
+                        track.title.as_deref().map(|title| format!(" · {title}")).unwrap_or_default(),
+                        if selected { " ✓" } else { "" }
+                    );
+                    track_row = track_row.child(
+                        div().id(format!("mpv-track-{}-{id}", if kind == TrackKind::Audio { "audio" } else { "subtitle" }))
+                            .cursor_pointer().rounded_md()
+                            .bg(rgb(if selected { Theme::ACCENT_DARK } else { Theme::SURFACE_RAISED }))
+                            .px_2().py_1()
+                            .on_click(cx.listener(move |this, _, _, cx| this.select_playback_track(kind, id, cx)))
+                            .child(div().text_xs().text_color(rgb(if selected { Theme::ACCENT } else { Theme::TEXT_SECONDARY })).child(text)),
+                    );
+                }
+                panel = panel.child(track_row);
+            }
+
             panel = panel.child(
                 div().id("stop-native-playback").cursor_pointer().rounded_md()
                     .bg(rgb(Theme::SURFACE_RAISED)).px_3().py_2()
