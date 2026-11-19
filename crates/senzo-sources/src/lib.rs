@@ -402,10 +402,11 @@ impl SourceAggregator {
     pub async fn discover(&self, request: SourceRequest, force_refresh: bool) -> Result<SourceDiscoveryResult, SourceError> {
         request.validate()?;
         let key = cache_key(&request);
-        if !force_refresh {
-            if let Some(entry) = self.cache.read().await.get(&key) {
-                if entry.stored_at.elapsed() <= CACHE_TTL { return Ok(mark_cached(entry.result.clone())); }
-            }
+        if !force_refresh
+            && let Some(entry) = self.cache.read().await.get(&key)
+            && entry.stored_at.elapsed() <= CACHE_TTL
+        {
+            return Ok(mark_cached(entry.result.clone()));
         }
         let mut jobs = JoinSet::new();
         for adapter in self.adapters.iter().take(MAX_PROVIDERS) {
@@ -451,16 +452,24 @@ impl SourceAggregator {
         let groups = group_sources(&streams, &diagnostics);
         let recommended_source_id = select_source(&streams, AutoSelectPolicy::Recommended).map(|s| s.id.clone());
         let result = SourceDiscoveryResult { groups, diagnostics: diagnostics.clone(), total_sources: streams.len(), used_stale_cache: false, recommended_source_id };
-        if streams.is_empty() && !diagnostics.is_empty() && diagnostics.iter().all(|d| d.error.is_some()) {
-            if let Some(stale) = self.cache.read().await.get(&key).filter(|entry| entry.stored_at.elapsed() <= STALE_TTL) {
-                let mut fallback = stale.result.clone();
-                fallback.used_stale_cache = true;
-                return Ok(fallback);
-            }
+        if streams.is_empty()
+            && !diagnostics.is_empty()
+            && diagnostics.iter().all(|diagnostic| diagnostic.error.is_some())
+            && let Some(stale) = self.cache.read().await.get(&key)
+                .filter(|entry| entry.stored_at.elapsed() <= STALE_TTL)
+        {
+            let mut fallback = stale.result.clone();
+            fallback.used_stale_cache = true;
+            return Ok(fallback);
         }
         let mut cache = self.cache.write().await;
-        if cache.len() >= CACHE_CAPACITY {
-            if let Some(oldest) = cache.iter().min_by_key(|(_, entry)| entry.stored_at).map(|(key, _)| key.clone()) { cache.remove(&oldest); }
+        if cache.len() >= CACHE_CAPACITY
+            && let Some(oldest) = cache
+                .iter()
+                .min_by_key(|(_, entry)| entry.stored_at)
+                .map(|(key, _)| key.clone())
+        {
+            cache.remove(&oldest);
         }
         cache.insert(key, CacheEntry { stored_at: Instant::now(), result: result.clone() });
         Ok(result)
