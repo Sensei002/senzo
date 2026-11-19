@@ -150,6 +150,8 @@ pub enum RepositoryError {
     Unavailable(String),
     #[error("profile name must contain between 1 and 64 non-control characters")]
     InvalidProfileName,
+    #[error("playback progress identity or values are invalid")]
+    InvalidPlaybackProgress,
 }
 
 pub trait SettingsRepository: Send + Sync {
@@ -161,6 +163,87 @@ pub trait ProfileRepository: Send + Sync {
     fn list_profiles(&self) -> Result<Vec<Profile>, RepositoryError>;
     fn create_profile(&self, name: &str) -> Result<Profile, RepositoryError>;
 }
+
+
+/// A local playback checkpoint. Series progress is keyed by parent series and
+/// season/episode; movies use neither season nor episode.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaybackProgress {
+    pub profile_id: String,
+    pub media_id: String,
+    pub media_kind: MediaKind,
+    pub title: String,
+    pub season_number: Option<u32>,
+    pub episode_number: Option<u32>,
+    pub episode_title: Option<String>,
+    pub poster_path: Option<String>,
+    pub backdrop_path: Option<String>,
+    pub still_path: Option<String>,
+    pub position_ms: u64,
+    pub duration_ms: u64,
+    pub is_completed: bool,
+    pub updated_at_ms: i64,
+}
+
+/// An explicit watched marker for a movie or a specific TV episode.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WatchedItem {
+    pub profile_id: String,
+    pub media_id: String,
+    pub media_kind: MediaKind,
+    pub season_number: Option<u32>,
+    pub episode_number: Option<u32>,
+    pub marked_at_ms: i64,
+}
+
+/// Matches Nuvio Desktop's playback-progress policy. Durations shorter than
+/// 121 seconds are treated as placeholder/error clips, not real content.
+pub const MIN_REAL_MEDIA_DURATION_MS: u64 = 121_000;
+pub const MIN_PROGRESS_POSITION_MS: u64 = 1_000;
+pub const WATCHED_COMPLETION_FRACTION: f64 = 0.90;
+
+pub fn should_store_playback_progress(position_ms: u64, duration_ms: u64) -> bool {
+    position_ms >= MIN_PROGRESS_POSITION_MS
+        && !(duration_ms > 0 && duration_ms < MIN_REAL_MEDIA_DURATION_MS)
+}
+
+pub fn playback_is_complete(position_ms: u64, duration_ms: u64, is_ended: bool) -> bool {
+    if duration_ms > 0 && duration_ms < MIN_REAL_MEDIA_DURATION_MS {
+        return false;
+    }
+    if is_ended {
+        return true;
+    }
+    duration_ms > 0
+        && (position_ms as f64 / duration_ms as f64) >= WATCHED_COMPLETION_FRACTION
+}
+
+pub trait PlaybackProgressRepository: Send + Sync {
+    fn get_playback_progress(
+        &self,
+        profile_id: &str,
+        media_id: &str,
+        media_kind: MediaKind,
+        season_number: Option<u32>,
+        episode_number: Option<u32>,
+    ) -> Result<Option<PlaybackProgress>, RepositoryError>;
+
+    fn save_playback_progress(
+        &self,
+        progress: &PlaybackProgress,
+    ) -> Result<(), RepositoryError>;
+
+    fn list_continue_watching(
+        &self,
+        profile_id: &str,
+        limit: usize,
+    ) -> Result<Vec<PlaybackProgress>, RepositoryError>;
+
+    fn is_watched(&self, item: &WatchedItem) -> Result<bool, RepositoryError>;
+
+    fn set_watched(&self, item: &WatchedItem, watched: bool) -> Result<(), RepositoryError>;
+}
+
 
 #[cfg(test)]
 mod tests {

@@ -8,10 +8,13 @@ use std::{
 
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 use senzo_addons::{AddonRecord, AddonStore, AddonStoreError};
-use senzo_domain::{Profile, ProfileRepository, RepositoryError, SettingKey, SettingsRepository};
+use senzo_domain::{
+    MediaKind, PlaybackProgress, PlaybackProgressRepository, Profile, ProfileRepository,
+    RepositoryError, SettingKey, SettingsRepository, WatchedItem,
+};
 use thiserror::Error;
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 3;
+pub const CURRENT_SCHEMA_VERSION: i64 = 4;
 
 const MIGRATIONS: &[(i64, &str)] = &[
     (
@@ -49,6 +52,49 @@ const MIGRATIONS: &[(i64, &str)] = &[
         );
         CREATE INDEX installed_addons_profile_order_idx
             ON installed_addons(profile_id, sort_order, created_at);",
+    ),
+    (
+        4,
+        "CREATE TABLE playback_progress (
+            profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            media_kind TEXT NOT NULL CHECK (media_kind IN ('movie', 'series')),
+            media_id TEXT NOT NULL,
+            season_number INTEGER NOT NULL DEFAULT -1,
+            episode_number INTEGER NOT NULL DEFAULT -1,
+            title TEXT NOT NULL,
+            episode_title TEXT,
+            poster_path TEXT,
+            backdrop_path TEXT,
+            still_path TEXT,
+            position_ms INTEGER NOT NULL CHECK (position_ms >= 0),
+            duration_ms INTEGER NOT NULL CHECK (duration_ms >= 0),
+            is_completed INTEGER NOT NULL DEFAULT 0,
+            updated_at_ms INTEGER NOT NULL,
+            PRIMARY KEY (profile_id, media_kind, media_id, season_number, episode_number),
+            CHECK (
+                (media_kind = 'movie' AND season_number = -1 AND episode_number = -1)
+                OR
+                (media_kind = 'series' AND season_number >= 0 AND episode_number >= 1)
+            )
+        );
+        CREATE INDEX playback_progress_profile_updated_idx
+            ON playback_progress(profile_id, updated_at_ms DESC);
+        CREATE TABLE watched_items (
+            profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            media_kind TEXT NOT NULL CHECK (media_kind IN ('movie', 'series')),
+            media_id TEXT NOT NULL,
+            season_number INTEGER NOT NULL DEFAULT -1,
+            episode_number INTEGER NOT NULL DEFAULT -1,
+            marked_at_ms INTEGER NOT NULL,
+            PRIMARY KEY (profile_id, media_kind, media_id, season_number, episode_number),
+            CHECK (
+                (media_kind = 'movie' AND season_number = -1 AND episode_number = -1)
+                OR
+                (media_kind = 'series' AND season_number >= 0 AND episode_number >= 1)
+            )
+        );
+        CREATE INDEX watched_items_profile_media_idx
+            ON watched_items(profile_id, media_kind, media_id);",
     ),
 ];
 
@@ -325,10 +371,510 @@ impl ProfileRepository for SqliteDatabase {
     }
 }
 
+
+impl PlaybackProgressRepository for SqliteDatabase {
+    fn get_playback_progress(
+        &self,
+        profile_id: &str,
+        media_id: &str,
+        media_kind: MediaKind,
+        season_number: Option<u32>,
+        episode_number: Option<u32>,
+    ) -> Result<Option<PlaybackProgress>, RepositoryError> {
+        validate_watch_identity(profile_id, media_id, media_kind, season_number, episode_number)?;
+        let connection = self.lock()?;
+        connection
+            .query_row(
+                "SELECT profile_id, media_id, media_kind, title, season_number, episode_number,
+                        episode_title, poster_path, backdrop_path, still_path, position_ms,
+                        duration_ms, is_completed, updated_at_ms
+                 FROM playback_progress
+                 WHERE profile_id = ?1 AND media_id = ?2 AND media_kind = ?3
+                   AND season_number = ?4 AND episode_number = ?5",
+                (
+                    profile_id,
+                    media_id,
+                    media_kind_storage_value(media_kind),
+                    stored_episode_number(season_number),
+                    stored_episode_number(episode_number),
+                ),
+                playback_progress_from_row,
+            )
+            .optional()
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))
+    }
+
+    fn save_playback_progress(
+        &self,
+        progress: &PlaybackProgress,
+    ) -> Result<(), RepositoryError> {
+        validate_playback_progress(progress)?;
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| RepositoryError::Unavailable("database lock is poisoned".to_owned()))?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        transaction
+            .execute(
+                "INSERT INTO playback_progress (
+                    profile_id, media_kind, media_id, season_number, episode_number, title,
+                    episode_title, poster_path, backdrop_path, still_path, position_ms,
+                    duration_ms, is_completed, updated_at_ms
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                 ON CONFLICT(profile_id, media_kind, media_id, season_number, episode_number)
+                 DO UPDATE SET
+                    title = excluded.title,
+                    episode_title = excluded.episode_title,
+                    poster_path = excluded.poster_path,
+                    backdrop_path = excluded.backdrop_path,
+                    still_path = excluded.still_path,
+                    position_ms = excluded.position_ms,
+                    duration_ms = excluded.duration_ms,
+                    is_completed = excluded.is_completed,
+                    updated_at_ms = excluded.updated_at_ms
+                 WHERE excluded.updated_at_ms >= playback_progress.updated_at_ms",
+                (
+                    &progress.profile_id,
+                    media_kind_storage_value(progress.media_kind),
+                    &progress.media_id,
+                    stored_episode_number(progress.season_number),
+                    stored_episode_number(progress.episode_number),
+                    &progress.title,
+                    &progress.episode_title,
+                    &progress.poster_path,
+                    &progress.backdrop_path,
+                    &progress.still_path,
+                    i64::try_from(progress.position_ms)
+                        .map_err(|_| RepositoryError::InvalidPlaybackProgress)?,
+                    i64::try_from(progress.duration_ms)
+                        .map_err(|_| RepositoryError::InvalidPlaybackProgress)?,
+                    i64::from(progress.is_completed),
+                    progress.updated_at_ms,
+                ),
+            )
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        if progress.is_completed {
+            transaction
+                .execute(
+                    "INSERT INTO watched_items
+                        (profile_id, media_kind, media_id, season_number, episode_number, marked_at_ms)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                     ON CONFLICT(profile_id, media_kind, media_id, season_number, episode_number)
+                     DO UPDATE SET marked_at_ms = MAX(watched_items.marked_at_ms, excluded.marked_at_ms)",
+                    (
+                        &progress.profile_id,
+                        media_kind_storage_value(progress.media_kind),
+                        &progress.media_id,
+                        stored_episode_number(progress.season_number),
+                        stored_episode_number(progress.episode_number),
+                        progress.updated_at_ms,
+                    ),
+                )
+                .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        }
+        transaction
+            .commit()
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))
+    }
+
+    fn list_continue_watching(
+        &self,
+        profile_id: &str,
+        limit: usize,
+    ) -> Result<Vec<PlaybackProgress>, RepositoryError> {
+        validate_profile_id(profile_id)?;
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare(
+                "WITH ranked AS (
+                    SELECT profile_id, media_id, media_kind, title, season_number, episode_number,
+                           episode_title, poster_path, backdrop_path, still_path, position_ms,
+                           duration_ms, is_completed, updated_at_ms,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY media_kind, media_id
+                               ORDER BY updated_at_ms DESC, season_number DESC, episode_number DESC
+                           ) AS recency_rank
+                    FROM playback_progress
+                    WHERE profile_id = ?1
+                 )
+                 SELECT profile_id, media_id, media_kind, title, season_number, episode_number,
+                        episode_title, poster_path, backdrop_path, still_path, position_ms,
+                        duration_ms, is_completed, updated_at_ms
+                 FROM ranked
+                 WHERE recency_rank = 1 AND is_completed = 0 AND position_ms >= 1000
+                   AND (duration_ms = 0 OR duration_ms >= 121000)
+                 ORDER BY updated_at_ms DESC, media_id ASC
+                 LIMIT ?2",
+            )
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        let rows = statement
+            .query_map(
+                (profile_id, limit.clamp(1, 100) as i64),
+                playback_progress_from_row,
+            )
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))
+    }
+
+    fn is_watched(&self, item: &WatchedItem) -> Result<bool, RepositoryError> {
+        validate_watch_identity(
+            &item.profile_id,
+            &item.media_id,
+            item.media_kind,
+            item.season_number,
+            item.episode_number,
+        )?;
+        let connection = self.lock()?;
+        connection
+            .query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM watched_items
+                    WHERE profile_id = ?1 AND media_kind = ?2 AND media_id = ?3
+                      AND season_number = ?4 AND episode_number = ?5
+                )",
+                (
+                    &item.profile_id,
+                    media_kind_storage_value(item.media_kind),
+                    &item.media_id,
+                    stored_episode_number(item.season_number),
+                    stored_episode_number(item.episode_number),
+                ),
+                |row| row.get(0),
+            )
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))
+    }
+
+    fn set_watched(&self, item: &WatchedItem, watched: bool) -> Result<(), RepositoryError> {
+        validate_watch_identity(
+            &item.profile_id,
+            &item.media_id,
+            item.media_kind,
+            item.season_number,
+            item.episode_number,
+        )?;
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| RepositoryError::Unavailable("database lock is poisoned".to_owned()))?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        if watched {
+            transaction
+                .execute(
+                    "INSERT INTO watched_items
+                        (profile_id, media_kind, media_id, season_number, episode_number, marked_at_ms)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                     ON CONFLICT(profile_id, media_kind, media_id, season_number, episode_number)
+                     DO UPDATE SET marked_at_ms = MAX(watched_items.marked_at_ms, excluded.marked_at_ms)",
+                    (
+                        &item.profile_id,
+                        media_kind_storage_value(item.media_kind),
+                        &item.media_id,
+                        stored_episode_number(item.season_number),
+                        stored_episode_number(item.episode_number),
+                        item.marked_at_ms,
+                    ),
+                )
+                .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+            transaction
+                .execute(
+                    "UPDATE playback_progress SET is_completed = 1
+                     WHERE profile_id = ?1 AND media_kind = ?2 AND media_id = ?3
+                       AND season_number = ?4 AND episode_number = ?5",
+                    (
+                        &item.profile_id,
+                        media_kind_storage_value(item.media_kind),
+                        &item.media_id,
+                        stored_episode_number(item.season_number),
+                        stored_episode_number(item.episode_number),
+                    ),
+                )
+                .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        } else {
+            transaction
+                .execute(
+                    "DELETE FROM watched_items
+                     WHERE profile_id = ?1 AND media_kind = ?2 AND media_id = ?3
+                       AND season_number = ?4 AND episode_number = ?5",
+                    (
+                        &item.profile_id,
+                        media_kind_storage_value(item.media_kind),
+                        &item.media_id,
+                        stored_episode_number(item.season_number),
+                        stored_episode_number(item.episode_number),
+                    ),
+                )
+                .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+            transaction
+                .execute(
+                    "UPDATE playback_progress SET is_completed = 0
+                     WHERE profile_id = ?1 AND media_kind = ?2 AND media_id = ?3
+                       AND season_number = ?4 AND episode_number = ?5",
+                    (
+                        &item.profile_id,
+                        media_kind_storage_value(item.media_kind),
+                        &item.media_id,
+                        stored_episode_number(item.season_number),
+                        stored_episode_number(item.episode_number),
+                    ),
+                )
+                .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        }
+        transaction
+            .commit()
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))
+    }
+}
+
+fn validate_profile_id(profile_id: &str) -> Result<(), RepositoryError> {
+    if profile_id.trim().is_empty()
+        || profile_id.len() > 128
+        || profile_id.chars().any(char::is_control)
+    {
+        return Err(RepositoryError::InvalidPlaybackProgress);
+    }
+    Ok(())
+}
+
+fn validate_watch_identity(
+    profile_id: &str,
+    media_id: &str,
+    media_kind: MediaKind,
+    season_number: Option<u32>,
+    episode_number: Option<u32>,
+) -> Result<(), RepositoryError> {
+    validate_profile_id(profile_id)?;
+    if media_id.trim().is_empty()
+        || media_id.len() > 128
+        || media_id.chars().any(char::is_control)
+        || match media_kind {
+            MediaKind::Movie => season_number.is_some() || episode_number.is_some(),
+            MediaKind::Series => {
+                season_number.is_none()
+                    || episode_number.is_none()
+                    || season_number.is_some_and(|season| season > 500)
+                    || episode_number.is_some_and(|episode| episode == 0 || episode > 2_000)
+            }
+            MediaKind::Episode => true,
+        }
+    {
+        return Err(RepositoryError::InvalidPlaybackProgress);
+    }
+    Ok(())
+}
+
+fn validate_playback_progress(progress: &PlaybackProgress) -> Result<(), RepositoryError> {
+    validate_watch_identity(
+        &progress.profile_id,
+        &progress.media_id,
+        progress.media_kind,
+        progress.season_number,
+        progress.episode_number,
+    )?;
+    if progress.title.trim().is_empty()
+        || progress.title.chars().count() > 512
+        || progress.title.chars().any(char::is_control)
+        || progress.episode_title.as_ref().is_some_and(|title| {
+            title.chars().count() > 512 || title.chars().any(char::is_control)
+        })
+        || progress.updated_at_ms < 0
+        || i64::try_from(progress.position_ms).is_err()
+        || i64::try_from(progress.duration_ms).is_err()
+        || !valid_artwork_path(progress.poster_path.as_deref())
+        || !valid_artwork_path(progress.backdrop_path.as_deref())
+        || !valid_artwork_path(progress.still_path.as_deref())
+    {
+        return Err(RepositoryError::InvalidPlaybackProgress);
+    }
+    Ok(())
+}
+
+fn valid_artwork_path(path: Option<&str>) -> bool {
+    let Some(path) = path else { return true };
+    let Some(relative) = path.strip_prefix('/') else { return false };
+    !relative.is_empty()
+        && path.len() <= 512
+        && !path.chars().any(char::is_control)
+        && relative.split('/').all(|segment| {
+            !segment.is_empty()
+                && segment != "."
+                && segment != ".."
+                && segment.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-')
+                })
+        })
+}
+
+fn media_kind_storage_value(kind: MediaKind) -> &'static str {
+    match kind {
+        MediaKind::Movie => "movie",
+        MediaKind::Series => "series",
+        MediaKind::Episode => "episode",
+    }
+}
+
+fn stored_episode_number(value: Option<u32>) -> i64 {
+    value.map_or(-1, i64::from)
+}
+
+fn playback_progress_from_row(row: &rusqlite::Row<'_>) -> Result<PlaybackProgress, rusqlite::Error> {
+    let kind: String = row.get(2)?;
+    let media_kind = match kind.as_str() {
+        "movie" => MediaKind::Movie,
+        "series" => MediaKind::Series,
+        _ => return Err(rusqlite::Error::InvalidQuery),
+    };
+    let season: i64 = row.get(4)?;
+    let episode: i64 = row.get(5)?;
+    let position: i64 = row.get(10)?;
+    let duration: i64 = row.get(11)?;
+    Ok(PlaybackProgress {
+        profile_id: row.get(0)?,
+        media_id: row.get(1)?,
+        media_kind,
+        title: row.get(3)?,
+        season_number: u32::try_from(season).ok(),
+        episode_number: u32::try_from(episode).ok(),
+        episode_title: row.get(6)?,
+        poster_path: row.get(7)?,
+        backdrop_path: row.get(8)?,
+        still_path: row.get(9)?,
+        position_ms: u64::try_from(position).unwrap_or_default(),
+        duration_ms: u64::try_from(duration).unwrap_or_default(),
+        is_completed: row.get::<_, i64>(12)? != 0,
+        updated_at_ms: row.get(13)?,
+    })
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use senzo_domain::{ProfileRepository, SettingKey, SettingsRepository};
+
+
+    #[test]
+    fn playback_progress_is_profile_scoped_and_survives_repository_reads() {
+        let database = SqliteDatabase::in_memory().unwrap();
+        let movie = PlaybackProgress {
+            profile_id: "default".to_owned(),
+            media_id: "550".to_owned(),
+            media_kind: MediaKind::Movie,
+            title: "Fight Club".to_owned(),
+            season_number: None,
+            episode_number: None,
+            episode_title: None,
+            poster_path: Some("/poster.jpg".to_owned()),
+            backdrop_path: None,
+            still_path: None,
+            position_ms: 42_000,
+            duration_ms: 7_200_000,
+            is_completed: false,
+            updated_at_ms: 100,
+        };
+        database.save_playback_progress(&movie).unwrap();
+        assert_eq!(
+            database.get_playback_progress("default", "550", MediaKind::Movie, None, None).unwrap(),
+            Some(movie.clone())
+        );
+        let guest = database.create_profile("Guest").unwrap();
+        assert!(database.get_playback_progress(&guest.id, "550", MediaKind::Movie, None, None).unwrap().is_none());
+        assert_eq!(database.list_continue_watching("default", 20).unwrap(), vec![movie]);
+    }
+
+    #[test]
+    fn continue_watching_returns_only_the_latest_incomplete_episode_per_series() {
+        let database = SqliteDatabase::in_memory().unwrap();
+        let make = |season, episode, position, completed, updated| PlaybackProgress {
+            profile_id: "default".to_owned(),
+            media_id: "1399".to_owned(),
+            media_kind: MediaKind::Series,
+            title: "Game of Thrones".to_owned(),
+            season_number: Some(season),
+            episode_number: Some(episode),
+            episode_title: Some(format!("Episode {episode}")),
+            poster_path: None,
+            backdrop_path: None,
+            still_path: None,
+            position_ms: position,
+            duration_ms: 2_700_000,
+            is_completed: completed,
+            updated_at_ms: updated,
+        };
+        database.save_playback_progress(&make(1, 1, 2_000_000, false, 100)).unwrap();
+        database.save_playback_progress(&make(1, 2, 900_000, false, 200)).unwrap();
+        let entries = database.list_continue_watching("default", 20).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!((entries[0].season_number, entries[0].episode_number), (Some(1), Some(2)));
+
+        database.save_playback_progress(&make(1, 2, 2_500_000, true, 300)).unwrap();
+        assert!(database.list_continue_watching("default", 20).unwrap().is_empty());
+    }
+
+    #[test]
+    fn watched_markers_and_progress_completion_are_transactional() {
+        let database = SqliteDatabase::in_memory().unwrap();
+        let progress = PlaybackProgress {
+            profile_id: "default".to_owned(),
+            media_id: "1399".to_owned(),
+            media_kind: MediaKind::Series,
+            title: "Game of Thrones".to_owned(),
+            season_number: Some(1),
+            episode_number: Some(1),
+            episode_title: None,
+            poster_path: None,
+            backdrop_path: None,
+            still_path: None,
+            position_ms: 2_000_000,
+            duration_ms: 2_700_000,
+            is_completed: false,
+            updated_at_ms: 100,
+        };
+        database.save_playback_progress(&progress).unwrap();
+        let watched = WatchedItem {
+            profile_id: "default".to_owned(),
+            media_id: "1399".to_owned(),
+            media_kind: MediaKind::Series,
+            season_number: Some(1),
+            episode_number: Some(1),
+            marked_at_ms: 200,
+        };
+        database.set_watched(&watched, true).unwrap();
+        assert!(database.is_watched(&watched).unwrap());
+        assert!(database.get_playback_progress("default", "1399", MediaKind::Series, Some(1), Some(1)).unwrap().unwrap().is_completed);
+        database.set_watched(&watched, false).unwrap();
+        assert!(!database.is_watched(&watched).unwrap());
+        assert!(!database.get_playback_progress("default", "1399", MediaKind::Series, Some(1), Some(1)).unwrap().unwrap().is_completed);
+    }
+
+    #[test]
+    fn playback_progress_rejects_unsafe_artwork_and_invalid_episode_identity() {
+        let database = SqliteDatabase::in_memory().unwrap();
+        let mut progress = PlaybackProgress {
+            profile_id: "default".to_owned(),
+            media_id: "1399".to_owned(),
+            media_kind: MediaKind::Series,
+            title: "Game of Thrones".to_owned(),
+            season_number: Some(1),
+            episode_number: Some(1),
+            episode_title: None,
+            poster_path: Some("/../secret.jpg".to_owned()),
+            backdrop_path: None,
+            still_path: None,
+            position_ms: 2_000_000,
+            duration_ms: 2_700_000,
+            is_completed: false,
+            updated_at_ms: 100,
+        };
+        assert!(matches!(database.save_playback_progress(&progress), Err(RepositoryError::InvalidPlaybackProgress)));
+        progress.poster_path = None;
+        progress.episode_number = None;
+        assert!(matches!(database.save_playback_progress(&progress), Err(RepositoryError::InvalidPlaybackProgress)));
+    }
 
     #[test]
     fn ordered_migrations_create_current_schema() {
