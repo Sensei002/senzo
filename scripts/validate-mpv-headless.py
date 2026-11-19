@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
+"""Verify changing video frames and non-silent PCM from SENZO's headless MPV run."""
+from __future__ import annotations
+
 import array
 import math
 import sys
 import wave
 from pathlib import Path
 
-from PIL import Image, ImageOps, ImageStat
+from PIL import Image, ImageChops, ImageStat
 
 
 def fail(message: str) -> None:
@@ -13,27 +16,41 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
-def validate_screen(path: Path) -> None:
-    if not path.is_file() or path.stat().st_size < 10_000:
-        fail(f"video capture is missing or unexpectedly small: {path}")
-    with Image.open(path) as source:
-        image = source.convert("RGB")
-    gray = ImageOps.grayscale(image)
-    stats = ImageStat.Stat(gray)
-    mask = gray.point(lambda value: 255 if value > 18 else 0)
-    bounds = mask.getbbox()
-    if bounds is None:
-        fail("captured virtual display is completely black")
-    left, top, right, bottom = bounds
-    area = (right - left) * (bottom - top)
-    if area < 20_000 or stats.stddev[0] < 18:
+def validate_screen(directory: Path) -> None:
+    paths = sorted(directory.glob("frame-*.png")) if directory.is_dir() else []
+    if len(paths) < 3:
+        fail(f"expected at least 3 captured video frames, found {len(paths)}")
+
+    active: list[Image.Image] = []
+    for path in paths:
+        try:
+            with Image.open(path) as source:
+                image = source.convert("RGB").resize((96, 54))
+        except OSError as error:
+            fail(f"could not read captured frame {path}: {error}")
+        pixels = list(image.getdata())
+        visible = sum(1 for pixel in pixels if max(pixel) > 25)
+        if visible / len(pixels) > 0.01:
+            active.append(image)
+
+    if len(active) < 3:
+        fail(f"expected at least 3 frames containing visible video; found {len(active)}")
+
+    motion_scores = [
+        ImageStat.Stat(ImageChops.difference(before, after).convert("L")).mean[0]
+        for before, after in zip(active, active[1:])
+    ]
+    maximum_motion = max(motion_scores, default=0.0)
+    if maximum_motion < 0.8:
         fail(
-            "captured display does not contain a sufficiently large, "
-            f"visually varied video frame (bounds={bounds}, stddev={stats.stddev[0]:.1f})"
+            "captured video frames did not show motion "
+            f"(visible frames={len(active)}, max frame difference={maximum_motion:.2f})"
         )
+
     print(
-        "PASS: non-black, spatially varied video was captured from the virtual display "
-        f"({image.width}x{image.height}, video bounds={bounds}, luma stddev={stats.stddev[0]:.1f})"
+        "PASS: moving video was captured from the virtual display "
+        f"({len(paths)} frames, {len(active)} with visible content, "
+        f"maximum frame difference={maximum_motion:.2f})"
     )
 
 
@@ -70,6 +87,6 @@ def validate_audio(path: Path) -> None:
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        fail("usage: validate-mpv-headless.py <captured-frame.png> <audio.wav>")
+        fail("usage: validate-mpv-headless.py <frame-directory> <audio.wav>")
     validate_screen(Path(sys.argv[1]))
     validate_audio(Path(sys.argv[2]))
