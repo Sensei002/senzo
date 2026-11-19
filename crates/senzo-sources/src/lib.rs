@@ -28,6 +28,7 @@ const MAX_HEADERS: usize = 64;
 const MAX_HEADER_VALUE_BYTES: usize = 8192;
 const MAX_SUBTITLES: usize = 32;
 const MAX_CONCURRENT_PROVIDERS: usize = 12;
+const MAX_URL_LENGTH: usize = 8 * 1024;
 
 #[derive(Debug, Error, Clone)]
 pub enum SourceError {
@@ -71,9 +72,9 @@ pub struct SourceBadge {
 #[serde(rename_all = "snake_case")]
 pub enum BadgeTone { Neutral, Accent, Positive, Warning }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum CacheState { Unknown, Checking, Cached, NotCached }
+pub enum CacheState { #[default] Unknown, Checking, Cached, NotCached }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Source {
@@ -421,7 +422,7 @@ impl SourceAggregator {
             match joined {
                 Ok(Ok((id, name, duration, Ok(output)))) => {
                     let returned = output.sources.len();
-                    let validated = output.sources.into_iter().filter(validate_source).take(MAX_STREAMS_PER_PROVIDER.saturating_mul(16)).map(enrich_badges).collect();
+                    let validated: Vec<Source> = output.sources.into_iter().filter(validate_source).take(MAX_STREAMS_PER_PROVIDER.saturating_mul(16)).map(enrich_badges).collect();
                     streams.extend(validated);
                     diagnostics.push(ProviderDiagnostic { provider_id: id, provider_name: name, duration_ms: duration.as_millis() as u64, returned_sources: returned, error: None, from_cache: false });
                 }
