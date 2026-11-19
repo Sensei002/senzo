@@ -395,7 +395,7 @@ fn encode_base64(value: &[u8]) -> String {
     STANDARD.encode(value)
 }
 
-fn read_der(bytes: &[u8], offset: &mut usize) -> CryptoResult<(u8, &[u8])> {
+fn read_der<'a>(bytes: &'a [u8], offset: &mut usize) -> CryptoResult<(u8, &'a [u8])> {
     let tag = *bytes
         .get(*offset)
         .ok_or_else(|| "Invalid DER key".to_owned())?;
