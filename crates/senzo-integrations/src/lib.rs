@@ -158,11 +158,9 @@ impl MediaServerManager {
             return Err(IntegrationError::InvalidQuery);
         }
         let auth_url = endpoint(&base, "Users/AuthenticateByName")?;
-        let client_name = "SENZO";
-        let auth_header = format!("MediaBrowser Client=\"{client_name}\", Device=\"Desktop\", DeviceId=\"com.senzo.desktop\", Version=\"{}\"",
-            env!("CARGO_PKG_VERSION"));
+        let (auth_header_name, auth_header) = server_auth_header(provider, None);
         let mut headers = HeaderMap::new();
-        headers.insert("X-Emby-Authorization", HeaderValue::from_str(&auth_header).map_err(|_| IntegrationError::InvalidQuery)?);
+        headers.insert(auth_header_name, HeaderValue::from_str(&auth_header).map_err(|_| IntegrationError::InvalidQuery)?);
         headers.insert("Content-Type", HeaderValue::from_static("application/json"));
         let response = self.client.request(Method::POST, auth_url).headers(headers)
             .json(&json!({"Username": username.trim(), "Pw": password}))
@@ -175,7 +173,7 @@ impl MediaServerManager {
 
         let credential_ref = format!("media-server:{profile_id}:{}", uuid::Uuid::new_v4());
         self.credentials.set(&credential_ref, token).map_err(IntegrationError::Credential)?;
-        let server_info = self.request_json_with_token(&base, "System/Info/Public", token).await;
+        let server_info = self.request_json_with_token(&base, "System/Info/Public", provider, token).await;
         let server_id = match server_info {
             Ok(info) => value_str(&info, "Id").unwrap_or("unknown").to_owned(),
             Err(error) => { let _ = self.credentials.delete(&credential_ref); return Err(error); }
@@ -233,7 +231,7 @@ impl MediaServerManager {
         let token = self.credentials.get(&connection.credential_ref).map_err(IntegrationError::Credential)?.ok_or(IntegrationError::Authentication)?;
         let base = normalize_address(&connection.address)?;
         let path = format!("Users/{}/Views", path_segment(&connection.user_id));
-        let data = self.request_json_with_token(&base, &path, &token).await?;
+        let data = self.request_json_with_token(&base, &path, connection.provider, &token).await?;
         let items = data.get("Items").and_then(Value::as_array).ok_or(IntegrationError::InvalidResponse)?;
         let mut libraries = Vec::new();
         for item in items.iter().take(MAX_LIBRARIES) {
@@ -261,7 +259,7 @@ impl MediaServerManager {
         url.query_pairs_mut().append_pair("ParentId", library_id).append_pair("Recursive", "true")
             .append_pair("IncludeItemTypes", "Movie,Series").append_pair("Fields", "ProviderIds,ProductionYear,Overview")
             .append_pair("StartIndex", &start.min(100_000).to_string()).append_pair("Limit", &limit.clamp(1,100) .to_string());
-        let data = self.request_url_json(&url, &token).await?;
+        let data = self.request_url_json(&url, connection.provider, &token).await?;
         parse_catalog_items(&data)
     }
 
@@ -277,7 +275,7 @@ impl MediaServerManager {
             .append_pair("IncludeItemTypes", "Movie,Series").append_pair("Fields", "ProviderIds,ProductionYear,Overview")
             .append_pair("Limit", &limit.clamp(1,100).to_string());
         if !libraries.is_empty() { url.query_pairs_mut().append_pair("ParentId", &libraries.join(",")); }
-        let data = self.request_url_json(&url, &token).await?;
+        let data = self.request_url_json(&url, connection.provider, &token).await?;
         parse_catalog_items(&data)
     }
 
@@ -306,14 +304,14 @@ impl MediaServerManager {
                 .append_pair("IncludeItemTypes", if media_type == "movie" { "Movie" } else { "Series" })
                 .append_pair("SearchTerm", title).append_pair("Fields", "ProviderIds,ProductionYear,Overview")
                 .append_pair("Limit", "60");
-            let data = self.request_url_json(&url, &token).await?;
+            let data = self.request_url_json(&url, connection.provider, &token).await?;
             let items = parse_catalog_items(&data)?;
             let matched = items.iter().find(|item| exact_ids(item, tmdb_id, imdb_id))
                 .or_else(|| items.iter().find(|item| title_matches(item, title, year)));
             let Some(matched) = matched else { continue; };
             let item_id = if media_type == "movie" { matched.id.clone() } else {
                 let (season, episode) = match (season, episode) { (Some(s),Some(e)) => (s,e), _ => continue };
-                self.find_episode_id(&base, &token, &connection.user_id, &matched.id, season, episode).await?
+                self.find_episode_id(&base, connection.provider, &token, &connection.user_id, &matched.id, season, episode).await?
                     .unwrap_or_default()
             };
             if item_id.is_empty() { continue; }
@@ -323,12 +321,12 @@ impl MediaServerManager {
         Ok(None)
     }
 
-    async fn find_episode_id(&self, base: &Url, token: &str, _user_id: &str, series_id: &str, season: u32, episode: u32) -> Result<Option<String>, IntegrationError> {
+    async fn find_episode_id(&self, base: &Url, provider: MediaServerProvider, token: &str, _user_id: &str, series_id: &str, season: u32, episode: u32) -> Result<Option<String>, IntegrationError> {
         let path = format!("Shows/{}/Episodes", path_segment(series_id));
         let mut url = endpoint(base, &path)?;
         url.query_pairs_mut().append_pair("Season", &season.to_string()).append_pair("Fields", "ProviderIds,Overview")
             .append_pair("Limit", "500");
-        let data = self.request_url_json(&url, token).await?;
+        let data = self.request_url_json(&url, provider, token).await?;
         let Some(items) = data.get("Items").and_then(Value::as_array) else { return Err(IntegrationError::InvalidResponse); };
         Ok(items.iter().find(|item| {
             item.get("IndexNumber").and_then(Value::as_u64) == Some(episode as u64)
@@ -340,7 +338,7 @@ impl MediaServerManager {
         let path = format!("Items/{}/PlaybackInfo", path_segment(item_id));
         let mut playback_url = endpoint(base, &path)?;
         playback_url.query_pairs_mut().append_pair("UserId", &connection.user_id);
-        let response = self.request_url_json(&playback_url, token).await?;
+        let response = self.request_url_json(&playback_url, connection.provider, token).await?;
         let sources = response.get("MediaSources").and_then(Value::as_array).ok_or(IntegrationError::InvalidResponse)?;
         let media = sources.iter().find(|item| item.get("SupportsDirectPlay").and_then(Value::as_bool).unwrap_or(true))
             .or_else(|| sources.first()).ok_or(IntegrationError::InvalidResponse)?;
@@ -349,8 +347,9 @@ impl MediaServerManager {
         stream_url.query_pairs_mut().append_pair("Static", "true").append_pair("MediaSourceId", media_source_id)
             .append_pair("DeviceId", "com.senzo.desktop");
         if let Some(session) = value_str(&response, "PlaySessionId") { stream_url.query_pairs_mut().append_pair("PlaySessionId", session); }
+        let (auth_header_name, auth_header) = server_auth_header(connection.provider, Some(token));
         let mut headers = BTreeMap::new();
-        headers.insert("X-Emby-Token".into(), token.to_owned());
+        headers.insert(auth_header_name.to_owned(), auth_header);
         let height = media.get("MediaStreams").and_then(Value::as_array).into_iter().flatten()
             .filter(|stream| value_str(stream,"Type") == Some("Video"))
             .filter_map(|stream| stream.get("Height").and_then(Value::as_u64)).max();
@@ -371,14 +370,14 @@ impl MediaServerManager {
         self.credentials.get(&connection.credential_ref).map_err(IntegrationError::Credential)?.ok_or(IntegrationError::Authentication)
     }
 
-    async fn request_json_with_token(&self, base: &Url, path: &str, token: &str) -> Result<Value, IntegrationError> {
+    async fn request_json_with_token(&self, base: &Url, path: &str, provider: MediaServerProvider, token: &str) -> Result<Value, IntegrationError> {
         let url = endpoint(base,path)?;
-        self.request_url_json(&url,token).await
+        self.request_url_json(&url, provider, token).await
     }
 
-    async fn request_url_json(&self, url: &Url, token: &str) -> Result<Value, IntegrationError> {
-        let response = self.client.get(url.clone()).header("X-Emby-Token", token)
-            .header("X-Emby-Authorization", "MediaBrowser Client=\"SENZO\", Device=\"Desktop\", DeviceId=\"com.senzo.desktop\", Version=\"0.1.0\"")
+    async fn request_url_json(&self, url: &Url, provider: MediaServerProvider, token: &str) -> Result<Value, IntegrationError> {
+        let (header_name, header_value) = server_auth_header(provider, Some(token));
+        let response = self.client.get(url.clone()).header(header_name, header_value)
             .send().await.map_err(|e| IntegrationError::Network(e.without_url().to_string()))?;
         read_json(response).await
     }
@@ -402,6 +401,21 @@ fn normalize_address(raw: &str) -> Result<Url, IntegrationError> {
     if !matches!(url.scheme(),"http"|"https") || url.host_str().is_none() || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() { return Err(IntegrationError::InvalidAddress); }
     if !url.path().ends_with('/') { let path = format!("{}/",url.path()); url.set_path(&path); }
     Ok(url)
+}
+
+fn server_auth_header(provider: MediaServerProvider, token: Option<&str>) -> (&'static str, String) {
+    let header_name = match provider {
+        MediaServerProvider::Jellyfin => "Authorization",
+        MediaServerProvider::Emby => "X-Emby-Authorization",
+    };
+    let mut value = format!(
+        "MediaBrowser Client=\"SENZO\", Device=\"Desktop\", DeviceId=\"com.senzo.desktop\", Version=\"{}\"",
+        env!("CARGO_PKG_VERSION"),
+    );
+    if let Some(token) = token {
+        value.push_str(&format!(", Token=\"{token}\""));
+    }
+    (header_name, value)
 }
 fn endpoint(base: &Url, path: &str) -> Result<Url, IntegrationError> { base.join(path.trim_start_matches('/')).map_err(|_| IntegrationError::InvalidAddress) }
 fn path_segment(value: &str) -> String { url::form_urlencoded::byte_serialize(value.as_bytes()).collect::<String>().replace('+',"%20") }
@@ -465,6 +479,23 @@ mod tests {
         assert!(!title_matches(&item,"Matrix Reloaded",Some(2000)));
         assert!(!title_matches(&item,"The Matrix",Some(2010)));
     }
+
+    #[test]
+    fn jellyfin_uses_current_authorization_header_with_access_token() {
+        let (name, value) = server_auth_header(MediaServerProvider::Jellyfin, Some("test-token"));
+        assert_eq!(name, "Authorization");
+        assert!(value.starts_with("MediaBrowser Client="));
+        assert!(value.contains("Token=\"test-token\""));
+    }
+
+    #[test]
+    fn emby_keeps_its_compatibility_authorization_header() {
+        let (name, value) = server_auth_header(MediaServerProvider::Emby, Some("test-token"));
+        assert_eq!(name, "X-Emby-Authorization");
+        assert!(value.starts_with("MediaBrowser Client="));
+        assert!(value.contains("Token=\"test-token\""));
+    }
+
     #[test]
     fn connection_key_is_profile_scoped() {
         assert!(connections_key("default").is_ok());

@@ -178,7 +178,7 @@ impl DebridManager {
             }
             DebridProviderId::Premiumize => {
                 let response = self.client.post("https://www.premiumize.me/api/cache/check")
-                    .bearer_auth(&token).form(&[("items[]", hash.as_str())])
+                    .bearer_auth(&token).form(&[("items[]", premiumize_cache_item(&hash))])
                     .send().await.map_err(|e| DebridError::Network(e.without_url().to_string()))?;
                 let payload = read_json(response).await?;
                 let cached = payload.get("response").and_then(Value::as_array)
@@ -444,6 +444,10 @@ fn validate_magnet(raw: &str) -> Result<(String, String), DebridError> {
         .and_then(|(_, value)| normalize_hash(value.trim_start_matches("urn:btih:"))).ok_or(DebridError::InvalidMagnet)?;
     Ok((hash, url.to_string()))
 }
+fn premiumize_cache_item(info_hash: &str) -> String {
+    format!("magnet:?xt=urn:btih:{info_hash}")
+}
+
 fn normalize_hash(raw: &str) -> Option<String> {
     let value = raw.trim().to_ascii_lowercase();
     (value.len() == 40 && value.bytes().all(|b| b.is_ascii_hexdigit())).then_some(value)
@@ -572,6 +576,13 @@ fn is_video_name(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    #[test]
+    fn premiumize_cache_checks_use_a_magnet_uri_not_a_bare_hash() {
+        let hash = "0123456789012345678901234567890123456789";
+        assert_eq!(premiumize_cache_item(hash), format!("magnet:?xt=urn:btih:{hash}"));
+    }
 
     #[test]
     fn validates_only_hex_infohash_magnets() {
