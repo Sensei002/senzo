@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify changing video frames and non-silent PCM from SENZO's headless MPV run."""
+"""Verify MPV output-window screenshots show motion and virtual audio contains PCM."""
 from __future__ import annotations
 
 import array
@@ -48,7 +48,7 @@ def validate_screen(directory: Path) -> None:
         )
 
     print(
-        "PASS: moving video was captured from the virtual display "
+        "PASS: MPV output-window screenshots contain moving video "
         f"({len(paths)} frames, {len(active)} with visible content, "
         f"maximum frame difference={maximum_motion:.2f})"
     )

@@ -213,6 +213,11 @@ enum Command {
         headers: Vec<(String, String)>,
         reply: SyncSender<Result<(), MpvError>>,
     },
+    ScreenshotToFile {
+        path: String,
+        window: bool,
+        reply: SyncSender<Result<(), MpvError>>,
+    },
     Stop(Option<SyncSender<Result<(), MpvError>>>),
     Shutdown(Option<SyncSender<Result<(), MpvError>>>),
 }
@@ -396,6 +401,16 @@ impl MpvPlayer {
             return Err(MpvError::InvalidValue);
         }
         self.set("chapter", &index.to_string())
+    }
+    /// Save the current MPV output as an image. With window=true, libmpv
+    /// captures its output window; otherwise it captures the video frame.
+    pub fn screenshot_to_file(&self, path: &Path, window: bool) -> Result<(), MpvError> {
+        let path = validate_screenshot_path(path)?;
+        self.request(|reply| Command::ScreenshotToFile {
+            path,
+            window,
+            reply,
+        })
     }
     fn select(&self, kind: TrackKind, id: Option<i64>) -> Result<(), MpvError> {
         validate_track_id(id)?;
@@ -684,6 +699,19 @@ fn process(
                 .set(ctx, HTTP_HEADER_OPTION_PROPERTY, &value)
                 .and_then(|_| api.cmd(ctx, &["sub-add", &url, "select"]));
             send_reply(result, reply, snapshot, listeners)
+        }
+        Command::ScreenshotToFile {
+            path,
+            window,
+            reply,
+        } => {
+            let target = if window { "window" } else { "video" };
+            send_reply(
+                api.cmd(ctx, &["screenshot-to-file", &path, target]),
+                reply,
+                snapshot,
+                listeners,
+            )
         }
         Command::Stop(reply) => {
             if matches!(
@@ -987,6 +1015,18 @@ fn options(config: &MpvConfig) -> Vec<(String, String)> {
     }
     v
 }
+fn validate_screenshot_path(path: &Path) -> Result<String, MpvError> {
+    let raw = path.to_str().ok_or(MpvError::InvalidValue)?;
+    if !path.is_absolute()
+        || raw.is_empty()
+        || raw.len() > 4096
+        || raw.chars().any(char::is_control)
+    {
+        return Err(MpvError::InvalidValue);
+    }
+    Ok(raw.to_owned())
+}
+
 fn validate_url(raw: &str) -> Result<String, MpvError> {
     if raw.len() > 8192 || raw.chars().any(char::is_control) {
         return Err(MpvError::InvalidUrl);
@@ -1269,6 +1309,20 @@ mod tests {
         assert!(validate_track_id(Some(0)).is_ok());
         assert!(validate_track_id(Some(-1)).is_err());
     }
+    #[test]
+    fn screenshot_paths_must_be_absolute_and_free_of_control_characters() {
+        assert!(validate_screenshot_path(Path::new("relative.png")).is_err());
+        let valid = env::temp_dir().join("senzo-frame.png");
+        assert_eq!(
+            validate_screenshot_path(&valid).unwrap(),
+            valid.to_string_lossy()
+        );
+        let invalid = env::temp_dir().join("bad\nframe.png");
+        assert!(validate_screenshot_path(&invalid).is_err());
+        let too_long = env::temp_dir().join("x".repeat(4097));
+        assert!(validate_screenshot_path(&too_long).is_err());
+    }
+
     #[test]
     fn default_config_reads_optional_libmpv_path() {
         assert_eq!(MpvConfig::default().window_id, None);

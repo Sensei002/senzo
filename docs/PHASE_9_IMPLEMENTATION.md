@@ -67,10 +67,11 @@ Linux CI has a separate runtime acceptance path using the same `MpvPlayer` owner
 - It generates a local H.264/AAC test clip with a moving test pattern and a continuous sine-wave audio track; no external media URL or third-party service is involved.
 - A small local HTTP server supports byte-range requests, so the test exercises the same validated HTTP(S) source-loading path and seek behavior as real streams.
 - libmpv uses its GPU video output against an Xvfb display and PulseAudio against a virtual null sink. This keeps the test independent of physical monitors and speakers.
-- CI captures the X11 display while playback is running, samples frames at 1 fps, and checks that multiple frames contain visible video and that successive visible frames differ (motion threshold). It separately records the virtual sink monitor and checks that decoded PCM contains non-silent samples.
+- The harness requests four `screenshot-to-file window` images through the same libmpv owner while the first episode is actively playing. It checks that those output-window images contain visible moving video. An X11 root-screen recording is retained as a diagnostic artifact, but is not the hard video assertion because Xvfb root captures can be black while libmpv's own output-window screenshot path remains available.
+- The harness separately records the PulseAudio virtual sink monitor and checks that decoded PCM contains non-silent samples.
 - The application acceptance mode exercises track selection, pause, seek, resume/progress, volume, mute, speed, source replacement, stop acknowledgement, repeated playback and owner-thread shutdown. It does not auto-answer the physical operator prompts.
 
-The generated clips, captured frames, PCM recording and MPV logs are uploaded as the `senzo-mpv-headless-diagnostics` workflow artifact. This is real libmpv decode/render/audio-output-path testing in virtual devices; it does **not** establish that a physical Windows or Linux monitor/speaker works. The original interactive `--mpv-smoke-test` remains available for physical-device acceptance.
+The generated clips, MPV output-window screenshots, X11 screen recording, PCM recording and MPV logs are uploaded as the `senzo-mpv-headless-diagnostics` workflow artifact. This validates libmpv's output-window screenshot path and non-silent audio output in virtual devices; it does **not** establish that a physical Windows or Linux monitor/speaker works. The original interactive `--mpv-smoke-test` remains available for physical-device acceptance.
 
 ## Phase 9 completion record
 
