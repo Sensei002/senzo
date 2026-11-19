@@ -1,6 +1,5 @@
 //! Single-owner native libmpv engine and typed playback contract.
 use std::{
-    collections::VecDeque,
     ffi::{CStr,CString,c_char,c_double,c_int,c_void},
     path::{Path,PathBuf},
     ptr,
@@ -197,7 +196,7 @@ fn worker_main(config:MpvConfig,rx:Receiver<Command>,ready:SyncSender<Result<(),
     }
     let initialized=unsafe{(api.initialize)(ctx)};
     if initialized<0{let e=api.error(initialized);unsafe{(api.destroy)(ctx)};let _=ready.send(Err(MpvError::Initialization(e)));return;}
-    if let Some(logs)=api.request_logs{if let Ok(level)=CString::new("warn"){unsafe{let _=logs(ctx,level.as_ptr());}}}
+    if let Some(logs)=api.request_logs && let Ok(level)=CString::new("warn"){unsafe{let _=logs(ctx,level.as_ptr());}}
     let _=ready.send(Ok(()));
     diagnostic(&snapshot,&listeners,DiagnosticLevel::Info,"libmpv initialized on its owner thread");
     let mut state=PlaybackStatus::Idle;
@@ -304,7 +303,7 @@ fn update_snapshot(api:&Api,ctx:*mut c_void,snapshot:&Arc<RwLock<PlaybackSnapsho
     next.video_codec=api.string(ctx,"video-codec");next.audio_codec=api.string(ctx,"audio-codec");
     next.video_width=api.int(ctx,"width");next.video_height=api.int(ctx,"height");
     next.tracks=tracks(api,ctx);
-    if let Ok(mut current)=snapshot.write(){if *current!=next{*current=next.clone();emit(listeners,PlayerEvent::Snapshot(next));}}
+    if let Ok(mut current)=snapshot.write() && *current!=next{*current=next.clone();emit(listeners,PlayerEvent::Snapshot(next));}
 }
 fn tracks(api:&Api,ctx:*mut c_void)->Vec<MediaTrack>{
     let count=api.int(ctx,"track-list/count").unwrap_or(0).clamp(0,MAX_TRACKS as i64) as usize;
@@ -361,7 +360,7 @@ fn mpv_escape(v:&str)->String{v.replace('\\',"\\\\").replace(',',"\\,")}
 fn cstring(v:&str)->Result<CString,MpvError>{CString::new(v).map_err(|_|MpvError::InvalidValue)}
 
 #[repr(C)]
-struct Event{event_id:c_int,_error:c_int,_reply_userdata:std::os::raw::c_ulong,_data:*mut c_void}
+struct Event{event_id:c_int,_error:c_int,_reply_userdata:u64,_data:*mut c_void}
 type Create=unsafe extern "C" fn()->*mut c_void;
 type SetOption=unsafe extern "C" fn(*mut c_void,*const c_char,*const c_char)->c_int;
 type Initialize=unsafe extern "C" fn(*mut c_void)->c_int;
