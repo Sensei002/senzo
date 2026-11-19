@@ -6559,6 +6559,7 @@ dependencies = [
  "senzo-metadata",
  "senzo-network",
  "senzo-platform",
+ "senzo-player",
  "senzo-plugins",
  "senzo-sources",
  "senzo-storage",
@@ -6672,6 +6673,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "senzo-player"
+version = "0.1.0"
+dependencies = [
+ "libloading",
+ "thiserror 2.0.21",
+ "url",
+]
+
+[[package]]
 name = "senzo-plugins"
 version = "0.1.0"
 dependencies = [
@@ -6738,6 +6748,7 @@ dependencies = [
  "senzo-integrations",
  "senzo-metadata",
  "senzo-network",
+ "senzo-player",
  "senzo-plugins",
  "senzo-sources",
  "serde_json",

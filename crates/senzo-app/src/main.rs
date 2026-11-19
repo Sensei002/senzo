@@ -1,4 +1,8 @@
-use std::{env, sync::Arc, time::{Duration, Instant}};
+use std::{
+    env,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, ensure};
 use senzo_addons::{AddonManager, AddonSecretStore};
@@ -201,10 +205,13 @@ fn run() -> anyhow::Result<()> {
     }
 
     let args = env::args().collect::<Vec<_>>();
-    if let Some(index) = args.iter().position(|argument| argument == "--mpv-smoke-test") {
-        let url = args.get(index + 1).context(
-            "usage: senzo --mpv-smoke-test <direct-http-or-https-media-url>"
-        )?;
+    if let Some(index) = args
+        .iter()
+        .position(|argument| argument == "--mpv-smoke-test")
+    {
+        let url = args
+            .get(index + 1)
+            .context("usage: senzo --mpv-smoke-test <direct-http-or-https-media-url>")?;
         runtime
             .block_on(run_mpv_smoke_test(url))
             .context("validate native MPV playback, controls and teardown")?;
@@ -234,16 +241,20 @@ fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run_mpv_smoke_test(url:&str)->anyhow::Result<()> {
-    let player=MpvPlayer::spawn(MpvConfig::default())
+async fn run_mpv_smoke_test(url: &str) -> anyhow::Result<()> {
+    let player = MpvPlayer::spawn(MpvConfig::default())
         .context("load the native libmpv runtime; install it or set SENZO_LIBMPV_PATH")?;
-    player.load(url,&std::collections::BTreeMap::new())
+    player
+        .load(url, &std::collections::BTreeMap::new())
         .context("load the direct HTTP(S) test source")?;
 
-    let snapshot=wait_for_mpv_video(&player,Duration::from_secs(35)).await?;
+    let snapshot = wait_for_mpv_video(&player, Duration::from_secs(35)).await?;
     ensure!(
         snapshot.audio_codec.is_some()
-            || snapshot.tracks.iter().any(|track|track.kind==TrackKind::Audio),
+            || snapshot
+                .tracks
+                .iter()
+                .any(|track| track.kind == TrackKind::Audio),
         "the test source did not expose an audio track"
     );
     println!(
@@ -255,67 +266,107 @@ async fn run_mpv_smoke_test(url:&str)->anyhow::Result<()> {
     );
     println!(
         "Tracks: {} audio, {} subtitle",
-        snapshot.tracks.iter().filter(|track|track.kind==TrackKind::Audio).count(),
-        snapshot.tracks.iter().filter(|track|track.kind==TrackKind::Subtitle).count()
+        snapshot
+            .tracks
+            .iter()
+            .filter(|track| track.kind == TrackKind::Audio)
+            .count(),
+        snapshot
+            .tracks
+            .iter()
+            .filter(|track| track.kind == TrackKind::Subtitle)
+            .count()
     );
 
-    player.pause().context("pause the native playback session")?;
+    player
+        .pause()
+        .context("pause the native playback session")?;
     tokio::time::sleep(Duration::from_millis(500)).await;
-    ensure!(player.snapshot().paused,"MPV did not report the paused state");
-    player.seek_relative(5.0).context("seek the active source")?;
-    player.play().context("resume the native playback session")?;
+    ensure!(
+        player.snapshot().paused,
+        "MPV did not report the paused state"
+    );
+    player
+        .seek_relative(5.0)
+        .context("seek the active source")?;
+    player
+        .play()
+        .context("resume the native playback session")?;
     player.set_volume(35.0).context("set playback volume")?;
     player.set_muted(true).context("mute playback")?;
     player.set_muted(false).context("unmute playback")?;
     player.set_speed(1.25).context("change playback speed")?;
-    player.set_speed(1.0).context("restore normal playback speed")?;
+    player
+        .set_speed(1.0)
+        .context("restore normal playback speed")?;
 
     // Replace the currently playing source to exercise MPV's single-session
     // replace path, then stop and start it again to exercise repeated sessions.
-    player.load(url,&std::collections::BTreeMap::new())
+    player
+        .load(url, &std::collections::BTreeMap::new())
         .context("replace the active source in the existing MPV session")?;
-    let _=wait_for_mpv_video(&player,Duration::from_secs(35)).await?;
+    let _ = wait_for_mpv_video(&player, Duration::from_secs(35)).await?;
     tokio::time::sleep(Duration::from_secs(2)).await;
 
-    let stop=tokio::task::spawn_blocking({
-        let player=player.clone();
-        move||player.stop(Duration::from_secs(8))
-    }).await.context("join the first MPV stop acknowledgement task")?;
+    let stop = tokio::task::spawn_blocking({
+        let player = player.clone();
+        move || player.stop(Duration::from_secs(8))
+    })
+    .await
+    .context("join the first MPV stop acknowledgement task")?;
     stop.context("wait for the first MPV stop acknowledgement")?;
 
-    player.load(url,&std::collections::BTreeMap::new())
+    player
+        .load(url, &std::collections::BTreeMap::new())
         .context("start a second playback session on the existing MPV owner")?;
-    let _=wait_for_mpv_video(&player,Duration::from_secs(35)).await?;
+    let _ = wait_for_mpv_video(&player, Duration::from_secs(35)).await?;
 
-    let shutdown=tokio::task::spawn_blocking(move||{
-        player.stop(Duration::from_secs(8)).context("wait for second MPV stop acknowledgement")?;
-        player.shutdown().context("shut down the MPV owner thread")?;
-        Ok::<(),anyhow::Error>(())
-    }).await.context("join the final MPV teardown task")?;
+    let shutdown = tokio::task::spawn_blocking(move || {
+        player
+            .stop(Duration::from_secs(8))
+            .context("wait for second MPV stop acknowledgement")?;
+        player
+            .shutdown()
+            .context("shut down the MPV owner thread")?;
+        Ok::<(), anyhow::Error>(())
+    })
+    .await
+    .context("join the final MPV teardown task")?;
     shutdown?;
-    println!("PASS  pause, seek, resume, volume, mute, speed, source replacement, repeated session, stop acknowledgements and owner-thread shutdown");
-    println!("VISUAL/AUDIO CHECK: confirm the native video window was visible and sound was audible during this test.");
+    println!(
+        "PASS  pause, seek, resume, volume, mute, speed, source replacement, repeated session, stop acknowledgements and owner-thread shutdown"
+    );
+    println!(
+        "VISUAL/AUDIO CHECK: confirm the native video window was visible and sound was audible during this test."
+    );
     Ok(())
 }
 
 async fn wait_for_mpv_video(
-    player:&MpvPlayer,
-    timeout:Duration,
-)->anyhow::Result<senzo_player::PlaybackSnapshot>{
-    let deadline=Instant::now()+timeout;
+    player: &MpvPlayer,
+    timeout: Duration,
+) -> anyhow::Result<senzo_player::PlaybackSnapshot> {
+    let deadline = Instant::now() + timeout;
     loop {
-        let current=player.snapshot();
-        if current.status==PlaybackStatus::Error {
-            anyhow::bail!("libmpv entered an error state: {:?}",current.diagnostics.last());
+        let current = player.snapshot();
+        if current.status == PlaybackStatus::Error {
+            anyhow::bail!(
+                "libmpv entered an error state: {:?}",
+                current.diagnostics.last()
+            );
         }
-        if current.status==PlaybackStatus::Playing
-            && current.video_width.is_some_and(|width|width>0)
-            && current.video_height.is_some_and(|height|height>0)
+        if current.status == PlaybackStatus::Playing
+            && current.video_width.is_some_and(|width| width > 0)
+            && current.video_height.is_some_and(|height| height > 0)
         {
             return Ok(current);
         }
-        if Instant::now()>=deadline {
-            anyhow::bail!("MPV did not start a video stream with nonzero dimensions within {:?}; last state: {:?}",timeout,current.status);
+        if Instant::now() >= deadline {
+            anyhow::bail!(
+                "MPV did not start a video stream with nonzero dimensions within {:?}; last state: {:?}",
+                timeout,
+                current.status
+            );
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
