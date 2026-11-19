@@ -4,6 +4,8 @@
 //! memory, stack, wall-clock and concurrency limits. Network calls are HTTPS-only,
 //! DNS-pinned to globally routable addresses, redirect-revalidated and response-bounded.
 
+mod crypto;
+
 use std::{
     cell::RefCell,
     collections::BTreeMap,
@@ -15,6 +17,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use reqwest::{
     Method, StatusCode,
     blocking::{Client, Response},
@@ -979,6 +982,7 @@ struct PluginResponse {
     url: String,
     status: u16,
     body: String,
+    body_bytes: Vec<u8>,
     headers: BTreeMap<String, String>,
 }
 
@@ -1013,7 +1017,8 @@ impl PluginHttp {
         if !(200..300).contains(&response.status) {
             return Err(PluginError::Network(format!("HTTP {}", response.status)));
         }
-        Ok(response.body)
+        String::from_utf8(response.body_bytes)
+            .map_err(|_| PluginError::Network("response was not UTF-8".to_owned()))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1101,12 +1106,12 @@ fn read_response(mut response: Response, max_bytes: usize) -> Result<PluginRespo
     if bytes.len() > max_bytes {
         return Err(PluginError::ResponseTooLarge(max_bytes));
     }
-    let body = String::from_utf8(bytes)
-        .map_err(|_| PluginError::Network("response was not UTF-8".to_owned()))?;
+    let body = String::from_utf8_lossy(&bytes).into_owned();
     Ok(PluginResponse {
         url,
         status,
         body,
+        body_bytes: bytes,
         headers,
     })
 }
@@ -1183,6 +1188,52 @@ struct DomState {
     next_id: u64,
 }
 
+fn select_dom_elements(root: &kuchiki::NodeRef, selector: &str) -> Vec<kuchiki::NodeRef> {
+    if let Some((base_selector, needle)) = split_contains_selector(selector) {
+        let base_selector = if base_selector.trim().is_empty() {
+            "*"
+        } else {
+            base_selector.trim()
+        };
+        return root
+            .select(base_selector)
+            .map(|selection| {
+                selection
+                    .map(|element| element.as_node().clone())
+                    .filter(|node| node.text_contents().contains(&needle))
+                    .collect()
+            })
+            .unwrap_or_default();
+    }
+    root.select(selector)
+        .map(|selection| {
+            selection
+                .map(|element| element.as_node().clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn split_contains_selector(selector: &str) -> Option<(String, String)> {
+    let marker = ":contains(";
+    let start = selector.find(marker)?;
+    let value_start = start + marker.len();
+    let end = selector[value_start..].find(')')? + value_start;
+    if !selector[end + 1..].trim().is_empty() {
+        return None;
+    }
+    let value = selector[value_start..end].trim();
+    let needle = if value.len() >= 2
+        && ((value.starts_with('"') && value.ends_with('"'))
+            || (value.starts_with('\'') && value.ends_with('\'')))
+    {
+        value[1..value.len() - 1].to_owned()
+    } else {
+        value.to_owned()
+    };
+    Some((selector[..start].to_owned(), needle))
+}
+
 fn register_cheerio_bridge(globals: &rquickjs::Object<'_>) -> rquickjs::Result<()> {
     use kuchiki::traits::TendrilSink;
 
@@ -1219,12 +1270,7 @@ fn register_cheerio_bridge(globals: &rquickjs::Object<'_>) -> rquickjs::Result<(
             let Some(document) = document else {
                 return "[]".to_owned();
             };
-            let nodes = match document.select(&selector) {
-                Ok(selection) => selection
-                    .map(|element| element.as_node().clone())
-                    .collect::<Vec<_>>(),
-                Err(_) => Vec::new(),
-            };
+            let nodes = select_dom_elements(&document, &selector);
             serde_json::to_string(&store_dom_elements(&select_state, &doc_id, nodes))
                 .unwrap_or_else(|_| "[]".to_owned())
         }),
@@ -1239,12 +1285,7 @@ fn register_cheerio_bridge(globals: &rquickjs::Object<'_>) -> rquickjs::Result<(
                 let Some(root) = root else {
                     return "[]".to_owned();
                 };
-                let nodes = match root.select(&selector) {
-                    Ok(selection) => selection
-                        .map(|element| element.as_node().clone())
-                        .collect::<Vec<_>>(),
-                    Err(_) => Vec::new(),
-                };
+                let nodes = select_dom_elements(&root, &selector);
                 serde_json::to_string(&store_dom_elements(&find_state, &doc_id, nodes))
                     .unwrap_or_else(|_| "[]".to_owned())
             },
@@ -1331,11 +1372,9 @@ fn register_cheerio_bridge(globals: &rquickjs::Object<'_>) -> rquickjs::Result<(
                 let Some(node) = node else {
                     return false;
                 };
-                node.select(&selector).is_ok_and(|matches| {
-                    matches
-                        .into_iter()
-                        .any(|element| element.as_node() == &node)
-                })
+                select_dom_elements(&node, &selector)
+                    .iter()
+                    .any(|element| element == &node)
             },
         ),
     )?;
@@ -1532,16 +1571,32 @@ fn run_javascript(
     let context = Context::full(&runtime).map_err(|e| PluginError::Runtime(e.to_string()))?;
     let settings_value: Value =
         serde_json::from_str(settings).map_err(|_| PluginError::InvalidSettings)?;
-    let input_json =
-        serde_json::to_string(&input).map_err(|e| PluginError::Runtime(e.to_string()))?;
+    let input_json = serde_json::to_string(&json!({
+        "tmdbId": input.tmdb_id.clone(),
+        "mediaType": input.media_type.clone(),
+        "season": input.season,
+        "episode": input.episode,
+        "tmdb_id": input.tmdb_id.clone(),
+        "media_type": input.media_type.clone(),
+    }))
+    .map_err(|e| PluginError::Runtime(e.to_string()))?;
     let settings_json =
         serde_json::to_string(&settings_value).map_err(|e| PluginError::Runtime(e.to_string()))?;
 
     let result = context.with(|ctx| {
         let globals = ctx.globals();
         globals.set("SCRAPER_ID", scraper_id.to_owned())?;
-        globals.set("__SCRAPER_SETTINGS_JSON", settings_json)?;
-        globals.set("__SCRAPER_CALL_ARGS_JSON", input_json)?;
+        globals.set("__SCRAPER_SETTINGS_JSON", settings_json.clone())?;
+        globals.set("__SCRAPER_CALL_ARGS_JSON", input_json.clone())?;
+        let bridge_scraper_id = scraper_id.to_owned();
+        globals.set("__get_scraper_id", Func::from(move || bridge_scraper_id.clone()))?;
+        let bridge_settings_json = settings_json;
+        globals.set("__get_scraper_settings", Func::from(move || bridge_settings_json.clone()))?;
+        let bridge_call_args_json = input_json;
+        globals.set("__get_call_args", Func::from(move || bridge_call_args_json.clone()))?;
+        // SENZO keeps its TMDB credential server-side; it is never exposed to untrusted scraper code.
+        globals.set("__get_tmdb_api_key", Func::from(|| String::new()))?;
+        crypto::register_crypto_bridge(&globals)?;
         let fetch_http = http.clone();
         let fetch_deadline = deadline;
         globals.set("__native_fetch", Func::from(move |raw_url: String, raw_options: String| -> String {
@@ -1556,6 +1611,8 @@ fn run_javascript(
         globals.set("__parse_url", Func::from(|raw_url: String| parse_url_json(&raw_url)))?;
         register_cheerio_bridge(&globals)?;
         ctx.eval::<(), _>(JS_POLYFILLS)?;
+        ctx.eval::<(), _>(include_str!("crypto_polyfill.js"))?;
+        ctx.eval::<(), _>(JS_COMPAT_POLYFILLS)?;
         let mut script = String::from(
             "var module = { exports: {} }; var exports = module.exports;\
              globalThis.global = globalThis; globalThis.window = globalThis; globalThis.self = globalThis;\
@@ -1791,6 +1848,17 @@ globalThis.URL = URL;
 globalThis.URLSearchParams = URLSearchParams;
 globalThis.Headers = Headers;
 
+function __plugin_fetch_bytes_to_base64(bytes) {
+  var binary = '';
+  for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+function __plugin_fetch_base64_to_bytes(value) {
+  var binary = atob(String(value || ''));
+  var bytes = new Uint8Array(binary.length);
+  for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i) & 255;
+  return bytes;
+}
 globalThis.fetch = async function(rawUrl, options) {
   options = options || {};
   if (options.signal && options.signal.aborted) throw new Error('AbortError');
@@ -1798,22 +1866,44 @@ globalThis.fetch = async function(rawUrl, options) {
   var headerMap = {};
   headers.forEach(function(value,key){headerMap[key]=value;});
   var method = String(options.method || 'GET').toUpperCase();
-  var body = options.body == null ? null : String(options.body);
-  var raw = JSON.parse(__native_fetch(String(rawUrl), JSON.stringify({
-    method: method, headers: headerMap, body: body,
+  var body = options.body;
+  var request = {
+    method: method, headers: headerMap, body: null, bodyBase64: null,
     redirect: options.redirect === 'manual' ? 'manual' : 'follow'
-  })));
+  };
+  if (typeof body === 'string') {
+    request.body = body;
+  } else if (body instanceof ArrayBuffer) {
+    request.bodyBase64 = __plugin_fetch_bytes_to_base64(new Uint8Array(body));
+  } else if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(body)) {
+    request.bodyBase64 = __plugin_fetch_bytes_to_base64(
+      new Uint8Array(body.buffer, body.byteOffset || 0, body.byteLength)
+    );
+  } else if (body !== undefined && body !== null) {
+    request.body = String(body);
+  }
+  var raw = JSON.parse(__native_fetch(String(rawUrl), JSON.stringify(request)));
   if (raw.status === 0) throw new Error(raw.statusText || 'Network request failed');
   var responseHeaders = new Headers(raw.headers || {});
+  var responseBytes = __plugin_fetch_base64_to_bytes(raw.bodyBase64 || '');
+  var responseText = raw.body === undefined || raw.body === null ? '' : String(raw.body);
   var consumed = false;
-  var text = async function(){if(consumed)throw new Error('Body already consumed');consumed=true;return raw.body || '';};
+  var consume = function() {
+    if (consumed) throw new Error('Body already consumed');
+    consumed = true;
+  };
   return {
     ok: raw.status >= 200 && raw.status < 300, status: raw.status,
     statusText: raw.statusText || '', url: raw.url || String(rawUrl),
     headers: responseHeaders,
-    text: text,
-    json: async function(){var value=await text();return value ? JSON.parse(value) : null;},
-    arrayBuffer: async function(){var value=await text();return new TextEncoder().encode(value).buffer;}
+    text: async function(){consume();return responseText;},
+    json: async function(){consume();return responseText ? JSON.parse(responseText) : null;},
+    arrayBuffer: async function(){
+      consume();
+      var copy = new Uint8Array(responseBytes.length);
+      copy.set(responseBytes);
+      return copy.buffer;
+    }
   };
 };
 var cheerio = {
@@ -1911,8 +2001,56 @@ var cheerio = {
 };
 globalThis.require = function(moduleName) {
   if (moduleName === 'cheerio' || moduleName === 'cheerio-without-node-native' || moduleName === 'react-native-cheerio') return cheerio;
+  if (moduleName === 'crypto-js') return CryptoJS;
   throw new Error("Module '" + String(moduleName) + "' is not available in SENZO's bounded plugin runtime");
 };
+"#;
+
+
+const JS_COMPAT_POLYFILLS: &str = r#"
+if (!Array.prototype.flat) {
+  Array.prototype.flat = function(depth) {
+    depth = depth === undefined ? 1 : Math.floor(depth);
+    if (depth < 1) return Array.prototype.slice.call(this);
+    return (function flatten(items, level) {
+      return level > 0
+        ? items.reduce(function(acc, value) {
+            return acc.concat(Array.isArray(value) ? flatten(value, level - 1) : value);
+          }, [])
+        : items.slice();
+    })(this, depth);
+  };
+}
+if (!Array.prototype.flatMap) {
+  Array.prototype.flatMap = function(callback, thisArg) {
+    return this.map(callback, thisArg).flat();
+  };
+}
+if (!Object.entries) {
+  Object.entries = function(value) {
+    var result = [];
+    for (var key in value) {
+      if (Object.prototype.hasOwnProperty.call(value, key)) result.push([key, value[key]]);
+    }
+    return result;
+  };
+}
+if (!Object.fromEntries) {
+  Object.fromEntries = function(entries) {
+    var result = {};
+    for (var i = 0; i < entries.length; i++) result[entries[i][0]] = entries[i][1];
+    return result;
+  };
+}
+if (!String.prototype.replaceAll) {
+  String.prototype.replaceAll = function(search, replacement) {
+    if (search instanceof RegExp) {
+      if (!search.global) throw new TypeError('replaceAll requires a global RegExp');
+      return this.replace(search, replacement);
+    }
+    return this.split(search).join(replacement);
+  };
+}
 "#;
 
 #[derive(Debug, Deserialize)]
@@ -1923,6 +2061,8 @@ struct FetchOptions {
     headers: BTreeMap<String, String>,
     #[serde(default)]
     body: Option<String>,
+    #[serde(default, rename = "bodyBase64")]
+    body_base64: Option<String>,
     #[serde(default)]
     redirect: Value,
 }
@@ -1933,7 +2073,7 @@ fn default_get() -> String {
 fn native_fetch(http: &PluginHttp, raw_url: &str, raw_options: &str, deadline: Instant) -> Value {
     let fallback = |error: String| {
         json!({
-            "status": 0, "statusText": error, "url": raw_url, "body": "", "headers": {}
+            "status": 0, "statusText": error, "url": raw_url, "body": "", "bodyBase64": "", "headers": {}
         })
     };
     if raw_url.len() > MAX_URL_LENGTH {
@@ -1949,11 +2089,16 @@ fn native_fetch(http: &PluginHttp, raw_url: &str, raw_options: &str, deadline: I
         Ok(options) => options,
         Err(_) => return fallback("Invalid fetch options".to_owned()),
     };
+    let request_body = if let Some(encoded) = options.body_base64.as_deref() {
+        match STANDARD.decode(encoded.as_bytes()) {
+            Ok(bytes) => Some(bytes),
+            Err(_) => return fallback("Invalid binary request body".to_owned()),
+        }
+    } else {
+        options.body.map(String::into_bytes)
+    };
     if options.headers.len() > MAX_HEADERS
-        || options
-            .body
-            .as_ref()
-            .is_some_and(|body| body.len() > MAX_REQUEST_BODY)
+        || request_body.as_ref().is_some_and(|body| body.len() > MAX_REQUEST_BODY)
     {
         return fallback("Request exceeds safety limits".to_owned());
     }
@@ -1980,7 +2125,7 @@ fn native_fetch(http: &PluginHttp, raw_url: &str, raw_options: &str, deadline: I
         &url,
         &options.method,
         &headers,
-        options.body.as_deref().map(str::as_bytes),
+        request_body.as_deref(),
         follow_redirects,
         deadline,
         MAX_FETCH_BYTES,
@@ -1990,6 +2135,7 @@ fn native_fetch(http: &PluginHttp, raw_url: &str, raw_options: &str, deadline: I
             "statusText": StatusCode::from_u16(response.status).map(|status| status.canonical_reason().unwrap_or("")).unwrap_or(""),
             "url": response.url,
             "body": response.body,
+            "bodyBase64": STANDARD.encode(&response.body_bytes),
             "headers": response.headers
         }),
         Err(error) => fallback(error.to_string()),
@@ -2334,6 +2480,131 @@ mod tests {
     }
 
     #[test]
+    fn quickjs_cryptojs_and_webcrypto_match_nuvio_compatibility_vectors() {
+        let code = r#"
+          module.exports.getStreams = async function() {
+            var CryptoJS = require('crypto-js');
+            var sha = CryptoJS.SHA256('abc').toString();
+            var md5 = CryptoJS.MD5('abc').toString();
+            var hmac = CryptoJS.HmacSHA256('The quick brown fox jumps over the lazy dog', 'key').toString();
+            var derived = CryptoJS.PBKDF2('password', 'salt', {
+              iterations: 1, keySize: 5, hasher: CryptoJS.algo.SHA1
+            }).toString();
+            var encrypted = CryptoJS.AES.encrypt('SENZO crypto fixture', 'fixture passphrase').toString();
+            var decrypted = CryptoJS.AES.decrypt(encrypted, 'fixture passphrase').toString(CryptoJS.enc.Utf8);
+            var subtle = Array.prototype.map.call(
+              new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('abc'))),
+              function(byte) { return byte.toString(16).padStart(2, '0'); }
+            ).join('');
+            var randomLength = crypto.getRandomValues(new Uint8Array(8)).length;
+            var uuidLength = crypto.randomUUID().length;
+            return [{
+              title: [sha, md5, hmac, derived, decrypted, subtle, randomLength, uuidLength].join(':'),
+              url: 'https://fixture.example/crypto.mp4'
+            }];
+          };
+        "#;
+        let raw = run_javascript(
+            code,
+            "crypto-fixture",
+            "{}",
+            ScraperInput {
+                tmdb_id: "603".into(),
+                media_type: "movie".into(),
+                season: None,
+                episode: None,
+            },
+            PluginHttp,
+            Duration::from_secs(4),
+            false,
+        )
+        .unwrap();
+        assert!(raw.contains("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+        assert!(raw.contains("900150983cd24fb0d6963f7d28e17f72"));
+        assert!(raw.contains("f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"));
+        assert!(raw.contains("0c60c80f961f0e71f3a9b524af6012062fe037a6"));
+        assert!(raw.contains("SENZO crypto fixture"));
+        assert!(raw.contains(":8:36"));
+    }
+
+    #[test]
+    fn quickjs_fetch_supports_binary_request_and_arraybuffer_response() {
+        let code = r#"
+          module.exports.getStreams = async function() {
+            globalThis.__native_fetch = function(url, optionsJson) {
+              var options = JSON.parse(optionsJson);
+              globalThis.__captured_body = options.bodyBase64;
+              return JSON.stringify({
+                status: 200,
+                statusText: 'OK',
+                url: url,
+                body: '',
+                bodyBase64: 'AAECAwQ=',
+                headers: { 'Content-Type': 'application/octet-stream' }
+              });
+            };
+            var response = await fetch('https://fixture.example/binary', {
+              method: 'POST',
+              body: new Uint8Array([1, 2, 3, 4])
+            });
+            var bytes = new Uint8Array(await response.arrayBuffer());
+            return [{
+              title: Array.prototype.join.call(bytes, ',') + ':' +
+                globalThis.__captured_body + ':' +
+                response.headers.get('content-type'),
+              url: 'https://fixture.example/binary.mp4'
+            }];
+          };
+        "#;
+        let raw = run_javascript(
+            code,
+            "binary-fetch-fixture",
+            "{}",
+            ScraperInput {
+                tmdb_id: "603".into(),
+                media_type: "movie".into(),
+                season: None,
+                episode: None,
+            },
+            PluginHttp,
+            Duration::from_secs(3),
+            false,
+        )
+        .unwrap();
+        assert!(raw.contains("0,1,2,3:AQIDBA==:application/octet-stream"));
+    }
+
+    #[test]
+    fn quickjs_cheerio_supports_nuvio_contains_selectors() {
+        let code = r#"
+          module.exports.getStreams = async function() {
+            var $ = require('cheerio').load(
+              '<div class="result">Movie Source</div><div class="result">Other Source</div>'
+            );
+            var title = $('.result:contains("Movie")').first().text();
+            return [{ title: title, url: 'https://fixture.example/contains.mp4' }];
+          };
+        "#;
+        let raw = run_javascript(
+            code,
+            "contains-fixture",
+            "{}",
+            ScraperInput {
+                tmdb_id: "603".into(),
+                media_type: "movie".into(),
+                season: None,
+                episode: None,
+            },
+            PluginHttp,
+            Duration::from_secs(3),
+            false,
+        )
+        .unwrap();
+        assert!(raw.contains("Movie Source"));
+        assert!(!raw.contains("Other Source"));
+    }
+
+    #[test]
     fn cheerio_bridge_caps_host_owned_element_handles() {
         use kuchiki::traits::TendrilSink;
         let html = format!(
@@ -2544,6 +2815,21 @@ mod tests {
         assert_eq!(
             manager.list_state("profile-b").unwrap(),
             PluginState::default()
+        );
+        manager.save_state("profile-b", &state).unwrap();
+        manager
+            .save_scraper_settings("profile-a", "fixture:one", r#"{"token":"alpha"}"#)
+            .unwrap();
+        manager
+            .save_scraper_settings("profile-b", "fixture:one", r#"{"token":"bravo"}"#)
+            .unwrap();
+        assert_eq!(
+            manager.load_scraper_settings("profile-a", "fixture:one").unwrap(),
+            r#"{"token":"alpha"}"#
+        );
+        assert_eq!(
+            manager.load_scraper_settings("profile-b", "fixture:one").unwrap(),
+            r#"{"token":"bravo"}"#
         );
         let raw = settings.0.lock().unwrap().values().next().unwrap().clone();
         assert!(!raw.contains("module.exports"));
