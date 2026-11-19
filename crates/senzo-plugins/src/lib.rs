@@ -857,7 +857,7 @@ fn run_javascript(
     let input_json = serde_json::to_string(&input).map_err(|e| PluginError::Runtime(e.to_string()))?;
     let settings_json = serde_json::to_string(&settings_value).map_err(|e| PluginError::Runtime(e.to_string()))?;
 
-    context.with(|ctx| {
+    let result = context.with(|ctx| {
         let globals = ctx.globals();
         globals.set("SCRAPER_ID", scraper_id.to_owned())?;
         globals.set("__SCRAPER_SETTINGS_JSON", settings_json)?;
