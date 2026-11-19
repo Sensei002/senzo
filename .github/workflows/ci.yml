@@ -24,7 +24,7 @@ permissions:
 concurrency:
   # Phase 8 provider acceptance has its own queue, separate from the Phase 7 close-out run.
   group: senzo-desktop-phase8-source-aggregation-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   windows:
