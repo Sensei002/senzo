@@ -47,6 +47,7 @@ const NETWORK_TIMEOUT: Duration = Duration::from_secs(10);
 const MEMORY_LIMIT: usize = 64 * 1024 * 1024;
 const STACK_LIMIT: usize = 512 * 1024;
 const MAX_TIMER_DELAY_MS: u64 = 60_000;
+const MAX_CHEERIO_ELEMENTS: usize = 20_000;
 
 #[derive(Debug, Error)]
 pub enum PluginError {
@@ -338,7 +339,7 @@ impl PluginManager {
         let repo_root = base.join(".").map_err(|_| PluginError::InvalidRepositoryUrl)?;
         let mut next = current;
         let mut installed_scrapers = Vec::new();
-        for scraper in &manifest.scrapers {
+        for scraper in manifest.scrapers.iter().filter(|scraper| scraper_is_supported_on_this_platform(scraper)) {
             validate_scraper_manifest(scraper)?;
             let script_url = resolve_script_url(&repo_root, &scraper.filename)?;
             let code = self.http.get_text(script_url.as_str(), MAX_SCRIPT_BYTES)
@@ -396,7 +397,7 @@ impl PluginManager {
         let previous = current.scrapers.iter().filter(|scraper| scraper.repository_url == manifest_url)
             .map(|scraper| (scraper.id.clone(), scraper.clone())).collect::<std::collections::HashMap<_, _>>();
         let mut refreshed = Vec::new();
-        for scraper in &manifest.scrapers {
+        for scraper in manifest.scrapers.iter().filter(|scraper| scraper_is_supported_on_this_platform(scraper)) {
             validate_scraper_manifest(scraper)?;
             let id = scraper_identity(manifest_url, &scraper.id);
             let script_url = resolve_script_url(&repo_root, &scraper.filename)?;
@@ -666,6 +667,23 @@ fn parse_manifest(payload: &str) -> Result<PluginManifest, PluginError> {
         return Err(PluginError::InvalidManifest("name, version and a bounded non-empty scraper list are required".to_owned()));
     }
     Ok(manifest)
+}
+
+fn scraper_is_supported_on_this_platform(scraper: &PluginManifestScraper) -> bool {
+    let platform_tags = if cfg!(windows) {
+        ["desktop", "jvm", "windows"]
+    } else if cfg!(target_os = "linux") {
+        ["desktop", "jvm", "linux"]
+    } else if cfg!(target_os = "macos") {
+        ["desktop", "jvm", "macos"]
+    } else {
+        ["desktop", "jvm", ""]
+    };
+    let supported = scraper.supported_platforms.as_deref().unwrap_or_default();
+    let disabled = scraper.disabled_platforms.as_deref().unwrap_or_default();
+    let matches = |value: &str| platform_tags.iter().any(|tag| tag.eq_ignore_ascii_case(value));
+    (supported.is_empty() || supported.iter().any(|value| matches(value)))
+        && !disabled.iter().any(|value| matches(value))
 }
 
 fn validate_scraper_manifest(scraper: &PluginManifestScraper) -> Result<(), PluginError> {
@@ -992,7 +1010,8 @@ fn register_cheerio_bridge(globals: &rquickjs::Object<'_>) -> rquickjs::Result<(
 
 fn store_dom_elements(state: &Rc<RefCell<DomState>>, doc_id: &str, nodes: Vec<kuchiki::NodeRef>) -> Vec<String> {
     let mut state = state.borrow_mut();
-    nodes.into_iter().map(|node| {
+    let remaining = MAX_CHEERIO_ELEMENTS.saturating_sub(state.elements.len());
+    nodes.into_iter().take(remaining).map(|node| {
         let id = format!("{doc_id}:element:{}", state.next_id);
         state.next_id = state.next_id.wrapping_add(1);
         state.elements.insert(id.clone(), node);
@@ -1713,6 +1732,38 @@ mod tests {
     }
 
 
+
+    #[test]
+    fn cheerio_bridge_caps_host_owned_element_handles() {
+        use kuchiki::traits::TendrilSink;
+        let html = format!(
+            "<div>{}</div>",
+            "<span>node</span>".repeat(MAX_CHEERIO_ELEMENTS + 1)
+        );
+        let document = kuchiki::parse_html().one(html);
+        let nodes = document.select("span").unwrap()
+            .map(|element| element.as_node().clone()).collect::<Vec<_>>();
+        let state = Rc::new(RefCell::new(DomState::default()));
+        let stored = store_dom_elements(&state, "fixture", nodes);
+        assert_eq!(stored.len(), MAX_CHEERIO_ELEMENTS);
+        assert_eq!(state.borrow().elements.len(), MAX_CHEERIO_ELEMENTS);
+    }
+
+    #[test]
+    fn platform_filters_match_nuvio_desktop_tags() {
+        let make = |supported: Option<Vec<&str>>, disabled: Option<Vec<&str>>| {
+            let mut scraper: PluginManifestScraper = serde_json::from_str(
+                r#"{"id":"id","name":"name","version":"1","filename":"file.js"}"#
+            ).unwrap();
+            scraper.supported_platforms = supported.map(|values| values.into_iter().map(str::to_owned).collect());
+            scraper.disabled_platforms = disabled.map(|values| values.into_iter().map(str::to_owned).collect());
+            scraper
+        };
+        assert!(scraper_is_supported_on_this_platform(&make(None, None)));
+        assert!(scraper_is_supported_on_this_platform(&make(Some(vec!["desktop"]), None)));
+        assert!(!scraper_is_supported_on_this_platform(&make(Some(vec!["android"]), None)));
+        assert!(!scraper_is_supported_on_this_platform(&make(None, Some(vec!["jvm"]))));
+    }
 
     #[test]
     fn quickjs_cheerio_compatibility_supports_repository_scraper_selectors() {

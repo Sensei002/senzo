@@ -101,7 +101,7 @@ fn run() -> anyhow::Result<()> {
     let plugin_manager = PluginManager::new(
         database.clone(),
         Arc::new(PlatformPluginSettings(credentials.clone())),
-        directories.cache_dir().join("plugins"),
+        directories.data_dir().join("plugins"),
     );
 
     let services = AppServices {
