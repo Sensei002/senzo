@@ -3,6 +3,7 @@ members = [
     "crates/senzo-app",
     "crates/senzo-addons",
     "crates/senzo-plugins",
+    "crates/senzo-plugins",
     "crates/senzo-catalog",
     "crates/senzo-artwork",
     "crates/senzo-diagnostics",

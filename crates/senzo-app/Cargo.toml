@@ -24,3 +24,4 @@ senzo-platform = { path = "../senzo-platform" }
 senzo-storage = { path = "../senzo-storage" }
 senzo-ui = { path = "../senzo-ui" }
 senzo-addons = { path = "../senzo-addons" }
+senzo-plugins = { path = "../senzo-plugins" }

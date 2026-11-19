@@ -10,6 +10,7 @@ use senzo_metadata::{
 };
 use senzo_network::{HttpClient, HttpPolicy};
 use senzo_platform::{AppDirectories, CredentialStore, KeyringCredentialStore};
+use senzo_plugins::{PluginManager, PluginSettingsStore};
 use senzo_storage::SqliteDatabase;
 use tokio::runtime::{Builder, Runtime};
 use tokio_util::sync::CancellationToken;
@@ -30,6 +31,22 @@ impl AddonSecretStore for PlatformAddonSecrets {
     }
 }
 
+struct PlatformPluginSettings(Arc<dyn CredentialStore>);
+
+impl PluginSettingsStore for PlatformPluginSettings {
+    fn get(&self, account: &str) -> Result<Option<String>, String> {
+        self.0.get(account).map_err(|error| error.to_string())
+    }
+
+    fn set(&self, account: &str, value: &str) -> Result<(), String> {
+        self.0.set(account, value).map_err(|error| error.to_string())
+    }
+
+    fn delete(&self, account: &str) -> Result<(), String> {
+        self.0.delete(account).map_err(|error| error.to_string())
+    }
+}
+
 struct AppServices {
     _settings: Arc<dyn SettingsRepository>,
     _profiles: Arc<dyn ProfileRepository>,
@@ -37,6 +54,7 @@ struct AppServices {
     _artwork: ArtworkService,
     _credentials: Arc<dyn CredentialStore>,
     _addon_manager: AddonManager,
+    _plugin_manager: PluginManager,
 }
 
 fn main() {
@@ -80,6 +98,11 @@ fn run() -> anyhow::Result<()> {
         database.clone(),
         Arc::new(PlatformAddonSecrets(credentials.clone())),
     );
+    let plugin_manager = PluginManager::new(
+        database.clone(),
+        Arc::new(PlatformPluginSettings(credentials.clone())),
+        directories.cache_dir().join("plugins"),
+    );
 
     let services = AppServices {
         _settings: database.clone(),
@@ -88,6 +111,7 @@ fn run() -> anyhow::Result<()> {
         _artwork: artwork.clone(),
         _credentials: credentials,
         _addon_manager: addon_manager.clone(),
+        _plugin_manager: plugin_manager.clone(),
     };
 
     let schema_version = database
@@ -119,6 +143,7 @@ fn run() -> anyhow::Result<()> {
         artwork,
         database.clone(),
         addon_manager,
+        plugin_manager,
     );
 
     drop(services);

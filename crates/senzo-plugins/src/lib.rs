@@ -7,7 +7,7 @@
 use std::{
     collections::BTreeMap,
     io::Read,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs},
+    net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs},
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
@@ -465,9 +465,13 @@ impl PluginManager {
 
     pub async fn scraper_settings_layout(&self, profile_id: &str, scraper_id: &str) -> Result<String, PluginError> {
         let state = self.list_state(profile_id)?;
+        if !state.plugins_enabled { return Err(PluginError::Disabled); }
         let scraper = state.scrapers.iter().find(|item| item.id == scraper_id).ok_or(PluginError::ScraperNotFound)?;
+        if !scraper.enabled { return Err(PluginError::Disabled); }
+        if !scraper.network_access_granted { return Err(PluginError::NetworkPermissionRequired); }
         let code = self.read_script(profile_id, scraper_id)?;
-        self.run_limited(move || execute_settings(&code, &scraper.id)).await
+        let stable_id = scraper.id.clone();
+        self.run_limited(move || execute_settings(&code, &stable_id)).await
     }
 
     pub async fn test_scraper(&self, profile_id: &str, scraper_id: &str) -> Result<Vec<PluginStream>, PluginError> {
@@ -562,6 +566,9 @@ impl PluginManager {
         std::fs::create_dir_all(parent).map_err(|e| PluginError::Persistence(e.to_string()))?;
         let temp = path.with_extension("js.tmp");
         std::fs::write(&temp, code).map_err(|e| PluginError::Persistence(e.to_string()))?;
+        if path.exists() {
+            std::fs::remove_file(&path).map_err(|e| PluginError::Persistence(e.to_string()))?;
+        }
         std::fs::rename(&temp, &path).map_err(|e| PluginError::Persistence(e.to_string()))
     }
 
