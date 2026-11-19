@@ -593,7 +593,7 @@ mod tests {
         ];
         let selected = select_video_file(
             &files,
-            Some("Show.S02E03.1080p.mkv"),
+            None,
             None,
             Some(2),
             Some(4),
@@ -620,6 +620,26 @@ mod tests {
         assert_eq!(
             value_string(selected.unwrap(), "path"),
             Some("Show/Season 2/Episode 02.mkv")
+        );
+    }
+
+    #[test]
+    fn unmatched_filename_can_use_exact_episode_metadata() {
+        let files = vec![
+            json!({"id": 1, "path": "Show.S02E03.1080p.mkv", "size": 900}),
+            json!({"id": 2, "path": "Show.S02E04.1080p.mkv", "size": 500}),
+        ];
+        let selected = select_video_file(
+            &files,
+            Some("A different release name.mkv"),
+            None,
+            Some(2),
+            Some(3),
+            |value| value_string(value, "path"),
+        );
+        assert_eq!(
+            value_string(selected.unwrap(), "path"),
+            Some("Show.S02E03.1080p.mkv")
         );
     }
 
