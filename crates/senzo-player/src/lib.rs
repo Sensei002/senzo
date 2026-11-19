@@ -274,7 +274,7 @@ fn process(command:Command,api:&Api,ctx:*mut c_void,snapshot:&Arc<RwLock<Playbac
     shutdown_waiter:&mut Option<SyncSender<Result<(),MpvError>>>)->bool{
     match command{
         Command::Load{url,headers,reply}=>{
-            let value=headers.iter().map(|(k,v)|format!("{k}:{}",mpv_escape(v))).collect::<Vec<_>>().join(",");
+            let value=headers.iter().map(|(k,v)|format!("{k}: {}",mpv_escape(v))).collect::<Vec<_>>().join(",");
             let result=api.set(ctx,HTTP_HEADER_OPTION_PROPERTY,&value).and_then(|_|api.cmd(ctx,&["loadfile",&url,"replace"]));
             match result{
                 Ok(())=>{*state=PlaybackStatus::Loading;set_state(snapshot,listeners,*state);diagnostic(snapshot,listeners,DiagnosticLevel::Info,"MPV accepted a source replacement");let _=reply.send(Ok(()));}
@@ -382,7 +382,7 @@ fn emit(listeners:&Arc<Mutex<Vec<Sender<PlayerEvent>>>>,event:PlayerEvent){
 fn options(config:&MpvConfig)->Vec<(String,String)>{
     let mut v=vec![
         ("config".into(),"no".into()),("terminal".into(),"no".into()),("idle".into(),"yes".into()),
-        ("keep-open".into(),"yes".into()),("force-window".into(),"yes".into()),("vo".into(),"gpu".into()),
+        ("keep-open".into(),"no".into()),("force-window".into(),"no".into()),("vo".into(),"gpu".into()),
         ("hwdec".into(),"auto-safe".into()),("osc".into(),"no".into()),("osd-level".into(),"0".into()),
         ("input-default-bindings".into(),"yes".into()),("audio-display".into(),"no".into()),
     ];
@@ -531,6 +531,6 @@ mod tests{
     #[test]fn config_creates_native_gpu_output_options(){
         let opts=options(&MpvConfig{library_path:None,window_id:Some(42),start_paused:true});
         assert!(opts.contains(&("vo".into(),"gpu".into())));assert!(opts.contains(&("wid".into(),"42".into())));
-        assert!(opts.contains(&("pause".into(),"yes".into())));assert!(opts.contains(&("config".into(),"no".into())));
+        assert!(opts.contains(&("pause".into(),"yes".into())));assert!(opts.contains(&("config".into(),"no".into())));assert!(opts.contains(&("keep-open".into(),"no".into())));assert!(opts.contains(&("force-window".into(),"no".into())));
     }
 }
