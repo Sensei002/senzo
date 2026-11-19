@@ -239,6 +239,14 @@ pub trait PlaybackProgressRepository: Send + Sync {
         limit: usize,
     ) -> Result<Vec<PlaybackProgress>, RepositoryError>;
 
+    /// Most-recent completed TV episode per series, excluding series with
+    /// a newer in-progress checkpoint. Used to project the Up Next shelf.
+    fn list_recent_completed_series(
+        &self,
+        profile_id: &str,
+        limit: usize,
+    ) -> Result<Vec<PlaybackProgress>, RepositoryError>;
+
     fn is_watched(&self, item: &WatchedItem) -> Result<bool, RepositoryError>;
 
     fn set_watched(&self, item: &WatchedItem, watched: bool) -> Result<(), RepositoryError>;
@@ -263,6 +271,16 @@ mod tests {
     fn media_ids_reject_control_characters() {
         assert!(MediaId::new("tmdb:123").is_ok());
         assert!(MediaId::new("bad\nvalue").is_err());
+    }
+
+    #[test]
+    fn playback_progress_policy_ignores_placeholders_and_marks_at_ninety_percent() {
+        assert!(!should_store_playback_progress(30_000, 120_000));
+        assert!(should_store_playback_progress(1_000, 121_000));
+        assert!(!playback_is_complete(119_000, 120_000, true));
+        assert!(!playback_is_complete(890_000, 1_000_000, false));
+        assert!(playback_is_complete(900_000, 1_000_000, false));
+        assert!(playback_is_complete(1_000, 0, true));
     }
 
     #[test]

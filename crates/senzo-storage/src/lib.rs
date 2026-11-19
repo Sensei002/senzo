@@ -519,6 +519,53 @@ impl PlaybackProgressRepository for SqliteDatabase {
             .map_err(|error| RepositoryError::Unavailable(error.to_string()))
     }
 
+    fn list_recent_completed_series(
+        &self,
+        profile_id: &str,
+        limit: usize,
+    ) -> Result<Vec<PlaybackProgress>, RepositoryError> {
+        validate_profile_id(profile_id)?;
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare(
+                "WITH ranked AS (
+                    SELECT p.profile_id, p.media_id, p.media_kind, p.title, p.season_number,
+                           p.episode_number, p.episode_title, p.poster_path, p.backdrop_path,
+                           p.still_path, p.position_ms, p.duration_ms, p.is_completed,
+                           p.updated_at_ms,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY p.media_id
+                               ORDER BY p.updated_at_ms DESC, p.season_number DESC, p.episode_number DESC
+                           ) AS recency_rank
+                    FROM playback_progress p
+                    WHERE p.profile_id = ?1 AND p.media_kind = 'series'
+                      AND p.is_completed = 1
+                      AND NOT EXISTS (
+                          SELECT 1 FROM playback_progress active
+                          WHERE active.profile_id = p.profile_id
+                            AND active.media_kind = p.media_kind
+                            AND active.media_id = p.media_id
+                            AND active.is_completed = 0
+                            AND active.position_ms >= 1000
+                            AND active.updated_at_ms > p.updated_at_ms
+                      )
+                 )
+                 SELECT profile_id, media_id, media_kind, title, season_number, episode_number,
+                        episode_title, poster_path, backdrop_path, still_path, position_ms,
+                        duration_ms, is_completed, updated_at_ms
+                 FROM ranked
+                 WHERE recency_rank = 1
+                 ORDER BY updated_at_ms DESC, media_id ASC
+                 LIMIT ?2",
+            )
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        let rows = statement
+            .query_map((profile_id, limit.clamp(1, 100) as i64), playback_progress_from_row)
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))
+    }
+
     fn is_watched(&self, item: &WatchedItem) -> Result<bool, RepositoryError> {
         validate_watch_identity(
             &item.profile_id,
@@ -849,6 +896,35 @@ mod tests {
         database.set_watched(&watched, false).unwrap();
         assert!(!database.is_watched(&watched).unwrap());
         assert!(!database.get_playback_progress("default", "1399", MediaKind::Series, Some(1), Some(1)).unwrap().unwrap().is_completed);
+    }
+
+    #[test]
+    fn recent_completed_series_are_deduplicated_and_newer_progress_suppresses_up_next() {
+        let database = SqliteDatabase::in_memory().unwrap();
+        let make = |media_id: &str, season, episode, completed, position, updated| PlaybackProgress {
+            profile_id: "default".to_owned(),
+            media_id: media_id.to_owned(),
+            media_kind: MediaKind::Series,
+            title: format!("Series {media_id}"),
+            season_number: Some(season),
+            episode_number: Some(episode),
+            episode_title: None,
+            poster_path: None,
+            backdrop_path: None,
+            still_path: None,
+            position_ms: position,
+            duration_ms: 2_700_000,
+            is_completed: completed,
+            updated_at_ms: updated,
+        };
+        database.save_playback_progress(&make("100", 1, 1, true, 2_500_000, 100)).unwrap();
+        database.save_playback_progress(&make("100", 1, 2, true, 2_500_000, 200)).unwrap();
+        database.save_playback_progress(&make("200", 2, 5, true, 2_500_000, 300)).unwrap();
+        database.save_playback_progress(&make("200", 2, 6, false, 50_000, 400)).unwrap();
+        let entries = database.list_recent_completed_series("default", 20).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].media_id, "100");
+        assert_eq!(entries[0].episode_number, Some(2));
     }
 
     #[test]
