@@ -50,38 +50,79 @@ pub enum DebridError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum DebridProviderId { Torbox, Premiumize, RealDebrid }
+pub enum DebridProviderId {
+    Torbox,
+    Premiumize,
+    RealDebrid,
+}
 
 impl DebridProviderId {
     pub const ALL: [Self; 3] = [Self::Torbox, Self::Premiumize, Self::RealDebrid];
     pub const fn id(self) -> &'static str {
-        match self { Self::Torbox => "torbox", Self::Premiumize => "premiumize", Self::RealDebrid => "realdebrid" }
+        match self {
+            Self::Torbox => "torbox",
+            Self::Premiumize => "premiumize",
+            Self::RealDebrid => "realdebrid",
+        }
     }
     pub const fn name(self) -> &'static str {
-        match self { Self::Torbox => "Torbox", Self::Premiumize => "Premiumize", Self::RealDebrid => "Real-Debrid" }
+        match self {
+            Self::Torbox => "Torbox",
+            Self::Premiumize => "Premiumize",
+            Self::RealDebrid => "Real-Debrid",
+        }
     }
     pub const fn capabilities(self) -> &'static [DebridCapability] {
         match self {
-            Self::Torbox => &[DebridCapability::ApiKey, DebridCapability::TorrentCacheCheck, DebridCapability::MagnetResolve, DebridCapability::CachedOnlyAdd],
-            Self::Premiumize => &[DebridCapability::ApiKey, DebridCapability::TorrentCacheCheck, DebridCapability::MagnetResolve, DebridCapability::DirectDownload],
-            Self::RealDebrid => &[DebridCapability::ApiKey, DebridCapability::MagnetResolve, DebridCapability::FileSelection, DebridCapability::UnrestrictLinks],
+            Self::Torbox => &[
+                DebridCapability::ApiKey,
+                DebridCapability::TorrentCacheCheck,
+                DebridCapability::MagnetResolve,
+                DebridCapability::CachedOnlyAdd,
+            ],
+            Self::Premiumize => &[
+                DebridCapability::ApiKey,
+                DebridCapability::TorrentCacheCheck,
+                DebridCapability::MagnetResolve,
+                DebridCapability::DirectDownload,
+            ],
+            Self::RealDebrid => &[
+                DebridCapability::ApiKey,
+                DebridCapability::MagnetResolve,
+                DebridCapability::FileSelection,
+                DebridCapability::UnrestrictLinks,
+            ],
         }
     }
     pub fn parse(value: &str) -> Result<Self, DebridError> {
         match value.trim().to_ascii_lowercase().replace('-', "").as_str() {
-            "torbox" => Ok(Self::Torbox), "premiumize" => Ok(Self::Premiumize),
-            "realdebrid" => Ok(Self::RealDebrid), _ => Err(DebridError::UnsupportedProvider),
+            "torbox" => Ok(Self::Torbox),
+            "premiumize" => Ok(Self::Premiumize),
+            "realdebrid" => Ok(Self::RealDebrid),
+            _ => Err(DebridError::UnsupportedProvider),
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum DebridCapability { ApiKey, TorrentCacheCheck, MagnetResolve, CachedOnlyAdd, DirectDownload, FileSelection, UnrestrictLinks }
+pub enum DebridCapability {
+    ApiKey,
+    TorrentCacheCheck,
+    MagnetResolve,
+    CachedOnlyAdd,
+    DirectDownload,
+    FileSelection,
+    UnrestrictLinks,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum CacheAvailability { Cached, NotCached, Unknown }
+pub enum CacheAvailability {
+    Cached,
+    NotCached,
+    Unknown,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DebridAccount {
@@ -114,76 +155,148 @@ pub struct DebridManager {
 }
 
 impl DebridManager {
-    pub fn new(credentials: std::sync::Arc<dyn DebridCredentialStore>) -> Result<Self, DebridError> {
+    pub fn new(
+        credentials: std::sync::Arc<dyn DebridCredentialStore>,
+    ) -> Result<Self, DebridError> {
         let client = Client::builder()
             .timeout(REQUEST_TIMEOUT)
             .connect_timeout(Duration::from_secs(7))
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("SENZO/", env!("CARGO_PKG_VERSION")))
-            .build().map_err(|e| DebridError::Network(e.without_url().to_string()))?;
-        Ok(Self { credentials, client })
+            .build()
+            .map_err(|e| DebridError::Network(e.without_url().to_string()))?;
+        Ok(Self {
+            credentials,
+            client,
+        })
     }
 
     pub fn accounts(&self, profile_id: &str) -> Result<Vec<DebridAccount>, DebridError> {
         validate_profile(profile_id)?;
-        DebridProviderId::ALL.into_iter().map(|provider| {
-            let secret = self.credentials.get(&credential_key(profile_id, provider)).map_err(DebridError::Credential)?;
-            Ok(DebridAccount {
-                provider,
-                configured: secret.is_some(),
-                masked_credential: secret.map(|value| mask_secret(&value)),
+        DebridProviderId::ALL
+            .into_iter()
+            .map(|provider| {
+                let secret = self
+                    .credentials
+                    .get(&credential_key(profile_id, provider))
+                    .map_err(DebridError::Credential)?;
+                Ok(DebridAccount {
+                    provider,
+                    configured: secret.is_some(),
+                    masked_credential: secret.map(|value| mask_secret(&value)),
+                })
             })
-        }).collect()
+            .collect()
     }
 
-    pub async fn connect(&self, profile_id: &str, provider: DebridProviderId, api_key: &str) -> Result<DebridAccount, DebridError> {
+    pub async fn connect(
+        &self,
+        profile_id: &str,
+        provider: DebridProviderId,
+        api_key: &str,
+    ) -> Result<DebridAccount, DebridError> {
         validate_profile(profile_id)?;
         let token = api_key.trim();
         if token.len() < 8 || token.len() > 4096 || token.chars().any(char::is_control) {
             return Err(DebridError::Authentication);
         }
-        if !self.validate_token(provider, token).await? { return Err(DebridError::Authentication); }
-        self.credentials.set(&credential_key(profile_id, provider), token).map_err(DebridError::Credential)?;
-        Ok(DebridAccount { provider, configured: true, masked_credential: Some(mask_secret(token)) })
+        if !self.validate_token(provider, token).await? {
+            return Err(DebridError::Authentication);
+        }
+        self.credentials
+            .set(&credential_key(profile_id, provider), token)
+            .map_err(DebridError::Credential)?;
+        Ok(DebridAccount {
+            provider,
+            configured: true,
+            masked_credential: Some(mask_secret(token)),
+        })
     }
 
-    pub fn disconnect(&self, profile_id: &str, provider: DebridProviderId) -> Result<(), DebridError> {
+    pub fn disconnect(
+        &self,
+        profile_id: &str,
+        provider: DebridProviderId,
+    ) -> Result<(), DebridError> {
         validate_profile(profile_id)?;
-        self.credentials.delete(&credential_key(profile_id, provider)).map_err(DebridError::Credential)
+        self.credentials
+            .delete(&credential_key(profile_id, provider))
+            .map_err(DebridError::Credential)
     }
 
-    pub async fn validate_token(&self, provider: DebridProviderId, token: &str) -> Result<bool, DebridError> {
+    pub async fn validate_token(
+        &self,
+        provider: DebridProviderId,
+        token: &str,
+    ) -> Result<bool, DebridError> {
         let url = match provider {
             DebridProviderId::Torbox => "https://api.torbox.app/v1/api/user/me",
             DebridProviderId::Premiumize => "https://www.premiumize.me/api/account/info",
             DebridProviderId::RealDebrid => "https://api.real-debrid.com/rest/1.0/user",
         };
-        let payload = self.request_json(Method::GET, url, Some(token), None).await?;
+        let payload = self
+            .request_json(Method::GET, url, Some(token), None)
+            .await?;
         Ok(match provider {
-            DebridProviderId::Torbox => payload.get("success").and_then(Value::as_bool).unwrap_or(true),
-            DebridProviderId::Premiumize => payload.get("status").and_then(Value::as_str) == Some("success"),
+            DebridProviderId::Torbox => payload
+                .get("success")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            DebridProviderId::Premiumize => {
+                payload.get("status").and_then(Value::as_str) == Some("success")
+            }
             DebridProviderId::RealDebrid => payload.get("id").is_some(),
         })
     }
 
-    pub async fn check_cached(&self, profile_id: &str, provider: DebridProviderId, info_hash: &str) -> Result<CacheAvailability, DebridError> {
+    pub async fn check_cached(
+        &self,
+        profile_id: &str,
+        provider: DebridProviderId,
+        info_hash: &str,
+    ) -> Result<CacheAvailability, DebridError> {
         let hash = normalize_hash(info_hash).ok_or(DebridError::InvalidMagnet)?;
         let token = self.load_token(profile_id, provider)?;
         match provider {
             DebridProviderId::Torbox => {
-                let payload = self.request_json(Method::POST, "https://api.torbox.app/v1/api/torrents/checkcached?format=object",
-                    Some(&token), Some(json!({"hashes":[hash]}))).await?;
-                let cached = payload.pointer(&format!("/data/{hash}")).is_some_and(is_nonempty);
-                Ok(if cached { CacheAvailability::Cached } else { CacheAvailability::NotCached })
+                let payload = self
+                    .request_json(
+                        Method::POST,
+                        "https://api.torbox.app/v1/api/torrents/checkcached?format=object",
+                        Some(&token),
+                        Some(json!({"hashes":[hash]})),
+                    )
+                    .await?;
+                let cached = payload
+                    .pointer(&format!("/data/{hash}"))
+                    .is_some_and(is_nonempty);
+                Ok(if cached {
+                    CacheAvailability::Cached
+                } else {
+                    CacheAvailability::NotCached
+                })
             }
             DebridProviderId::Premiumize => {
-                let response = self.client.post("https://www.premiumize.me/api/cache/check")
-                    .bearer_auth(&token).form(&[("items[]", premiumize_cache_item(&hash))])
-                    .send().await.map_err(|e| DebridError::Network(e.without_url().to_string()))?;
+                let response = self
+                    .client
+                    .post("https://www.premiumize.me/api/cache/check")
+                    .bearer_auth(&token)
+                    .form(&[("items[]", premiumize_cache_item(&hash))])
+                    .send()
+                    .await
+                    .map_err(|e| DebridError::Network(e.without_url().to_string()))?;
                 let payload = read_json(response).await?;
-                let cached = payload.get("response").and_then(Value::as_array)
-                    .and_then(|items| items.first()).and_then(Value::as_bool).unwrap_or(false);
-                Ok(if cached { CacheAvailability::Cached } else { CacheAvailability::NotCached })
+                let cached = payload
+                    .get("response")
+                    .and_then(Value::as_array)
+                    .and_then(|items| items.first())
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                Ok(if cached {
+                    CacheAvailability::Cached
+                } else {
+                    CacheAvailability::NotCached
+                })
             }
             DebridProviderId::RealDebrid => Ok(CacheAvailability::Unknown),
         }
@@ -199,9 +312,18 @@ impl DebridManager {
         let (hash, normalized) = validate_magnet(magnet)?;
         let token = self.load_token(profile_id, provider)?;
         match provider {
-            DebridProviderId::Torbox => self.resolve_torbox(&token, &hash, &normalized, file_hint).await,
-            DebridProviderId::Premiumize => self.resolve_premiumize(&token, &normalized, file_hint).await,
-            DebridProviderId::RealDebrid => self.resolve_real_debrid(&token, &normalized, file_hint).await,
+            DebridProviderId::Torbox => {
+                self.resolve_torbox(&token, &hash, &normalized, file_hint)
+                    .await
+            }
+            DebridProviderId::Premiumize => {
+                self.resolve_premiumize(&token, &normalized, file_hint)
+                    .await
+            }
+            DebridProviderId::RealDebrid => {
+                self.resolve_real_debrid(&token, &normalized, file_hint)
+                    .await
+            }
         }
     }
 
@@ -212,52 +334,126 @@ impl DebridManager {
         magnet: &str,
         file_hint: &DebridFileHint,
     ) -> Result<ResolvedDebridSource, DebridError> {
-        if self.check_cached_with_token(DebridProviderId::Torbox, token, hash).await? != CacheAvailability::Cached {
+        if self
+            .check_cached_with_token(DebridProviderId::Torbox, token, hash)
+            .await?
+            != CacheAvailability::Cached
+        {
             return Err(DebridError::NotCached);
         }
-        let response = self.client.post("https://api.torbox.app/v1/api/torrents/createtorrent")
+        let response = self
+            .client
+            .post("https://api.torbox.app/v1/api/torrents/createtorrent")
             .bearer_auth(token)
-            .multipart(reqwest::multipart::Form::new().text("magnet", magnet.to_owned())
-                .text("add_only_if_cached", "true").text("allow_zip", "false"))
-            .send().await.map_err(|e| DebridError::Network(e.without_url().to_string()))?;
+            .multipart(
+                reqwest::multipart::Form::new()
+                    .text("magnet", magnet.to_owned())
+                    .text("add_only_if_cached", "true")
+                    .text("allow_zip", "false"),
+            )
+            .send()
+            .await
+            .map_err(|e| DebridError::Network(e.without_url().to_string()))?;
         let created = read_json(response).await?;
-        if created.get("success").and_then(Value::as_bool) == Some(false) { return Err(DebridError::NotCached); }
-        let id = created.pointer("/data/torrent_id").or_else(|| created.pointer("/data/id"))
-            .and_then(Value::as_u64).ok_or(DebridError::InvalidResponse)?;
+        if created.get("success").and_then(Value::as_bool) == Some(false) {
+            return Err(DebridError::NotCached);
+        }
+        let id = created
+            .pointer("/data/torrent_id")
+            .or_else(|| created.pointer("/data/id"))
+            .and_then(Value::as_u64)
+            .ok_or(DebridError::InvalidResponse)?;
         for _ in 0..MAX_POLL_ATTEMPTS {
-            let mut url = Url::parse("https://api.torbox.app/v1/api/torrents/mylist").map_err(|_| DebridError::InvalidResponse)?;
-            url.query_pairs_mut().append_pair("id", &id.to_string()).append_pair("bypass_cache", "true");
-            let payload = self.request_json(Method::GET, url.as_str(), Some(token), None).await?;
-            let item = payload.get("data").and_then(Value::as_array).and_then(|v| v.first())
-                .or_else(|| payload.get("data").filter(|v| v.is_object())).ok_or(DebridError::InvalidResponse)?;
-            let files = item.get("files").and_then(Value::as_array).ok_or(DebridError::InvalidResponse)?;
+            let mut url = Url::parse("https://api.torbox.app/v1/api/torrents/mylist")
+                .map_err(|_| DebridError::InvalidResponse)?;
+            url.query_pairs_mut()
+                .append_pair("id", &id.to_string())
+                .append_pair("bypass_cache", "true");
+            let payload = self
+                .request_json(Method::GET, url.as_str(), Some(token), None)
+                .await?;
+            let item = payload
+                .get("data")
+                .and_then(Value::as_array)
+                .and_then(|v| v.first())
+                .or_else(|| payload.get("data").filter(|v| v.is_object()))
+                .ok_or(DebridError::InvalidResponse)?;
+            let files = item
+                .get("files")
+                .and_then(Value::as_array)
+                .ok_or(DebridError::InvalidResponse)?;
             if let Some(file) = select_video_file(files, file_hint, |f| {
-                value_string(f, "name").or_else(|| value_string(f, "short_name")).or_else(|| value_string(f, "absolute_path"))
+                value_string(f, "name")
+                    .or_else(|| value_string(f, "short_name"))
+                    .or_else(|| value_string(f, "absolute_path"))
             }) {
-                let file_id = file.get("id").and_then(Value::as_u64).ok_or(DebridError::InvalidResponse)?;
-                let mut url = Url::parse("https://api.torbox.app/v1/api/torrents/requestdl").map_err(|_| DebridError::InvalidResponse)?;
-                url.query_pairs_mut().append_pair("token", token).append_pair("torrent_id", &id.to_string())
+                let file_id = file
+                    .get("id")
+                    .and_then(Value::as_u64)
+                    .ok_or(DebridError::InvalidResponse)?;
+                let mut url = Url::parse("https://api.torbox.app/v1/api/torrents/requestdl")
+                    .map_err(|_| DebridError::InvalidResponse)?;
+                url.query_pairs_mut()
+                    .append_pair("token", token)
+                    .append_pair("torrent_id", &id.to_string())
                     .append_pair("file_id", &file_id.to_string());
-                let response = self.client.get(url).bearer_auth(token).send().await
+                let response = self
+                    .client
+                    .get(url)
+                    .bearer_auth(token)
+                    .send()
+                    .await
                     .map_err(|e| DebridError::Network(e.without_url().to_string()))?;
                 let payload = read_json(response).await?;
-                let link = payload.get("data").and_then(Value::as_str).or_else(|| value_string(&payload, "url"))
-                    .or_else(|| value_string(&payload, "download")).filter(|v| valid_http_url(v))
+                let link = payload
+                    .get("data")
+                    .and_then(Value::as_str)
+                    .or_else(|| value_string(&payload, "url"))
+                    .or_else(|| value_string(&payload, "download"))
+                    .filter(|v| valid_http_url(v))
                     .ok_or(DebridError::InvalidResponse)?;
-                return Ok(ResolvedDebridSource { provider: DebridProviderId::Torbox,
-                    title: value_string(file, "name").unwrap_or("Torbox stream").to_owned(),
-                    url: link.to_owned(), size_bytes: file.get("size").and_then(Value::as_u64), headers: BTreeMap::new() });
+                return Ok(ResolvedDebridSource {
+                    provider: DebridProviderId::Torbox,
+                    title: value_string(file, "name")
+                        .unwrap_or("Torbox stream")
+                        .to_owned(),
+                    url: link.to_owned(),
+                    size_bytes: file.get("size").and_then(Value::as_u64),
+                    headers: BTreeMap::new(),
+                });
             }
             tokio::time::sleep(Duration::from_millis(700)).await;
         }
         Err(DebridError::Timeout)
     }
 
-    async fn check_cached_with_token(&self, provider: DebridProviderId, token: &str, hash: &str) -> Result<CacheAvailability, DebridError> {
-        if provider != DebridProviderId::Torbox { return Ok(CacheAvailability::Unknown); }
-        let payload = self.request_json(Method::POST, "https://api.torbox.app/v1/api/torrents/checkcached?format=object",
-            Some(token), Some(json!({"hashes":[hash]}))).await?;
-        Ok(if payload.pointer(&format!("/data/{hash}")).is_some_and(is_nonempty) { CacheAvailability::Cached } else { CacheAvailability::NotCached })
+    async fn check_cached_with_token(
+        &self,
+        provider: DebridProviderId,
+        token: &str,
+        hash: &str,
+    ) -> Result<CacheAvailability, DebridError> {
+        if provider != DebridProviderId::Torbox {
+            return Ok(CacheAvailability::Unknown);
+        }
+        let payload = self
+            .request_json(
+                Method::POST,
+                "https://api.torbox.app/v1/api/torrents/checkcached?format=object",
+                Some(token),
+                Some(json!({"hashes":[hash]})),
+            )
+            .await?;
+        Ok(
+            if payload
+                .pointer(&format!("/data/{hash}"))
+                .is_some_and(is_nonempty)
+            {
+                CacheAvailability::Cached
+            } else {
+                CacheAvailability::NotCached
+            },
+        )
     }
 
     async fn resolve_premiumize(
@@ -266,17 +462,36 @@ impl DebridManager {
         magnet: &str,
         file_hint: &DebridFileHint,
     ) -> Result<ResolvedDebridSource, DebridError> {
-        let response = self.client.post("https://www.premiumize.me/api/transfer/directdl")
-            .bearer_auth(token).form(&[("src", magnet)])
-            .send().await.map_err(|e| DebridError::Network(e.without_url().to_string()))?;
+        let response = self
+            .client
+            .post("https://www.premiumize.me/api/transfer/directdl")
+            .bearer_auth(token)
+            .form(&[("src", magnet)])
+            .send()
+            .await
+            .map_err(|e| DebridError::Network(e.without_url().to_string()))?;
         let payload = read_json(response).await?;
-        if payload.get("status").and_then(Value::as_str) != Some("success") { return Err(DebridError::NotCached); }
-        let files = payload.get("content").and_then(Value::as_array).ok_or(DebridError::InvalidResponse)?;
-        let file = select_video_file(files, file_hint, |f| value_string(f, "path")).ok_or(DebridError::FileNotFound)?;
-        let url = value_string(file, "link").filter(|v| valid_http_url(v)).ok_or(DebridError::InvalidResponse)?;
-        Ok(ResolvedDebridSource { provider: DebridProviderId::Premiumize,
-            title: value_string(file, "path").unwrap_or("Premiumize stream").to_owned(), url: url.to_owned(),
-            size_bytes: file.get("size").and_then(Value::as_u64), headers: BTreeMap::new() })
+        if payload.get("status").and_then(Value::as_str) != Some("success") {
+            return Err(DebridError::NotCached);
+        }
+        let files = payload
+            .get("content")
+            .and_then(Value::as_array)
+            .ok_or(DebridError::InvalidResponse)?;
+        let file = select_video_file(files, file_hint, |f| value_string(f, "path"))
+            .ok_or(DebridError::FileNotFound)?;
+        let url = value_string(file, "link")
+            .filter(|v| valid_http_url(v))
+            .ok_or(DebridError::InvalidResponse)?;
+        Ok(ResolvedDebridSource {
+            provider: DebridProviderId::Premiumize,
+            title: value_string(file, "path")
+                .unwrap_or("Premiumize stream")
+                .to_owned(),
+            url: url.to_owned(),
+            size_bytes: file.get("size").and_then(Value::as_u64),
+            headers: BTreeMap::new(),
+        })
     }
 
     async fn resolve_real_debrid(
@@ -300,9 +515,7 @@ impl DebridManager {
 
         // Select the exact file ID returned by /torrents/info. The links array
         // after selection only contains links for the selected file(s).
-        let result = self
-            .resolve_real_debrid_file(token, &id, file_hint)
-            .await;
+        let result = self.resolve_real_debrid_file(token, &id, file_hint).await;
         if result.is_err() {
             let delete_url = format!(
                 "https://api.real-debrid.com/rest/1.0/torrents/delete/{}",
@@ -328,15 +541,15 @@ impl DebridManager {
             "https://api.real-debrid.com/rest/1.0/torrents/info/{}",
             path_segment(torrent_id)
         );
-        let info = self.request_json(Method::GET, &info_url, Some(token), None).await?;
+        let info = self
+            .request_json(Method::GET, &info_url, Some(token), None)
+            .await?;
         let files = info
             .get("files")
             .and_then(Value::as_array)
             .ok_or(DebridError::InvalidResponse)?;
-        let file = select_video_file(files, file_hint, |value| {
-            value_string(value, "path")
-        })
-        .ok_or(DebridError::FileNotFound)?;
+        let file = select_video_file(files, file_hint, |value| value_string(value, "path"))
+            .ok_or(DebridError::FileNotFound)?;
         let file_id = file
             .get("id")
             .and_then(Value::as_u64)
@@ -406,16 +619,36 @@ impl DebridManager {
         })
     }
 
-    fn load_token(&self, profile_id: &str, provider: DebridProviderId) -> Result<String, DebridError> {
+    fn load_token(
+        &self,
+        profile_id: &str,
+        provider: DebridProviderId,
+    ) -> Result<String, DebridError> {
         validate_profile(profile_id)?;
-        self.credentials.get(&credential_key(profile_id, provider)).map_err(DebridError::Credential)?.ok_or(DebridError::Authentication)
+        self.credentials
+            .get(&credential_key(profile_id, provider))
+            .map_err(DebridError::Credential)?
+            .ok_or(DebridError::Authentication)
     }
 
-    async fn request_json(&self, method: Method, url: &str, token: Option<&str>, body: Option<Value>) -> Result<Value, DebridError> {
+    async fn request_json(
+        &self,
+        method: Method,
+        url: &str,
+        token: Option<&str>,
+        body: Option<Value>,
+    ) -> Result<Value, DebridError> {
         let mut request = self.client.request(method, url);
-        if let Some(token) = token { request = request.bearer_auth(token); }
-        if let Some(body) = body { request = request.json(&body); }
-        let response = request.send().await.map_err(|e| DebridError::Network(e.without_url().to_string()))?;
+        if let Some(token) = token {
+            request = request.bearer_auth(token);
+        }
+        if let Some(body) = body {
+            request = request.json(&body);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|e| DebridError::Network(e.without_url().to_string()))?;
         read_json(response).await
     }
 }
@@ -423,25 +656,51 @@ impl DebridManager {
 async fn read_json(response: reqwest::Response) -> Result<Value, DebridError> {
     let status = response.status();
     if !status.is_success() {
-        return Err(if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN { DebridError::Authentication } else { DebridError::HttpStatus(status.as_u16()) });
+        return Err(
+            if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+                DebridError::Authentication
+            } else {
+                DebridError::HttpStatus(status.as_u16())
+            },
+        );
     }
-    if response.content_length().is_some_and(|n| n > MAX_RESPONSE_BYTES as u64) { return Err(DebridError::ResponseTooLarge); }
+    if response
+        .content_length()
+        .is_some_and(|n| n > MAX_RESPONSE_BYTES as u64)
+    {
+        return Err(DebridError::ResponseTooLarge);
+    }
     let mut response = response;
     let mut bytes = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|e| DebridError::Network(e.without_url().to_string()))? {
-        if bytes.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES { return Err(DebridError::ResponseTooLarge); }
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| DebridError::Network(e.without_url().to_string()))?
+    {
+        if bytes.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+            return Err(DebridError::ResponseTooLarge);
+        }
         bytes.extend_from_slice(&chunk);
     }
-    if bytes.is_empty() { return Ok(Value::Null); }
+    if bytes.is_empty() {
+        return Ok(Value::Null);
+    }
     serde_json::from_slice(&bytes).map_err(|_| DebridError::InvalidResponse)
 }
 
 fn validate_magnet(raw: &str) -> Result<(String, String), DebridError> {
-    if raw.len() > MAX_MAGNET_BYTES { return Err(DebridError::InvalidMagnet); }
+    if raw.len() > MAX_MAGNET_BYTES {
+        return Err(DebridError::InvalidMagnet);
+    }
     let url = Url::parse(raw).map_err(|_| DebridError::InvalidMagnet)?;
-    if url.scheme() != "magnet" || url.host_str().is_some() { return Err(DebridError::InvalidMagnet); }
-    let hash = url.query_pairs().find(|(key, value)| key == "xt" && value.to_ascii_lowercase().starts_with("urn:btih:"))
-        .and_then(|(_, value)| normalize_hash(value.trim_start_matches("urn:btih:"))).ok_or(DebridError::InvalidMagnet)?;
+    if url.scheme() != "magnet" || url.host_str().is_some() {
+        return Err(DebridError::InvalidMagnet);
+    }
+    let hash = url
+        .query_pairs()
+        .find(|(key, value)| key == "xt" && value.to_ascii_lowercase().starts_with("urn:btih:"))
+        .and_then(|(_, value)| normalize_hash(value.trim_start_matches("urn:btih:")))
+        .ok_or(DebridError::InvalidMagnet)?;
     Ok((hash, url.to_string()))
 }
 fn premiumize_cache_item(info_hash: &str) -> String {
@@ -453,19 +712,60 @@ fn normalize_hash(raw: &str) -> Option<String> {
     (value.len() == 40 && value.bytes().all(|b| b.is_ascii_hexdigit())).then_some(value)
 }
 fn valid_http_url(value: &str) -> bool {
-    Url::parse(value).ok().is_some_and(|u| matches!(u.scheme(), "http" | "https") && u.host_str().is_some() && u.username().is_empty() && u.password().is_none())
+    Url::parse(value).ok().is_some_and(|u| {
+        matches!(u.scheme(), "http" | "https")
+            && u.host_str().is_some()
+            && u.username().is_empty()
+            && u.password().is_none()
+    })
 }
-fn value_string<'a>(value: &'a Value, key: &str) -> Option<&'a str> { value.get(key).and_then(Value::as_str).filter(|v| !v.is_empty()) }
-fn path_segment(value: &str) -> String { url::form_urlencoded::byte_serialize(value.as_bytes()).collect::<String>().replace('+', "%20") }
-fn credential_key(profile: &str, provider: DebridProviderId) -> String { format!("senzo:debrid:{profile}:{}", provider.id()) }
+fn value_string<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|v| !v.is_empty())
+}
+fn path_segment(value: &str) -> String {
+    url::form_urlencoded::byte_serialize(value.as_bytes())
+        .collect::<String>()
+        .replace('+', "%20")
+}
+fn credential_key(profile: &str, provider: DebridProviderId) -> String {
+    format!("senzo:debrid:{profile}:{}", provider.id())
+}
 fn validate_profile(value: &str) -> Result<(), DebridError> {
-    if value.is_empty() || value.len() > 64 || !value.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"-_".contains(&b)) {
+    if value.is_empty()
+        || value.len() > 64
+        || !value
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"-_".contains(&b))
+    {
         Err(DebridError::InvalidProfile)
-    } else { Ok(()) }
+    } else {
+        Ok(())
+    }
 }
-fn mask_secret(secret: &str) -> String { format!("••••{}", secret.chars().rev().take(4).collect::<String>().chars().rev().collect::<String>()) }
+fn mask_secret(secret: &str) -> String {
+    format!(
+        "••••{}",
+        secret
+            .chars()
+            .rev()
+            .take(4)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect::<String>()
+    )
+}
 fn is_nonempty(value: &Value) -> bool {
-    match value { Value::Null => false, Value::Array(v) => !v.is_empty(), Value::Object(v) => !v.is_empty(), Value::Bool(v) => *v, _ => true }
+    match value {
+        Value::Null => false,
+        Value::Array(v) => !v.is_empty(),
+        Value::Object(v) => !v.is_empty(),
+        Value::Bool(v) => *v,
+        _ => true,
+    }
 }
 
 fn select_video_file<'a, F>(
@@ -488,7 +788,11 @@ where
         return None;
     }
 
-    let filename_hint = file_hint.filename.as_deref().map(str::trim).filter(|value| !value.is_empty());
+    let filename_hint = file_hint
+        .filename
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     if let Some(hint) = filename_hint {
         let matches = videos
             .iter()
@@ -537,13 +841,14 @@ fn filename_path_matches(candidate: &str, requested: &str) -> bool {
     };
     let candidate = normalize_components(candidate);
     let requested = normalize_components(requested);
-    !requested.is_empty()
-        && candidate.len() >= requested.len()
-        && candidate.ends_with(&requested)
+    !requested.is_empty() && candidate.len() >= requested.len() && candidate.ends_with(&requested)
 }
 
 fn normalize_file_path(value: &str) -> String {
-    value.trim().replace('\\', "/").trim_start_matches('/')
+    value
+        .trim()
+        .replace('\\', "/")
+        .trim_start_matches('/')
         .chars()
         .filter(|character| character.is_alphanumeric())
         .flat_map(char::to_lowercase)
@@ -552,7 +857,10 @@ fn normalize_file_path(value: &str) -> String {
 fn episode_matches(path: &str, season: u32, episode: u32) -> bool {
     let filename = path.replace('\\', "/");
     let basename = filename.rsplit('/').next().unwrap_or(&filename);
-    let stem = basename.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(basename);
+    let stem = basename
+        .rsplit_once('.')
+        .map(|(stem, _)| stem)
+        .unwrap_or(basename);
     let lower = stem.to_ascii_lowercase();
     let markers = [
         format!("s{season:02}e{episode:02}"),
@@ -573,40 +881,77 @@ fn episode_matches(path: &str, season: u32, episode: u32) -> bool {
 }
 fn is_video_name(value: &str) -> bool {
     let value = value.to_ascii_lowercase();
-    [".mkv", ".mp4", ".m4v", ".avi", ".mov", ".webm", ".ts", ".m2ts"].iter().any(|suffix| value.ends_with(suffix))
+    [
+        ".mkv", ".mp4", ".m4v", ".avi", ".mov", ".webm", ".ts", ".m2ts",
+    ]
+    .iter()
+    .any(|suffix| value.ends_with(suffix))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-
     #[test]
     fn premiumize_cache_checks_use_a_magnet_uri_not_a_bare_hash() {
         let hash = "0123456789012345678901234567890123456789";
-        assert_eq!(premiumize_cache_item(hash), format!("magnet:?xt=urn:btih:{hash}"));
+        assert_eq!(
+            premiumize_cache_item(hash),
+            format!("magnet:?xt=urn:btih:{hash}")
+        );
     }
 
     #[test]
     fn validates_only_hex_infohash_magnets() {
-        assert!(validate_magnet("magnet:?xt=urn:btih:0123456789012345678901234567890123456789").is_ok());
+        assert!(
+            validate_magnet("magnet:?xt=urn:btih:0123456789012345678901234567890123456789").is_ok()
+        );
         assert!(validate_magnet("file:///etc/passwd").is_err());
         assert!(validate_magnet("magnet:?xt=urn:btih:invalid").is_err());
     }
 
     #[test]
     fn exposes_provider_capabilities_and_normalizes_names() {
-        assert!(DebridProviderId::Torbox.capabilities().contains(&DebridCapability::CachedOnlyAdd));
-        assert!(DebridProviderId::Premiumize.capabilities().contains(&DebridCapability::DirectDownload));
-        assert!(DebridProviderId::RealDebrid.capabilities().contains(&DebridCapability::UnrestrictLinks));
-        assert_eq!(DebridProviderId::parse("Real-Debrid").unwrap(), DebridProviderId::RealDebrid);
+        assert!(
+            DebridProviderId::Torbox
+                .capabilities()
+                .contains(&DebridCapability::CachedOnlyAdd)
+        );
+        assert!(
+            DebridProviderId::Premiumize
+                .capabilities()
+                .contains(&DebridCapability::DirectDownload)
+        );
+        assert!(
+            DebridProviderId::RealDebrid
+                .capabilities()
+                .contains(&DebridCapability::UnrestrictLinks)
+        );
+        assert_eq!(
+            DebridProviderId::parse("Real-Debrid").unwrap(),
+            DebridProviderId::RealDebrid
+        );
     }
 
     #[test]
     fn chooses_episode_file_before_an_unrelated_video() {
-        let files = vec![json!({"path":"movie.mkv"}), json!({"path":"Show.S02E03.1080p.mkv"})];
-        let selected = select_video_file(&files, &DebridFileHint { season: Some(2), episode: Some(3), ..Default::default() }, |v| value_string(v, "path"));
-        assert_eq!(value_string(selected.unwrap(), "path"), Some("Show.S02E03.1080p.mkv"));
+        let files = vec![
+            json!({"path":"movie.mkv"}),
+            json!({"path":"Show.S02E03.1080p.mkv"}),
+        ];
+        let selected = select_video_file(
+            &files,
+            &DebridFileHint {
+                season: Some(2),
+                episode: Some(3),
+                ..Default::default()
+            },
+            |v| value_string(v, "path"),
+        );
+        assert_eq!(
+            value_string(selected.unwrap(), "path"),
+            Some("Show.S02E03.1080p.mkv")
+        );
     }
 
     #[test]
@@ -617,7 +962,11 @@ mod tests {
         ];
         let selected = select_video_file(
             &files,
-            &DebridFileHint { season: Some(2), episode: Some(4), ..Default::default() },
+            &DebridFileHint {
+                season: Some(2),
+                episode: Some(4),
+                ..Default::default()
+            },
             |value| value_string(value, "path"),
         );
         assert!(selected.is_none());
@@ -677,10 +1026,16 @@ mod tests {
         ];
         let selected = select_video_file(
             &files,
-            &DebridFileHint { file_index: Some(1), ..Default::default() },
+            &DebridFileHint {
+                file_index: Some(1),
+                ..Default::default()
+            },
             |value| value_string(value, "path"),
         );
-        assert_eq!(value_string(selected.unwrap(), "path"), Some("Show.S01E01.mkv"));
+        assert_eq!(
+            value_string(selected.unwrap(), "path"),
+            Some("Show.S01E01.mkv")
+        );
     }
 
     #[test]
@@ -692,15 +1047,26 @@ mod tests {
         ];
         let selected = select_video_file(
             &files,
-            &DebridFileHint { file_index: Some(0), season: Some(1), episode: Some(2), ..Default::default() },
+            &DebridFileHint {
+                file_index: Some(0),
+                season: Some(1),
+                episode: Some(2),
+                ..Default::default()
+            },
             |value| value_string(value, "path"),
         );
-        assert_eq!(value_string(selected.unwrap(), "path"), Some("Show.1x02.mkv"));
+        assert_eq!(
+            value_string(selected.unwrap(), "path"),
+            Some("Show.1x02.mkv")
+        );
     }
 
     #[test]
     fn credential_namespace_is_profile_scoped() {
-        assert_ne!(credential_key("default", DebridProviderId::Torbox), credential_key("work", DebridProviderId::Torbox));
+        assert_ne!(
+            credential_key("default", DebridProviderId::Torbox),
+            credential_key("work", DebridProviderId::Torbox)
+        );
         assert!(validate_profile("../root").is_err());
     }
 }

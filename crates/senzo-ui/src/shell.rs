@@ -17,16 +17,15 @@ use gpui_component::scroll::ScrollableElement;
 use senzo_addons::{
     AddonCatalogItem, AddonManager, AddonPreview, AddonStream, AddonSubtitle, ManagedAddon,
 };
-use senzo_debrid::{DebridManager, DebridProviderId, ResolvedDebridSource};
-use senzo_integrations::{MediaServerManager, MediaServerProvider};
-use senzo_sources::{Source, SourceAggregator, SourceDiscoveryResult, SourceRequest, SourceSort, SourceTarget, sort_sources};
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_catalog::{
     BuiltInHomeCatalog as HomeShelfKey, HomeCatalogDefinition, HomeCatalogProviderRegistry,
     HomeCollection, HomeCollectionsSettings, HomeSettings, home_collection_folder_key,
     visible_home_collections,
 };
+use senzo_debrid::{DebridManager, DebridProviderId, ResolvedDebridSource};
 use senzo_domain::{AppPage, SettingKey, SettingsRepository};
+use senzo_integrations::{MediaServerManager, MediaServerProvider};
 #[cfg(test)]
 use senzo_metadata::PersonCredit;
 use senzo_metadata::{
@@ -34,6 +33,10 @@ use senzo_metadata::{
     MetadataError, Person, SearchType, SeasonDetails, SeasonSummary, VideoItem,
 };
 use senzo_plugins::{PluginManager, PluginState, PluginStream, ScraperInput};
+use senzo_sources::{
+    Source, SourceAggregator, SourceDiscoveryResult, SourceRequest, SourceSort, SourceTarget,
+    sort_sources,
+};
 use serde_json::Value;
 use tokio::{runtime::Handle, sync::mpsc, task::JoinSet};
 use tokio_util::sync::CancellationToken;
@@ -872,13 +875,29 @@ impl SenzoShell {
             cx.new(|cx| InputState::new(window, cx).placeholder("Season (TV only)"));
         let plugin_episode_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Episode (TV only)"));
-        let debrid_provider_input = cx.new(|cx| InputState::new(window, cx).default_value("torbox").placeholder("torbox, premiumize, or realdebrid"));
-        let debrid_api_key_input = cx.new(|cx| InputState::new(window, cx).placeholder("Debrid API key"));
-        let server_provider_input = cx.new(|cx| InputState::new(window, cx).default_value("jellyfin").placeholder("jellyfin or emby"));
-        let server_name_input = cx.new(|cx| InputState::new(window, cx).default_value("My media server").placeholder("Display name"));
-        let server_address_input = cx.new(|cx| InputState::new(window, cx).placeholder("http://192.168.1.20:8096"));
-        let server_username_input = cx.new(|cx| InputState::new(window, cx).placeholder("Username"));
-        let server_password_input = cx.new(|cx| InputState::new(window, cx).placeholder("Password"));
+        let debrid_provider_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .default_value("torbox")
+                .placeholder("torbox, premiumize, or realdebrid")
+        });
+        let debrid_api_key_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Debrid API key"));
+        let server_provider_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .default_value("jellyfin")
+                .placeholder("jellyfin or emby")
+        });
+        let server_name_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .default_value("My media server")
+                .placeholder("Display name")
+        });
+        let server_address_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("http://192.168.1.20:8096"));
+        let server_username_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Username"));
+        let server_password_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Password"));
         let search_input_subscription = cx.subscribe(&search_input, |this, input, event, cx| {
             if matches!(event, InputEvent::Change) {
                 this.update_search_query(input.read(cx).value().to_string(), cx);
@@ -2484,13 +2503,31 @@ impl SenzoShell {
         cx.notify();
     }
 
-    fn load_detail_sources(&mut self, season: Option<u32>, episode: Option<u32>, force_refresh: bool, cx: &mut Context<Self>) {
-        let Some(details) = self.details.as_mut() else { return; };
-        if details.loading || details.media_type == MediaType::Person { return; }
+    fn load_detail_sources(
+        &mut self,
+        season: Option<u32>,
+        episode: Option<u32>,
+        force_refresh: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(details) = self.details.as_mut() else {
+            return;
+        };
+        if details.loading || details.media_type == MediaType::Person {
+            return;
+        }
         let id = details.id;
-        let media_type = if details.media_type == MediaType::Movie { "movie" } else { "tv" };
+        let media_type = if details.media_type == MediaType::Movie {
+            "movie"
+        } else {
+            "tv"
+        };
         let title = details.title.clone();
-        let year = details.release_date.as_deref().and_then(|date| date.get(..4)).and_then(|year| year.parse::<u16>().ok());
+        let year = details
+            .release_date
+            .as_deref()
+            .and_then(|date| date.get(..4))
+            .and_then(|year| year.parse::<u16>().ok());
         let imdb_id = details.imdb_id.clone();
         let mut media_id = imdb_id.clone().unwrap_or_else(|| format!("tmdb:{id}"));
         if let (Some(season), Some(episode)) = (season, episode) {
@@ -2519,27 +2556,60 @@ impl SenzoShell {
         let aggregator = self.source_aggregator.clone();
         let cancellation = self.details_cancellation.child_token();
         let completion_cancellation = cancellation.clone();
-        let task = self.tokio.spawn(async move { aggregator.discover(request, force_refresh).await });
+        let task = self
+            .tokio
+            .spawn(async move { aggregator.discover(request, force_refresh).await });
         cx.spawn(async move |this, cx| {
-            let result = task.await.map_err(|error| error.to_string()).and_then(|result| result.map_err(|error| error.to_string()));
+            let result = task
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result.map_err(|error| error.to_string()));
             let _ = this.update(cx, |this, cx| {
-                if completion_cancellation.is_cancelled() { return; }
+                if completion_cancellation.is_cancelled() {
+                    return;
+                }
                 let Some(details) = this.details.as_mut().filter(|details| {
-                    format!("{}:{}:{:?}:{:?}", details.id, if details.media_type == MediaType::Movie { "movie" } else { "tv" }, details.source_season, details.source_episode) == request_key
-                }) else { return; };
+                    format!(
+                        "{}:{}:{:?}:{:?}",
+                        details.id,
+                        if details.media_type == MediaType::Movie {
+                            "movie"
+                        } else {
+                            "tv"
+                        },
+                        details.source_season,
+                        details.source_episode
+                    ) == request_key
+                }) else {
+                    return;
+                };
                 details.source_loading = false;
                 match result {
-                    Ok(result) => { details.source_result = Some(result); details.source_error = None; }
-                    Err(error) => { details.source_error = Some(error); details.source_result = None; }
+                    Ok(result) => {
+                        details.source_result = Some(result);
+                        details.source_error = None;
+                    }
+                    Err(error) => {
+                        details.source_error = Some(error);
+                        details.source_result = None;
+                    }
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
         cx.notify();
     }
 
-    fn resolve_detail_torrent(&mut self, source: Source, provider: DebridProviderId, cx: &mut Context<Self>) {
-        let Some(details) = self.details.as_mut() else { return; };
+    fn resolve_detail_torrent(
+        &mut self,
+        source: Source,
+        provider: DebridProviderId,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(details) = self.details.as_mut() else {
+            return;
+        };
         let season = details.source_season;
         let episode = details.source_episode;
         let id = details.id;
@@ -2551,13 +2621,19 @@ impl SenzoShell {
         let cancellation = self.details_cancellation.child_token();
         let completion_cancellation = cancellation.clone();
         let task = self.tokio.spawn(async move {
-            aggregator.resolve_torrent("default", &source, provider, season, episode).await
+            aggregator
+                .resolve_torrent("default", &source, provider, season, episode)
+                .await
         });
         cx.spawn(async move |this, cx| {
-            let result = task.await.map_err(|error| error.to_string())
+            let result = task
+                .await
+                .map_err(|error| error.to_string())
                 .and_then(|value| value.map_err(|error| error.to_string()));
             let _ = this.update(cx, |this, cx| {
-                if completion_cancellation.is_cancelled() { return; }
+                if completion_cancellation.is_cancelled() {
+                    return;
+                }
                 if let Some(details) = this.details.as_mut().filter(|details| details.id == id) {
                     details.resolver_loading = false;
                     match result {
@@ -2570,7 +2646,8 @@ impl SenzoShell {
                     cx.notify();
                 }
             });
-        }).detach();
+        })
+        .detach();
         cx.notify();
     }
 
@@ -3443,45 +3520,109 @@ impl SenzoShell {
     fn render_source_section(&self, details: &DetailsPage, cx: &mut Context<Self>) -> gpui::Div {
         let season = details.source_season;
         let episode = details.source_episode;
-        let mut panel = div().w_full().flex().flex_col().gap_3()
-            .child(div().text_lg().text_color(rgb(Theme::TEXT_PRIMARY)).child("Sources"));
-        let action_label = if details.source_loading { "SEARCHING PROVIDERS…" } else if details.source_result.is_some() { "REFRESH SOURCES" } else { "FIND SOURCES" };
+        let mut panel = div().w_full().flex().flex_col().gap_3().child(
+            div()
+                .text_lg()
+                .text_color(rgb(Theme::TEXT_PRIMARY))
+                .child("Sources"),
+        );
+        let action_label = if details.source_loading {
+            "SEARCHING PROVIDERS…"
+        } else if details.source_result.is_some() {
+            "REFRESH SOURCES"
+        } else {
+            "FIND SOURCES"
+        };
         panel = panel.child(
-            div().id("details-find-sources").tab_index(90).cursor_pointer().rounded_md()
-                .bg(rgb(Theme::ACCENT_DARK)).px_3().py_2()
+            div()
+                .id("details-find-sources")
+                .tab_index(90)
+                .cursor_pointer()
+                .rounded_md()
+                .bg(rgb(Theme::ACCENT_DARK))
+                .px_3()
+                .py_2()
                 .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
                 .aria_label("Find playback sources for this title or episode")
-                .on_click(cx.listener(move |this, _, _, cx| this.load_detail_sources(season, episode, true, cx)))
-                .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child(action_label))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.load_detail_sources(season, episode, true, cx)
+                }))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(Theme::ACCENT))
+                        .child(action_label),
+                ),
         );
         if details.source_loading {
             return panel.child(status_panel(StatusTone::Loading, "SOURCE DISCOVERY", "Searching installed providers", "SENZO queries independent providers concurrently and keeps the interface responsive."));
         }
         if let Some(error) = details.source_error.as_deref() {
-            return panel.child(status_panel(StatusTone::Error, "SOURCE DISCOVERY FAILED", "Could not load sources", error));
+            return panel.child(status_panel(
+                StatusTone::Error,
+                "SOURCE DISCOVERY FAILED",
+                "Could not load sources",
+                error,
+            ));
         }
         let Some(result) = details.source_result.as_ref() else {
             return panel.child(status_panel(StatusTone::Info, "SOURCE DISCOVERY", "Sources are ready to search", "Find sources to query your enabled Stremio add-ons, Nuvio scrapers and connected media servers."));
         };
-        let count_line = format!("{} source(s) from {} provider group(s){}",
-            result.total_sources, result.groups.len(), if result.used_stale_cache { " · showing last successful results" } else { "" });
-        panel = panel.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(count_line));
+        let count_line = format!(
+            "{} source(s) from {} provider group(s){}",
+            result.total_sources,
+            result.groups.len(),
+            if result.used_stale_cache {
+                " · showing last successful results"
+            } else {
+                ""
+            }
+        );
+        panel = panel.child(
+            div()
+                .text_xs()
+                .text_color(rgb(Theme::TEXT_MUTED))
+                .child(count_line),
+        );
         let sorts = [
             (SourceSort::Recommended, "Recommended", "recommended"),
             (SourceSort::Quality, "Quality", "quality"),
             (SourceSort::Seeders, "Seeders", "seeders"),
             (SourceSort::Size, "Size", "size"),
         ];
-        let mut sort_row = div().flex().flex_wrap().gap_2().items_center()
-            .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child("SORT"));
+        let mut sort_row = div().flex().flex_wrap().gap_2().items_center().child(
+            div()
+                .text_xs()
+                .text_color(rgb(Theme::TEXT_MUTED))
+                .child("SORT"),
+        );
         for (sort, label, key) in sorts {
             let selected = details.source_sort == sort;
             sort_row = sort_row.child(
-                div().id(format!("source-sort-{key}")).cursor_pointer().rounded_md()
-                    .bg(rgb(if selected { Theme::ACCENT_DARK } else { Theme::SURFACE }))
-                    .px_2().py_1()
-                    .on_click(cx.listener(move |this, _, _, cx| this.set_detail_source_sort(sort, cx)))
-                    .child(div().text_xs().text_color(rgb(if selected { Theme::ACCENT } else { Theme::TEXT_SECONDARY })).child(label))
+                div()
+                    .id(format!("source-sort-{key}"))
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(if selected {
+                        Theme::ACCENT_DARK
+                    } else {
+                        Theme::SURFACE
+                    }))
+                    .px_2()
+                    .py_1()
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.set_detail_source_sort(sort, cx)),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(if selected {
+                                Theme::ACCENT
+                            } else {
+                                Theme::TEXT_SECONDARY
+                            }))
+                            .child(label),
+                    ),
             );
         }
         panel = panel.child(sort_row);
@@ -3490,15 +3631,38 @@ impl SenzoShell {
             ("torrent", "Torrents", details.source_show_torrents),
             ("external", "External", details.source_show_external),
         ];
-        let mut filter_row = div().flex().flex_wrap().gap_2().items_center()
-            .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child("SHOW"));
+        let mut filter_row = div().flex().flex_wrap().gap_2().items_center().child(
+            div()
+                .text_xs()
+                .text_color(rgb(Theme::TEXT_MUTED))
+                .child("SHOW"),
+        );
         for (key, label, active) in filter_specs {
             filter_row = filter_row.child(
-                div().id(format!("source-filter-{key}")).cursor_pointer().rounded_md()
-                    .bg(rgb(if active { Theme::ACCENT_DARK } else { Theme::SURFACE }))
-                    .px_2().py_1()
-                    .on_click(cx.listener(move |this, _, _, cx| this.set_detail_source_filter(key, !active, cx)))
-                    .child(div().text_xs().text_color(rgb(if active { Theme::ACCENT } else { Theme::TEXT_MUTED })).child(label))
+                div()
+                    .id(format!("source-filter-{key}"))
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(if active {
+                        Theme::ACCENT_DARK
+                    } else {
+                        Theme::SURFACE
+                    }))
+                    .px_2()
+                    .py_1()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.set_detail_source_filter(key, !active, cx)
+                    }))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(if active {
+                                Theme::ACCENT
+                            } else {
+                                Theme::TEXT_MUTED
+                            }))
+                            .child(label),
+                    ),
             );
         }
         panel = panel.child(filter_row);
@@ -3506,19 +3670,52 @@ impl SenzoShell {
             panel = panel.child(status_panel(StatusTone::Empty, "NO SOURCES FOUND", "No provider returned a playable source", "Check that add-ons and scrapers are enabled, network permission is granted, or a media server is connected."));
         }
         for group in &result.groups {
-            let mut visible_sources = group.sources.iter().filter(|source| {
-                (source.is_direct() && details.source_show_direct) ||
-                (source.is_torrent() && details.source_show_torrents) ||
-                (source.is_external() && details.source_show_external)
-            }).cloned().collect::<Vec<_>>();
+            let mut visible_sources = group
+                .sources
+                .iter()
+                .filter(|source| {
+                    (source.is_direct() && details.source_show_direct)
+                        || (source.is_torrent() && details.source_show_torrents)
+                        || (source.is_external() && details.source_show_external)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
             sort_sources(&mut visible_sources, details.source_sort);
-            let mut section = div().w_full().flex().flex_col().gap_2().rounded_md()
-                .border_1().border_color(rgb(Theme::BORDER)).bg(rgb(Theme::SURFACE)).p_3()
-                .child(div().flex().items_center().justify_between()
-                    .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(group.provider_name.clone()))
-                    .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(format!("{} source(s)", visible_sources.len()))));
+            let mut section = div()
+                .w_full()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(Theme::BORDER))
+                .bg(rgb(Theme::SURFACE))
+                .p_3()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(rgb(Theme::TEXT_PRIMARY))
+                                .child(group.provider_name.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(Theme::TEXT_MUTED))
+                                .child(format!("{} source(s)", visible_sources.len())),
+                        ),
+                );
             if let Some(error) = group.error.as_deref() {
-                section = section.child(div().text_xs().text_color(rgb(Theme::DANGER)).child(error.to_owned()));
+                section = section.child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(Theme::DANGER))
+                        .child(error.to_owned()),
+                );
             }
             for source in &visible_sources {
                 let target = match &source.target {
@@ -3529,20 +3726,68 @@ impl SenzoShell {
                 };
                 let quality = source.quality.as_deref().unwrap_or("Quality unknown");
                 let mut metadata = vec![target.to_owned(), quality.to_owned()];
-                if let Some(language) = source.language.as_deref() { metadata.push(language.to_owned()); }
-                if let Some(seeders) = source.seeders { metadata.push(format!("{seeders} seeders")); }
-                if let Some(size) = source.size_bytes {
-                    metadata.push(if size >= 1_000_000_000 { format!("{:.1} GB", size as f64 / 1_000_000_000.0) } else { format!("{:.0} MB", size as f64 / 1_000_000.0) });
+                if let Some(language) = source.language.as_deref() {
+                    metadata.push(language.to_owned());
                 }
-                let recommended = result.recommended_source_id.as_deref() == Some(source.id.as_str());
-                let mut card = div().w_full().flex().flex_col().gap_1().rounded_md()
-                    .bg(rgb(Theme::SURFACE_RAISED)).p_2()
-                    .child(div().flex().items_center().justify_between()
-                        .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(source.title.clone()))
-                        .child(div().text_xs().text_color(rgb(if recommended { Theme::ACCENT } else { Theme::TEXT_MUTED })).child(if recommended { "RECOMMENDED" } else { "" })))
-                    .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(metadata.join(" · ")));
+                if let Some(seeders) = source.seeders {
+                    metadata.push(format!("{seeders} seeders"));
+                }
+                if let Some(size) = source.size_bytes {
+                    metadata.push(if size >= 1_000_000_000 {
+                        format!("{:.1} GB", size as f64 / 1_000_000_000.0)
+                    } else {
+                        format!("{:.0} MB", size as f64 / 1_000_000.0)
+                    });
+                }
+                let recommended =
+                    result.recommended_source_id.as_deref() == Some(source.id.as_str());
+                let mut card = div()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .rounded_md()
+                    .bg(rgb(Theme::SURFACE_RAISED))
+                    .p_2()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                                    .child(source.title.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(if recommended {
+                                        Theme::ACCENT
+                                    } else {
+                                        Theme::TEXT_MUTED
+                                    }))
+                                    .child(if recommended { "RECOMMENDED" } else { "" }),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(Theme::TEXT_MUTED))
+                            .child(metadata.join(" · ")),
+                    );
                 if !source.badges.is_empty() {
-                    card = card.child(div().text_xs().text_color(rgb(Theme::ACCENT)).child(source.badges.iter().map(|badge| badge.label.as_str()).collect::<Vec<_>>().join(" · ")));
+                    card = card.child(
+                        div().text_xs().text_color(rgb(Theme::ACCENT)).child(
+                            source
+                                .badges
+                                .iter()
+                                .map(|badge| badge.label.as_str())
+                                .collect::<Vec<_>>()
+                                .join(" · "),
+                        ),
+                    );
                 }
                 if source.is_torrent()
                     && let Ok(accounts) = self.debrid_manager.accounts("default")
@@ -3551,13 +3796,26 @@ impl SenzoShell {
                         let provider = account.provider;
                         let selected_source = source.clone();
                         card = card.child(
-                            div().id(format!("resolve-{}-{}", source.id, provider.id()))
-                                .cursor_pointer().rounded_md().bg(rgb(Theme::ACCENT_DARK)).px_2().py_2()
+                            div()
+                                .id(format!("resolve-{}-{}", source.id, provider.id()))
+                                .cursor_pointer()
+                                .rounded_md()
+                                .bg(rgb(Theme::ACCENT_DARK))
+                                .px_2()
+                                .py_2()
                                 .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.resolve_detail_torrent(selected_source.clone(), provider, cx);
+                                    this.resolve_detail_torrent(
+                                        selected_source.clone(),
+                                        provider,
+                                        cx,
+                                    );
                                 }))
-                                .child(div().text_xs().text_color(rgb(Theme::ACCENT))
-                                    .child(format!("Resolve with {}", provider.name())))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(Theme::ACCENT))
+                                        .child(format!("Resolve with {}", provider.name())),
+                                ),
                         );
                     }
                 }
@@ -3566,19 +3824,44 @@ impl SenzoShell {
             panel = panel.child(section);
         }
         if details.resolver_loading {
-            panel = panel.child(status_panel(StatusTone::Loading, "DEBRID RESOLUTION", "Resolving torrent", "The selected provider is preparing a direct source."));
+            panel = panel.child(status_panel(
+                StatusTone::Loading,
+                "DEBRID RESOLUTION",
+                "Resolving torrent",
+                "The selected provider is preparing a direct source.",
+            ));
         }
         if let Some(error) = details.resolver_error.as_deref() {
-            panel = panel.child(status_panel(StatusTone::Error, "DEBRID RESOLUTION FAILED", "Could not resolve this torrent", error));
+            panel = panel.child(status_panel(
+                StatusTone::Error,
+                "DEBRID RESOLUTION FAILED",
+                "Could not resolve this torrent",
+                error,
+            ));
         }
         if let Some(resolved) = details.resolved_debrid_source.as_ref() {
             panel = panel.child(status_panel(StatusTone::Info, "DIRECT SOURCE READY",
                 &format!("Resolved by {}", resolved.provider.name()),
                 "The direct URL is prepared and will be handed to the native playback service in its playback phase."));
-            panel = panel.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED))
-                .child(format!("{} · {}", resolved.title, details.resolver_source_title.as_deref().unwrap_or("Selected torrent"))));
+            panel = panel.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(Theme::TEXT_MUTED))
+                    .child(format!(
+                        "{} · {}",
+                        resolved.title,
+                        details
+                            .resolver_source_title
+                            .as_deref()
+                            .unwrap_or("Selected torrent")
+                    )),
+            );
         }
-        let failed = result.diagnostics.iter().filter(|item| item.error.is_some()).count();
+        let failed = result
+            .diagnostics
+            .iter()
+            .filter(|item| item.error.is_some())
+            .count();
         if failed > 0 {
             panel = panel.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED))
                 .child(format!("{failed} provider adapter(s) reported an error. Successful providers remain available.")));
@@ -8095,10 +8378,16 @@ impl SenzoShell {
         )
     }
 
-
     fn connect_debrid_provider(&mut self, cx: &mut Context<Self>) {
-        if self.source_settings_busy { return; }
-        let provider_raw = self.debrid_provider_input.read(cx).value().trim().to_owned();
+        if self.source_settings_busy {
+            return;
+        }
+        let provider_raw = self
+            .debrid_provider_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_owned();
         let api_key = self.debrid_api_key_input.read(cx).value().trim().to_owned();
         if api_key.is_empty() {
             self.source_settings_error = Some("Enter a provider API key first.".to_owned());
@@ -8107,7 +8396,11 @@ impl SenzoShell {
         }
         let provider = match DebridProviderId::parse(&provider_raw) {
             Ok(provider) => provider,
-            Err(error) => { self.source_settings_error = Some(error.to_string()); cx.notify(); return; }
+            Err(error) => {
+                self.source_settings_error = Some(error.to_string());
+                cx.notify();
+                return;
+            }
         };
         let manager = self.debrid_manager.clone();
         let runtime = self.tokio.clone();
@@ -8131,22 +8424,40 @@ impl SenzoShell {
 
     fn disconnect_debrid_provider(&mut self, provider: DebridProviderId, cx: &mut Context<Self>) {
         match self.debrid_manager.disconnect("default", provider) {
-            Ok(()) => self.source_settings_notice = Some(format!("{} disconnected.", provider.name())),
+            Ok(()) => {
+                self.source_settings_notice = Some(format!("{} disconnected.", provider.name()))
+            }
             Err(error) => self.source_settings_error = Some(error.to_string()),
         }
         cx.notify();
     }
 
     fn connect_media_server(&mut self, cx: &mut Context<Self>) {
-        if self.source_settings_busy { return; }
-        let provider_raw = self.server_provider_input.read(cx).value().trim().to_owned();
+        if self.source_settings_busy {
+            return;
+        }
+        let provider_raw = self
+            .server_provider_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_owned();
         let name = self.server_name_input.read(cx).value().trim().to_owned();
         let address = self.server_address_input.read(cx).value().trim().to_owned();
-        let username = self.server_username_input.read(cx).value().trim().to_owned();
+        let username = self
+            .server_username_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_owned();
         let password = self.server_password_input.read(cx).value().to_string();
         let provider = match MediaServerProvider::parse(&provider_raw) {
             Ok(provider) => provider,
-            Err(error) => { self.source_settings_error = Some(error.to_string()); cx.notify(); return; }
+            Err(error) => {
+                self.source_settings_error = Some(error.to_string());
+                cx.notify();
+                return;
+            }
         };
         let manager = self.media_server_manager.clone();
         let runtime = self.tokio.clone();
@@ -8155,49 +8466,118 @@ impl SenzoShell {
         self.source_settings_notice = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let task = runtime.spawn(async move { manager.connect("default", provider, &name, &address, &username, &password).await });
-            let result = task.await.map_err(|error| error.to_string()).and_then(|value| value.map_err(|error| error.to_string()));
+            let task = runtime.spawn(async move {
+                manager
+                    .connect("default", provider, &name, &address, &username, &password)
+                    .await
+            });
+            let result = task
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|value| value.map_err(|error| error.to_string()));
             let _ = this.update(cx, |this, cx| {
                 this.source_settings_busy = false;
                 match result {
-                    Ok(connection) => this.source_settings_notice = Some(format!("{} connected. {} library/libraries discovered.", connection.provider.display_name(), connection.libraries.len())),
+                    Ok(connection) => {
+                        this.source_settings_notice = Some(format!(
+                            "{} connected. {} library/libraries discovered.",
+                            connection.provider.display_name(),
+                            connection.libraries.len()
+                        ))
+                    }
                     Err(error) => this.source_settings_error = Some(error),
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 
     fn remove_media_server(&mut self, connection_id: String, cx: &mut Context<Self>) {
         match self.media_server_manager.remove("default", &connection_id) {
-            Ok(()) => self.source_settings_notice = Some("Media-server connection removed and its saved credential deleted.".to_owned()),
+            Ok(()) => {
+                self.source_settings_notice = Some(
+                    "Media-server connection removed and its saved credential deleted.".to_owned(),
+                )
+            }
             Err(error) => self.source_settings_error = Some(error.to_string()),
         }
         cx.notify();
     }
 
     fn render_source_provider_settings(&self, cx: &mut Context<Self>) -> gpui::Div {
-        let debrid_provider = Input::new(&self.debrid_provider_input).tab_index(110)
-            .aria_label("Debrid provider ID").w_full().bg(rgb(Theme::SURFACE))
-            .border_1().border_color(rgb(Theme::BORDER)).rounded_lg().px_3().py_2();
-        let debrid_key = Input::new(&self.debrid_api_key_input).tab_index(111)
-            .aria_label("Debrid API key").cleanable(true).w_full().bg(rgb(Theme::SURFACE))
-            .border_1().border_color(rgb(Theme::BORDER)).rounded_lg().px_3().py_2();
-        let server_provider = Input::new(&self.server_provider_input).tab_index(114)
-            .aria_label("Media server provider").w_full().bg(rgb(Theme::SURFACE))
-            .border_1().border_color(rgb(Theme::BORDER)).rounded_lg().px_3().py_2();
-        let server_name = Input::new(&self.server_name_input).tab_index(115)
-            .aria_label("Media server display name").w_full().bg(rgb(Theme::SURFACE))
-            .border_1().border_color(rgb(Theme::BORDER)).rounded_lg().px_3().py_2();
-        let server_address = Input::new(&self.server_address_input).tab_index(116)
-            .aria_label("Media server URL").w_full().bg(rgb(Theme::SURFACE))
-            .border_1().border_color(rgb(Theme::BORDER)).rounded_lg().px_3().py_2();
-        let server_username = Input::new(&self.server_username_input).tab_index(117)
-            .aria_label("Media server username").w_full().bg(rgb(Theme::SURFACE))
-            .border_1().border_color(rgb(Theme::BORDER)).rounded_lg().px_3().py_2();
-        let server_password = Input::new(&self.server_password_input).tab_index(118)
-            .aria_label("Media server password").cleanable(true).w_full().bg(rgb(Theme::SURFACE))
-            .border_1().border_color(rgb(Theme::BORDER)).rounded_lg().px_3().py_2();
+        let debrid_provider = Input::new(&self.debrid_provider_input)
+            .tab_index(110)
+            .aria_label("Debrid provider ID")
+            .w_full()
+            .bg(rgb(Theme::SURFACE))
+            .border_1()
+            .border_color(rgb(Theme::BORDER))
+            .rounded_lg()
+            .px_3()
+            .py_2();
+        let debrid_key = Input::new(&self.debrid_api_key_input)
+            .tab_index(111)
+            .aria_label("Debrid API key")
+            .cleanable(true)
+            .w_full()
+            .bg(rgb(Theme::SURFACE))
+            .border_1()
+            .border_color(rgb(Theme::BORDER))
+            .rounded_lg()
+            .px_3()
+            .py_2();
+        let server_provider = Input::new(&self.server_provider_input)
+            .tab_index(114)
+            .aria_label("Media server provider")
+            .w_full()
+            .bg(rgb(Theme::SURFACE))
+            .border_1()
+            .border_color(rgb(Theme::BORDER))
+            .rounded_lg()
+            .px_3()
+            .py_2();
+        let server_name = Input::new(&self.server_name_input)
+            .tab_index(115)
+            .aria_label("Media server display name")
+            .w_full()
+            .bg(rgb(Theme::SURFACE))
+            .border_1()
+            .border_color(rgb(Theme::BORDER))
+            .rounded_lg()
+            .px_3()
+            .py_2();
+        let server_address = Input::new(&self.server_address_input)
+            .tab_index(116)
+            .aria_label("Media server URL")
+            .w_full()
+            .bg(rgb(Theme::SURFACE))
+            .border_1()
+            .border_color(rgb(Theme::BORDER))
+            .rounded_lg()
+            .px_3()
+            .py_2();
+        let server_username = Input::new(&self.server_username_input)
+            .tab_index(117)
+            .aria_label("Media server username")
+            .w_full()
+            .bg(rgb(Theme::SURFACE))
+            .border_1()
+            .border_color(rgb(Theme::BORDER))
+            .rounded_lg()
+            .px_3()
+            .py_2();
+        let server_password = Input::new(&self.server_password_input)
+            .tab_index(118)
+            .aria_label("Media server password")
+            .cleanable(true)
+            .w_full()
+            .bg(rgb(Theme::SURFACE))
+            .border_1()
+            .border_color(rgb(Theme::BORDER))
+            .rounded_lg()
+            .px_3()
+            .py_2();
         let mut panel = div().w_full().flex().flex_col().gap_3()
             .rounded_lg().border_1().border_color(rgb(Theme::BORDER)).bg(rgb(Theme::SURFACE)).p_4()
             .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child("SOURCE PROVIDERS"))
@@ -8209,12 +8589,38 @@ impl SenzoShell {
         if let Ok(accounts) = self.debrid_manager.accounts("default") {
             for account in accounts {
                 let provider = account.provider;
-                panel = panel.child(div().flex().items_center().justify_between().rounded_md().bg(rgb(Theme::SURFACE_RAISED)).p_2()
-                    .child(div().flex_1().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child(
-                        if account.configured { format!("{} · Connected · {}", provider.name(), account.masked_credential.unwrap_or_default()) } else { format!("{} · Not connected", provider.name()) }
-                    ))
-                    .child(self.addon_control(&format!("source-disconnect-{}", provider.id()), "Disconnect", 113,
-                        cx.listener(move |this, _, _, cx| this.disconnect_debrid_provider(provider, cx)))));
+                panel = panel.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .rounded_md()
+                        .bg(rgb(Theme::SURFACE_RAISED))
+                        .p_2()
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_xs()
+                                .text_color(rgb(Theme::TEXT_SECONDARY))
+                                .child(if account.configured {
+                                    format!(
+                                        "{} · Connected · {}",
+                                        provider.name(),
+                                        account.masked_credential.unwrap_or_default()
+                                    )
+                                } else {
+                                    format!("{} · Not connected", provider.name())
+                                }),
+                        )
+                        .child(self.addon_control(
+                            &format!("source-disconnect-{}", provider.id()),
+                            "Disconnect",
+                            113,
+                            cx.listener(move |this, _, _, cx| {
+                                this.disconnect_debrid_provider(provider, cx)
+                            }),
+                        )),
+                );
             }
         }
         panel = panel
@@ -8230,20 +8636,66 @@ impl SenzoShell {
             } else {
                 for connection in connections {
                     let id = connection.id.clone();
-                    panel = panel.child(div().flex().items_center().justify_between().rounded_md().bg(rgb(Theme::SURFACE_RAISED)).p_2()
-                        .child(div().flex_1().flex().flex_col().gap_1()
-                            .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(format!("{} · {}", connection.provider.display_name(), connection.name)))
-                            .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(format!("{} · {} library/libraries", connection.address, connection.libraries.len()))))
-                        .child(self.addon_control(&format!("source-remove-server-{id}"), "Remove", 120,
-                            cx.listener(move |this, _, _, cx| this.remove_media_server(id.clone(), cx)))));
+                    panel = panel.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .rounded_md()
+                            .bg(rgb(Theme::SURFACE_RAISED))
+                            .p_2()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(
+                                        div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(
+                                            format!(
+                                                "{} · {}",
+                                                connection.provider.display_name(),
+                                                connection.name
+                                            ),
+                                        ),
+                                    )
+                                    .child(
+                                        div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
+                                            format!(
+                                                "{} · {} library/libraries",
+                                                connection.address,
+                                                connection.libraries.len()
+                                            ),
+                                        ),
+                                    ),
+                            )
+                            .child(self.addon_control(
+                                &format!("source-remove-server-{id}"),
+                                "Remove",
+                                120,
+                                cx.listener(move |this, _, _, cx| {
+                                    this.remove_media_server(id.clone(), cx)
+                                }),
+                            )),
+                    );
                 }
             }
         }
         if let Some(notice) = self.source_settings_notice.as_deref() {
-            panel = panel.child(div().text_xs().text_color(rgb(Theme::SUCCESS)).child(notice.to_owned()));
+            panel = panel.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(Theme::SUCCESS))
+                    .child(notice.to_owned()),
+            );
         }
         if let Some(error) = self.source_settings_error.as_deref() {
-            panel = panel.child(div().text_xs().text_color(rgb(Theme::DANGER)).child(error.to_owned()));
+            panel = panel.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(Theme::DANGER))
+                    .child(error.to_owned()),
+            );
         }
         panel
     }
@@ -8953,9 +9405,7 @@ pub fn run(services: ShellServices, smoke_test: bool) {
             };
 
             cx.open_window(options, move |window, cx| {
-                let shell = cx.new(|cx| {
-                    SenzoShell::new(services, smoke_test, window, cx)
-                });
+                let shell = cx.new(|cx| SenzoShell::new(services, smoke_test, window, cx));
                 let initial_focus = shell
                     .read(cx)
                     .navigation_focus
@@ -9048,18 +9498,30 @@ mod tests {
     struct TestDebridCredentials;
 
     impl senzo_debrid::DebridCredentialStore for TestDebridCredentials {
-        fn get(&self, _account: &str) -> Result<Option<String>, String> { Ok(None) }
-        fn set(&self, _account: &str, _secret: &str) -> Result<(), String> { Ok(()) }
-        fn delete(&self, _account: &str) -> Result<(), String> { Ok(()) }
+        fn get(&self, _account: &str) -> Result<Option<String>, String> {
+            Ok(None)
+        }
+        fn set(&self, _account: &str, _secret: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn delete(&self, _account: &str) -> Result<(), String> {
+            Ok(())
+        }
     }
 
     #[derive(Default)]
     struct TestMediaServerCredentials;
 
     impl senzo_integrations::MediaServerCredentialStore for TestMediaServerCredentials {
-        fn get(&self, _account: &str) -> Result<Option<String>, String> { Ok(None) }
-        fn set(&self, _account: &str, _secret: &str) -> Result<(), String> { Ok(()) }
-        fn delete(&self, _account: &str) -> Result<(), String> { Ok(()) }
+        fn get(&self, _account: &str) -> Result<Option<String>, String> {
+            Ok(None)
+        }
+        fn set(&self, _account: &str, _secret: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn delete(&self, _account: &str) -> Result<(), String> {
+            Ok(())
+        }
     }
 
     fn test_debrid_manager() -> DebridManager {
@@ -9067,12 +9529,16 @@ mod tests {
     }
 
     fn test_media_server_manager() -> MediaServerManager {
-        MediaServerManager::new(Arc::new(TestSettingsRepository), Arc::new(TestMediaServerCredentials))
-            .expect("test media-server manager")
+        MediaServerManager::new(
+            Arc::new(TestSettingsRepository),
+            Arc::new(TestMediaServerCredentials),
+        )
+        .expect("test media-server manager")
     }
 
     fn test_source_aggregator() -> SourceAggregator {
-        SourceAggregator::new(Vec::<Arc<dyn senzo_sources::SourceAdapter>>::new()).with_debrid(test_debrid_manager())
+        SourceAggregator::new(Vec::<Arc<dyn senzo_sources::SourceAdapter>>::new())
+            .with_debrid(test_debrid_manager())
     }
 
     fn test_plugin_manager() -> PluginManager {

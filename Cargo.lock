@@ -5984,6 +5984,7 @@ dependencies = [
  "hyper-util",
  "js-sys",
  "log",
+ "mime_guess",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -6551,12 +6552,15 @@ dependencies = [
  "anyhow",
  "senzo-addons",
  "senzo-artwork",
+ "senzo-debrid",
  "senzo-diagnostics",
  "senzo-domain",
+ "senzo-integrations",
  "senzo-metadata",
  "senzo-network",
  "senzo-platform",
  "senzo-plugins",
+ "senzo-sources",
  "senzo-storage",
  "senzo-ui",
  "tokio",
@@ -6590,6 +6594,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "senzo-debrid"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "senzo-diagnostics"
 version = "0.1.0"
 dependencies = [
@@ -6604,6 +6621,21 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "senzo-integrations"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "senzo-domain",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
 ]
 
 [[package]]
@@ -6663,6 +6695,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "senzo-sources"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "senzo-addons",
+ "senzo-debrid",
+ "senzo-integrations",
+ "senzo-plugins",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "senzo-storage"
 version = "0.1.0"
 dependencies = [
@@ -6684,10 +6733,13 @@ dependencies = [
  "senzo-addons",
  "senzo-artwork",
  "senzo-catalog",
+ "senzo-debrid",
  "senzo-domain",
+ "senzo-integrations",
  "senzo-metadata",
  "senzo-network",
  "senzo-plugins",
+ "senzo-sources",
  "serde_json",
  "tokio",
  "tokio-util",

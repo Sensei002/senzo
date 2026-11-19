@@ -3,10 +3,9 @@ use std::{env, sync::Arc};
 use anyhow::{Context, ensure};
 use senzo_addons::{AddonManager, AddonSecretStore};
 use senzo_artwork::{ArtworkConfig, ArtworkService, ArtworkSize, ArtworkUrlResolver};
-use senzo_domain::{ProfileRepository, SettingsRepository};
 use senzo_debrid::{DebridCredentialStore, DebridManager};
+use senzo_domain::{ProfileRepository, SettingsRepository};
 use senzo_integrations::{MediaServerCredentialStore, MediaServerManager};
-use senzo_sources::{AddonSourceAdapter, MediaServerSourceAdapter, PluginSourceAdapter, SourceAggregator, SourceAdapter};
 use senzo_metadata::{
     DEFAULT_API_BASE_URL, DiscoverRequest, DiscoverSort, MediaType, MetadataClient,
     MetadataClientConfig, SearchType,
@@ -14,6 +13,10 @@ use senzo_metadata::{
 use senzo_network::{HttpClient, HttpPolicy};
 use senzo_platform::{AppDirectories, CredentialStore, KeyringCredentialStore};
 use senzo_plugins::{PluginManager, PluginSettingsStore};
+use senzo_sources::{
+    AddonSourceAdapter, MediaServerSourceAdapter, PluginSourceAdapter, SourceAdapter,
+    SourceAggregator,
+};
 use senzo_storage::SqliteDatabase;
 use tokio::runtime::{Builder, Runtime};
 use tokio_util::sync::CancellationToken;
@@ -59,7 +62,9 @@ impl DebridCredentialStore for PlatformDebridSecrets {
         self.0.get(account).map_err(|error| error.to_string())
     }
     fn set(&self, account: &str, secret: &str) -> Result<(), String> {
-        self.0.set(account, secret).map_err(|error| error.to_string())
+        self.0
+            .set(account, secret)
+            .map_err(|error| error.to_string())
     }
     fn delete(&self, account: &str) -> Result<(), String> {
         self.0.delete(account).map_err(|error| error.to_string())
@@ -73,7 +78,9 @@ impl MediaServerCredentialStore for PlatformMediaServerSecrets {
         self.0.get(account).map_err(|error| error.to_string())
     }
     fn set(&self, account: &str, secret: &str) -> Result<(), String> {
-        self.0.set(account, secret).map_err(|error| error.to_string())
+        self.0
+            .set(account, secret)
+            .map_err(|error| error.to_string())
     }
     fn delete(&self, account: &str) -> Result<(), String> {
         self.0.delete(account).map_err(|error| error.to_string())
@@ -150,9 +157,13 @@ fn run() -> anyhow::Result<()> {
     let source_adapters: Vec<Arc<dyn SourceAdapter>> = vec![
         Arc::new(AddonSourceAdapter::new(addon_manager.clone(), "default")),
         Arc::new(PluginSourceAdapter::new(plugin_manager.clone(), "default")),
-        Arc::new(MediaServerSourceAdapter::new(media_server_manager.clone(), "default")),
+        Arc::new(MediaServerSourceAdapter::new(
+            media_server_manager.clone(),
+            "default",
+        )),
     ];
-    let source_aggregator = SourceAggregator::new(source_adapters).with_debrid(debrid_manager.clone());
+    let source_aggregator =
+        SourceAggregator::new(source_adapters).with_debrid(debrid_manager.clone());
 
     let services = AppServices {
         _settings: database.clone(),

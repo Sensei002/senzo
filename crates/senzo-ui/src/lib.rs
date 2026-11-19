@@ -7,4 +7,4 @@ mod navigation;
 mod shell;
 mod theme;
 
-pub use shell::{run, ShellServices};
+pub use shell::{ShellServices, run};
