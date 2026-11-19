@@ -39,7 +39,9 @@ impl PluginSettingsStore for PlatformPluginSettings {
     }
 
     fn set(&self, account: &str, value: &str) -> Result<(), String> {
-        self.0.set(account, value).map_err(|error| error.to_string())
+        self.0
+            .set(account, value)
+            .map_err(|error| error.to_string())
     }
 
     fn delete(&self, account: &str) -> Result<(), String> {

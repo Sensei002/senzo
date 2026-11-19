@@ -817,20 +817,24 @@ impl SenzoShell {
             InputState::new(window, cx).placeholder("https://plugins.example/repository")
         });
         let plugin_settings_input = cx.new(|cx| {
-            InputState::new(window, cx).default_value("{}").placeholder("Plugin settings JSON")
+            InputState::new(window, cx)
+                .default_value("{}")
+                .placeholder("Plugin settings JSON")
         });
         let plugin_tmdb_id_input = cx.new(|cx| {
-            InputState::new(window, cx).default_value("603").placeholder("TMDB ID")
+            InputState::new(window, cx)
+                .default_value("603")
+                .placeholder("TMDB ID")
         });
         let plugin_media_type_input = cx.new(|cx| {
-            InputState::new(window, cx).default_value("movie").placeholder("movie or tv")
+            InputState::new(window, cx)
+                .default_value("movie")
+                .placeholder("movie or tv")
         });
-        let plugin_season_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Season (TV only)")
-        });
-        let plugin_episode_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Episode (TV only)")
-        });
+        let plugin_season_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Season (TV only)"));
+        let plugin_episode_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Episode (TV only)"));
         let search_input_subscription = cx.subscribe(&search_input, |this, input, event, cx| {
             if matches!(event, InputEvent::Change) {
                 this.update_search_query(input.read(cx).value().to_string(), cx);
@@ -4644,7 +4648,6 @@ impl SenzoShell {
             )
     }
 
-
     fn load_plugin_registry(&mut self, cx: &mut Context<Self>) {
         if self.smoke_test || self.plugin_busy || self.plugin_registry_loaded {
             return;
@@ -4655,7 +4658,9 @@ impl SenzoShell {
         let runtime = self.tokio.clone();
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = runtime.spawn_blocking(move || manager.list_state("default")).await;
+            let result = runtime
+                .spawn_blocking(move || manager.list_state("default"))
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.plugin_busy = false;
                 match result {
@@ -4664,15 +4669,20 @@ impl SenzoShell {
                         this.plugin_registry_loaded = true;
                     }
                     Ok(Err(error)) => this.plugin_error = Some(error.to_string()),
-                    Err(error) => this.plugin_error = Some(format!("Plugin registry task failed: {error}")),
+                    Err(error) => {
+                        this.plugin_error = Some(format!("Plugin registry task failed: {error}"))
+                    }
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 
     fn add_plugin_repository(&mut self, cx: &mut Context<Self>) {
-        if self.plugin_busy { return; }
+        if self.plugin_busy {
+            return;
+        }
         let raw_url = self.plugin_repository_input.read(cx).value().to_string();
         if raw_url.trim().is_empty() {
             self.plugin_error = Some("Enter a plugin repository URL first.".to_owned());
@@ -4704,7 +4714,9 @@ impl SenzoShell {
     }
 
     fn refresh_plugin_repository(&mut self, manifest_url: String, cx: &mut Context<Self>) {
-        if self.plugin_busy { return; }
+        if self.plugin_busy {
+            return;
+        }
         let manager = self.plugin_manager.clone();
         let runtime = self.tokio.clone();
         self.plugin_busy = true;
@@ -4728,14 +4740,18 @@ impl SenzoShell {
     }
 
     fn remove_plugin_repository(&mut self, manifest_url: String, cx: &mut Context<Self>) {
-        if self.plugin_busy { return; }
+        if self.plugin_busy {
+            return;
+        }
         let manager = self.plugin_manager.clone();
         let runtime = self.tokio.clone();
         self.plugin_busy = true;
         self.plugin_error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = runtime.spawn_blocking(move || manager.remove_repository("default", &manifest_url)).await;
+            let result = runtime
+                .spawn_blocking(move || manager.remove_repository("default", &manifest_url))
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.plugin_busy = false;
                 match result {
@@ -4745,84 +4761,128 @@ impl SenzoShell {
                         this.plugin_selected_scraper_id = None;
                         this.plugin_settings_layout = None;
                         this.plugin_settings_preview = None;
-                        this.plugin_notice = Some("Plugin repository and cached scraper scripts removed.".to_owned());
+                        this.plugin_notice = Some(
+                            "Plugin repository and cached scraper scripts removed.".to_owned(),
+                        );
                     }
                     Ok(Err(error)) => this.plugin_error = Some(error.to_string()),
-                    Err(error) => this.plugin_error = Some(format!("Plugin removal failed: {error}")),
+                    Err(error) => {
+                        this.plugin_error = Some(format!("Plugin removal failed: {error}"))
+                    }
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 
     fn set_plugin_enabled(&mut self, scraper_id: String, enabled: bool, cx: &mut Context<Self>) {
-        if self.plugin_busy { return; }
+        if self.plugin_busy {
+            return;
+        }
         let manager = self.plugin_manager.clone();
         let runtime = self.tokio.clone();
         self.plugin_busy = true;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = runtime.spawn_blocking(move || manager.set_enabled("default", &scraper_id, enabled)).await;
+            let result = runtime
+                .spawn_blocking(move || manager.set_enabled("default", &scraper_id, enabled))
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.plugin_busy = false;
                 match result {
                     Ok(Ok(state)) => this.plugin_state = state,
                     Ok(Err(error)) => this.plugin_error = Some(error.to_string()),
-                    Err(error) => this.plugin_error = Some(format!("Plugin enable state failed: {error}")),
+                    Err(error) => {
+                        this.plugin_error = Some(format!("Plugin enable state failed: {error}"))
+                    }
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 
-    fn set_plugin_network_permission(&mut self, scraper_id: String, granted: bool, cx: &mut Context<Self>) {
-        if self.plugin_busy { return; }
+    fn set_plugin_network_permission(
+        &mut self,
+        scraper_id: String,
+        granted: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.plugin_busy {
+            return;
+        }
         let manager = self.plugin_manager.clone();
         let runtime = self.tokio.clone();
         self.plugin_busy = true;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = runtime.spawn_blocking(move || manager.set_network_permission("default", &scraper_id, granted)).await;
+            let result = runtime
+                .spawn_blocking(move || {
+                    manager.set_network_permission("default", &scraper_id, granted)
+                })
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.plugin_busy = false;
                 match result {
                     Ok(Ok(state)) => {
                         this.plugin_state = state;
-                        this.plugin_notice = Some(if granted { "Network access granted for this scraper only.".to_owned() } else { "Network access revoked for this scraper.".to_owned() });
+                        this.plugin_notice = Some(if granted {
+                            "Network access granted for this scraper only.".to_owned()
+                        } else {
+                            "Network access revoked for this scraper.".to_owned()
+                        });
                     }
                     Ok(Err(error)) => this.plugin_error = Some(error.to_string()),
-                    Err(error) => this.plugin_error = Some(format!("Plugin permission update failed: {error}")),
+                    Err(error) => {
+                        this.plugin_error =
+                            Some(format!("Plugin permission update failed: {error}"))
+                    }
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 
     fn set_plugins_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
-        if self.plugin_busy { return; }
+        if self.plugin_busy {
+            return;
+        }
         let manager = self.plugin_manager.clone();
         let runtime = self.tokio.clone();
         self.plugin_busy = true;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = runtime.spawn_blocking(move || manager.set_plugins_enabled("default", enabled)).await;
+            let result = runtime
+                .spawn_blocking(move || manager.set_plugins_enabled("default", enabled))
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.plugin_busy = false;
                 match result {
                     Ok(Ok(state)) => {
                         this.plugin_state = state;
-                        this.plugin_notice = Some(if enabled { "Plugin execution enabled for the Default profile.".to_owned() } else { "All plugin execution disabled for the Default profile.".to_owned() });
+                        this.plugin_notice = Some(if enabled {
+                            "Plugin execution enabled for the Default profile.".to_owned()
+                        } else {
+                            "All plugin execution disabled for the Default profile.".to_owned()
+                        });
                     }
                     Ok(Err(error)) => this.plugin_error = Some(error.to_string()),
-                    Err(error) => this.plugin_error = Some(format!("Plugin setting update failed: {error}")),
+                    Err(error) => {
+                        this.plugin_error = Some(format!("Plugin setting update failed: {error}"))
+                    }
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 
     fn test_plugin_scraper(&mut self, scraper_id: String, cx: &mut Context<Self>) {
-        if self.plugin_busy { return; }
+        if self.plugin_busy {
+            return;
+        }
         let manager = self.plugin_manager.clone();
         let runtime = self.tokio.clone();
         self.plugin_busy = true;
@@ -4830,29 +4890,56 @@ impl SenzoShell {
         self.plugin_stream_results.clear();
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = runtime.spawn(async move { manager.test_scraper("default", &scraper_id).await }).await;
+            let result = runtime
+                .spawn(async move { manager.test_scraper("default", &scraper_id).await })
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.plugin_busy = false;
                 match result {
                     Ok(Ok(streams)) => {
                         this.plugin_stream_results = streams;
-                        this.plugin_notice = Some(format!("Scraper compatibility test finished: {} stream(s) returned.", this.plugin_stream_results.len()));
+                        this.plugin_notice = Some(format!(
+                            "Scraper compatibility test finished: {} stream(s) returned.",
+                            this.plugin_stream_results.len()
+                        ));
                     }
                     Ok(Err(error)) => this.plugin_error = Some(error.to_string()),
-                    Err(error) => this.plugin_error = Some(format!("Scraper test worker failed: {error}")),
+                    Err(error) => {
+                        this.plugin_error = Some(format!("Scraper test worker failed: {error}"))
+                    }
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 
     fn execute_plugin_scraper(&mut self, scraper_id: String, cx: &mut Context<Self>) {
-        if self.plugin_busy { return; }
+        if self.plugin_busy {
+            return;
+        }
         let input = ScraperInput {
             tmdb_id: self.plugin_tmdb_id_input.read(cx).value().trim().to_owned(),
-            media_type: self.plugin_media_type_input.read(cx).value().trim().to_owned(),
-            season: self.plugin_season_input.read(cx).value().trim().parse().ok(),
-            episode: self.plugin_episode_input.read(cx).value().trim().parse().ok(),
+            media_type: self
+                .plugin_media_type_input
+                .read(cx)
+                .value()
+                .trim()
+                .to_owned(),
+            season: self
+                .plugin_season_input
+                .read(cx)
+                .value()
+                .trim()
+                .parse()
+                .ok(),
+            episode: self
+                .plugin_episode_input
+                .read(cx)
+                .value()
+                .trim()
+                .parse()
+                .ok(),
         };
         let manager = self.plugin_manager.clone();
         let runtime = self.tokio.clone();
@@ -4861,26 +4948,35 @@ impl SenzoShell {
         self.plugin_stream_results.clear();
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = runtime.spawn(async move {
-                manager.execute_scraper("default", &scraper_id, input).await
-            }).await;
+            let result = runtime
+                .spawn(async move { manager.execute_scraper("default", &scraper_id, input).await })
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.plugin_busy = false;
                 match result {
                     Ok(Ok(streams)) => {
                         this.plugin_stream_results = streams;
-                        this.plugin_notice = Some(format!("Scraper execution completed: {} stream(s) returned.", this.plugin_stream_results.len()));
+                        this.plugin_notice = Some(format!(
+                            "Scraper execution completed: {} stream(s) returned.",
+                            this.plugin_stream_results.len()
+                        ));
                     }
                     Ok(Err(error)) => this.plugin_error = Some(error.to_string()),
-                    Err(error) => this.plugin_error = Some(format!("Scraper execution worker failed: {error}")),
+                    Err(error) => {
+                        this.plugin_error =
+                            Some(format!("Scraper execution worker failed: {error}"))
+                    }
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 
     fn load_plugin_settings(&mut self, scraper_id: String, cx: &mut Context<Self>) {
-        if self.plugin_busy { return; }
+        if self.plugin_busy {
+            return;
+        }
         let manager = self.plugin_manager.clone();
         let settings_manager = manager.clone();
         let settings_scraper_id = scraper_id.clone();
@@ -4912,7 +5008,9 @@ impl SenzoShell {
     }
 
     fn save_plugin_settings(&mut self, cx: &mut Context<Self>) {
-        if self.plugin_busy { return; }
+        if self.plugin_busy {
+            return;
+        }
         let Some(scraper_id) = self.plugin_selected_scraper_id.clone() else {
             self.plugin_error = Some("Load a scraper's settings before saving.".to_owned());
             cx.notify();
@@ -4926,22 +5024,30 @@ impl SenzoShell {
         self.plugin_error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = runtime.spawn_blocking(move || {
-                manager.save_scraper_settings("default", &scraper_id, &settings_json)
-            }).await;
+            let result = runtime
+                .spawn_blocking(move || {
+                    manager.save_scraper_settings("default", &scraper_id, &settings_json)
+                })
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.plugin_busy = false;
                 match result {
                     Ok(Ok(())) => {
                         this.plugin_settings_preview = Some(raw_json);
-                        this.plugin_notice = Some("Plugin settings stored in the operating-system credential store.".to_owned());
+                        this.plugin_notice = Some(
+                            "Plugin settings stored in the operating-system credential store."
+                                .to_owned(),
+                        );
                     }
                     Ok(Err(error)) => this.plugin_error = Some(error.to_string()),
-                    Err(error) => this.plugin_error = Some(format!("Plugin settings save failed: {error}")),
+                    Err(error) => {
+                        this.plugin_error = Some(format!("Plugin settings save failed: {error}"))
+                    }
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 
     fn render_plugin_settings(&self, cx: &mut Context<Self>) -> gpui::Div {
@@ -5054,28 +5160,55 @@ impl SenzoShell {
                 "Add a Nuvio-compatible manifest URL above. Installation downloads the manifest and declared JavaScript files but does not grant scraper network access.",
             ));
         } else {
-            section = section.child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY))
-                .child(format!("Repositories · {}", self.plugin_state.repositories.len())));
+            section = section.child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(
+                format!("Repositories · {}", self.plugin_state.repositories.len()),
+            ));
             for (index, repository) in self.plugin_state.repositories.iter().enumerate() {
                 let refresh_url = repository.manifest_url.clone();
                 let remove_url = repository.manifest_url.clone();
                 section = section.child(
-                    div().flex().items_center().gap_2().rounded_md().border_1()
-                        .border_color(rgb(Theme::BORDER)).p_3()
-                        .child(div().flex_1().flex().flex_col().gap_1()
-                            .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(repository.name.clone()))
-                            .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(format!("v{} · {} scraper(s)", repository.version, repository.scraper_count))))
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(rgb(Theme::BORDER))
+                        .p_3()
+                        .child(
+                            div()
+                                .flex_1()
+                                .flex()
+                                .flex_col()
+                                .gap_1()
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(rgb(Theme::TEXT_PRIMARY))
+                                        .child(repository.name.clone()),
+                                )
+                                .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
+                                    format!(
+                                        "v{} · {} scraper(s)",
+                                        repository.version, repository.scraper_count
+                                    ),
+                                )),
+                        )
                         .child(self.addon_control(
                             format!("plugin-refresh-repository-{index}"),
                             "Refresh",
                             71 + index as isize * 3,
-                            cx.listener(move |this, _, _, cx| this.refresh_plugin_repository(refresh_url.clone(), cx)),
+                            cx.listener(move |this, _, _, cx| {
+                                this.refresh_plugin_repository(refresh_url.clone(), cx)
+                            }),
                         ))
                         .child(self.addon_control(
                             format!("plugin-remove-repository-{index}"),
                             "Remove",
                             72 + index as isize * 3,
-                            cx.listener(move |this, _, _, cx| this.remove_plugin_repository(remove_url.clone(), cx)),
+                            cx.listener(move |this, _, _, cx| {
+                                this.remove_plugin_repository(remove_url.clone(), cx)
+                            }),
                         )),
                 );
             }
@@ -5089,8 +5222,12 @@ impl SenzoShell {
                 "Scrapers declared by installed manifests appear here.",
             ));
         } else {
-            section = section.child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY))
-                .child(format!("Scrapers · {}", self.plugin_state.scrapers.len())));
+            section = section.child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                    .child(format!("Scrapers · {}", self.plugin_state.scrapers.len())),
+            );
             for (index, scraper) in self.plugin_state.scrapers.iter().enumerate() {
                 let enable_id = scraper.id.clone();
                 let permission_id = scraper.id.clone();
@@ -5100,57 +5237,126 @@ impl SenzoShell {
                 let scraper_enabled = scraper.enabled;
                 let network_granted = scraper.network_access_granted;
                 let name = scraper.name.clone();
-                section = section.child(
-                    div().flex().flex_col().gap_2().rounded_md().border_1()
-                        .border_color(rgb(Theme::BORDER)).p_3()
-                        .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(name))
-                        .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED))
-                            .child(format!("{} · v{} · {}", scraper.id, scraper.version, scraper.supported_types.join(", "))))
-                        .child(div().text_xs().text_color(rgb(if scraper.network_access_granted { Theme::SUCCESS } else { Theme::WARNING }))
-                            .child(if scraper.network_access_granted { "Network permission granted" } else { "Network permission not granted" }))
-                        .child(div().flex().flex_col().gap_2()
-                            .child(self.addon_control(
-                                format!("plugin-enabled-{index}"),
-                                if scraper.enabled { "Disable" } else { "Enable" },
-                                100 + index as isize * 5,
-                                cx.listener(move |this, _, _, cx| this.set_plugin_enabled(enable_id.clone(), !scraper_enabled, cx)),
+                section =
+                    section.child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(Theme::BORDER))
+                            .p_3()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                                    .child(name),
+                            )
+                            .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
+                                format!(
+                                    "{} · v{} · {}",
+                                    scraper.id,
+                                    scraper.version,
+                                    scraper.supported_types.join(", ")
+                                ),
                             ))
-                            .child(self.addon_control(
-                                format!("plugin-network-{index}"),
-                                if scraper.network_access_granted { "Revoke network" } else { "Grant network" },
-                                101 + index as isize * 5,
-                                cx.listener(move |this, _, _, cx| this.set_plugin_network_permission(permission_id.clone(), !network_granted, cx)),
-                            ))
-                            .child(self.addon_control(
-                                format!("plugin-test-{index}"),
-                                "Test scraper",
-                                102 + index as isize * 5,
-                                cx.listener(move |this, _, _, cx| this.test_plugin_scraper(test_id.clone(), cx)),
-                            ))
-                            .child(self.addon_control(
-                                format!("plugin-execute-{index}"),
-                                "Execute",
-                                103 + index as isize * 5,
-                                cx.listener(move |this, _, _, cx| this.execute_plugin_scraper(execute_id.clone(), cx)),
-                            ))
-                            .child(self.addon_control(
-                                format!("plugin-settings-{index}"),
-                                "Settings",
-                                104 + index as isize * 5,
-                                cx.listener(move |this, _, _, cx| this.load_plugin_settings(settings_id.clone(), cx)),
-                            )),
-                        ),
-                );
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(if scraper.network_access_granted {
+                                        Theme::SUCCESS
+                                    } else {
+                                        Theme::WARNING
+                                    }))
+                                    .child(if scraper.network_access_granted {
+                                        "Network permission granted"
+                                    } else {
+                                        "Network permission not granted"
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_2()
+                                    .child(self.addon_control(
+                                        format!("plugin-enabled-{index}"),
+                                        if scraper.enabled { "Disable" } else { "Enable" },
+                                        100 + index as isize * 5,
+                                        cx.listener(move |this, _, _, cx| {
+                                            this.set_plugin_enabled(
+                                                enable_id.clone(),
+                                                !scraper_enabled,
+                                                cx,
+                                            )
+                                        }),
+                                    ))
+                                    .child(self.addon_control(
+                                        format!("plugin-network-{index}"),
+                                        if scraper.network_access_granted {
+                                            "Revoke network"
+                                        } else {
+                                            "Grant network"
+                                        },
+                                        101 + index as isize * 5,
+                                        cx.listener(move |this, _, _, cx| {
+                                            this.set_plugin_network_permission(
+                                                permission_id.clone(),
+                                                !network_granted,
+                                                cx,
+                                            )
+                                        }),
+                                    ))
+                                    .child(self.addon_control(
+                                        format!("plugin-test-{index}"),
+                                        "Test scraper",
+                                        102 + index as isize * 5,
+                                        cx.listener(move |this, _, _, cx| {
+                                            this.test_plugin_scraper(test_id.clone(), cx)
+                                        }),
+                                    ))
+                                    .child(self.addon_control(
+                                        format!("plugin-execute-{index}"),
+                                        "Execute",
+                                        103 + index as isize * 5,
+                                        cx.listener(move |this, _, _, cx| {
+                                            this.execute_plugin_scraper(execute_id.clone(), cx)
+                                        }),
+                                    ))
+                                    .child(self.addon_control(
+                                        format!("plugin-settings-{index}"),
+                                        "Settings",
+                                        104 + index as isize * 5,
+                                        cx.listener(move |this, _, _, cx| {
+                                            this.load_plugin_settings(settings_id.clone(), cx)
+                                        }),
+                                    )),
+                            ),
+                    );
             }
         }
 
-        section = section.child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child("Execute a scraper"));
-        section = section.child(div().flex().gap_2()
-            .child(div().flex_1().child(tmdb_id_input))
-            .child(div().flex_1().child(media_type_input)));
-        section = section.child(div().flex().gap_2()
-            .child(div().flex_1().child(season_input))
-            .child(div().flex_1().child(episode_input)));
+        section = section.child(
+            div()
+                .text_sm()
+                .text_color(rgb(Theme::TEXT_PRIMARY))
+                .child("Execute a scraper"),
+        );
+        section = section.child(
+            div()
+                .flex()
+                .gap_2()
+                .child(div().flex_1().child(tmdb_id_input))
+                .child(div().flex_1().child(media_type_input)),
+        );
+        section = section.child(
+            div()
+                .flex()
+                .gap_2()
+                .child(div().flex_1().child(season_input))
+                .child(div().flex_1().child(episode_input)),
+        );
         section = section.child(settings_input);
         section = section.child(self.addon_control(
             "plugin-save-settings",
@@ -5160,40 +5366,101 @@ impl SenzoShell {
         ));
 
         if let Some(selected) = self.plugin_selected_scraper_id.as_deref() {
-            section = section.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED))
-                .child(format!("Selected settings: {selected}")));
+            section = section.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(Theme::TEXT_MUTED))
+                    .child(format!("Selected settings: {selected}")),
+            );
         }
         if let Some(schema) = self.plugin_settings_layout.as_deref() {
-            section = section.child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY))
-                .child(format!("onSettings schema: {}", schema.chars().take(6000).collect::<String>())));
+            section = section.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(Theme::TEXT_SECONDARY))
+                    .child(format!(
+                        "onSettings schema: {}",
+                        schema.chars().take(6000).collect::<String>()
+                    )),
+            );
         }
         if let Some(saved) = self.plugin_settings_preview.as_deref() {
-            section = section.child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY))
-                .child(format!("Saved settings JSON: {}", saved.chars().take(6000).collect::<String>())));
+            section = section.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(Theme::TEXT_SECONDARY))
+                    .child(format!(
+                        "Saved settings JSON: {}",
+                        saved.chars().take(6000).collect::<String>()
+                    )),
+            );
         }
         if let Some(error) = self.plugin_error.as_deref() {
-            section = section.child(status_panel(StatusTone::Error, "PLUGIN OPERATION FAILED", "Plugin runtime", error));
+            section = section.child(status_panel(
+                StatusTone::Error,
+                "PLUGIN OPERATION FAILED",
+                "Plugin runtime",
+                error,
+            ));
         }
         if let Some(notice) = self.plugin_notice.as_deref() {
-            section = section.child(status_panel(StatusTone::Info, "PLUGIN STATUS", "Scraper update", notice));
+            section = section.child(status_panel(
+                StatusTone::Info,
+                "PLUGIN STATUS",
+                "Scraper update",
+                notice,
+            ));
         }
         if !self.plugin_stream_results.is_empty() {
-            section = section.child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY))
-                .child(format!("Stream results · {}", self.plugin_stream_results.len())));
+            section = section.child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(
+                format!("Stream results · {}", self.plugin_stream_results.len()),
+            ));
             for (index, stream) in self.plugin_stream_results.iter().enumerate() {
                 let target = match &stream.target {
                     senzo_plugins::StreamTarget::Http(url) => format!("HTTP · {url}"),
-                    senzo_plugins::StreamTarget::Torrent { info_hash, file_index } => format!("Torrent · {info_hash} · file {file_index:?}"),
+                    senzo_plugins::StreamTarget::Torrent {
+                        info_hash,
+                        file_index,
+                    } => format!("Torrent · {info_hash} · file {file_index:?}"),
                     senzo_plugins::StreamTarget::External(url) => format!("External · {url}"),
                     senzo_plugins::StreamTarget::Youtube(id) => format!("YouTube · {id}"),
                 };
-                section = section.child(div().flex().flex_col().gap_1().rounded_md()
-                    .border_1().border_color(rgb(Theme::BORDER)).p_3()
-                    .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY))
-                        .child(format!("{} · {}", index + 1, stream.title)))
-                    .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(format!("{} · {}", stream.provider, stream.quality.as_deref().unwrap_or("Quality unknown"))))
-                    .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child(target))
-                    .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(format!("{} subtitle(s)", stream.subtitles.len()))));
+                section =
+                    section.child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(Theme::BORDER))
+                            .p_3()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                                    .child(format!("{} · {}", index + 1, stream.title)),
+                            )
+                            .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
+                                format!(
+                                    "{} · {}",
+                                    stream.provider,
+                                    stream.quality.as_deref().unwrap_or("Quality unknown")
+                                ),
+                            ))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(Theme::TEXT_SECONDARY))
+                                    .child(target),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(Theme::TEXT_MUTED))
+                                    .child(format!("{} subtitle(s)", stream.subtitles.len())),
+                            ),
+                    );
             }
         }
         section
