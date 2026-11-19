@@ -30,14 +30,14 @@ fn wait_for(
     }
 }
 
-fn capture_window_frames(player: &MpvPlayer, directory: &Path) -> Result<(), Box<dyn Error>> {
+fn capture_video_frames(player: &MpvPlayer, directory: &Path) -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(directory)?;
     for index in 1..=4 {
         let path = directory.join(format!("frame-{index:02}.png"));
         if path.exists() {
             fs::remove_file(&path)?;
         }
-        player.screenshot_to_file(&path, true)?;
+        player.screenshot_to_file(&path, false)?;
 
         // MPV may finish writing its screenshot asynchronously. Wait for the
         // PNG size to stabilize before scheduling the next frame.
@@ -47,7 +47,7 @@ fn capture_window_frames(player: &MpvPlayer, directory: &Path) -> Result<(), Box
         while Instant::now() < deadline {
             if let Ok(metadata) = fs::metadata(&path) {
                 let size = metadata.len();
-                if size > 1024 && size == previous_size {
+                if size > 128 && size == previous_size {
                     stable_checks += 1;
                     if stable_checks >= 2 {
                         break;
@@ -60,9 +60,9 @@ fn capture_window_frames(player: &MpvPlayer, directory: &Path) -> Result<(), Box
             thread::sleep(Duration::from_millis(100));
         }
         if stable_checks < 2 {
-            return Err(format!("MPV did not finish writing window screenshot {}", path.display()).into());
+            return Err(format!("MPV did not finish writing video-frame screenshot {}", path.display()).into());
         }
-        println!("PASS: MPV output-window screenshot {index} saved");
+        println!("PASS: MPV decoded-video screenshot {index} saved");
         if index < 4 {
             thread::sleep(Duration::from_millis(600));
         }
@@ -125,7 +125,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
 
     println!("Capturing moving frames through MPV's native output-window screenshot path");
-    capture_window_frames(&player, &screenshot_directory)?;
+    capture_video_frames(&player, &screenshot_directory)?;
 
     let audio_id = initial
         .tracks

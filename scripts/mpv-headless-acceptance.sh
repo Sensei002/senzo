@@ -52,7 +52,7 @@ done
 curl --fail --silent --head http://127.0.0.1:18765/first.mp4 >/dev/null
 curl --fail --silent --range 0-1023 --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18765/first.mp4 | grep -qx 206
 
-echo "Capturing the X11 display while SENZO drives libmpv"
+echo "Recording the X11 display for diagnostics while SENZO drives libmpv"
 ffmpeg -hide_banner -loglevel warning -y \
   -f x11grab -framerate 8 -video_size 1280x720 -i "$DISPLAY" \
   -t 16 -an -c:v ffv1 "$OUT/screen.mkv" >"$OUT/screen-capture.log" 2>&1 &
