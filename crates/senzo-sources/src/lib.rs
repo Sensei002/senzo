@@ -83,6 +83,8 @@ pub struct Source {
     pub provider_name: String,
     pub title: String,
     pub description: Option<String>,
+    #[serde(default)]
+    pub filename_hint: Option<String>,
     pub target: SourceTarget,
     pub quality: Option<String>,
     pub size_bytes: Option<u64>,
@@ -334,6 +336,7 @@ impl SourceAdapter for MediaServerSourceAdapter {
             provider_name: resolved.provider_name,
             title: resolved.title,
             description: Some("Resolved from your connected media server".into()),
+            filename_hint: None,
             target: SourceTarget::Http(resolved.url),
             quality: resolved.quality,
             size_bytes: resolved.size_bytes,
@@ -373,11 +376,17 @@ impl SourceAggregator {
 
     pub async fn resolve_torrent(&self, profile_id: &str, source: &Source, provider: DebridProviderId, season: Option<u32>, episode: Option<u32>) -> Result<ResolvedDebridSource, SourceError> {
         let manager = self.debrid.as_ref().ok_or_else(|| SourceError::Provider("debrid services are not configured".into()))?;
-        let magnet = match &source.target {
-            SourceTarget::Torrent { info_hash, magnet_uri, .. } => magnet_uri.clone().unwrap_or_else(|| format!("magnet:?xt=urn:btih:{info_hash}")),
+        let (magnet, file_index) = match &source.target {
+            SourceTarget::Torrent { info_hash, magnet_uri, file_index } => (
+                magnet_uri.clone().unwrap_or_else(|| format!("magnet:?xt=urn:btih:{info_hash}")),
+                *file_index,
+            ),
             _ => return Err(SourceError::InvalidRequest("selected source is not a torrent".into())),
         };
-        manager.resolve_magnet(profile_id, provider, &magnet, Some(&source.title), season, episode).await
+        manager.resolve_magnet(
+            profile_id, provider, &magnet, source.filename_hint.as_deref(),
+            file_index, season, episode,
+        ).await
             .map_err(|error| SourceError::Provider(error.to_string()))
     }
 
@@ -544,7 +553,8 @@ fn enrich_badges(mut source: Source) -> Source {
 
 fn addon_stream_to_source(provider_id: &str, provider_name: &str, index: usize, stream: AddonStream) -> Option<Source> {
     let extra = stream.extra;
-    let behavior = extra.get("behaviorHints").or_else(|| extra.get("behavior_hints"));
+    // Stremio behaviorHints is a first-class field, not part of the flattened extras.
+    let behavior = stream.behavior_hints.as_ref();
     let headers = parse_headers(extra.get("headers").or_else(|| behavior.and_then(|v| v.get("proxyHeaders")).and_then(|v| v.get("request"))));
     let raw = stream.url.as_deref().or(stream.external_url.as_deref());
     let target = if let Some(hash) = stream.info_hash.as_deref().and_then(normalize_hash) {
@@ -564,7 +574,9 @@ fn addon_stream_to_source(provider_id: &str, provider_name: &str, index: usize, 
     let subtitles = parse_subtitles(extra.get("subtitles"));
     let size = extra.get("size").and_then(parse_size_value);
     Some(Source { id: format!("{provider_id}:{index}"), provider_id: provider_id.to_owned(), provider_name: provider_name.to_owned(),
-        title, description: stream.description, target, quality, size_bytes: size, language: extra.get("language").and_then(Value::as_str).map(str::to_owned),
+        title, description: stream.description,
+        filename_hint: behavior.and_then(|value| value.get("filename")).and_then(Value::as_str).map(str::to_owned),
+        target, quality, size_bytes: size, language: extra.get("language").and_then(Value::as_str).map(str::to_owned),
         codec: ["hevc","h265","h264","av1"].iter().find(|needle| title_lower.contains(**needle)).map(|v| (*v).to_owned()),
         stream_type: extra.get("type").and_then(Value::as_str).map(str::to_owned), seeders: extra.get("seeders").and_then(value_u32), peers: extra.get("peers").and_then(value_u32),
         headers, subtitles, badges: Vec::new(), cache_state: CacheState::Unknown })
@@ -583,7 +595,8 @@ fn plugin_stream_to_source(provider_id: &str, provider_name: &str, index: usize,
         url: valid_http_url(&sub.url)?, language: sub.language, name: sub.name, headers: parse_header_map(sub.headers),
     })).collect();
     Some(Source { id: format!("{provider_id}:{index}:{}", stream.id), provider_id: provider_id.to_owned(), provider_name: provider_name.to_owned(),
-        title: stream.title, description: stream.name, target, quality, size_bytes: parse_size_text(stream.size.as_deref()), language: stream.language,
+        title: stream.title, description: stream.name, filename_hint: None,
+        target, quality, size_bytes: parse_size_text(stream.size.as_deref()), language: stream.language,
         codec: None, stream_type: stream.stream_type, seeders: stream.seeders, peers: stream.peers,
         headers: parse_header_map(stream.headers), subtitles, badges: Vec::new(), cache_state: CacheState::Unknown })
 }
@@ -667,7 +680,7 @@ mod tests {
     use super::*;
 
     fn source(target: SourceTarget, quality: Option<&str>, seeders: u32) -> Source {
-        Source { id: "id".into(), provider_id: "provider".into(), provider_name: "Provider".into(), title: "Title".into(), description: None, target, quality: quality.map(str::to_owned), size_bytes: None, language: None, codec: None, stream_type: None, seeders: Some(seeders), peers: None, headers: BTreeMap::new(), subtitles: Vec::new(), badges: Vec::new(), cache_state: CacheState::Unknown }
+        Source { id: "id".into(), provider_id: "provider".into(), provider_name: "Provider".into(), title: "Title".into(), description: None, filename_hint: None, target, quality: quality.map(str::to_owned), size_bytes: None, language: None, codec: None, stream_type: None, seeders: Some(seeders), peers: None, headers: BTreeMap::new(), subtitles: Vec::new(), badges: Vec::new(), cache_state: CacheState::Unknown }
     }
 
     #[test]
@@ -675,6 +688,35 @@ mod tests {
         assert!(addon_stream_to_source("a","A",0,AddonStream { name: Some("4K".into()), title: None, description: None, url: Some("https://cdn.example/movie.mkv".into()), info_hash: None, file_idx: None, external_url: None, yt_id: None, behavior_hints: None, extra: BTreeMap::new() }).is_some());
         assert!(valid_youtube_id("dQw4w9WgXcQ"));
         assert!(valid_http_url("file:///etc/passwd").is_none());
+    }
+
+    #[test]
+    fn stremio_behavior_hints_and_file_index_survive_source_normalization() {
+        let stream = AddonStream {
+            name: Some("Release name".into()),
+            title: None,
+            description: None,
+            url: None,
+            info_hash: Some("0123456789012345678901234567890123456789".into()),
+            file_idx: Some(4),
+            external_url: None,
+            yt_id: None,
+            behavior_hints: Some(serde_json::json!({
+                "filename": "Show.S02E03.1080p.mkv",
+                "proxyHeaders": { "request": { "Referer": "https://provider.example/" } }
+            })),
+            extra: BTreeMap::new(),
+        };
+        let source = addon_stream_to_source("test", "Test", 0, stream).unwrap();
+        assert_eq!(source.filename_hint.as_deref(), Some("Show.S02E03.1080p.mkv"));
+        assert_eq!(
+            source.headers.get("Referer").map(String::as_str),
+            Some("https://provider.example/")
+        );
+        assert!(matches!(
+            source.target,
+            SourceTarget::Torrent { file_index: Some(4), .. }
+        ));
     }
 
     #[test]

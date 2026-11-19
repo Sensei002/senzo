@@ -183,18 +183,21 @@ impl DebridManager {
 
     pub async fn resolve_magnet(
         &self, profile_id: &str, provider: DebridProviderId, magnet: &str,
-        filename_hint: Option<&str>, season: Option<u32>, episode: Option<u32>,
+        filename_hint: Option<&str>,
+        file_index: Option<u32>,
+        season: Option<u32>,
+        episode: Option<u32>,
     ) -> Result<ResolvedDebridSource, DebridError> {
         let (hash, normalized) = validate_magnet(magnet)?;
         let token = self.load_token(profile_id, provider)?;
         match provider {
-            DebridProviderId::Torbox => self.resolve_torbox(&token, &hash, &normalized, filename_hint, season, episode).await,
-            DebridProviderId::Premiumize => self.resolve_premiumize(&token, &normalized, filename_hint, season, episode).await,
-            DebridProviderId::RealDebrid => self.resolve_real_debrid(&token, &normalized, filename_hint, season, episode).await,
+            DebridProviderId::Torbox => self.resolve_torbox(&token, &hash, &normalized, filename_hint, file_index, season, episode).await,
+            DebridProviderId::Premiumize => self.resolve_premiumize(&token, &normalized, filename_hint, file_index, season, episode).await,
+            DebridProviderId::RealDebrid => self.resolve_real_debrid(&token, &normalized, filename_hint, file_index, season, episode).await,
         }
     }
 
-    async fn resolve_torbox(&self, token: &str, hash: &str, magnet: &str, filename: Option<&str>, season: Option<u32>, episode: Option<u32>) -> Result<ResolvedDebridSource, DebridError> {
+    async fn resolve_torbox(&self, token: &str, hash: &str, magnet: &str, filename: Option<&str>, file_index: Option<u32>, season: Option<u32>, episode: Option<u32>) -> Result<ResolvedDebridSource, DebridError> {
         if self.check_cached_with_token(DebridProviderId::Torbox, token, hash).await? != CacheAvailability::Cached {
             return Err(DebridError::NotCached);
         }
@@ -214,7 +217,7 @@ impl DebridManager {
             let item = payload.get("data").and_then(Value::as_array).and_then(|v| v.first())
                 .or_else(|| payload.get("data").filter(|v| v.is_object())).ok_or(DebridError::InvalidResponse)?;
             let files = item.get("files").and_then(Value::as_array).ok_or(DebridError::InvalidResponse)?;
-            if let Some(file) = select_video_file(files, filename, season, episode, |f| {
+            if let Some(file) = select_video_file(files, filename, file_index, season, episode, |f| {
                 value_string(f, "name").or_else(|| value_string(f, "short_name")).or_else(|| value_string(f, "absolute_path"))
             }) {
                 let file_id = file.get("id").and_then(Value::as_u64).ok_or(DebridError::InvalidResponse)?;
@@ -243,14 +246,14 @@ impl DebridManager {
         Ok(if payload.pointer(&format!("/data/{hash}")).is_some_and(is_nonempty) { CacheAvailability::Cached } else { CacheAvailability::NotCached })
     }
 
-    async fn resolve_premiumize(&self, token: &str, magnet: &str, filename: Option<&str>, season: Option<u32>, episode: Option<u32>) -> Result<ResolvedDebridSource, DebridError> {
+    async fn resolve_premiumize(&self, token: &str, magnet: &str, filename: Option<&str>, file_index: Option<u32>, season: Option<u32>, episode: Option<u32>) -> Result<ResolvedDebridSource, DebridError> {
         let response = self.client.post("https://www.premiumize.me/api/transfer/directdl")
             .bearer_auth(token).form(&[("src", magnet)])
             .send().await.map_err(|e| DebridError::Network(e.without_url().to_string()))?;
         let payload = read_json(response).await?;
         if payload.get("status").and_then(Value::as_str) != Some("success") { return Err(DebridError::NotCached); }
         let files = payload.get("content").and_then(Value::as_array).ok_or(DebridError::InvalidResponse)?;
-        let file = select_video_file(files, filename, season, episode, |f| value_string(f, "path")).ok_or(DebridError::FileNotFound)?;
+        let file = select_video_file(files, filename, file_index, season, episode, |f| value_string(f, "path")).ok_or(DebridError::FileNotFound)?;
         let url = value_string(file, "link").filter(|v| valid_http_url(v)).ok_or(DebridError::InvalidResponse)?;
         Ok(ResolvedDebridSource { provider: DebridProviderId::Premiumize,
             title: value_string(file, "path").unwrap_or("Premiumize stream").to_owned(), url: url.to_owned(),
@@ -262,6 +265,7 @@ impl DebridManager {
         token: &str,
         magnet: &str,
         filename: Option<&str>,
+        file_index: Option<u32>,
         season: Option<u32>,
         episode: Option<u32>,
     ) -> Result<ResolvedDebridSource, DebridError> {
@@ -281,7 +285,7 @@ impl DebridManager {
         // Select the exact file ID returned by /torrents/info. The links array
         // after selection only contains links for the selected file(s).
         let result = self
-            .resolve_real_debrid_file(token, &id, filename, season, episode)
+            .resolve_real_debrid_file(token, &id, filename, file_index, season, episode)
             .await;
         if result.is_err() {
             let delete_url = format!(
@@ -303,6 +307,7 @@ impl DebridManager {
         token: &str,
         torrent_id: &str,
         filename: Option<&str>,
+        file_index: Option<u32>,
         season: Option<u32>,
         episode: Option<u32>,
     ) -> Result<ResolvedDebridSource, DebridError> {
@@ -315,7 +320,7 @@ impl DebridManager {
             .get("files")
             .and_then(Value::as_array)
             .ok_or(DebridError::InvalidResponse)?;
-        let file = select_video_file(files, filename, season, episode, |value| {
+        let file = select_video_file(files, filename, file_index, season, episode, |value| {
             value_string(value, "path")
         })
         .ok_or(DebridError::FileNotFound)?;
@@ -449,6 +454,7 @@ fn is_nonempty(value: &Value) -> bool {
 fn select_video_file<'a, F>(
     files: &'a [Value],
     filename: Option<&str>,
+    file_index: Option<u32>,
     season: Option<u32>,
     episode: Option<u32>,
     name: F,
@@ -458,36 +464,96 @@ where
 {
     let videos = files
         .iter()
-        .filter(|file| name(file).is_some_and(is_video_name))
+        .filter(|file| {
+            name(file).is_some_and(is_video_name)
+                || value_string(file, "mime_type")
+                    .is_some_and(|mime| mime.to_ascii_lowercase().starts_with("video/"))
+        })
         .collect::<Vec<_>>();
     if videos.is_empty() {
         return None;
     }
 
-    if let (Some(season), Some(episode)) = (season, episode) {
-        let markers = [
-            format!("s{season:02}e{episode:02}"),
-            format!("{season}x{episode:02}"),
-        ];
-        return videos.into_iter().find(|file| {
-            name(file).is_some_and(|value| {
-                let normalized = normalize_file_name(value);
-                markers.iter().any(|marker| normalized.contains(marker))
+    let filename_hint = filename.map(str::trim).filter(|value| !value.is_empty());
+    if let Some(hint) = filename_hint {
+        let requested = normalize_file_path(hint);
+        let requested_name = requested.rsplit('/').next().unwrap_or(&requested);
+        let matches = videos
+            .iter()
+            .filter(|file| {
+                name(file).is_some_and(|value| {
+                    let candidate = normalize_file_path(value);
+                    if requested.contains('/') {
+                        candidate == requested || candidate.ends_with(&format!("/{requested}"))
+                    } else {
+                        candidate.rsplit('/').next() == Some(requested_name)
+                    }
+                })
             })
-        });
-    }
-
-    if let Some(hint) = filename.map(normalize_file_name).filter(|hint| !hint.is_empty()) {
-        if let Some(file) = videos.iter().find(|file| {
-            name(file).is_some_and(|value| normalize_file_name(value).contains(&hint))
-        }) {
-            return Some(*file);
+            .collect::<Vec<_>>();
+        if !matches.is_empty() {
+            return (matches.len() == 1).then(|| *matches[0]);
         }
     }
 
-    videos.into_iter().next()
+    if let (Some(season), Some(episode)) = (season, episode) {
+        let matches = videos
+            .iter()
+            .filter(|file| name(file).is_some_and(|value| episode_matches(value, season, episode)))
+            .collect::<Vec<_>>();
+        if !matches.is_empty() {
+            return (matches.len() == 1).then(|| *matches[0]);
+        }
+    }
+
+    if filename_hint.is_some() || (season.is_some() && episode.is_some()) {
+        return None;
+    }
+
+    if let Some(index) = file_index {
+        return files.get(index as usize).filter(|file| {
+            name(file).is_some_and(is_video_name)
+                || value_string(file, "mime_type")
+                    .is_some_and(|mime| mime.to_ascii_lowercase().starts_with("video/"))
+        });
+    }
+
+    videos.into_iter().max_by_key(|file| {
+        file.get("size")
+            .or_else(|| file.get("bytes"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+    })
 }
-fn normalize_file_name(value: &str) -> String { value.to_ascii_lowercase().chars().filter(|c| c.is_ascii_alphanumeric()).collect() }
+fn normalize_file_path(value: &str) -> String {
+    value.trim().replace('\\', "/").trim_start_matches('/')
+        .chars()
+        .filter(|character| character.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+fn episode_matches(path: &str, season: u32, episode: u32) -> bool {
+    let filename = path.replace('\\', "/");
+    let basename = filename.rsplit('/').next().unwrap_or(&filename);
+    let stem = basename.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(basename);
+    let lower = stem.to_ascii_lowercase();
+    let markers = [
+        format!("s{season:02}e{episode:02}"),
+        format!("s{season}e{episode:02}"),
+        format!("s{season:02}e{episode}"),
+        format!("s{season}e{episode}"),
+        format!("{season}x{episode:02}"),
+        format!("{season}x{episode}"),
+    ];
+    markers.iter().any(|marker| {
+        lower.match_indices(marker).any(|(index, _)| {
+            let before = lower[..index].chars().next_back();
+            let after = lower[index + marker.len()..].chars().next();
+            before.is_none_or(|character| !character.is_ascii_alphanumeric())
+                && after.is_none_or(|character| !character.is_ascii_digit())
+        })
+    })
+}
 fn is_video_name(value: &str) -> bool {
     let value = value.to_ascii_lowercase();
     [".mkv", ".mp4", ".m4v", ".avi", ".mov", ".webm", ".ts", ".m2ts"].iter().any(|suffix| value.ends_with(suffix))
@@ -515,7 +581,7 @@ mod tests {
     #[test]
     fn chooses_episode_file_before_an_unrelated_video() {
         let files = vec![json!({"path":"movie.mkv"}), json!({"path":"Show.S02E03.1080p.mkv"})];
-        let selected = select_video_file(&files, None, Some(2), Some(3), |v| value_string(v, "path"));
+        let selected = select_video_file(&files, None, None, Some(2), Some(3), |v| value_string(v, "path"));
         assert_eq!(value_string(selected.unwrap(), "path"), Some("Show.S02E03.1080p.mkv"));
     }
 
@@ -527,12 +593,70 @@ mod tests {
         ];
         let selected = select_video_file(
             &files,
-            Some("Show S02E03 1080p"),
+            Some("Show.S02E03.1080p.mkv"),
+            None,
             Some(2),
             Some(4),
             |value| value_string(value, "path"),
         );
         assert!(selected.is_none());
+    }
+
+    #[test]
+    fn explicit_filename_precedes_episode_and_file_index_hints() {
+        let files = vec![
+            json!({"id": 90, "path": "Show/Season 1/Episode 02.mkv", "size": 100}),
+            json!({"id": 12, "path": "Show/Season 2/Episode 02.mkv", "size": 500}),
+            json!({"id": 4, "path": "Show.S02E03.1080p.mkv", "size": 900}),
+        ];
+        let selected = select_video_file(
+            &files,
+            Some("Season 2\\Episode 02.mkv"),
+            Some(0),
+            Some(2),
+            Some(3),
+            |value| value_string(value, "path"),
+        );
+        assert_eq!(
+            value_string(selected.unwrap(), "path"),
+            Some("Show/Season 2/Episode 02.mkv")
+        );
+    }
+
+    #[test]
+    fn stremio_file_index_is_a_list_index_not_a_provider_file_id() {
+        let files = vec![
+            json!({"id": 11, "path": "README.txt", "size": 1}),
+            json!({"id": 85, "path": "Show.S01E01.mkv", "size": 500}),
+            json!({"id": 1, "path": "Show.S08E13.mkv", "size": 900}),
+        ];
+        let selected = select_video_file(
+            &files,
+            None,
+            Some(1),
+            None,
+            None,
+            |value| value_string(value, "path"),
+        );
+        assert_eq!(value_string(selected.unwrap(), "path"), Some("Show.S01E01.mkv"));
+    }
+
+    #[test]
+    fn episode_selector_does_not_match_parent_folder_or_similar_number() {
+        let files = vec![
+            json!({"id": 1, "path": "Show.S01E02/Show.S01E20.mkv"}),
+            json!({"id": 2, "path": "Show.1x20.mkv"}),
+            json!({"id": 3, "path": "Show.1x02.mkv"}),
+        ];
+        let selected = select_video_file(
+            &files,
+            None,
+            Some(0),
+            Some(1),
+            Some(2),
+            |value| value_string(value, "path"),
+        );
+        assert_eq!(value_string(selected.unwrap(), "path"), Some("Show.1x02.mkv"));
     }
 
     #[test]
