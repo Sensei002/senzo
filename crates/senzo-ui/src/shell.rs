@@ -12,11 +12,11 @@ use gpui::{
     SharedString, Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div,
     img, point, prelude::*, px, rgb, size,
 };
+use gpui_component::scroll::ScrollableElement;
 use gpui_component::{
     input::{Input, InputEvent, InputState},
     slider::{Slider, SliderEvent, SliderState},
 };
-use gpui_component::scroll::ScrollableElement;
 use senzo_addons::{
     AddonCatalogItem, AddonManager, AddonPreview, AddonStream, AddonSubtitle, ManagedAddon,
 };
@@ -739,7 +739,11 @@ fn parse_addon_extras(raw: &str) -> Result<BTreeMap<String, String>, String> {
 }
 
 fn format_playback_time(seconds: f64) -> String {
-    let total = if seconds.is_finite() { seconds.max(0.0) as u64 } else { 0 };
+    let total = if seconds.is_finite() {
+        seconds.max(0.0) as u64
+    } else {
+        0
+    };
     let hours = total / 3600;
     let minutes = (total % 3600) / 60;
     let remaining = total % 60;
@@ -909,8 +913,7 @@ impl SenzoShell {
             InputState::new(window, cx).placeholder("Search movies, TV shows, and people")
         });
         let subtitle_url_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("https://subtitles.example/subtitle.srt")
+            InputState::new(window, cx).placeholder("https://subtitles.example/subtitle.srt")
         });
         let playback_timeline = cx.new(|_| SliderState::new());
         let playback_timeline_subscription =
@@ -2812,7 +2815,8 @@ impl SenzoShell {
                     Ok(Ok((player, Err(error)))) => {
                         this.mpv_player = Some(player);
                         if this.playback_source_index + 1 < this.playback_sources.len() {
-                            this.playback_error = Some(format!("{error}; trying the next direct source"));
+                            this.playback_error =
+                                Some(format!("{error}; trying the next direct source"));
                             this.try_next_playback_source(cx);
                         } else {
                             this.playback_error = Some(error.to_string());
@@ -3013,15 +3017,16 @@ impl SenzoShell {
         let cancel = CancellationToken::new();
         self.playback_controls_timer = cancel.clone();
         cx.spawn(async move |this, cx| {
-            cx.background_executor()
-                .timer(Duration::from_secs(5))
-                .await;
+            cx.background_executor().timer(Duration::from_secs(5)).await;
             if cancel.is_cancelled() {
                 return;
             }
             let _ = this.update(cx, |this, cx| {
                 if this.playback_open
-                    && !matches!(this.playback_panel, Some(PlayerPanel::Audio | PlayerPanel::Subtitles))
+                    && !matches!(
+                        this.playback_panel,
+                        Some(PlayerPanel::Audio | PlayerPanel::Subtitles)
+                    )
                 {
                     this.playback_controls_visible = false;
                     cx.notify();
@@ -3037,7 +3042,11 @@ impl SenzoShell {
     }
 
     fn retry_playback(&mut self, cx: &mut Context<Self>) {
-        let Some(source) = self.playback_sources.get(self.playback_source_index).cloned() else {
+        let Some(source) = self
+            .playback_sources
+            .get(self.playback_source_index)
+            .cloned()
+        else {
             return;
         };
         self.start_playback_url(source.url, source.headers, cx);
@@ -4610,7 +4619,6 @@ impl SenzoShell {
         panel
     }
 
-
     fn render_player_screen(
         &mut self,
         window: &mut Window,
@@ -4710,10 +4718,12 @@ impl SenzoShell {
                 this.toggle_playback_mute(cx);
                 this.reveal_playback_controls(cx);
             }))
-            .on_action(cx.listener(|this, _: &PlayerToggleFullscreen, _window, cx| {
-                this.toggle_player_fullscreen(cx);
-                this.reveal_playback_controls(cx);
-            }))
+            .on_action(
+                cx.listener(|this, _: &PlayerToggleFullscreen, _window, cx| {
+                    this.toggle_player_fullscreen(cx);
+                    this.reveal_playback_controls(cx);
+                }),
+            )
             .on_action(cx.listener(|this, _: &PlayerCycleResize, _window, cx| {
                 this.cycle_player_resize_mode(cx);
                 this.reveal_playback_controls(cx);
@@ -5004,7 +5014,12 @@ impl SenzoShell {
                             .px_3()
                             .py_2()
                             .on_click(cx.listener(|this, _, _, cx| this.retry_playback(cx)))
-                            .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child("RETRY")),
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(Theme::ACCENT))
+                                    .child("RETRY"),
+                            ),
                     )
                     .child(
                         div()
@@ -5014,8 +5029,15 @@ impl SenzoShell {
                             .bg(rgb(Theme::SURFACE_RAISED))
                             .px_3()
                             .py_2()
-                            .on_click(cx.listener(|this, _, _, cx| this.try_next_playback_source(cx)))
-                            .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child("TRY NEXT SOURCE")),
+                            .on_click(
+                                cx.listener(|this, _, _, cx| this.try_next_playback_source(cx)),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(Theme::TEXT_SECONDARY))
+                                    .child("TRY NEXT SOURCE"),
+                            ),
                     ),
             );
         }
@@ -5038,18 +5060,15 @@ impl SenzoShell {
                         .flex()
                         .items_center()
                         .justify_between()
-                        .child(
-                            div()
-                                .text_lg()
-                                .text_color(rgb(Theme::TEXT_PRIMARY))
-                                .child(match panel {
-                                    PlayerPanel::Audio => "Audio tracks",
-                                    PlayerPanel::Subtitles => "Subtitles",
-                                    PlayerPanel::Chapters => "Chapters",
-                                    PlayerPanel::StreamInfo => "Stream information",
-                                    PlayerPanel::Sources => "Playback sources",
-                                }),
-                        )
+                        .child(div().text_lg().text_color(rgb(Theme::TEXT_PRIMARY)).child(
+                            match panel {
+                                PlayerPanel::Audio => "Audio tracks",
+                                PlayerPanel::Subtitles => "Subtitles",
+                                PlayerPanel::Chapters => "Chapters",
+                                PlayerPanel::StreamInfo => "Stream information",
+                                PlayerPanel::Sources => "Playback sources",
+                            },
+                        ))
                         .child(
                             div()
                                 .id("player-panel-close")
@@ -5062,7 +5081,12 @@ impl SenzoShell {
                                     this.playback_panel = None;
                                     this.reveal_playback_controls(cx);
                                 }))
-                                .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child("CLOSE")),
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(Theme::TEXT_SECONDARY))
+                                        .child("CLOSE"),
+                                ),
                         ),
                 );
 
@@ -5087,22 +5111,43 @@ impl SenzoShell {
                         let label = format!(
                             "{}{}{}",
                             track.language.as_deref().unwrap_or("Unknown language"),
-                            track.title.as_deref().map(|value| format!(" · {value}")).unwrap_or_default(),
-                            track.codec.as_deref().map(|value| format!(" · {value}")).unwrap_or_default()
+                            track
+                                .title
+                                .as_deref()
+                                .map(|value| format!(" · {value}"))
+                                .unwrap_or_default(),
+                            track
+                                .codec
+                                .as_deref()
+                                .map(|value| format!(" · {value}"))
+                                .unwrap_or_default()
                         );
                         body = body.child(
                             div()
                                 .id(format!("player-audio-track-{id}"))
                                 .cursor_pointer()
                                 .rounded_md()
-                                .bg(rgb(if selected { Theme::ACCENT_DARK } else { Theme::SURFACE_RAISED }))
+                                .bg(rgb(if selected {
+                                    Theme::ACCENT_DARK
+                                } else {
+                                    Theme::SURFACE_RAISED
+                                }))
                                 .px_3()
                                 .py_2()
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.select_playback_track(TrackKind::Audio, id, cx);
                                     this.reveal_playback_controls(cx);
                                 }))
-                                .child(div().text_sm().text_color(rgb(if selected { Theme::ACCENT } else { Theme::TEXT_SECONDARY })).child(label)),
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(rgb(if selected {
+                                            Theme::ACCENT
+                                        } else {
+                                            Theme::TEXT_SECONDARY
+                                        }))
+                                        .child(label),
+                                ),
                         );
                     }
                 }
@@ -5115,7 +5160,15 @@ impl SenzoShell {
                     let mut row = div().flex().flex_wrap().items_center().gap_2();
                     let subtitle_actions = [
                         ("player-subtitles-none", "NONE", "none"),
-                        ("subtitle-visible", if self.playback_subtitles_visible { "HIDE" } else { "SHOW" }, "visible"),
+                        (
+                            "subtitle-visible",
+                            if self.playback_subtitles_visible {
+                                "HIDE"
+                            } else {
+                                "SHOW"
+                            },
+                            "visible",
+                        ),
                         ("subtitle-size-down", "A−", "smaller"),
                         ("subtitle-size-up", "A+", "larger"),
                         ("subtitle-delay-down", "DELAY −0.25s", "delay-down"),
@@ -5133,7 +5186,10 @@ impl SenzoShell {
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     match action {
                                         "none" => {
-                                            this.run_player_command(|player| player.select_subtitle_track(None), cx);
+                                            this.run_player_command(
+                                                |player| player.select_subtitle_track(None),
+                                                cx,
+                                            );
                                             this.playback_subtitles_visible = false;
                                         }
                                         "visible" => this.toggle_subtitle_visibility(cx),
@@ -5145,35 +5201,48 @@ impl SenzoShell {
                                     }
                                     this.reveal_playback_controls(cx);
                                 }))
-                                .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child(label)),
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(Theme::TEXT_SECONDARY))
+                                        .child(label),
+                                ),
                         );
                     }
                     body = body.child(row);
-                    body = body.child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(Theme::TEXT_MUTED))
-                            .child(format!(
-                                "Font size {} · subtitle delay {:.2}s",
-                                self.playback_subtitle_font_size,
-                                self.playback_subtitle_delay_seconds
-                            )),
-                    );
+                    body = body.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
+                        format!(
+                            "Font size {} · subtitle delay {:.2}s",
+                            self.playback_subtitle_font_size, self.playback_subtitle_delay_seconds
+                        ),
+                    ));
                     for track in tracks {
                         let id = track.id;
                         let selected = track.selected;
                         let label = format!(
                             "{}{}{}",
                             track.language.as_deref().unwrap_or("Unknown language"),
-                            track.title.as_deref().map(|value| format!(" · {value}")).unwrap_or_default(),
-                            track.codec.as_deref().map(|value| format!(" · {value}")).unwrap_or_default()
+                            track
+                                .title
+                                .as_deref()
+                                .map(|value| format!(" · {value}"))
+                                .unwrap_or_default(),
+                            track
+                                .codec
+                                .as_deref()
+                                .map(|value| format!(" · {value}"))
+                                .unwrap_or_default()
                         );
                         body = body.child(
                             div()
                                 .id(format!("player-subtitle-track-{id}"))
                                 .cursor_pointer()
                                 .rounded_md()
-                                .bg(rgb(if selected { Theme::ACCENT_DARK } else { Theme::SURFACE_RAISED }))
+                                .bg(rgb(if selected {
+                                    Theme::ACCENT_DARK
+                                } else {
+                                    Theme::SURFACE_RAISED
+                                }))
                                 .px_3()
                                 .py_2()
                                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -5181,7 +5250,16 @@ impl SenzoShell {
                                     this.playback_subtitles_visible = true;
                                     this.reveal_playback_controls(cx);
                                 }))
-                                .child(div().text_sm().text_color(rgb(if selected { Theme::ACCENT } else { Theme::TEXT_SECONDARY })).child(label)),
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(rgb(if selected {
+                                            Theme::ACCENT
+                                        } else {
+                                            Theme::TEXT_SECONDARY
+                                        }))
+                                        .child(label),
+                                ),
                         );
                     }
                     for subtitle in self.addon_subtitle_results.iter() {
@@ -5189,7 +5267,10 @@ impl SenzoShell {
                         let label = format!(
                             "ADD-ON · {} · {}",
                             subtitle.language,
-                            subtitle.label.as_deref().unwrap_or(subtitle.mime_type.as_deref().unwrap_or("Subtitle"))
+                            subtitle
+                                .label
+                                .as_deref()
+                                .unwrap_or(subtitle.mime_type.as_deref().unwrap_or("Subtitle"))
                         );
                         let identity = subtitle.id.as_deref().unwrap_or(&subtitle.url).to_owned();
                         body = body.child(
@@ -5203,13 +5284,20 @@ impl SenzoShell {
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     let url = subtitle_url.clone();
                                     this.run_player_command(
-                                        move |player| player.add_external_subtitle(&url, &BTreeMap::new()),
+                                        move |player| {
+                                            player.add_external_subtitle(&url, &BTreeMap::new())
+                                        },
                                         cx,
                                     );
                                     this.playback_subtitles_visible = true;
                                     this.reveal_playback_controls(cx);
                                 }))
-                                .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(label)),
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(rgb(Theme::TEXT_SECONDARY))
+                                        .child(label),
+                                ),
                         );
                     }
                     body = body.child(
@@ -5229,7 +5317,12 @@ impl SenzoShell {
                             .px_3()
                             .py_2()
                             .on_click(cx.listener(|this, _, _, cx| this.add_external_subtitle(cx)))
-                            .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child("ADD HTTP(S) SUBTITLE")),
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(Theme::ACCENT))
+                                    .child("ADD HTTP(S) SUBTITLE"),
+                            ),
                     );
                     body = body.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child("External subtitles can be added from a direct HTTP(S) URL, including an add-on subtitle URL. Appearance controls currently cover size, visibility and timing."));
                 }
@@ -5244,7 +5337,11 @@ impl SenzoShell {
                     }
                     for chapter in &snapshot.chapters {
                         let seconds = chapter.start_seconds;
-                        let label = chapter.title.as_deref().filter(|value| !value.trim().is_empty()).unwrap_or("Chapter");
+                        let label = chapter
+                            .title
+                            .as_deref()
+                            .filter(|value| !value.trim().is_empty())
+                            .unwrap_or("Chapter");
                         body = body.child(
                             div()
                                 .id(format!("player-chapter-{}", chapter.index))
@@ -5258,7 +5355,16 @@ impl SenzoShell {
                                     this.playback_panel = None;
                                     this.reveal_playback_controls(cx);
                                 }))
-                                .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("{} · {}", format_playback_time(seconds), label))),
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(rgb(Theme::TEXT_SECONDARY))
+                                        .child(format!(
+                                            "{} · {}",
+                                            format_playback_time(seconds),
+                                            label
+                                        )),
+                                ),
                         );
                     }
                 }
@@ -5267,24 +5373,82 @@ impl SenzoShell {
                         (Some(width), Some(height)) => format!("{width}×{height}"),
                         _ => "Not available".to_owned(),
                     };
-                    body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("Source: {source_title}")));
-                    body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("Resolution: {resolution}")));
-                    body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("Video codec: {}", snapshot.video_codec.as_deref().unwrap_or("Unknown"))));
-                    body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("Audio codec: {}", snapshot.audio_codec.as_deref().unwrap_or("Unknown"))));
-                    body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!(
-                        "Audio tracks: {} · Subtitle tracks: {}",
-                        snapshot.tracks.iter().filter(|track| track.kind == TrackKind::Audio).count(),
-                        snapshot.tracks.iter().filter(|track| track.kind == TrackKind::Subtitle).count()
-                    )));
+                    body = body.child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child(format!("Source: {source_title}")),
+                    );
+                    body = body.child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child(format!("Resolution: {resolution}")),
+                    );
+                    body = body.child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child(format!(
+                                "Video codec: {}",
+                                snapshot.video_codec.as_deref().unwrap_or("Unknown")
+                            )),
+                    );
+                    body = body.child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child(format!(
+                                "Audio codec: {}",
+                                snapshot.audio_codec.as_deref().unwrap_or("Unknown")
+                            )),
+                    );
+                    body = body.child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child(format!(
+                                "Audio tracks: {} · Subtitle tracks: {}",
+                                snapshot
+                                    .tracks
+                                    .iter()
+                                    .filter(|track| track.kind == TrackKind::Audio)
+                                    .count(),
+                                snapshot
+                                    .tracks
+                                    .iter()
+                                    .filter(|track| track.kind == TrackKind::Subtitle)
+                                    .count()
+                            )),
+                    );
                     if let Some(details) = self.details.as_ref() {
                         if let Some(release) = details.release_date.as_deref() {
-                            body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("Release: {release}")));
+                            body = body.child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(Theme::TEXT_SECONDARY))
+                                    .child(format!("Release: {release}")),
+                            );
                         }
                         if !details.genres.is_empty() {
-                            body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("Genres: {}", details.genres.join(" · "))));
+                            body = body.child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(Theme::TEXT_SECONDARY))
+                                    .child(format!("Genres: {}", details.genres.join(" · "))),
+                            );
                         }
-                        if let Some(overview) = details.overview.as_deref().filter(|value| !value.trim().is_empty()) {
-                            body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(overview.to_owned()));
+                        if let Some(overview) = details
+                            .overview
+                            .as_deref()
+                            .filter(|value| !value.trim().is_empty())
+                        {
+                            body = body.child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(Theme::TEXT_SECONDARY))
+                                    .child(overview.to_owned()),
+                            );
                         }
                         if let Some(rating) = details.rating {
                             body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("Metadata rating: {rating:.1}/10 (not a content-age classification)")));
@@ -5293,11 +5457,16 @@ impl SenzoShell {
                     body = body.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child("Content-age guidance is unavailable from the current metadata contract; SENZO does not infer a parental rating."));
                 }
                 PlayerPanel::Sources => {
-                    body = body.child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!(
-                        "Source {}/{} · {source_title}",
-                        self.playback_source_index + 1,
-                        self.playback_sources.len().max(1)
-                    )));
+                    body = body.child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child(format!(
+                                "Source {}/{} · {source_title}",
+                                self.playback_source_index + 1,
+                                self.playback_sources.len().max(1)
+                            )),
+                    );
                     body = body.child(
                         div()
                             .flex()
@@ -5312,7 +5481,12 @@ impl SenzoShell {
                                     .px_3()
                                     .py_2()
                                     .on_click(cx.listener(|this, _, _, cx| this.retry_playback(cx)))
-                                    .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child("RETRY CURRENT SOURCE")),
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(rgb(Theme::ACCENT))
+                                            .child("RETRY CURRENT SOURCE"),
+                                    ),
                             )
                             .child(
                                 div()
@@ -5322,8 +5496,15 @@ impl SenzoShell {
                                     .bg(rgb(Theme::SURFACE_RAISED))
                                     .px_3()
                                     .py_2()
-                                    .on_click(cx.listener(|this, _, _, cx| this.try_next_playback_source(cx)))
-                                    .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child("TRY NEXT SOURCE")),
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.try_next_playback_source(cx)
+                                    }))
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                                            .child("TRY NEXT SOURCE"),
+                                    ),
                             ),
                     );
                     for (index, source) in self.playback_sources.iter().enumerate() {
@@ -5344,7 +5525,11 @@ impl SenzoShell {
                                 .id(format!("player-source-{index}"))
                                 .cursor_pointer()
                                 .rounded_md()
-                                .bg(rgb(if index == self.playback_source_index { Theme::ACCENT_DARK } else { Theme::SURFACE_RAISED }))
+                                .bg(rgb(if index == self.playback_source_index {
+                                    Theme::ACCENT_DARK
+                                } else {
+                                    Theme::SURFACE_RAISED
+                                }))
                                 .px_3()
                                 .py_2()
                                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -5352,7 +5537,16 @@ impl SenzoShell {
                                     this.start_playback_url(url.clone(), headers.clone(), cx);
                                     this.reveal_playback_controls(cx);
                                 }))
-                                .child(div().text_sm().text_color(rgb(if index == self.playback_source_index { Theme::ACCENT } else { Theme::TEXT_SECONDARY })).child(label)),
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(rgb(if index == self.playback_source_index {
+                                            Theme::ACCENT
+                                        } else {
+                                            Theme::TEXT_SECONDARY
+                                        }))
+                                        .child(label),
+                                ),
                         );
                     }
                 }
@@ -5375,21 +5569,38 @@ impl SenzoShell {
                         .flex()
                         .items_center()
                         .justify_between()
-                        .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(format_playback_time(position)))
-                        .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child("TIMELINE"))
-                        .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(format!("-{}", format_playback_time(remaining)))),
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(Theme::TEXT_MUTED))
+                                .child(format_playback_time(position)),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(Theme::TEXT_MUTED))
+                                .child("TIMELINE"),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(Theme::TEXT_MUTED))
+                                .child(format!("-{}", format_playback_time(remaining))),
+                        ),
                 )
                 .child(
                     div()
                         .id("player-playback-timeline")
-                        .child(
-                            Slider::new(&self.playback_timeline)
-                                .w_full()
-                                .h(px(24.0)),
-                        ),
+                        .child(Slider::new(&self.playback_timeline).w_full().h(px(24.0))),
                 );
 
-            let mut controls = div().w_full().flex().flex_wrap().items_center().justify_center().gap_2();
+            let mut controls = div()
+                .w_full()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .justify_center()
+                .gap_2();
             controls = controls.child(
                 div()
                     .id("player-seek-back")
@@ -5402,7 +5613,12 @@ impl SenzoShell {
                         this.seek_playback(-10.0, cx);
                         this.reveal_playback_controls(cx);
                     }))
-                    .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child("−10s")),
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child("−10s"),
+                    ),
             );
             controls = controls.child(
                 div()
@@ -5416,7 +5632,12 @@ impl SenzoShell {
                         this.toggle_pause_playback(cx);
                         this.reveal_playback_controls(cx);
                     }))
-                    .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child(if is_paused { "PLAY" } else { "PAUSE" })),
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::ACCENT))
+                            .child(if is_paused { "PLAY" } else { "PAUSE" }),
+                    ),
             );
             controls = controls.child(
                 div()
@@ -5430,7 +5651,12 @@ impl SenzoShell {
                         this.seek_playback(10.0, cx);
                         this.reveal_playback_controls(cx);
                     }))
-                    .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child("+10s")),
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child("+10s"),
+                    ),
             );
             controls = controls.child(
                 div()
@@ -5444,7 +5670,12 @@ impl SenzoShell {
                         this.adjust_playback_volume(-5.0, cx);
                         this.reveal_playback_controls(cx);
                     }))
-                    .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child("VOL −")),
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child("VOL −"),
+                    ),
             );
             controls = controls.child(
                 div()
@@ -5458,7 +5689,12 @@ impl SenzoShell {
                         this.adjust_playback_volume(5.0, cx);
                         this.reveal_playback_controls(cx);
                     }))
-                    .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child("VOL +")),
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child("VOL +"),
+                    ),
             );
             controls = controls.child(
                 div()
@@ -5472,7 +5708,12 @@ impl SenzoShell {
                         this.toggle_playback_mute(cx);
                         this.reveal_playback_controls(cx);
                     }))
-                    .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(if snapshot.muted { "UNMUTE" } else { "MUTE" })),
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child(if snapshot.muted { "UNMUTE" } else { "MUTE" }),
+                    ),
             );
             controls = controls.child(
                 div()
@@ -5486,19 +5727,21 @@ impl SenzoShell {
                         this.toggle_playback_speed(cx);
                         this.reveal_playback_controls(cx);
                     }))
-                    .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("{:.2}×", snapshot.speed))),
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child(format!("{:.2}×", snapshot.speed)),
+                    ),
             );
             footer = footer.child(controls);
             root = root.child(footer);
         } else {
-            root = root.child(
-                div()
-                    .w_full()
-                    .flex()
-                    .justify_center()
-                    .p_3()
-                    .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child("Move the pointer or press Space to reveal player controls · Esc to return")),
-            );
+            root = root.child(div().w_full().flex().justify_center().p_3().child(
+                div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
+                    "Move the pointer or press Space to reveal player controls · Esc to return",
+                ),
+            ));
         }
 
         root
@@ -10961,10 +11204,12 @@ impl Render for SenzoShell {
                 this.toggle_playback_mute(cx);
                 this.reveal_playback_controls(cx);
             }))
-            .on_action(cx.listener(|this, _: &PlayerToggleFullscreen, _window, cx| {
-                this.toggle_player_fullscreen(cx);
-                this.reveal_playback_controls(cx);
-            }))
+            .on_action(
+                cx.listener(|this, _: &PlayerToggleFullscreen, _window, cx| {
+                    this.toggle_player_fullscreen(cx);
+                    this.reveal_playback_controls(cx);
+                }),
+            )
             .on_action(cx.listener(|this, _: &PlayerCycleResize, _window, cx| {
                 this.cycle_player_resize_mode(cx);
                 this.reveal_playback_controls(cx);

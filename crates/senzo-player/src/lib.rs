@@ -352,7 +352,11 @@ impl MpvPlayer {
     ) -> Result<(), MpvError> {
         let url = validate_url(url)?;
         let headers = validate_headers(headers)?;
-        self.request(|reply| Command::AddSubtitle { url, headers, reply })
+        self.request(|reply| Command::AddSubtitle {
+            url,
+            headers,
+            reply,
+        })
     }
     pub fn set_subtitle_font_size(&self, size: u32) -> Result<(), MpvError> {
         if !(12..=72).contains(&size) {
@@ -666,7 +670,11 @@ fn process(
             let value = id.map_or_else(|| "no".to_owned(), |v| v.to_string());
             send_reply(api.set(ctx, prop, &value), reply, snapshot, listeners)
         }
-        Command::AddSubtitle { url, headers, reply } => {
+        Command::AddSubtitle {
+            url,
+            headers,
+            reply,
+        } => {
             let value = headers
                 .iter()
                 .map(|(key, value)| format!("{key}: {}", mpv_escape(value)))
