@@ -224,6 +224,9 @@ See docs/PHASE_5_IMPLEMENTATION.md.
 - [x] Implement a single-owner MPV worker, stop acknowledgement and ordered teardown.
 - [x] Wire source replacement and route-navigation stop requests; add a local acceptance command for repeated sessions and clean shutdown.
 - [x] Keep MPV initialization, loading and controls off the GPUI event thread; use a background reaper for final-owner teardown.
+- [x] Add a Linux headless libmpv audiovisual acceptance run with generated media, a virtual X11 display, frame-motion checks and PulseAudio PCM capture.
+
+**Automated AV acceptance:** CI runs `senzo --mpv-headless-test` against a generated seekable HTTP fixture. It verifies the actual libmpv playback/control path, captures the GPU output window through Xvfb, checks that captured frames contain non-black moving video, and checks that the PulseAudio virtual-sink monitor contains non-silent PCM. This strengthens runtime coverage but does not replace physical Windows/Linux monitor and speaker acceptance.
 
 **Current limitation:** GPUI CE 0.2.2 uses its own WGPU render path. SENZO does not yet ship a working shared-GPU render-context bridge from WGPU into libmpv. The implemented fallback lets libmpv own its native output window; it does not render into an inline GPUI rectangle.
 

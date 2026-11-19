@@ -63,6 +63,12 @@ pub struct MpvConfig {
     /// Native parent handle (HWND or X11 XID). None lets libmpv open its own surface.
     pub window_id: Option<u64>,
     pub start_paused: bool,
+    /// Optional libmpv video output override (for example, "gpu" in headless CI).
+    pub video_output: Option<String>,
+    /// Optional libmpv audio output override (for example, "pulse" in headless CI).
+    pub audio_output: Option<String>,
+    /// Optional native output-window visibility override.
+    pub force_window: Option<bool>,
 }
 impl Default for MpvConfig {
     fn default() -> Self {
@@ -70,6 +76,9 @@ impl Default for MpvConfig {
             library_path: env::var_os("SENZO_LIBMPV_PATH").map(PathBuf::from),
             window_id: None,
             start_paused: false,
+            video_output: None,
+            audio_output: None,
+            force_window: None,
         }
     }
 }
@@ -794,8 +803,18 @@ fn options(config: &MpvConfig) -> Vec<(String, String)> {
         ("terminal".into(), "no".into()),
         ("idle".into(), "yes".into()),
         ("keep-open".into(), "no".into()),
-        ("force-window".into(), "no".into()),
-        ("vo".into(), "gpu".into()),
+        (
+            "force-window".into(),
+            if config.force_window.unwrap_or(false) { "yes" } else { "no" }.into(),
+        ),
+        (
+            "vo".into(),
+            config.video_output.clone().unwrap_or_else(|| "gpu".into()),
+        ),
+        (
+            "ao".into(),
+            config.audio_output.clone().unwrap_or_else(|| "auto".into()),
+        ),
         ("hwdec".into(), "auto-safe".into()),
         ("osc".into(), "no".into()),
         ("osd-level".into(), "0".into()),
@@ -1112,11 +1131,25 @@ mod tests {
         assert_eq!(mpv_escape(r"a,b\c"), r"a\,b\\c");
     }
     #[test]
+    fn config_can_select_virtual_video_and_audio_outputs() {
+        let opts = options(&MpvConfig {
+            video_output: Some("gpu".into()),
+            audio_output: Some("pulse".into()),
+            force_window: Some(true),
+            ..MpvConfig::default()
+        });
+        assert!(opts.contains(&("vo".into(), "gpu".into())));
+        assert!(opts.contains(&("ao".into(), "pulse".into())));
+        assert!(opts.contains(&("force-window".into(), "yes".into())));
+    }
+
+    #[test]
     fn config_creates_native_gpu_output_options() {
         let opts = options(&MpvConfig {
             library_path: None,
             window_id: Some(42),
             start_paused: true,
+            ..MpvConfig::default()
         });
         assert!(opts.contains(&("vo".into(), "gpu".into())));
         assert!(opts.contains(&("wid".into(), "42".into())));

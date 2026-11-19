@@ -60,6 +60,18 @@ The command requires two interactive operator confirmations while the first play
 
 The `senzo-player` unit tests cover direct HTTP(S) URLs, unsafe scheme/credentials/fragment rejection, header validation/bounds, control value limits, header escaping and native output options. Full workspace CI also builds and tests the application on Windows and Linux.
 
+## Automated headless audiovisual acceptance
+
+Linux CI has a separate runtime acceptance path using the same `MpvPlayer` owner thread and command/snapshot API as the desktop application:
+
+- It generates a local H.264/AAC test clip with a moving test pattern and a continuous sine-wave audio track; no external media URL or third-party service is involved.
+- A small local HTTP server supports byte-range requests, so the test exercises the same validated HTTP(S) source-loading path and seek behavior as real streams.
+- libmpv uses its GPU video output against an Xvfb display and PulseAudio against a virtual null sink. This keeps the test independent of physical monitors and speakers.
+- CI captures X11 frames while playback is running, then checks that frames contain visible non-black video and change over time. It separately records the virtual sink monitor and checks that decoded PCM contains non-silent samples.
+- The application acceptance mode exercises track selection, pause, seek, resume/progress, volume, mute, speed, source replacement, stop acknowledgement, repeated playback and owner-thread shutdown. It does not auto-answer the physical operator prompts.
+
+The generated clip, captured frames, PCM recording and machine-readable verification report are uploaded as the `senzo-mpv-headless-av` workflow artifact. This is real libmpv playback/render/audio-output-path testing in virtual devices; it does **not** establish that a physical Windows or Linux monitor/speaker works. The original interactive `--mpv-smoke-test` remains the real-desktop acceptance command.
+
 ## Acceptance still required
 
 Phase 9 is not closed until the following are verified on real desktops:

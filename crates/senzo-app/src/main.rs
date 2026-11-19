@@ -208,6 +208,20 @@ fn run() -> anyhow::Result<()> {
     let args = env::args().collect::<Vec<_>>();
     if let Some(index) = args
         .iter()
+        .position(|argument| argument == "--mpv-headless-test")
+    {
+        let url = args
+            .get(index + 1)
+            .context("usage: senzo --mpv-headless-test <direct-http-or-https-media-url>")?;
+        runtime
+            .block_on(run_mpv_headless_test(url))
+            .context("validate MPV playback against virtual video and audio devices")?;
+        drop(services);
+        drop(runtime);
+        return Ok(());
+    }
+    if let Some(index) = args
+        .iter()
         .position(|argument| argument == "--mpv-smoke-test")
     {
         let url = args
@@ -243,7 +257,29 @@ fn run() -> anyhow::Result<()> {
 }
 
 async fn run_mpv_smoke_test(url: &str) -> anyhow::Result<()> {
-    let player = MpvPlayer::spawn(MpvConfig::default())
+    run_mpv_acceptance(url, MpvConfig::default(), true).await
+}
+
+async fn run_mpv_headless_test(url: &str) -> anyhow::Result<()> {
+    run_mpv_acceptance(
+        url,
+        MpvConfig {
+            video_output: Some("gpu".into()),
+            audio_output: Some("pulse".into()),
+            force_window: Some(true),
+            ..MpvConfig::default()
+        },
+        false,
+    )
+    .await
+}
+
+async fn run_mpv_acceptance(
+    url: &str,
+    config: MpvConfig,
+    require_operator_confirmation: bool,
+) -> anyhow::Result<()> {
+    let player = MpvPlayer::spawn(config)
         .context("load the native libmpv runtime; install it or set SENZO_LIBMPV_PATH")?;
     player
         .load(url, &std::collections::BTreeMap::new())
@@ -328,9 +364,13 @@ async fn run_mpv_smoke_test(url: &str) -> anyhow::Result<()> {
         .set_speed(1.0)
         .context("restore normal playback speed")?;
 
-    // The source is actively playing here, so the operator can observe real
-    // frames and listen to the audio output before the session is replaced.
-    confirm_native_av_output()?;
+    // Keep physical confirmation exclusive to the interactive acceptance
+    // command. Headless CI independently inspects captured pixels and PCM.
+    if require_operator_confirmation {
+        confirm_native_av_output()?;
+    } else {
+        println!("PASS  headless playback remains active for virtual display/audio capture");
+    }
 
     // Replace the currently playing source to exercise MPV's single-session
     // replace path, then stop and start it again to exercise repeated sessions.
