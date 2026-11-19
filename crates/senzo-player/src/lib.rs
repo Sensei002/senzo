@@ -705,6 +705,15 @@ fn event_update(
         _ => {}
     }
 }
+fn synchronized_status(state: PlaybackStatus, paused: bool) -> PlaybackStatus {
+    match state {
+        PlaybackStatus::Playing | PlaybackStatus::Paused => {
+            if paused { PlaybackStatus::Paused } else { PlaybackStatus::Playing }
+        }
+        other => other,
+    }
+}
+
 fn update_snapshot(
     api: &Api,
     ctx: *mut c_void,
@@ -716,7 +725,6 @@ fn update_snapshot(
         Ok(v) => v.clone(),
         Err(_) => return,
     };
-    next.status = state;
     next.media_title = api.string(ctx, "media-title");
     next.position_seconds = api
         .double(ctx, "time-pos")
@@ -727,6 +735,7 @@ fn update_snapshot(
     next.volume_percent = api.double(ctx, "volume").unwrap_or(100.0).clamp(0.0, 100.0);
     next.muted = api.flag(ctx, "mute").unwrap_or(false);
     next.paused = api.flag(ctx, "pause").unwrap_or(false);
+    next.status = synchronized_status(state, next.paused);
     next.speed = api.double(ctx, "speed").unwrap_or(1.0).clamp(0.25, 4.0);
     next.video_codec = api.string(ctx, "video-codec");
     next.audio_codec = api.string(ctx, "audio-codec");
@@ -1143,6 +1152,26 @@ mod tests {
         assert_eq!(EV_IDLE, 11);
         assert_eq!(EV_RESTART, 21);
     }
+    #[test]
+    fn snapshots_keep_pause_status_consistent_with_libmpv_property() {
+        assert_eq!(
+            synchronized_status(PlaybackStatus::Playing, true),
+            PlaybackStatus::Paused
+        );
+        assert_eq!(
+            synchronized_status(PlaybackStatus::Paused, false),
+            PlaybackStatus::Playing
+        );
+        assert_eq!(
+            synchronized_status(PlaybackStatus::Loading, true),
+            PlaybackStatus::Loading
+        );
+        assert_eq!(
+            synchronized_status(PlaybackStatus::Stopped, false),
+            PlaybackStatus::Stopped
+        );
+    }
+
     #[test]
     fn request_headers_use_the_runtime_option_property() {
         assert_eq!(HTTP_HEADER_OPTION_PROPERTY, "options/http-header-fields");
