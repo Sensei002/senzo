@@ -1797,6 +1797,57 @@ mod tests {
         assert!(!raw.contains("module.exports"));
     }
 
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn executes_thirty_two_scraper_jobs_without_exceeding_worker_budget() {
+        let settings = Arc::new(MemorySettings::default());
+        let secrets = Arc::new(MemorySecrets::default());
+        let manager = PluginManager::new(settings, secrets, std::env::temp_dir().join("senzo-plugin-concurrency-tests"));
+        let mut state = PluginState::default();
+        state.repositories.push(PluginRepository {
+            manifest_url: "https://fixture.example/manifest.json".into(),
+            name: "Fixture".into(), description: None, author: None, version: "1".into(),
+            scraper_count: 1, last_updated_epoch_ms: 1, last_error: None,
+        });
+        state.scrapers.push(PluginScraper {
+            id: "fixture:parallel".into(),
+            repository_url: "https://fixture.example/manifest.json".into(),
+            name: "Parallel Fixture".into(), description: String::new(), version: "1".into(),
+            filename: "parallel.js".into(), supported_types: vec!["movie".into()],
+            enabled: true, manifest_enabled: true, has_settings: false,
+            logo: None, content_language: Vec::new(), supported_platforms: Vec::new(),
+            disabled_platforms: Vec::new(), formats: Vec::new(),
+            supports_external_player: None, limited: None, network_access_granted: true,
+        });
+        manager.save_state("default", &state).unwrap();
+        manager.write_script("default", "fixture:parallel", r#"
+          module.exports.getStreams = async function() {
+            await Promise.resolve();
+            return [{ title: "Parallel", url: "https://cdn.example/video.mp4" }];
+          };
+        "#).unwrap();
+
+        let input = ScraperInput {
+            tmdb_id: "603".into(), media_type: "movie".into(), season: None, episode: None,
+        };
+        assert_eq!(manager.semaphore.available_permits(), MAX_CONCURRENT_EXECUTIONS);
+        let mut jobs = tokio::task::JoinSet::new();
+        for _ in 0..32 {
+            let manager = manager.clone();
+            let input = input.clone();
+            jobs.spawn(async move { manager.execute_scraper("default", "fixture:parallel", input).await });
+        }
+        let mut completed = 0;
+        while let Some(result) = jobs.join_next().await {
+            let streams = result.unwrap().unwrap();
+            assert_eq!(streams.len(), 1);
+            assert_eq!(streams[0].title, "Parallel");
+            completed += 1;
+        }
+        assert_eq!(completed, 32);
+        assert_eq!(manager.semaphore.available_permits(), MAX_CONCURRENT_EXECUTIONS);
+    }
+
     #[test]
     fn plugin_execution_requires_explicit_network_grant() {
         let settings = Arc::new(MemorySettings::default());
