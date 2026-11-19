@@ -24,7 +24,7 @@ permissions:
 concurrency:
   # Phase 7 close-out uses an isolated queue so stale earlier-phase dependency
   # installation jobs cannot block the current compatibility acceptance run.
-  group: senzo-desktop-phase7-final-verified-${{ github.workflow }}-${{ github.ref }}
+  group: senzo-desktop-phase7-final-diagnostics-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:

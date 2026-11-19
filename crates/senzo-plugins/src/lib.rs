@@ -1875,7 +1875,10 @@ globalThis.fetch = async function(rawUrl, options) {
     request.body = body;
   } else if (body instanceof ArrayBuffer) {
     request.bodyBase64 = __plugin_fetch_bytes_to_base64(new Uint8Array(body));
-  } else if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(body)) {
+  } else if (typeof ArrayBuffer !== 'undefined' && (
+    (typeof ArrayBuffer.isView === 'function' && ArrayBuffer.isView(body)) ||
+    (body && body.buffer instanceof ArrayBuffer && typeof body.byteLength === 'number')
+  )) {
     request.bodyBase64 = __plugin_fetch_bytes_to_base64(
       new Uint8Array(body.buffer, body.byteOffset || 0, body.byteLength)
     );
@@ -2531,13 +2534,13 @@ mod tests {
             false,
         )
         .unwrap();
-        assert!(raw.contains("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
-        assert!(raw.contains("900150983cd24fb0d6963f7d28e17f72"));
-        assert!(raw.contains("f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"));
-        assert!(raw.contains("0c60c80f961f0e71f3a9b524af6012062fe037a6"));
+        assert!(raw.contains("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"), "crypto fixture SHA-256 result: {raw}");
+        assert!(raw.contains("900150983cd24fb0d6963f7d28e17f72"), "crypto fixture MD5 result: {raw}");
+        assert!(raw.contains("f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"), "crypto fixture HMAC result: {raw}");
+        assert!(raw.contains("0c60c80f961f0e71f3a9b524af6012062fe037a6"), "crypto fixture PBKDF2 result: {raw}");
         assert!(raw.contains("SENZO crypto fixture"));
-        assert!(raw.contains(":8:36"));
-        assert!(raw.contains("AES192-GCM fixture"));
+        assert!(raw.contains(":8:36"), "crypto fixture random/UUID result: {raw}");
+        assert!(raw.contains("AES192-GCM fixture"), "crypto fixture AES-GCM result: {raw}");
     }
 
     #[test]
@@ -2584,7 +2587,7 @@ mod tests {
             false,
         )
         .unwrap();
-        assert!(raw.contains("0,1,2,3:AQIDBA==:application/octet-stream"));
+        assert!(raw.contains("0,1,2,3:AQIDBA==:application/octet-stream"), "binary fetch fixture result: {raw}");
     }
 
     #[test]
