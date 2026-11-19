@@ -208,20 +208,6 @@ fn run() -> anyhow::Result<()> {
     let args = env::args().collect::<Vec<_>>();
     if let Some(index) = args
         .iter()
-        .position(|argument| argument == "--mpv-headless-test")
-    {
-        let url = args
-            .get(index + 1)
-            .context("usage: senzo --mpv-headless-test <direct-http-or-https-media-url>")?;
-        runtime
-            .block_on(run_mpv_headless_test(url))
-            .context("validate MPV playback against virtual video and audio devices")?;
-        drop(services);
-        drop(runtime);
-        return Ok(());
-    }
-    if let Some(index) = args
-        .iter()
         .position(|argument| argument == "--mpv-smoke-test")
     {
         let url = args
@@ -258,20 +244,6 @@ fn run() -> anyhow::Result<()> {
 
 async fn run_mpv_smoke_test(url: &str) -> anyhow::Result<()> {
     run_mpv_acceptance(url, MpvConfig::default(), true).await
-}
-
-async fn run_mpv_headless_test(url: &str) -> anyhow::Result<()> {
-    run_mpv_acceptance(
-        url,
-        MpvConfig {
-            video_output: Some("gpu".into()),
-            audio_output: Some("pulse".into()),
-            force_window: Some(true),
-            ..MpvConfig::default()
-        },
-        false,
-    )
-    .await
 }
 
 async fn run_mpv_acceptance(

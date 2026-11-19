@@ -35,7 +35,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err("unexpected extra arguments".into());
     }
 
-    let player = MpvPlayer::spawn(MpvConfig::default())?;
+    let player = MpvPlayer::spawn(MpvConfig {
+        video_output: Some("gpu".into()),
+        audio_output: Some("pulse".into()),
+        force_window: Some(true),
+        ..MpvConfig::default()
+    })?;
     let headers = BTreeMap::new();
 
     println!("Loading first generated HTTP fixture");

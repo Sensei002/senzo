@@ -41,13 +41,14 @@ pactl set-default-sink senzo_headless_sink
 parec --device=senzo_headless_sink.monitor --file-format=wav "$OUT/audio.wav" >"$OUT/parec.log" 2>&1 &
 AUDIO_PID=$!
 
-python3 -m http.server 18765 --bind 127.0.0.1 --directory "$MEDIA" >"$OUT/http.log" 2>&1 &
+python3 scripts/mpv-range-server.py --directory "$MEDIA" --port 18765 >"$OUT/http.log" 2>&1 &
 HTTP_PID=$!
 for _ in $(seq 1 30); do
-  if curl --fail --silent http://127.0.0.1:18765/first.mp4 >/dev/null; then break; fi
+  if curl --fail --silent --head http://127.0.0.1:18765/first.mp4 >/dev/null; then break; fi
   sleep 1
 done
-curl --fail --silent --output /dev/null http://127.0.0.1:18765/first.mp4
+curl --fail --silent --head http://127.0.0.1:18765/first.mp4 >/dev/null
+curl --fail --silent --range 0-1023 --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18765/first.mp4 | grep -qx 206
 
 echo "Capturing the X11 display while SENZO drives libmpv"
 ffmpeg -hide_banner -loglevel warning -y \

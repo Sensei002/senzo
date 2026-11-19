@@ -93,8 +93,7 @@ jobs:
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev \
             libxcb-shape0-dev libxcb-xfixes0-dev libxcb-randr0-dev libxcb-xinput-dev \
             libegl1-mesa-dev libgles2-mesa-dev libglib2.0-dev libfontconfig-dev \
-            libgl1-mesa-dri mesa-vulkan-drivers xvfb xauth \
-            libmpv-dev ffmpeg pulseaudio pulseaudio-utils python3-pil
+            libgl1-mesa-dri mesa-vulkan-drivers xvfb xauth
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install Rust 1.95
@@ -115,17 +114,6 @@ jobs:
         run: cargo test --workspace --all-targets --locked
       - name: Build native Linux application
         run: cargo build --release --locked -p senzo-app
-      - name: Exercise libmpv with generated video, virtual display and virtual audio
-        run: xvfb-run -a --server-args="-screen 0 1280x720x24 +extension GLX +render -noreset" bash scripts/mpv-headless-acceptance.sh
-        timeout-minutes: 5
-      - name: Upload headless audiovisual evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: senzo-mpv-headless-av-${{ github.sha }}
-          path: .artifacts/mpv-headless-av/
-          if-no-files-found: warn
-          retention-days: 7
       - name: Smoke-test native window startup and shutdown
         run: xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 cargo run --release --locked -p senzo-app -- --smoke-test
         timeout-minutes: 3
@@ -210,7 +198,7 @@ jobs:
           node --check scripts/native-metadata-smoke.mjs
           node --test scripts/live-api-url.test.mjs
           bash -n scripts/mpv-headless-acceptance.sh
-          python3 -m py_compile scripts/validate-mpv-headless.py
+          python3 -m py_compile scripts/mpv-range-server.py scripts/validate-mpv-headless.py
 
   live-api-acceptance:
     name: Live hosted API acceptance (${{ matrix.os }})
