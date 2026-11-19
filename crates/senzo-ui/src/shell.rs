@@ -152,6 +152,15 @@ fn current_utc_date() -> String {
     format!("{year:04}-{month:02}-{day:02}")
 }
 
+fn playback_progress_artwork_key(progress: &PlaybackProgress) -> String {
+    format!(
+        "{}:{}:{}",
+        progress.media_id,
+        progress.season_number.unwrap_or(0),
+        progress.episode_number.unwrap_or(0)
+    )
+}
+
 fn current_epoch_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -649,6 +658,8 @@ pub(crate) struct SenzoShell {
     tokio: Handle,
     playback_progress_repository: Arc<dyn PlaybackProgressRepository>,
     home_continue_watching: Vec<PlaybackProgress>,
+    home_continue_watching_artwork: HashMap<String, Arc<RenderImage>>,
+    home_progress_artwork_requested: bool,
     home_up_next: Vec<HomeUpNextCard>,
     home_up_next_loading: bool,
     home_up_next_requested: bool,
@@ -1165,6 +1176,8 @@ impl SenzoShell {
             tokio,
             playback_progress_repository: playback_progress,
             home_continue_watching,
+            home_continue_watching_artwork: HashMap::new(),
+            home_progress_artwork_requested: false,
             home_up_next: Vec::new(),
             home_up_next_loading: false,
             home_up_next_requested: false,
@@ -3019,6 +3032,8 @@ impl SenzoShell {
                 Ok(Ok(entries)) => {
                     let _ = this.update(cx, |this, cx| {
                         this.home_continue_watching = entries;
+                        this.home_progress_artwork_requested = false;
+                        this.load_home_progress_artwork(cx);
                         if refresh_up_next {
                             this.home_up_next_requested = false;
                             this.load_home_up_next(cx);
@@ -3080,6 +3095,8 @@ impl SenzoShell {
                 } else { "Episode marked as watched.".to_owned() });
                 self.home_continue_watching = self.playback_progress_repository
                     .list_continue_watching("default", 20).unwrap_or_default();
+                self.home_progress_artwork_requested = false;
+                self.load_home_progress_artwork(cx);
                 self.home_up_next_requested = false;
                 self.load_home_up_next(cx);
             }
@@ -10598,6 +10615,54 @@ impl SenzoShell {
             )
     }
 
+    fn load_home_progress_artwork(&mut self, cx: &mut Context<Self>) {
+        if self.home_progress_artwork_requested {
+            return;
+        }
+        let requests = self.home_continue_watching.iter()
+            .filter_map(|progress| {
+                let path = progress.still_path.clone()?;
+                let key = playback_progress_artwork_key(progress);
+                (!self.home_continue_watching_artwork.contains_key(&key))
+                    .then_some((key, path))
+            })
+            .collect::<Vec<_>>();
+        if requests.is_empty() {
+            return;
+        }
+        self.home_progress_artwork_requested = true;
+        let artwork = self.artwork.clone();
+        let task = self.tokio.spawn(async move {
+            let mut jobs = JoinSet::new();
+            for (key, path) in requests {
+                let service = artwork.clone();
+                jobs.spawn(async move {
+                    let image = load_gpui_artwork(service, path, ArtworkSize::W780, CancellationToken::new()).await;
+                    (key, image)
+                });
+            }
+            let mut loaded = Vec::new();
+            while let Some(result) = jobs.join_next().await {
+                if let Ok((key, Some(image))) = result {
+                    loaded.push((key, image));
+                }
+            }
+            loaded
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.home_progress_artwork_requested = false;
+                if let Ok(images) = result {
+                    for (key, image) in images {
+                        this.home_continue_watching_artwork.insert(key, image);
+                    }
+                }
+                cx.notify();
+            });
+        }).detach();
+    }
+
     fn load_home_up_next(&mut self, cx: &mut Context<Self>) {
         if self.home_up_next_requested || self.smoke_test {
             return;
@@ -10714,6 +10779,9 @@ impl SenzoShell {
                 position,
                 if entry.duration_ms > 0 { format!(" / {duration}") } else { String::new() }
             );
+            let artwork = self.home_continue_watching_artwork
+                .get(&playback_progress_artwork_key(entry))
+                .cloned();
             cards = cards.child(
                 div()
                     .id(format!("continue-watching-{}", index))
@@ -10725,7 +10793,7 @@ impl SenzoShell {
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.open_continue_watching(progress.clone(), cx);
                     }))
-                    .child(poster_card(&entry.title, &detail, None, false)),
+                    .child(poster_card(&entry.title, &detail, artwork, false)),
             );
         }
         let mut sections = div().w_full().flex().flex_col().gap_5();
@@ -11934,6 +12002,7 @@ impl Drop for SenzoShell {
 impl Render for SenzoShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.smoke_test && self.navigation.current() == AppPage::Home {
+            self.load_home_progress_artwork(cx);
             self.load_home_up_next(cx);
             self.load_home_collection_artwork(cx);
             if self.home_catalogue_status == HomeCatalogueStatus::NotRequested {
