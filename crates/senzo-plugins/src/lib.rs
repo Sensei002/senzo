@@ -932,6 +932,31 @@ fn register_cheerio_bridge(globals: &rquickjs::Object<'_>) -> rquickjs::Result<(
             .unwrap_or_else(|| "__UNDEFINED__".to_owned())
     }))?;
 
+
+
+    let matches_state = state.clone();
+    globals.set("__cheerio_matches", Func::from(move |_doc_id: String, element_id: String, selector: String| -> bool {
+        let node = matches_state.borrow().elements.get(&element_id).cloned();
+        let Some(node) = node else { return false; };
+        node.select(&selector).is_ok_and(|matches| matches.into_iter().any(|element| element.as_node() == &node))
+    }))?;
+
+    let children_state = state.clone();
+    globals.set("__cheerio_children", Func::from(move |doc_id: String, element_id: String| -> String {
+        let node = children_state.borrow().elements.get(&element_id).cloned();
+        let Some(node) = node else { return "[]".to_owned(); };
+        let nodes = node.children().filter(|child| child.as_element().is_some()).collect::<Vec<_>>();
+        serde_json::to_string(&store_dom_elements(&children_state, &doc_id, nodes)).unwrap_or_else(|_| "[]".to_owned())
+    }))?;
+
+    let parent_state = state.clone();
+    globals.set("__cheerio_parent", Func::from(move |doc_id: String, element_id: String| -> String {
+        let node = parent_state.borrow().elements.get(&element_id).cloned();
+        let Some(node) = node else { return "__NONE__".to_owned(); };
+        let Some(parent) = node.parent().filter(|parent| parent.as_element().is_some()) else { return "__NONE__".to_owned(); };
+        store_dom_elements(&parent_state, &doc_id, vec![parent]).into_iter().next().unwrap_or_else(|| "__NONE__".to_owned())
+    }))?;
+
     let next_state = state.clone();
     globals.set("__cheerio_next", Func::from(move |doc_id: String, element_id: String| -> String {
         let node = next_state.borrow().elements.get(&element_id).cloned();
@@ -1378,6 +1403,11 @@ var cheerio = {
           return { length: values.length, get: function(index) { return typeof index === 'number' ? values[index] : values; }, toArray: function() { return values; } };
         },
         filter: function(callback) {
+          if (typeof callback === 'string') {
+            return createCheerioWrapper(ids.filter(function(id) {
+              return __cheerio_matches(docId,id,callback);
+            }));
+          }
           if (typeof callback !== 'function') return wrapper;
           var values = ids.filter(function(id, index) {
             var item = createCheerioWrapper([id]);
@@ -1385,8 +1415,16 @@ var cheerio = {
           });
           return createCheerioWrapper(values);
         },
-        children: function(selector) { return this.find(selector || '*'); },
-        parent: function() { return createCheerioWrapper([]); },
+        children: function(selector) {
+          var found = [];
+          ids.forEach(function(id) { found = found.concat(JSON.parse(__cheerio_children(docId,id))); });
+          var wrapper = createCheerioWrapper(found);
+          return selector ? wrapper.filter(selector) : wrapper;
+        },
+        parent: function() {
+          return createCheerioWrapper(ids.map(function(id) { return __cheerio_parent(docId,id); })
+            .filter(function(id) { return id !== '__NONE__'; }));
+        },
         toArray: function() { return ids.map(function(id) { return createCheerioWrapper([id]); }); }
       };
       return wrapper;
@@ -1682,8 +1720,9 @@ mod tests {
           module.exports.getStreams = async function() {
             var cheerio = require('cheerio');
             var $ = cheerio.load('<div class="result"><a href="https://cdn.example/video.mp4">Movie Source</a></div>');
-            var link = $('.result a').first();
-            return [{ title: link.text(), url: link.attr('href') }];
+            var link = $('.result').children('a').first();
+            var parentClass = link.parent().attr('class');
+            return [{ title: link.text() + ' ' + parentClass, url: link.attr('href') }];
           };
         "#;
         let input = ScraperInput {
@@ -1692,7 +1731,7 @@ mod tests {
         let raw = run_javascript(code, "cheerio-fixture", "{}", input, PluginHttp, Duration::from_secs(2), false).unwrap();
         let streams = parse_streams(&raw, "cheerio-fixture").unwrap();
         assert_eq!(streams.len(), 1);
-        assert_eq!(streams[0].title, "Movie Source");
+        assert_eq!(streams[0].title, "Movie Source result");
         assert_eq!(streams[0].target, StreamTarget::Http("https://cdn.example/video.mp4".to_owned()));
     }
 
