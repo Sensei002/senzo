@@ -973,9 +973,8 @@ fn chapter_skip_target(snapshot: &PlaybackSnapshot) -> Option<(String, f64)> {
         return None;
     }
     let current_index = snapshot.chapters.iter().enumerate()
-        .filter(|(_, chapter)| chapter.start_seconds <= position)
-        .map(|(index, _)| index)
-        .last()?;
+        .rfind(|(_, chapter)| chapter.start_seconds <= position)
+        .map(|(index, _)| index)?;
     let chapter = snapshot.chapters.get(current_index)?;
     let title = chapter.title.as_deref()?.trim().to_ascii_lowercase();
     let label = if title.contains("recap") {
@@ -3106,18 +3105,15 @@ impl SenzoShell {
     }
 
     fn navigate_selected_episode(&mut self, direction: isize, autoplay: bool, cx: &mut Context<Self>) {
+        self.persist_playback_snapshot(true, cx);
+        self.autoplay_next_pending = false;
+        self.autoplay_next_target = None;
         let Some(details) = self.details.as_ref() else { return };
         if details.media_type != MediaType::Tv { return; }
         let Some(current_episode) = details.selected_episode.as_ref() else { return };
         let current_season = current_episode.season_number;
         let current_number = current_episode.episode_number;
         let show_id = details.id;
-        let target_release_date = details.selected_season.as_ref().and_then(|season| {
-            season.episodes.iter()
-                .find(|episode| direction > 0 && episode.episode_number == current_number.saturating_add(1)
-                    || direction < 0 && episode.episode_number.saturating_add(1) == current_number)
-                .and_then(|episode| episode.air_date.clone())
-        });
         let season_summaries = details.seasons.clone();
         let same_season_target = details.selected_season.as_ref().and_then(|season| {
             let mut numbers = season.episodes.iter().map(|episode| episode.episode_number).collect::<Vec<_>>();
@@ -3127,6 +3123,11 @@ impl SenzoShell {
             else { position.checked_sub(1).and_then(|index| numbers.get(index).copied()) }
         });
         if let Some(target_episode) = same_season_target {
+            let target_release_date = details.selected_season.as_ref().and_then(|season| {
+                season.episodes.iter()
+                    .find(|episode| episode.episode_number == target_episode)
+                    .and_then(|episode| episode.air_date.clone())
+            });
             if let Some(date) = target_release_date.as_deref().filter(|date| date.len() >= 10)
                 && date > current_utc_date().as_str()
             {
@@ -3146,7 +3147,7 @@ impl SenzoShell {
         let target_season = if direction > 0 {
             seasons.into_iter().find(|number| *number > current_season)
         } else {
-            seasons.into_iter().filter(|number| *number < current_season).next_back()
+            seasons.into_iter().rfind(|number| *number < current_season)
         };
         let Some(target_season) = target_season else {
             self.notification = Some("There are no more episodes in this direction.".to_owned());
@@ -12483,21 +12484,23 @@ mod tests {
 
     #[test]
     fn named_mpv_chapters_expose_intro_recap_and_credits_skip_targets() {
-        let mut snapshot = PlaybackSnapshot::default();
-        snapshot.position_seconds = Some(12.0);
-        snapshot.duration_seconds = Some(180.0);
-        snapshot.chapters = vec![
-            senzo_player::PlaybackChapter {
-                index: 0,
-                start_seconds: 0.0,
-                title: Some("Intro".to_owned()),
-            },
-            senzo_player::PlaybackChapter {
-                index: 1,
-                start_seconds: 30.0,
-                title: Some("Episode".to_owned()),
-            },
-        ];
+        let mut snapshot = PlaybackSnapshot {
+            position_seconds: Some(12.0),
+            duration_seconds: Some(180.0),
+            chapters: vec![
+                senzo_player::PlaybackChapter {
+                    index: 0,
+                    start_seconds: 0.0,
+                    title: Some("Intro".to_owned()),
+                },
+                senzo_player::PlaybackChapter {
+                    index: 1,
+                    start_seconds: 30.0,
+                    title: Some("Episode".to_owned()),
+                },
+            ],
+            ..Default::default()
+        };
         assert_eq!(
             chapter_skip_target(&snapshot),
             Some(("SKIP INTRO".to_owned(), 30.0))
