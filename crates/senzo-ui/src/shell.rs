@@ -5721,20 +5721,22 @@ impl SenzoShell {
         .detach();
     }
 
-    fn addon_control<F, L>(
+    fn addon_control<F, L, I>(
         &self,
-        id: &str,
+        id: I,
         label: L,
         tab_index: isize,
         on_click: F,
-    ) -> impl IntoElement + use<F, L>
+    ) -> impl IntoElement + use<F, L, I>
     where
         F: Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
         L: Into<SharedString>,
+        I: Into<SharedString>,
     {
+        let id: SharedString = id.into();
         let label: SharedString = label.into();
         div()
-            .id(id.to_owned())
+            .id(id)
             .tab_index(tab_index)
             .rounded_md()
             .border_1()

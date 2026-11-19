@@ -19,9 +19,9 @@ senzo-metadata = { path = "../senzo-metadata" }
 tracing.workspace = true
 senzo-domain = { path = "../senzo-domain" }
 senzo-catalog = { path = "../senzo-catalog" }
+senzo-plugins = { path = "../senzo-plugins" }
 serde_json.workspace = true
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
 senzo-network = { path = "../senzo-network" }
-senzo-plugins = { path = "../senzo-plugins" }

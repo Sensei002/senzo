@@ -928,7 +928,7 @@ fn register_cheerio_bridge(globals: &rquickjs::Object<'_>) -> rquickjs::Result<(
         let state = attr_state.borrow();
         state.elements.get(&element_id)
             .and_then(|node| node.as_element())
-            .and_then(|element| element.attributes.borrow().get(&name).map(str::to_owned))
+            .and_then(|element| element.attributes.borrow().get(name.as_str()).map(str::to_owned))
             .unwrap_or_else(|| "__UNDEFINED__".to_owned())
     }))?;
 

@@ -16,6 +16,7 @@ impl Theme {
     pub const ACCENT: u32 = 0x22D3EE;
     pub const ACCENT_DARK: u32 = 0x12343A;
     pub const WARNING: u32 = 0xFBBF24;
+    pub const SUCCESS: u32 = 0x4ADE80;
     pub const DANGER: u32 = 0xF87171;
     pub const INFO: u32 = 0x60A5FA;
 
