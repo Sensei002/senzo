@@ -9,7 +9,7 @@ use std::{
 
 use async_trait::async_trait;
 use senzo_addons::{AddonManager, AddonStream};
-use senzo_debrid::{DebridManager, DebridProviderId, ResolvedDebridSource};
+use senzo_debrid::{DebridFileHint, DebridManager, DebridProviderId, ResolvedDebridSource};
 use senzo_integrations::MediaServerManager;
 use senzo_plugins::{PluginManager, PluginStream, ScraperInput, StreamTarget as PluginTarget};
 use serde::{Deserialize, Serialize};
@@ -383,10 +383,13 @@ impl SourceAggregator {
             ),
             _ => return Err(SourceError::InvalidRequest("selected source is not a torrent".into())),
         };
-        manager.resolve_magnet(
-            profile_id, provider, &magnet, source.filename_hint.as_deref(),
-            file_index, season, episode,
-        ).await
+        let file_hint = DebridFileHint {
+            filename: source.filename_hint.clone(),
+            file_index,
+            season,
+            episode,
+        };
+        manager.resolve_magnet(profile_id, provider, &magnet, &file_hint).await
             .map_err(|error| SourceError::Provider(error.to_string()))
     }
 

@@ -90,6 +90,14 @@ pub struct DebridAccount {
     pub masked_credential: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DebridFileHint {
+    pub filename: Option<String>,
+    pub file_index: Option<u32>,
+    pub season: Option<u32>,
+    pub episode: Option<u32>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedDebridSource {
     pub provider: DebridProviderId,
@@ -182,22 +190,28 @@ impl DebridManager {
     }
 
     pub async fn resolve_magnet(
-        &self, profile_id: &str, provider: DebridProviderId, magnet: &str,
-        filename_hint: Option<&str>,
-        file_index: Option<u32>,
-        season: Option<u32>,
-        episode: Option<u32>,
+        &self,
+        profile_id: &str,
+        provider: DebridProviderId,
+        magnet: &str,
+        file_hint: &DebridFileHint,
     ) -> Result<ResolvedDebridSource, DebridError> {
         let (hash, normalized) = validate_magnet(magnet)?;
         let token = self.load_token(profile_id, provider)?;
         match provider {
-            DebridProviderId::Torbox => self.resolve_torbox(&token, &hash, &normalized, filename_hint, file_index, season, episode).await,
-            DebridProviderId::Premiumize => self.resolve_premiumize(&token, &normalized, filename_hint, file_index, season, episode).await,
-            DebridProviderId::RealDebrid => self.resolve_real_debrid(&token, &normalized, filename_hint, file_index, season, episode).await,
+            DebridProviderId::Torbox => self.resolve_torbox(&token, &hash, &normalized, file_hint).await,
+            DebridProviderId::Premiumize => self.resolve_premiumize(&token, &normalized, file_hint).await,
+            DebridProviderId::RealDebrid => self.resolve_real_debrid(&token, &normalized, file_hint).await,
         }
     }
 
-    async fn resolve_torbox(&self, token: &str, hash: &str, magnet: &str, filename: Option<&str>, file_index: Option<u32>, season: Option<u32>, episode: Option<u32>) -> Result<ResolvedDebridSource, DebridError> {
+    async fn resolve_torbox(
+        &self,
+        token: &str,
+        hash: &str,
+        magnet: &str,
+        file_hint: &DebridFileHint,
+    ) -> Result<ResolvedDebridSource, DebridError> {
         if self.check_cached_with_token(DebridProviderId::Torbox, token, hash).await? != CacheAvailability::Cached {
             return Err(DebridError::NotCached);
         }
@@ -217,7 +231,7 @@ impl DebridManager {
             let item = payload.get("data").and_then(Value::as_array).and_then(|v| v.first())
                 .or_else(|| payload.get("data").filter(|v| v.is_object())).ok_or(DebridError::InvalidResponse)?;
             let files = item.get("files").and_then(Value::as_array).ok_or(DebridError::InvalidResponse)?;
-            if let Some(file) = select_video_file(files, filename, file_index, season, episode, |f| {
+            if let Some(file) = select_video_file(files, file_hint, |f| {
                 value_string(f, "name").or_else(|| value_string(f, "short_name")).or_else(|| value_string(f, "absolute_path"))
             }) {
                 let file_id = file.get("id").and_then(Value::as_u64).ok_or(DebridError::InvalidResponse)?;
@@ -246,14 +260,19 @@ impl DebridManager {
         Ok(if payload.pointer(&format!("/data/{hash}")).is_some_and(is_nonempty) { CacheAvailability::Cached } else { CacheAvailability::NotCached })
     }
 
-    async fn resolve_premiumize(&self, token: &str, magnet: &str, filename: Option<&str>, file_index: Option<u32>, season: Option<u32>, episode: Option<u32>) -> Result<ResolvedDebridSource, DebridError> {
+    async fn resolve_premiumize(
+        &self,
+        token: &str,
+        magnet: &str,
+        file_hint: &DebridFileHint,
+    ) -> Result<ResolvedDebridSource, DebridError> {
         let response = self.client.post("https://www.premiumize.me/api/transfer/directdl")
             .bearer_auth(token).form(&[("src", magnet)])
             .send().await.map_err(|e| DebridError::Network(e.without_url().to_string()))?;
         let payload = read_json(response).await?;
         if payload.get("status").and_then(Value::as_str) != Some("success") { return Err(DebridError::NotCached); }
         let files = payload.get("content").and_then(Value::as_array).ok_or(DebridError::InvalidResponse)?;
-        let file = select_video_file(files, filename, file_index, season, episode, |f| value_string(f, "path")).ok_or(DebridError::FileNotFound)?;
+        let file = select_video_file(files, file_hint, |f| value_string(f, "path")).ok_or(DebridError::FileNotFound)?;
         let url = value_string(file, "link").filter(|v| valid_http_url(v)).ok_or(DebridError::InvalidResponse)?;
         Ok(ResolvedDebridSource { provider: DebridProviderId::Premiumize,
             title: value_string(file, "path").unwrap_or("Premiumize stream").to_owned(), url: url.to_owned(),
@@ -264,10 +283,7 @@ impl DebridManager {
         &self,
         token: &str,
         magnet: &str,
-        filename: Option<&str>,
-        file_index: Option<u32>,
-        season: Option<u32>,
-        episode: Option<u32>,
+        file_hint: &DebridFileHint,
     ) -> Result<ResolvedDebridSource, DebridError> {
         let response = self
             .client
@@ -285,7 +301,7 @@ impl DebridManager {
         // Select the exact file ID returned by /torrents/info. The links array
         // after selection only contains links for the selected file(s).
         let result = self
-            .resolve_real_debrid_file(token, &id, filename, file_index, season, episode)
+            .resolve_real_debrid_file(token, &id, file_hint)
             .await;
         if result.is_err() {
             let delete_url = format!(
@@ -306,10 +322,7 @@ impl DebridManager {
         &self,
         token: &str,
         torrent_id: &str,
-        filename: Option<&str>,
-        file_index: Option<u32>,
-        season: Option<u32>,
-        episode: Option<u32>,
+        file_hint: &DebridFileHint,
     ) -> Result<ResolvedDebridSource, DebridError> {
         let info_url = format!(
             "https://api.real-debrid.com/rest/1.0/torrents/info/{}",
@@ -320,7 +333,7 @@ impl DebridManager {
             .get("files")
             .and_then(Value::as_array)
             .ok_or(DebridError::InvalidResponse)?;
-        let file = select_video_file(files, filename, file_index, season, episode, |value| {
+        let file = select_video_file(files, file_hint, |value| {
             value_string(value, "path")
         })
         .ok_or(DebridError::FileNotFound)?;
@@ -453,10 +466,7 @@ fn is_nonempty(value: &Value) -> bool {
 
 fn select_video_file<'a, F>(
     files: &'a [Value],
-    filename: Option<&str>,
-    file_index: Option<u32>,
-    season: Option<u32>,
-    episode: Option<u32>,
+    file_hint: &DebridFileHint,
     name: F,
 ) -> Option<&'a Value>
 where
@@ -474,7 +484,7 @@ where
         return None;
     }
 
-    let filename_hint = filename.map(str::trim).filter(|value| !value.is_empty());
+    let filename_hint = file_hint.filename.as_deref().map(str::trim).filter(|value| !value.is_empty());
     if let Some(hint) = filename_hint {
         let requested = normalize_file_path(hint);
         let requested_name = requested.rsplit('/').next().unwrap_or(&requested);
@@ -496,7 +506,7 @@ where
         }
     }
 
-    if let (Some(season), Some(episode)) = (season, episode) {
+    if let (Some(season), Some(episode)) = (file_hint.season, file_hint.episode) {
         let matches = videos
             .iter()
             .filter(|file| name(file).is_some_and(|value| episode_matches(value, season, episode)))
@@ -506,11 +516,11 @@ where
         }
     }
 
-    if filename_hint.is_some() || (season.is_some() && episode.is_some()) {
+    if filename_hint.is_some() || (file_hint.season.is_some() && file_hint.episode.is_some()) {
         return None;
     }
 
-    if let Some(index) = file_index {
+    if let Some(index) = file_hint.file_index {
         return files.get(index as usize).filter(|file| {
             name(file).is_some_and(is_video_name)
                 || value_string(file, "mime_type")
@@ -581,7 +591,7 @@ mod tests {
     #[test]
     fn chooses_episode_file_before_an_unrelated_video() {
         let files = vec![json!({"path":"movie.mkv"}), json!({"path":"Show.S02E03.1080p.mkv"})];
-        let selected = select_video_file(&files, None, None, Some(2), Some(3), |v| value_string(v, "path"));
+        let selected = select_video_file(&files, &DebridFileHint { season: Some(2), episode: Some(3), ..Default::default() }, |v| value_string(v, "path"));
         assert_eq!(value_string(selected.unwrap(), "path"), Some("Show.S02E03.1080p.mkv"));
     }
 
@@ -593,10 +603,7 @@ mod tests {
         ];
         let selected = select_video_file(
             &files,
-            None,
-            None,
-            Some(2),
-            Some(4),
+            &DebridFileHint { season: Some(2), episode: Some(4), ..Default::default() },
             |value| value_string(value, "path"),
         );
         assert!(selected.is_none());
@@ -611,10 +618,12 @@ mod tests {
         ];
         let selected = select_video_file(
             &files,
-            Some("Season 2\\Episode 02.mkv"),
-            Some(0),
-            Some(2),
-            Some(3),
+            &DebridFileHint {
+                filename: Some("Season 2\\Episode 02.mkv".into()),
+                file_index: Some(0),
+                season: Some(2),
+                episode: Some(3),
+            },
             |value| value_string(value, "path"),
         );
         assert_eq!(
@@ -631,10 +640,12 @@ mod tests {
         ];
         let selected = select_video_file(
             &files,
-            Some("A different release name.mkv"),
-            None,
-            Some(2),
-            Some(3),
+            &DebridFileHint {
+                filename: Some("A different release name.mkv".into()),
+                season: Some(2),
+                episode: Some(3),
+                ..Default::default()
+            },
             |value| value_string(value, "path"),
         );
         assert_eq!(
@@ -652,10 +663,7 @@ mod tests {
         ];
         let selected = select_video_file(
             &files,
-            None,
-            Some(1),
-            None,
-            None,
+            &DebridFileHint { file_index: Some(1), ..Default::default() },
             |value| value_string(value, "path"),
         );
         assert_eq!(value_string(selected.unwrap(), "path"), Some("Show.S01E01.mkv"));
@@ -670,10 +678,7 @@ mod tests {
         ];
         let selected = select_video_file(
             &files,
-            None,
-            Some(0),
-            Some(1),
-            Some(2),
+            &DebridFileHint { file_index: Some(0), season: Some(1), episode: Some(2) },
             |value| value_string(value, "path"),
         );
         assert_eq!(value_string(selected.unwrap(), "path"), Some("Show.1x02.mkv"));
