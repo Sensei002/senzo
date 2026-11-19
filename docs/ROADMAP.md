@@ -171,16 +171,18 @@ See docs/PHASE_5_IMPLEMENTATION.md.
 
 ## Phase 7 — Nuvio plugin/scraper runtime
 
-- [ ] Audit Nuvio QuickJS plugin API and compatibility contracts in detail.
-- [ ] Select a Rust QuickJS runtime binding.
-- [ ] Implement plugin repository manifest parsing and management.
-- [ ] Implement sandboxed execution, permission boundaries and resource/time limits.
-- [ ] Implement plugin settings and profile-scoped state.
-- [ ] Implement scraper test/execute workflows.
-- [ ] Map plugin results into the provider-neutral stream model.
-- [ ] Add fixtures and compatibility tests.
+- [x] Audit Nuvio QuickJS plugin API and compatibility contracts in detail.
+- [x] Select a Rust QuickJS runtime binding.
+- [x] Implement plugin repository manifest parsing and management.
+- [x] Implement sandboxed execution, permission boundaries and resource/time limits.
+- [x] Implement plugin settings and profile-scoped state.
+- [x] Implement scraper test/execute workflows.
+- [x] Map plugin results into the provider-neutral stream model.
+- [x] Add fixtures and compatibility tests.
 
-**Gate:** Plugin runtime works independently from Stremio add-ons and cannot block the UI.
+**Gate:** Passed. Native Windows/Linux acceptance, plugin compatibility fixtures, and automation validation are green in [CI run #642](https://github.com/Sensei002/senzo/actions/runs/44477224036). Plugin work runs outside the GPUI render path and remains separate from the Phase 6 Stremio add-on subsystem.
+
+**Implementation report:** [docs/PHASE_7_IMPLEMENTATION.md](PHASE_7_IMPLEMENTATION.md).
 
 ## Phase 8 — Source aggregation and provider integrations
 
