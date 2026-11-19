@@ -103,11 +103,31 @@ enum Command {
 }
 
 /// All libmpv entry points are called by one dedicated thread, never by GPUI.
+#[derive(Clone)]
 pub struct MpvPlayer {
-    tx:Sender<Command>,
-    snapshot:Arc<RwLock<PlaybackSnapshot>>,
-    listeners:Arc<Mutex<Vec<Sender<PlayerEvent>>>>,
-    worker:Option<JoinHandle<()>>,
+    inner: Arc<MpvInner>,
+}
+struct MpvInner {
+    tx: Sender<Command>,
+    snapshot: Arc<RwLock<PlaybackSnapshot>>,
+    listeners: Arc<Mutex<Vec<Sender<PlayerEvent>>>>,
+    worker: Mutex<Option<JoinHandle<()>>>,
+}
+impl Drop for MpvInner {
+    fn drop(&mut self) {
+        let worker = match self.worker.get_mut() {
+            Ok(slot) => slot.take(),
+            Err(poisoned) => poisoned.into_inner().take(),
+        };
+        if let Some(worker) = worker {
+            let _ = self.tx.send(Command::Shutdown(None));
+            // Do not join the native owner on the GPUI thread. Its loop wakes
+            // at least every 40 ms and exits after mpv_terminate_destroy.
+            let _ = thread::Builder::new()
+                .name("senzo-mpv-reaper".into())
+                .spawn(move || { let _ = worker.join(); });
+        }
+    }
 }
 impl MpvPlayer {
     pub fn spawn(config:MpvConfig)->Result<Self,MpvError>{
@@ -120,17 +140,19 @@ impl MpvPlayer {
             .spawn(move||worker_main(config,rx,ready_tx,s,l))
             .map_err(|e|MpvError::WorkerStart(e.to_string()))?;
         match ready_rx.recv_timeout(Duration::from_secs(15)){
-            Ok(Ok(()))=>Ok(Self{tx,snapshot,listeners,worker:Some(worker)}),
+            Ok(Ok(()))=>Ok(Self{inner:Arc::new(MpvInner{
+                tx,snapshot,listeners,worker:Mutex::new(Some(worker))
+            })}),
             Ok(Err(e))=>{let _=worker.join();Err(e)},
             Err(_)=>{drop(tx);let _=worker.join();Err(MpvError::Timeout)}
         }
     }
     pub fn snapshot(&self)->PlaybackSnapshot{
-        self.snapshot.read().map(|s|s.clone()).unwrap_or_default()
+        self.inner.snapshot.read().map(|s|s.clone()).unwrap_or_default()
     }
     pub fn subscribe(&self)->Receiver<PlayerEvent>{
         let (tx,rx)=mpsc::channel();
-        if let Ok(mut v)=self.listeners.lock(){v.push(tx);}
+        if let Ok(mut v)=self.inner.listeners.lock(){v.push(tx);}
         rx
     }
     pub fn load(&self,url:&str,headers:&std::collections::BTreeMap<String,String>)->Result<(),MpvError>{
@@ -167,23 +189,27 @@ impl MpvPlayer {
     }
     fn request(&self,f:impl FnOnce(SyncSender<Result<(),MpvError>>)->Command)->Result<(),MpvError>{
         let (reply,rx)=mpsc::sync_channel(1);
-        self.tx.send(f(reply)).map_err(|_|MpvError::WorkerStopped)?;
+        self.inner.tx.send(f(reply)).map_err(|_|MpvError::WorkerStopped)?;
         rx.recv_timeout(Duration::from_secs(3)).map_err(|_|MpvError::Timeout)?
     }
-    /// Asynchronous stop request for UI navigation and source teardown.
+    /// Queue stop without waiting. Safe to call from a UI callback.
     pub fn request_stop(&self)->Result<(),MpvError>{
-        self.tx.send(Command::Stop(None)).map_err(|_|MpvError::WorkerStopped)
+        self.inner.tx.send(Command::Stop(None)).map_err(|_|MpvError::WorkerStopped)
     }
-    /// Waits for MPV's end-file/idle event, not merely for command dispatch.
+    /// Wait for MPV's end-file/idle acknowledgement. Call from a blocking worker.
     pub fn stop(&self,timeout:Duration)->Result<(),MpvError>{
         let (reply,rx)=mpsc::sync_channel(1);
-        self.tx.send(Command::Stop(Some(reply))).map_err(|_|MpvError::WorkerStopped)?;
+        self.inner.tx.send(Command::Stop(Some(reply))).map_err(|_|MpvError::WorkerStopped)?;
         rx.recv_timeout(timeout).map_err(|_|MpvError::Timeout)?
     }
-    pub fn shutdown(&mut self)->Result<(),MpvError>{
-        let Some(worker)=self.worker.take() else{return Ok(());};
+    pub fn shutdown(&self)->Result<(),MpvError>{
+        let worker={
+            let mut slot=self.inner.worker.lock().map_err(|_|MpvError::WorkerStopped)?;
+            slot.take()
+        };
+        let Some(worker)=worker else{return Ok(());};
         let (reply,rx)=mpsc::sync_channel(1);
-        let send=self.tx.send(Command::Shutdown(Some(reply))).map_err(|_|MpvError::WorkerStopped);
+        let send=self.inner.tx.send(Command::Shutdown(Some(reply))).map_err(|_|MpvError::WorkerStopped);
         let result=match send{
             Ok(())=>match rx.recv_timeout(Duration::from_secs(8)){
                 Ok(result)=>result,
@@ -194,11 +220,6 @@ impl MpvPlayer {
         let joined=worker.join();
         if joined.is_err()&&result.is_ok(){return Err(MpvError::WorkerStopped);}
         result
-    }
-}
-impl Drop for MpvPlayer{
-    fn drop(&mut self){
-        if let Some(worker)=self.worker.take(){let _=self.tx.send(Command::Shutdown(None));let _=worker.join();}
     }
 }
 

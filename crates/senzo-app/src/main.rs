@@ -265,6 +265,11 @@ async fn run_mpv_smoke_test(url:&str)->anyhow::Result<()> {
         snapshot.video_codec.as_deref().unwrap_or("unknown"),
         snapshot.audio_codec.as_deref().unwrap_or("not detected")
     );
+    ensure!(
+        snapshot.audio_codec.is_some()
+            || snapshot.tracks.iter().any(|track| track.kind == TrackKind::Audio),
+        "the test source did not expose an audio track"
+    );
     println!(
         "Tracks: {} audio, {} subtitle",
         snapshot.tracks.iter().filter(|track|track.kind==TrackKind::Audio).count(),
@@ -286,7 +291,7 @@ async fn run_mpv_smoke_test(url:&str)->anyhow::Result<()> {
     let stop=tokio::task::spawn_blocking(move||{
         player.stop(Duration::from_secs(8)).context("wait for MPV stop acknowledgement")?;
         player.shutdown().context("shut down the MPV owner thread")?;
-        anyhow::Ok(())
+        Ok(())
     }).await.context("join the MPV teardown task")?;
     stop?;
     println!("PASS  pause, seek, resume, volume, mute, speed, stop acknowledgement and owner-thread shutdown");

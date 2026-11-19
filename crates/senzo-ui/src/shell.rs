@@ -578,7 +578,9 @@ pub(crate) struct SenzoShell {
     media_server_manager: MediaServerManager,
     source_aggregator: SourceAggregator,
     mpv_player: Option<MpvPlayer>,
+    playback_start_cancel: CancellationToken,
     playback_refresh_cancel: CancellationToken,
+    playback_loading: bool,
     playback_error: Option<String>,
     debrid_provider_input: Entity<InputState>,
     debrid_api_key_input: Entity<InputState>,
@@ -981,7 +983,9 @@ impl SenzoShell {
             media_server_manager,
             source_aggregator,
             mpv_player: None,
+            playback_start_cancel: CancellationToken::new(),
             playback_refresh_cancel: CancellationToken::new(),
+            playback_loading: false,
             playback_error: None,
             plugin_repository_input,
             plugin_settings_input,
@@ -2615,22 +2619,53 @@ impl SenzoShell {
         headers: std::collections::BTreeMap<String, String>,
         cx: &mut Context<Self>,
     ) {
+        if self.playback_loading { return; }
         self.playback_error = None;
-        if self.mpv_player.is_none() {
-            match MpvPlayer::spawn(MpvConfig::default()) {
-                Ok(player) => self.mpv_player = Some(player),
-                Err(error) => {
-                    self.playback_error = Some(error.to_string());
-                    cx.notify();
-                    return;
-                }
-            }
-        }
-
+        self.playback_loading = true;
+        self.playback_start_cancel.cancel();
+        let start_cancel = CancellationToken::new();
+        self.playback_start_cancel = start_cancel.clone();
         self.playback_refresh_cancel.cancel();
-        let refresh_cancel = CancellationToken::new();
-        self.playback_refresh_cancel = refresh_cancel.clone();
-        let background_cancel = refresh_cancel.clone();
+
+        let existing = self.mpv_player.clone();
+        let runtime = self.tokio.clone();
+        cx.notify();
+        let task = runtime.spawn_blocking(move || {
+            let player = match existing {
+                Some(player) => player,
+                None => MpvPlayer::spawn(MpvConfig::default())?,
+            };
+            let loaded = player.load(&url, &headers);
+            Ok::<_, senzo_player::MpvError>((player, loaded))
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if start_cancel.is_cancelled() { return; }
+                this.playback_loading = false;
+                match result {
+                    Ok(Ok((player, Ok(())))) => {
+                        this.mpv_player = Some(player);
+                        this.playback_error = None;
+                        this.start_playback_refresh(cx);
+                    }
+                    Ok(Ok((player, Err(error)))) => {
+                        this.mpv_player = Some(player);
+                        this.playback_error = Some(error.to_string());
+                    }
+                    Ok(Err(error)) => this.playback_error = Some(error.to_string()),
+                    Err(error) => this.playback_error = Some(format!("MPV worker task failed: {error}")),
+                }
+                cx.notify();
+            });
+        }).detach();
+    }
+
+    fn start_playback_refresh(&mut self, cx: &mut Context<Self>) {
+        self.playback_refresh_cancel.cancel();
+        let cancel = CancellationToken::new();
+        self.playback_refresh_cancel = cancel.clone();
+        let background_cancel = cancel.clone();
         let (refresh_tx, mut refresh_rx) = mpsc::unbounded_channel::<()>();
         self.tokio.spawn(async move {
             let mut ticker = tokio::time::interval(Duration::from_millis(250));
@@ -2638,97 +2673,78 @@ impl SenzoShell {
                 tokio::select! {
                     _ = background_cancel.cancelled() => break,
                     _ = ticker.tick() => {
-                        if refresh_tx.send(()).is_err() {
-                            break;
-                        }
+                        if refresh_tx.send(()).is_err() { break; }
                     }
                 }
             }
         });
         cx.spawn(async move |this, cx| {
             while refresh_rx.recv().await.is_some() {
-                if this.update(cx, |_, cx| cx.notify()).is_err() {
-                    break;
-                }
+                if this.update(cx, |_, cx| cx.notify()).is_err() { break; }
             }
         }).detach();
+    }
 
-        if let Some(player) = self.mpv_player.as_ref()
-            && let Err(error) = player.load(&url, &headers)
-        {
-            self.playback_error = Some(error.to_string());
-        }
-        cx.notify();
+    fn run_player_command(
+        &mut self,
+        command: impl FnOnce(MpvPlayer) -> Result<(), senzo_player::MpvError> + Send + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(player) = self.mpv_player.clone() else { return; };
+        let runtime = self.tokio.clone();
+        let task = runtime.spawn_blocking(move || command(player));
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(Ok(())) => this.playback_error = None,
+                    Ok(Err(error)) => this.playback_error = Some(error.to_string()),
+                    Err(error) => this.playback_error = Some(format!("MPV command task failed: {error}")),
+                }
+                cx.notify();
+            });
+        }).detach();
     }
 
     fn toggle_pause_playback(&mut self, cx: &mut Context<Self>) {
-        let result = self.mpv_player.as_ref().map(|player| {
-            if player.snapshot().paused { player.play() } else { player.pause() }
-        });
-        if let Some(Err(error)) = result {
-            self.playback_error = Some(error.to_string());
-        }
-        cx.notify();
+        let Some(paused) = self.mpv_player.as_ref().map(|player| player.snapshot().paused) else { return; };
+        self.run_player_command(move |player| if paused { player.play() } else { player.pause() }, cx);
     }
 
     fn seek_playback(&mut self, seconds: f64, cx: &mut Context<Self>) {
-        if let Some(player) = self.mpv_player.as_ref()
-            && let Err(error) = player.seek_relative(seconds)
-        {
-            self.playback_error = Some(error.to_string());
-        }
-        cx.notify();
+        self.run_player_command(move |player| player.seek_relative(seconds), cx);
     }
 
     fn adjust_playback_volume(&mut self, delta: f64, cx: &mut Context<Self>) {
-        if let Some(player) = self.mpv_player.as_ref() {
-            let volume = (player.snapshot().volume_percent + delta).clamp(0.0, 100.0);
-            if let Err(error) = player.set_volume(volume) {
-                self.playback_error = Some(error.to_string());
-            }
-        }
-        cx.notify();
+        let Some(volume) = self.mpv_player.as_ref().map(|player| player.snapshot().volume_percent) else { return; };
+        let target = (volume + delta).clamp(0.0, 100.0);
+        self.run_player_command(move |player| player.set_volume(target), cx);
     }
 
     fn toggle_playback_mute(&mut self, cx: &mut Context<Self>) {
-        if let Some(player) = self.mpv_player.as_ref() {
-            let muted = player.snapshot().muted;
-            if let Err(error) = player.set_muted(!muted) {
-                self.playback_error = Some(error.to_string());
-            }
-        }
-        cx.notify();
+        let Some(muted) = self.mpv_player.as_ref().map(|player| player.snapshot().muted) else { return; };
+        self.run_player_command(move |player| player.set_muted(!muted), cx);
     }
 
     fn toggle_playback_speed(&mut self, cx: &mut Context<Self>) {
-        if let Some(player) = self.mpv_player.as_ref() {
-            let speed = if (player.snapshot().speed - 1.0).abs() < 0.01 { 1.25 } else { 1.0 };
-            if let Err(error) = player.set_speed(speed) {
-                self.playback_error = Some(error.to_string());
-            }
-        }
-        cx.notify();
+        let Some(speed) = self.mpv_player.as_ref().map(|player| player.snapshot().speed) else { return; };
+        let target = if (speed - 1.0).abs() < 0.01 { 1.25 } else { 1.0 };
+        self.run_player_command(move |player| player.set_speed(target), cx);
     }
 
     fn select_playback_track(&mut self, kind: TrackKind, id: i64, cx: &mut Context<Self>) {
-        if let Some(player) = self.mpv_player.as_ref() {
-            let result = match kind {
-                TrackKind::Audio => player.select_audio_track(Some(id)),
-                TrackKind::Subtitle => player.select_subtitle_track(Some(id)),
-            };
-            if let Err(error) = result {
-                self.playback_error = Some(error.to_string());
-            }
-        }
-        cx.notify();
+        self.run_player_command(move |player| match kind {
+            TrackKind::Audio => player.select_audio_track(Some(id)),
+            TrackKind::Subtitle => player.select_subtitle_track(Some(id)),
+        }, cx);
     }
 
     fn stop_playback(&mut self) {
+        self.playback_start_cancel.cancel();
+        self.playback_loading = false;
         self.playback_refresh_cancel.cancel();
-        if let Some(player) = self.mpv_player.as_ref()
-            && let Err(error) = player.request_stop()
-        {
-            self.playback_error = Some(error.to_string());
+        if let Some(player) = self.mpv_player.as_ref() {
+            let _ = player.request_stop();
         }
     }
 
@@ -4010,6 +4026,9 @@ impl SenzoShell {
                     }))
                     .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child("PLAY RESOLVED SOURCE")),
             );
+        }
+        if self.playback_loading {
+            panel = panel.child(status_panel(StatusTone::Loading, "NATIVE PLAYBACK", "Starting MPV", "Initializing the native playback engine on its dedicated worker thread."));
         }
         if let Some(error) = self.playback_error.as_deref() {
             panel = panel.child(status_panel(StatusTone::Error, "NATIVE PLAYBACK", "Could not start MPV", error));
