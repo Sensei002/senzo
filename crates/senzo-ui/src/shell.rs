@@ -687,9 +687,6 @@ pub(crate) struct SenzoShell {
     page_scroll_offsets: HashMap<AppPage, gpui::Point<gpui::Pixels>>,
     search_input: Entity<InputState>,
     _search_input_subscription: Subscription,
-    subtitle_url_input: Entity<InputState>,
-    playback_timeline: Entity<SliderState>,
-    _playback_timeline_subscription: Subscription,
     search_filter: SearchFilter,
     search_query: String,
     recent_searches: Vec<String>,
@@ -4618,7 +4615,7 @@ impl SenzoShell {
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> gpui::Div {
+    ) -> impl IntoElement {
         let snapshot = self
             .mpv_player
             .as_ref()
@@ -4638,7 +4635,7 @@ impl SenzoShell {
             let current = self.playback_timeline.read(cx).value().end();
             if (current - percent).abs() > 0.5 {
                 let timeline = self.playback_timeline.clone();
-                timeline.update(cx, |state, window, cx| {
+                timeline.update(cx, |state, cx| {
                     state.set_value(percent, window, cx);
                 });
             }
@@ -5028,7 +5025,7 @@ impl SenzoShell {
             let mut body = div()
                 .w_full()
                 .max_h(px(300.0))
-                .overflow_y_scroll()
+                .overflow_y_scrollbar()
                 .bg(rgb(0x11171B))
                 .border_1()
                 .border_color(rgb(Theme::BORDER))
@@ -5382,11 +5379,14 @@ impl SenzoShell {
                         .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(format!("-{}", format_playback_time(remaining)))),
                 )
                 .child(
-                    Slider::new(&self.playback_timeline)
-                        .accessibility_label("Playback timeline")
-                        .tab_index(200)
-                        .w_full()
-                        .h(px(24.0)),
+                    div()
+                        .aria_label("Playback timeline")
+                        .child(
+                            Slider::new(&self.playback_timeline)
+                                .tab_index(200)
+                                .w_full()
+                                .h(px(24.0)),
+                        ),
                 );
 
             let mut controls = div().w_full().flex().flex_wrap().items_center().justify_center().gap_2();
