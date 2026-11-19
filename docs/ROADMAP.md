@@ -186,17 +186,25 @@ See docs/PHASE_5_IMPLEMENTATION.md.
 
 ## Phase 8 — Source aggregation and provider integrations
 
-- [ ] Implement provider-neutral source adapter interface and registry.
-- [ ] Implement concurrent source discovery and result grouping.
-- [ ] Implement stream classification, parsing, headers and external targets.
-- [ ] Implement sorting, filtering, badges and auto-selection policies.
-- [ ] Implement source caching, fallback and retry.
-- [ ] Implement debrid provider capability model and credentials.
-- [ ] Port Torbox, Premiumize and applicable Real-Debrid behavior.
-- [ ] Implement media-server provider connections, matching, catalogs and stream resolution.
-- [ ] Implement source diagnostics and provider isolation.
+**Status: Complete**
 
-**Gate:** Details/episode source lists show accurate results from multiple independent providers.
+- [x] Implement provider-neutral source adapter interface and registry.
+- [x] Implement concurrent source discovery and result grouping.
+- [x] Implement stream classification, parsing, headers and external targets.
+- [x] Implement sorting, filtering, badges and auto-selection policies.
+- [x] Implement source caching, fallback and retry.
+- [x] Implement debrid provider capability model and credentials.
+- [x] Port Torbox, Premiumize and applicable Real-Debrid behavior.
+- [x] Implement media-server provider connections, matching, catalogs and stream resolution.
+- [x] Implement source diagnostics and provider isolation.
+
+**Gate — passed:** The native movie and episode Details workflow is connected to the provider-neutral aggregator. Results from independent adapters are normalized, grouped and rendered in the source list; adapter failures are isolated and reported without discarding successful providers. Automated tests verify aggregation across multiple independent providers and failure isolation.
+
+**Acceptance:** [SENZO Desktop CI #661](https://github.com/Sensei002/senzo/actions/runs/44500080651) passed Windows and Linux native formatting, Clippy, workspace tests, release builds, native startup/shutdown smoke tests, repository automation validation and Cargo.lock housekeeping.
+
+**Implementation report:** [docs/PHASE_8_IMPLEMENTATION.md](PHASE_8_IMPLEMENTATION.md).
+
+**Phase boundary:** Source discovery and debrid resolution prepare normalized direct sources for Phase 9's native MPV playback engine. Actual playback, source handoff, torrent transport and downloads are not Phase 8 deliverables. Live authentication against real third-party accounts is configuration-dependent; CI does not store or use personal provider credentials.
 
 ## Phase 9 — Native MPV playback proof and engine
 
@@ -342,4 +350,4 @@ See docs/PHASE_5_IMPLEMENTATION.md.
 **Gate:** Nuvio desktop parity inventory is closed or every remaining difference is explicitly documented and accepted.
 
 
-**Current sequencing (November 18, 2026):** Phases 0–5 are complete on `development`. Phase 6 is next. Phase 6 owns Stremio add-on catalogue execution, Phase 11 owns playback progress/Continue Watching, Phase 12 owns collection authoring and Library integration, and Phase 18 owns final physical-device/visual release acceptance.
+**Current sequencing (November 19, 2026):** Phases 0–8 are complete on development. Phase 9 is next and owns the visible-video/audible-audio proof and native MPV lifecycle. Phase 10 owns the native player experience; Phase 11 owns TV progress/Continue Watching; Phase 12 owns Library, profiles and sync; Phase 13 owns download/P2P transport; Phase 18 owns final cross-platform packaging, physical-device and visual release acceptance. Stremio add-ons remain user-installed, Nuvio scrapers remain a separate sandboxed runtime, and source aggregation remains separate from playback transport.
