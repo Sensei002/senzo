@@ -535,16 +535,16 @@ struct DetailsPage {
     resolver_error: Option<String>,
 }
 
-struct ShellServices {
-    tokio: Handle,
-    metadata: MetadataClient,
-    artwork: ArtworkService,
-    settings: Arc<dyn SettingsRepository>,
-    addon_manager: AddonManager,
-    plugin_manager: PluginManager,
-    debrid_manager: DebridManager,
-    media_server_manager: MediaServerManager,
-    source_aggregator: SourceAggregator,
+pub struct ShellServices {
+    pub tokio: Handle,
+    pub metadata: MetadataClient,
+    pub artwork: ArtworkService,
+    pub settings: Arc<dyn SettingsRepository>,
+    pub addon_manager: AddonManager,
+    pub plugin_manager: PluginManager,
+    pub debrid_manager: DebridManager,
+    pub media_server_manager: MediaServerManager,
+    pub source_aggregator: SourceAggregator,
 }
 
 pub(crate) struct SenzoShell {
@@ -2574,13 +2574,6 @@ impl SenzoShell {
         cx.notify();
     }
 
-    fn retry_detail_sources(&mut self, cx: &mut Context<Self>) {
-        let Some(details) = self.details.as_ref() else { return; };
-        let season = details.source_season;
-        let episode = details.source_episode;
-        self.load_detail_sources(season, episode, true, cx);
-    }
-
     fn retry_details(&mut self, cx: &mut Context<Self>) {
         let Some(details) = &self.details else {
             return;
@@ -3551,21 +3544,21 @@ impl SenzoShell {
                 if !source.badges.is_empty() {
                     card = card.child(div().text_xs().text_color(rgb(Theme::ACCENT)).child(source.badges.iter().map(|badge| badge.label.as_str()).collect::<Vec<_>>().join(" · ")));
                 }
-                if source.is_torrent() {
-                    if let Ok(accounts) = self.debrid_manager.accounts("default") {
-                        for account in accounts.into_iter().filter(|account| account.configured) {
-                            let provider = account.provider;
-                            let selected_source = source.clone();
-                            card = card.child(
-                                div().id(format!("resolve-{}-{}", source.id, provider.id()))
-                                    .cursor_pointer().rounded_md().bg(rgb(Theme::ACCENT_DARK)).px_2().py_2()
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.resolve_detail_torrent(selected_source.clone(), provider, cx);
-                                    }))
-                                    .child(div().text_xs().text_color(rgb(Theme::ACCENT))
-                                        .child(format!("Resolve with {}", provider.name())))
-                            );
-                        }
+                if source.is_torrent()
+                    && let Ok(accounts) = self.debrid_manager.accounts("default")
+                {
+                    for account in accounts.into_iter().filter(|account| account.configured) {
+                        let provider = account.provider;
+                        let selected_source = source.clone();
+                        card = card.child(
+                            div().id(format!("resolve-{}-{}", source.id, provider.id()))
+                                .cursor_pointer().rounded_md().bg(rgb(Theme::ACCENT_DARK)).px_2().py_2()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.resolve_detail_torrent(selected_source.clone(), provider, cx);
+                                }))
+                                .child(div().text_xs().text_color(rgb(Theme::ACCENT))
+                                    .child(format!("Resolve with {}", provider.name())))
+                        );
                     }
                 }
                 section = section.child(card);
@@ -8909,18 +8902,7 @@ fn bind_shell_keys(cx: &mut App) {
     ]);
 }
 
-pub fn run(
-    tokio: Handle,
-    smoke_test: bool,
-    metadata: MetadataClient,
-    artwork: ArtworkService,
-    settings: Arc<dyn SettingsRepository>,
-    addon_manager: AddonManager,
-    plugin_manager: PluginManager,
-    debrid_manager: DebridManager,
-    media_server_manager: MediaServerManager,
-    source_aggregator: SourceAggregator,
-) {
+pub fn run(services: ShellServices, smoke_test: bool) {
     gpui_platform::application()
         .with_quit_mode(QuitMode::LastWindowClosed)
         .run(move |cx: &mut App| {
@@ -8972,22 +8954,7 @@ pub fn run(
 
             cx.open_window(options, move |window, cx| {
                 let shell = cx.new(|cx| {
-                    SenzoShell::new(
-                        ShellServices {
-                            tokio,
-                            metadata,
-                            artwork,
-                            settings,
-                            addon_manager,
-                            plugin_manager,
-                            debrid_manager,
-                            media_server_manager,
-                            source_aggregator,
-                        },
-                        smoke_test,
-                        window,
-                        cx,
-                    )
+                    SenzoShell::new(services, smoke_test, window, cx)
                 });
                 let initial_focus = shell
                     .read(cx)

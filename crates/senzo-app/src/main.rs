@@ -190,16 +190,18 @@ fn run() -> anyhow::Result<()> {
 
     let smoke_test = env::args().any(|argument| argument == "--smoke-test");
     senzo_ui::run(
-        runtime.handle().clone(),
+        senzo_ui::ShellServices {
+            tokio: runtime.handle().clone(),
+            metadata,
+            artwork,
+            settings: database.clone(),
+            addon_manager,
+            plugin_manager,
+            debrid_manager,
+            media_server_manager,
+            source_aggregator,
+        },
         smoke_test,
-        metadata,
-        artwork,
-        database.clone(),
-        addon_manager,
-        plugin_manager,
-        debrid_manager,
-        media_server_manager,
-        source_aggregator,
     );
 
     drop(services);
