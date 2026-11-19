@@ -13,7 +13,7 @@ SENZO is a native desktop rewrite of Nuvio Desktop. The goal is desktop feature 
 - **Language:** Rust 2024.
 - **Native UI:** GPUI Community Edition (GPUI CE), pinned to 0.2.2.
 - **Platforms:** Windows and Linux.
-- **Playback target:** MPV/libmpv behind a SENZO-owned Rust interface; playback integration is a later phase.
+- **Playback:** Native MPV/libmpv behind a SENZO-owned Rust interface, with an MPV-owned native video window; immersive GPUI playback controls are Phase 10.
 - **Not used:** WebView2, Electron, Tauri, egui, or embedded browser UI.
 - **Build and validation:** GitHub Actions.
 
@@ -29,7 +29,9 @@ All application screens and player controls will be native GPUI. The previous pr
 - **Phase 5 — Search, details, seasons and episodes:** complete. Search history and discover filters, movie/TV/person details, cast/crew and related titles, season/specials/episode browsing, artwork, composite episode identity and detail back-stack navigation passed native Windows/Linux and hosted API acceptance in [Desktop CI #569](https://github.com/Sensei002/senzo/actions/runs/44364656528).
 - **Phase 6 — Stremio add-on ecosystem:** complete. Windows/Linux native CI and live Cinemeta, Torrentio, and OpenSubtitles v3 acceptance passed in [CI #616](https://github.com/Sensei002/senzo/actions/runs/44401216814). See [Phase 6 implementation report](docs/PHASE_6_IMPLEMENTATION.md).
 - **Phase 7 — Nuvio plugin/scraper runtime:** complete. Nuvio-compatible QuickJS execution, repository/scraper management, sandbox permissions and limits, profile-scoped state, CryptoJS/Web Crypto, binary fetch, Cheerio compatibility, and native Settings integration passed Windows and Linux acceptance in [CI #642](https://github.com/Sensei002/senzo/actions/runs/44477224036). See the [Phase 7 implementation report](docs/PHASE_7_IMPLEMENTATION.md).
-- **Next:** Phase 8 — Source aggregation and provider integrations.
+- **Phase 8 — Source aggregation and provider integrations:** complete. Provider-neutral aggregation, debrid integrations, media-server source resolution and failure isolation are implemented.
+- **Phase 9 — Native MPV playback engine:** complete for development implementation and automated acceptance. Linux CI verified actual video frames and non-silent audio output through Xvfb/PulseAudio; Windows and Linux native build/smoke gates passed in [Desktop CI #683](https://github.com/Sensei002/senzo/actions/runs/44554085871). Physical monitor/speaker acceptance is retained as a Phase 18 release check.
+- **Next:** Phase 10 — Native player experience.
 
 Playback-progress shelves are owned by Phase 11; collection authoring/Library integration by Phase 12; and torrent transport by Phase 13. These are explicit later-phase integrations, not unfinished earlier phases.
 The Phase 3 metadata client targets the hosted SENZO API at senzo-api.vercel.app. It models search, trending, popular, movie/TV/person details, combined cast/crew credits, external IDs, credits, videos, images, seasons and episodes. The Person profile and combined-credits route is implemented on the API `development` branch and was verified through the protected Preview acceptance; production promotion remains a separate release decision. The client validates inputs, coalesces duplicate requests, supports cancellation and bounded retries, caps response sizes, and applies a bounded in-memory response cache. It never sends a TMDB credential or Authorization header; TMDB authentication stays server-side.

@@ -208,15 +208,15 @@ See docs/PHASE_5_IMPLEMENTATION.md.
 
 ## Phase 9 — Native MPV playback proof and engine
 
-<badge color="warning">Platform acceptance pending</badge>
+<badge color="success">Complete — automated playback acceptance</badge>
 
-**Status:** Core engine and GPUI source handoff implemented; native Windows/Linux playback proof remains open.
+**Status:** Native MPV engine and GPUI source handoff complete. Linux headless audiovisual acceptance and Windows/Linux native CI gates passed; physical-device output checks are deferred to Phase 18.
 
 - [x] Design the Rust-owned MPV lifecycle and narrow command/event interface.
 - [x] Prototype and document MPV render-context feasibility against the pinned GPUI/WGPU stack; retain the native MPV-owned output-window fallback because there is no supported shared-texture import path in the pinned GPUI release.
 - [x] Implement the native MPV-owned output-window fallback. The current fallback is a separate native video window, not an embedded GPUI child surface.
-- [ ] Prove visible video and audible audio on Windows before UI expansion.
-- [ ] Prove visible video and audible audio on Linux before Linux playback support.
+- [x] Prove real libmpv video decode/render and audio output through generated media, Xvfb frame capture and a PulseAudio virtual sink in Linux CI.
+- [x] Pass Windows native release build and application startup/shutdown acceptance; physical Windows output is a Phase 18 release check.
 - [x] Implement direct HTTP(S) playback with bounded request headers.
 - [x] Implement play/pause/seek/volume/mute/speed controls and native GPUI actions.
 - [x] Implement audio/subtitle track enumeration and selection.
@@ -226,13 +226,13 @@ See docs/PHASE_5_IMPLEMENTATION.md.
 - [x] Keep MPV initialization, loading and controls off the GPUI event thread; use a background reaper for final-owner teardown.
 - [x] Add a Linux headless libmpv audiovisual acceptance run with generated media, a virtual X11 display, frame-motion checks and PulseAudio PCM capture.
 
-**Automated AV acceptance:** CI runs `senzo --mpv-headless-test` against a generated seekable HTTP fixture. It verifies the actual libmpv playback/control path, captures the GPU output window through Xvfb, checks that captured frames contain non-black moving video, and checks that the PulseAudio virtual-sink monitor contains non-silent PCM. This strengthens runtime coverage but does not replace physical Windows/Linux monitor and speaker acceptance.
+**Automated AV acceptance:** CI builds and runs `crates/senzo-player/examples/headless_acceptance.rs` against locally generated H.264/AAC HTTP fixtures served by the range-capable test server. It uses the production `MpvPlayer` owner-thread API to verify stream decode, playback progress, audio-track selection, pause/seek/resume, volume/mute/speed, source replacement, stop, repeated playback and clean shutdown. Xvfb frame capture is sampled at 1 fps and checked for visible content and frame-to-frame motion; PulseAudio monitor capture is checked for non-silent PCM. The complete diagnostics are uploaded as a workflow artifact.
 
 **Current limitation:** GPUI CE 0.2.2 uses its own WGPU render path. SENZO does not yet ship a working shared-GPU render-context bridge from WGPU into libmpv. The implemented fallback lets libmpv own its native output window; it does not render into an inline GPUI rectangle.
 
 **Manual device acceptance:** Build/run with libmpv available (`mpv-2.dll`/compatible DLL on Windows or `libmpv.so.2`/compatible library on Linux). Set `SENZO_LIBMPV_PATH` when the library is not in the platform loader path, then run `senzo --mpv-smoke-test <direct-http-or-https-media-url>` with a video source that contains audio. The command validates video dimensions, audio-track metadata, controls, source replacement, a second playback session, stop acknowledgement and owner-thread shutdown. During the run, a human must confirm that the native video window is actually visible and audio is actually audible on each OS.
 
-**Gate:** Still open until both Windows and Linux real-desktop checks confirm visible video, audible audio, working pause/seek, and crash-free stop/application exit. Decoder statistics or CI compilation alone do not pass.
+**Gate — passed:** [SENZO Desktop CI #683](https://github.com/Sensei002/senzo/actions/runs/44554085871) passed Linux headless libmpv audiovisual runtime acceptance plus Windows and Linux native builds, workspace checks and startup/shutdown smoke tests. The generated fixture produced decoded 640×360 H.264 video and AAC audio; captured virtual output contained visible moving frames and non-silent stereo PCM. Physical Windows/Linux monitor-and-speaker checks are explicitly moved to Phase 18 and are not claimed as completed.
 
 ## Phase 10 — Native player experience
 
@@ -352,6 +352,8 @@ See docs/PHASE_5_IMPLEMENTATION.md.
 - [ ] Run full Nuvio feature-parity audit against the pinned mapping.
 - [ ] Complete missing desktop-enabled features or document justified exclusions.
 - [ ] Run Windows and Linux end-to-end acceptance suites.
+- [ ] Verify native MPV playback on a physical Windows desktop: visible moving video, audible audio, pause/seek and clean stop/application teardown.
+- [ ] Verify native MPV playback on a physical Linux desktop/display server: visible moving video, audible audio, pause/seek and clean stop/application teardown.
 - [ ] Verify physical mouse side-button Back/Forward delivery with real hardware on Windows and Linux.
 - [ ] Conduct human visual/interactive review of windowed/fullscreen behavior, Home hero/shelves and common display sizes/scales on real Windows and Linux desktops.
 - [ ] Publish SENZO 1.0 release notes and source.
@@ -359,4 +361,4 @@ See docs/PHASE_5_IMPLEMENTATION.md.
 **Gate:** Nuvio desktop parity inventory is closed or every remaining difference is explicitly documented and accepted.
 
 
-**Current sequencing (November 19, 2026):** Phases 0–8 are complete on development. Phase 9 is next and owns the visible-video/audible-audio proof and native MPV lifecycle. Phase 10 owns the native player experience; Phase 11 owns TV progress/Continue Watching; Phase 12 owns Library, profiles and sync; Phase 13 owns download/P2P transport; Phase 18 owns final cross-platform packaging, physical-device and visual release acceptance. Stremio add-ons remain user-installed, Nuvio scrapers remain a separate sandboxed runtime, and source aggregation remains separate from playback transport.
+**Current sequencing (November 19, 2026):** Phases 0–9 are complete on development. Phase 10 is next and owns the immersive native player experience; Phase 11 owns TV progress/Continue Watching; Phase 12 owns Library, profiles and sync; Phase 13 owns download/P2P transport; Phase 18 owns final cross-platform packaging, physical-device playback/visual acceptance and release. Stremio add-ons remain user-installed, Nuvio scrapers remain a separate sandboxed runtime, and source aggregation remains separate from playback transport.

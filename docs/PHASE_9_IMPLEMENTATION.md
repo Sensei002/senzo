@@ -1,6 +1,6 @@
 # Phase 9 — Native MPV playback proof and engine
 
-**Status:** Engine and playback acceptance harness implemented; GPUI render-context feasibility prototype documented; physical Windows/Linux audiovisual acceptance pending  
+**Status:** Complete for development implementation and automated audiovisual acceptance. Physical Windows/Linux monitor-and-speaker validation is retained as a Phase 18 release gate.  
 **Branch:** development  
 **Engine commit:** 5f73723765a7592c58862f19377dd58422fcc5ae  
 **Native acceptance harness commit:** 539db0a103564df56198c31f3e8538f5c06b0594  
@@ -67,21 +67,30 @@ Linux CI has a separate runtime acceptance path using the same `MpvPlayer` owner
 - It generates a local H.264/AAC test clip with a moving test pattern and a continuous sine-wave audio track; no external media URL or third-party service is involved.
 - A small local HTTP server supports byte-range requests, so the test exercises the same validated HTTP(S) source-loading path and seek behavior as real streams.
 - libmpv uses its GPU video output against an Xvfb display and PulseAudio against a virtual null sink. This keeps the test independent of physical monitors and speakers.
-- CI captures X11 frames while playback is running, then checks that frames contain visible non-black video and change over time. It separately records the virtual sink monitor and checks that decoded PCM contains non-silent samples.
+- CI captures the X11 display while playback is running, samples frames at 1 fps, and checks that multiple frames contain visible video and that successive visible frames differ (motion threshold). It separately records the virtual sink monitor and checks that decoded PCM contains non-silent samples.
 - The application acceptance mode exercises track selection, pause, seek, resume/progress, volume, mute, speed, source replacement, stop acknowledgement, repeated playback and owner-thread shutdown. It does not auto-answer the physical operator prompts.
 
-The generated clip, captured frames, PCM recording and machine-readable verification report are uploaded as the `senzo-mpv-headless-av` workflow artifact. This is real libmpv playback/render/audio-output-path testing in virtual devices; it does **not** establish that a physical Windows or Linux monitor/speaker works. The original interactive `--mpv-smoke-test` remains the real-desktop acceptance command.
+The generated clips, captured frames, PCM recording and MPV logs are uploaded as the `senzo-mpv-headless-diagnostics` workflow artifact. This is real libmpv decode/render/audio-output-path testing in virtual devices; it does **not** establish that a physical Windows or Linux monitor/speaker works. The original interactive `--mpv-smoke-test` remains available for physical-device acceptance.
 
-## Acceptance still required
+## Phase 9 completion record
 
-Phase 9 is not closed until the following are verified on real desktops:
+**Development gate passed:** November 19, 2026 — [SENZO Desktop CI run #683](https://github.com/Sensei002/senzo/actions/runs/44554085871).
 
-- Visible video and audible audio on a real Windows desktop with the packaged/runtime libmpv build.
-- Visible video and audible audio on a real Linux desktop and the actual display server.
-- Human observation that pause/seek behaves correctly against live media and that the native output window tears down cleanly on each platform.
+The run passed Windows and Linux formatting, Clippy, workspace tests and native release builds. Windows also passed the native application startup/shutdown smoke test. Linux passed the actual libmpv headless audiovisual integration using generated H.264/AAC HTTP fixtures. The player decoded a 640×360 video stream and AAC audio, advanced playback, applied volume/mute/speed, paused, sought and resumed, replaced the source, stopped, started a second session and shut down its owner thread cleanly.
 
-The render-context feasibility prototype is complete and the separate native output window is the selected Phase 9 architecture. It is not an inline GPUI video surface. To close the remaining platform gate, run the native acceptance command on both OSes, observe actual picture and sound, and verify navigation away and application exit leave no MPV window or worker behind. The roadmap intentionally leaves the physical platform checks unchecked until those observations exist.
+The virtual display capture contained a visible moving test pattern. The virtual audio monitor recorded 5.45 seconds of non-silent stereo PCM (44.1 kHz; peak 5,007; RMS 1,453.9). The CI artifact was independently inspected frame-by-frame: 5 of 12 sampled frames contained visible video and the maximum frame-to-frame difference was 3.07. Follow-up CI now enforces this frame-motion check automatically.
 
+**Boundary:** This closes Phase 9's implementation and automated development gate. It does not claim that physical Windows or Linux monitors and speakers have been tested.
+
+## Deferred physical-device validation — Phase 18 release gate
+
+The following checks are intentionally deferred until packaging and release acceptance. They do not block Phase 10:
+
+- Confirm visible moving video and audible audio on a real Windows desktop using the packaged/runtime libmpv build.
+- Confirm visible moving video and audible audio on a real Linux desktop and its actual display server.
+- On both platforms, manually verify pause/seek against live media and that navigation away, stop and application exit leave no MPV window or worker behind.
+
+The render-context feasibility prototype is complete and the separate native output window remains the selected Phase 9 architecture. It is not an inline GPUI video surface. The interactive `--mpv-smoke-test` command remains the manual tool for these Phase 18 checks.
 ## libmpv API compatibility correction
 
 The player now uses libmpv's documented `MPV_EVENT_IDLE = 11` value (rather than `MPV_EVENT_HOOK = 25`) and writes HTTP headers through the documented `options/http-header-fields` runtime option property. Stop completion leaves the snapshot in `Stopped`, including when MPV subsequently emits its idle notification. Regression tests lock the event ID and option-property name.
