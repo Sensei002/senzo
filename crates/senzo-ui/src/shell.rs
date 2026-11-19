@@ -2680,7 +2680,17 @@ impl SenzoShell {
         });
         cx.spawn(async move |this, cx| {
             while refresh_rx.recv().await.is_some() {
-                if this.update(cx, |_, cx| cx.notify()).is_err() { break; }
+                let keep_refreshing = this.update(cx, |this, cx| {
+                    let active = this.mpv_player.as_ref().is_some_and(|player| {
+                        matches!(
+                            player.snapshot().status,
+                            PlaybackStatus::Loading | PlaybackStatus::Playing | PlaybackStatus::Paused
+                        )
+                    });
+                    cx.notify();
+                    active
+                });
+                if !matches!(keep_refreshing, Ok(true)) { break; }
             }
         }).detach();
     }
@@ -4115,7 +4125,11 @@ impl SenzoShell {
             panel = panel.child(
                 div().id("stop-native-playback").cursor_pointer().rounded_md()
                     .bg(rgb(Theme::SURFACE_RAISED)).px_3().py_2()
-                    .on_click(cx.listener(|this, _, _, cx| { this.stop_playback(); cx.notify(); }))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.stop_playback();
+                        this.start_playback_refresh(cx);
+                        cx.notify();
+                    }))
                     .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child("STOP PLAYBACK")),
             );
         }
