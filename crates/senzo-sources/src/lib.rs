@@ -588,7 +588,7 @@ fn plugin_stream_to_source(provider_id: &str, provider_name: &str, index: usize,
 }
 
 fn valid_http_url(raw: &str) -> Option<String> {
-    if raw.len() > 4096 { return None; }
+    if raw.len() > MAX_URL_LENGTH { return None; }
     let url = Url::parse(raw).ok()?;
     if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() || !url.username().is_empty() || url.password().is_some() { return None; }
     Some(url.to_string())
