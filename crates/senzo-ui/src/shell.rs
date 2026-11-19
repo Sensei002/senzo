@@ -3510,7 +3510,7 @@ impl SenzoShell {
             panel = panel.child(status_panel(StatusTone::Error, "DEBRID RESOLUTION FAILED", "Could not resolve this torrent", error));
         }
         if let Some(resolved) = details.resolved_debrid_source.as_ref() {
-            panel = panel.child(status_panel(StatusTone::Success, "DIRECT SOURCE READY",
+            panel = panel.child(status_panel(StatusTone::Info, "DIRECT SOURCE READY",
                 &format!("Resolved by {}", resolved.provider.name()),
                 "The direct URL is prepared and will be handed to the native playback service in its playback phase."));
             panel = panel.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED))

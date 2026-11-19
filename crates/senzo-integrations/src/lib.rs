@@ -183,7 +183,7 @@ impl MediaServerManager {
         let connection = MediaServerConnection {
             id: uuid::Uuid::new_v4().to_string(),
             provider, name: name.trim().to_owned(), address: base.to_string(), remote_server_id: server_id,
-            user_id, user_name, credential_ref, libraries: Vec::new(), enabled: true,
+            user_id: user_id.to_owned(), user_name, credential_ref, libraries: Vec::new(), enabled: true,
         };
         let mut connections = self.list_connections(profile_id)?;
         if connections.len() >= MAX_CONNECTIONS { let _ = self.credentials.delete(&connection.credential_ref); return Err(IntegrationError::Persistence("connection limit reached".into())); }
@@ -281,6 +281,7 @@ impl MediaServerManager {
         parse_catalog_items(&data)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn find_and_resolve(&self, profile_id: &str, media_type: &str, title: &str, year: Option<u16>, tmdb_id: Option<&str>, imdb_id: Option<&str>, season: Option<u32>, episode: Option<u32>) -> Result<Vec<ResolvedServerSource>, IntegrationError> {
         let mut results = Vec::new();
         for connection in self.list_connections(profile_id)?.into_iter().filter(|c| c.enabled) {
@@ -293,6 +294,7 @@ impl MediaServerManager {
         Ok(results)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn find_on_connection(&self, connection: &MediaServerConnection, media_type: &str, title: &str, year: Option<u16>, tmdb_id: Option<&str>, imdb_id: Option<&str>, season: Option<u32>, episode: Option<u32>) -> Result<Option<ResolvedServerSource>, IntegrationError> {
         let libraries = connection.libraries.iter().filter(|lib| lib.selected && lib_matches(lib, media_type)).collect::<Vec<_>>();
         if libraries.is_empty() { return Ok(None); }

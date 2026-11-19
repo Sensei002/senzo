@@ -638,7 +638,7 @@ fn extract_quality(text: &str) -> Option<String> {
 }
 
 fn parse_size_value(value: &Value) -> Option<u64> {
-    value.as_u64().or_else(|| value.as_str().and_then(parse_size_text))
+    value.as_u64().or_else(|| value.as_str().and_then(|text| parse_size_text(Some(text))))
 }
 
 fn parse_size_text(value: Option<&str>) -> Option<u64> {
@@ -708,6 +708,53 @@ mod tests {
         let base = SourceRequest { media_type: "tv".into(), media_id: "tmdb:1:1:1".into(), tmdb_id: Some("1".into()), imdb_id: None, title: "Show".into(), year: None, season: None, episode: Some(1) };
         assert!(base.validate().is_err());
         assert!(SourceRequest { media_type: "movie".into(), season: Some(1), ..base }.validate().is_err());
+    }
+
+    
+    struct StaticAdapter {
+        id: &'static str,
+        name: &'static str,
+        output: Result<AdapterOutput, SourceError>,
+    }
+
+    #[async_trait]
+    impl SourceAdapter for StaticAdapter {
+        fn id(&self) -> &'static str { self.id }
+        fn name(&self) -> &'static str { self.name }
+        async fn discover(&self, _request: &SourceRequest) -> Result<AdapterOutput, SourceError> {
+            self.output.clone()
+        }
+    }
+
+    #[tokio::test]
+    async fn aggregator_collects_independent_providers_and_isolates_failures() {
+        let direct = source(SourceTarget::Http("https://one.example/video.mkv".into()), Some("1080p"), 0);
+        let mut torrent = source(SourceTarget::Torrent {
+            info_hash: "0123456789012345678901234567890123456789".into(),
+            magnet_uri: None,
+            file_index: Some(0),
+        }, Some("2160p"), 40);
+        torrent.provider_id = "second".into();
+        torrent.provider_name = "Second provider".into();
+        let aggregator = SourceAggregator::new(vec![
+            Arc::new(StaticAdapter { id: "first", name: "First provider", output: Ok(AdapterOutput { sources: vec![direct] }) }),
+            Arc::new(StaticAdapter { id: "second", name: "Second provider", output: Ok(AdapterOutput { sources: vec![torrent] }) }),
+            Arc::new(StaticAdapter { id: "offline", name: "Offline provider", output: Err(SourceError::Provider("offline".into())) }),
+        ]);
+        let result = aggregator.discover(SourceRequest {
+            media_type: "movie".into(),
+            media_id: "tt0133093".into(),
+            tmdb_id: Some("603".into()),
+            imdb_id: Some("tt0133093".into()),
+            title: "The Matrix".into(),
+            year: Some(1999),
+            season: None,
+            episode: None,
+        }, false).await.unwrap();
+        assert_eq!(result.total_sources, 2);
+        assert_eq!(result.groups.iter().filter(|group| !group.sources.is_empty()).count(), 2);
+        assert!(result.diagnostics.iter().any(|diagnostic| diagnostic.provider_id == "offline" && diagnostic.error.is_some()));
+        assert!(result.recommended_source_id.is_some());
     }
 
     #[test]
