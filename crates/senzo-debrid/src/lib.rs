@@ -490,20 +490,9 @@ where
 
     let filename_hint = file_hint.filename.as_deref().map(str::trim).filter(|value| !value.is_empty());
     if let Some(hint) = filename_hint {
-        let requested = normalize_file_path(hint);
-        let requested_name = requested.rsplit('/').next().unwrap_or(&requested);
         let matches = videos
             .iter()
-            .filter(|file| {
-                name(file).is_some_and(|value| {
-                    let candidate = normalize_file_path(value);
-                    if requested.contains('/') {
-                        candidate == requested || candidate.ends_with(&format!("/{requested}"))
-                    } else {
-                        candidate.rsplit('/').next() == Some(requested_name)
-                    }
-                })
-            })
+            .filter(|file| name(file).is_some_and(|value| filename_path_matches(value, hint)))
             .collect::<Vec<_>>();
         if !matches.is_empty() {
             return (matches.len() == 1).then(|| *matches[0]);
@@ -539,6 +528,20 @@ where
             .unwrap_or(0)
     })
 }
+fn filename_path_matches(candidate: &str, requested: &str) -> bool {
+    let normalize_components = |path: &str| {
+        path.split(|character| character == '/' || character == '\\')
+            .filter(|component| !component.trim().is_empty())
+            .map(normalize_file_path)
+            .collect::<Vec<_>>()
+    };
+    let candidate = normalize_components(candidate);
+    let requested = normalize_components(requested);
+    !requested.is_empty()
+        && candidate.len() >= requested.len()
+        && candidate.ends_with(&requested)
+}
+
 fn normalize_file_path(value: &str) -> String {
     value.trim().replace('\\', "/").trim_start_matches('/')
         .chars()
