@@ -74,11 +74,11 @@ The generated clips, captured frames, PCM recording and MPV logs are uploaded as
 
 ## Phase 9 completion record
 
-**Development gate passed:** November 19, 2026 — [SENZO Desktop CI run #683](https://github.com/Sensei002/senzo/actions/runs/44554085871).
+**Development gate passed:** November 19, 2026 — [SENZO Desktop CI run #684](https://github.com/Sensei002/senzo/actions/runs/44557774636).
 
 The run passed Windows and Linux formatting, Clippy, workspace tests and native release builds. Windows also passed the native application startup/shutdown smoke test. Linux passed the actual libmpv headless audiovisual integration using generated H.264/AAC HTTP fixtures. The player decoded a 640×360 video stream and AAC audio, advanced playback, applied volume/mute/speed, paused, sought and resumed, replaced the source, stopped, started a second session and shut down its owner thread cleanly.
 
-The virtual display capture contained a visible moving test pattern. The virtual audio monitor recorded 5.45 seconds of non-silent stereo PCM (44.1 kHz; peak 5,007; RMS 1,453.9). The CI artifact was independently inspected frame-by-frame: 5 of 12 sampled frames contained visible video and the maximum frame-to-frame difference was 3.07. Follow-up CI now enforces this frame-motion check automatically.
+The virtual display capture recorded 12 sampled frames, 4 with visible video and a maximum frame-to-frame difference of 3.21. The virtual audio monitor recorded 5.49 seconds of non-silent stereo PCM (44.1 kHz; peak 5,007; RMS 1,451.8). Run #684 enforces both checks automatically.
 
 **Boundary:** This closes Phase 9's implementation and automated development gate. It does not claim that physical Windows or Linux monitors and speakers have been tested.
 
