@@ -112,7 +112,6 @@ struct PlaybackSourceCandidate {
     headers: BTreeMap<String, String>,
     title: String,
     provider_id: String,
-    provider_name: String,
 }
 
 #[derive(Clone)]
@@ -2912,7 +2911,6 @@ impl SenzoShell {
                             headers: source.headers.clone(),
                             title: source.title.clone(),
                             provider_id: source.provider_id.clone(),
-                            provider_name: source.provider_name.clone(),
                         }),
                         _ => None,
                     }).collect::<Vec<_>>()
@@ -2923,7 +2921,6 @@ impl SenzoShell {
                 headers: headers.clone(),
                 title: "Resolved source".to_owned(),
                 provider_id: "resolved".to_owned(),
-                provider_name: "Resolved source".to_owned(),
             });
         }
         self.playback_source_index = sources.iter().position(|source| source.url == url).unwrap_or(0);
