@@ -126,12 +126,12 @@ where
 
     if encrypt {
         if no_padding {
-            if output.len() % 16 != 0 {
+            if !output.len().is_multiple_of(16) {
                 return Err("AES no-padding input must be a multiple of 16 bytes".to_owned());
             }
         } else {
             let padding = 16 - (output.len() % 16);
-            output.extend(std::iter::repeat(padding as u8).take(padding));
+            output.extend(std::iter::repeat_n(padding as u8, padding));
         }
         let mut previous = [0u8; 16];
         if cbc {
@@ -151,7 +151,7 @@ where
             }
         }
     } else {
-        if output.len() % 16 != 0 {
+        if !output.len().is_multiple_of(16) {
             return Err("AES ciphertext must be a multiple of 16 bytes".to_owned());
         }
         let mut previous = [0u8; 16];
@@ -290,7 +290,7 @@ fn decode_base64(value: &str) -> CryptoResult<Vec<u8>> {
         .replace('-', "+")
         .replace('_', "/");
     let padding = (4 - normalized.len() % 4) % 4;
-    normalized.extend(std::iter::repeat('=').take(padding));
+    normalized.extend(std::iter::repeat_n('=', padding));
     STANDARD
         .decode(normalized.as_bytes())
         .map_err(|error| error.to_string())
@@ -396,7 +396,7 @@ fn sign_bytes(algorithm: &str, private_key: &[u8], data: &[u8]) -> CryptoResult<
         _ => {
             let key = RsaKeyPair::from_pkcs8(private_key)
                 .map_err(|_| "Invalid RSA PKCS#8 private key".to_owned())?;
-            let mut output = vec![0u8; key.public_modulus_len()];
+            let mut output = vec![0u8; key.public().modulus_len()];
             key.sign(&RSA_PKCS1_SHA256, &rng, data, &mut output)
                 .map_err(|_| "RSA signing failed".to_owned())?;
             Ok(output)

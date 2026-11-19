@@ -1595,7 +1595,7 @@ fn run_javascript(
         let bridge_call_args_json = input_json;
         globals.set("__get_call_args", Func::from(move || bridge_call_args_json.clone()))?;
         // SENZO keeps its TMDB credential server-side; it is never exposed to untrusted scraper code.
-        globals.set("__get_tmdb_api_key", Func::from(|| String::new()))?;
+        globals.set("__get_tmdb_api_key", Func::from(String::new))?;
         crypto::register_crypto_bridge(&globals)?;
         let fetch_http = http.clone();
         let fetch_deadline = deadline;
