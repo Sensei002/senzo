@@ -712,6 +712,7 @@ impl PluginHttp {
         Ok(response.body)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn request(
         &self,
         initial_url: &Url,
