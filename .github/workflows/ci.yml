@@ -22,9 +22,8 @@ permissions:
   contents: write
 
 concurrency:
-  # Phase 7 close-out uses an isolated queue so stale earlier-phase dependency
-  # installation jobs cannot block the current compatibility acceptance run.
-  group: senzo-desktop-phase7-final-textdecoder-${{ github.workflow }}-${{ github.ref }}
+  # Phase 8 provider acceptance has its own queue, separate from the Phase 7 close-out run.
+  group: senzo-desktop-phase8-source-aggregation-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:

@@ -19,7 +19,7 @@ use senzo_addons::{
 };
 use senzo_debrid::{DebridManager, DebridProviderId, ResolvedDebridSource};
 use senzo_integrations::{MediaServerManager, MediaServerProvider};
-use senzo_sources::{Source, SourceAggregator, SourceDiscoveryResult, SourceRequest, SourceTarget};
+use senzo_sources::{Source, SourceAggregator, SourceDiscoveryResult, SourceRequest, SourceSort, SourceTarget, sort_sources};
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_catalog::{
     BuiltInHomeCatalog as HomeShelfKey, HomeCatalogDefinition, HomeCatalogProviderRegistry,
@@ -525,6 +525,10 @@ struct DetailsPage {
     source_error: Option<String>,
     source_season: Option<u32>,
     source_episode: Option<u32>,
+    source_sort: SourceSort,
+    source_show_direct: bool,
+    source_show_torrents: bool,
+    source_show_external: bool,
     resolved_debrid_source: Option<ResolvedDebridSource>,
     resolver_source_title: Option<String>,
     resolver_loading: bool,
@@ -2093,6 +2097,10 @@ impl SenzoShell {
             source_error: None,
             source_season: None,
             source_episode: None,
+            source_sort: SourceSort::Recommended,
+            source_show_direct: true,
+            source_show_torrents: true,
+            source_show_external: true,
             resolved_debrid_source: None,
             resolver_source_title: None,
             resolver_loading: false,
@@ -3420,6 +3428,25 @@ impl SenzoShell {
         page
     }
 
+    fn set_detail_source_sort(&mut self, sort: SourceSort, cx: &mut Context<Self>) {
+        if let Some(details) = self.details.as_mut() {
+            details.source_sort = sort;
+            cx.notify();
+        }
+    }
+
+    fn set_detail_source_filter(&mut self, filter: &str, enabled: bool, cx: &mut Context<Self>) {
+        if let Some(details) = self.details.as_mut() {
+            match filter {
+                "direct" => details.source_show_direct = enabled,
+                "torrent" => details.source_show_torrents = enabled,
+                "external" => details.source_show_external = enabled,
+                _ => return,
+            }
+            cx.notify();
+        }
+    }
+
     fn render_source_section(&self, details: &DetailsPage, cx: &mut Context<Self>) -> gpui::Div {
         let season = details.source_season;
         let episode = details.source_episode;
@@ -3446,19 +3473,61 @@ impl SenzoShell {
         let count_line = format!("{} source(s) from {} provider group(s){}",
             result.total_sources, result.groups.len(), if result.used_stale_cache { " · showing last successful results" } else { "" });
         panel = panel.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(count_line));
+        let sorts = [
+            (SourceSort::Recommended, "Recommended", "recommended"),
+            (SourceSort::Quality, "Quality", "quality"),
+            (SourceSort::Seeders, "Seeders", "seeders"),
+            (SourceSort::Size, "Size", "size"),
+        ];
+        let mut sort_row = div().flex().flex_wrap().gap_2().items_center()
+            .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child("SORT"));
+        for (sort, label, key) in sorts {
+            let selected = details.source_sort == sort;
+            sort_row = sort_row.child(
+                div().id(format!("source-sort-{key}")).cursor_pointer().rounded_md()
+                    .bg(rgb(if selected { Theme::ACCENT_DARK } else { Theme::SURFACE }))
+                    .px_2().py_1()
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_detail_source_sort(sort, cx)))
+                    .child(div().text_xs().text_color(rgb(if selected { Theme::ACCENT } else { Theme::TEXT_SECONDARY })).child(label))
+            );
+        }
+        panel = panel.child(sort_row);
+        let filter_specs = [
+            ("direct", "Direct", details.source_show_direct),
+            ("torrent", "Torrents", details.source_show_torrents),
+            ("external", "External", details.source_show_external),
+        ];
+        let mut filter_row = div().flex().flex_wrap().gap_2().items_center()
+            .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child("SHOW"));
+        for (key, label, active) in filter_specs {
+            filter_row = filter_row.child(
+                div().id(format!("source-filter-{key}")).cursor_pointer().rounded_md()
+                    .bg(rgb(if active { Theme::ACCENT_DARK } else { Theme::SURFACE }))
+                    .px_2().py_1()
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_detail_source_filter(key, !active, cx)))
+                    .child(div().text_xs().text_color(rgb(if active { Theme::ACCENT } else { Theme::TEXT_MUTED })).child(label))
+            );
+        }
+        panel = panel.child(filter_row);
         if result.groups.is_empty() {
             panel = panel.child(status_panel(StatusTone::Empty, "NO SOURCES FOUND", "No provider returned a playable source", "Check that add-ons and scrapers are enabled, network permission is granted, or a media server is connected."));
         }
         for group in &result.groups {
+            let mut visible_sources = group.sources.iter().filter(|source| {
+                (source.is_direct() && details.source_show_direct) ||
+                (source.is_torrent() && details.source_show_torrents) ||
+                (source.is_external() && details.source_show_external)
+            }).cloned().collect::<Vec<_>>();
+            sort_sources(&mut visible_sources, details.source_sort);
             let mut section = div().w_full().flex().flex_col().gap_2().rounded_md()
                 .border_1().border_color(rgb(Theme::BORDER)).bg(rgb(Theme::SURFACE)).p_3()
                 .child(div().flex().items_center().justify_between()
                     .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(group.provider_name.clone()))
-                    .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(format!("{} source(s)", group.sources.len()))));
+                    .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(format!("{} source(s)", visible_sources.len()))));
             if let Some(error) = group.error.as_deref() {
                 section = section.child(div().text_xs().text_color(rgb(Theme::DANGER)).child(error.to_owned()));
             }
-            for source in &group.sources {
+            for source in &visible_sources {
                 let target = match &source.target {
                     SourceTarget::Http(_) => "DIRECT HTTP",
                     SourceTarget::Torrent { .. } => "TORRENT",
