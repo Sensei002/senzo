@@ -2677,7 +2677,7 @@ impl SenzoShell {
                     }
                 }
             }
-        });
+        }));
         cx.spawn(async move |this, cx| {
             while refresh_rx.recv().await.is_some() {
                 let keep_refreshing = this.update(cx, |this, cx| {
