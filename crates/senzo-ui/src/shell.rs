@@ -4883,6 +4883,7 @@ impl SenzoShell {
         if self.plugin_busy { return; }
         let manager = self.plugin_manager.clone();
         let settings_manager = manager.clone();
+        let settings_scraper_id = scraper_id.clone();
         let runtime = self.tokio.clone();
         self.plugin_busy = true;
         self.plugin_error = None;
@@ -4890,7 +4891,7 @@ impl SenzoShell {
         cx.notify();
         cx.spawn(async move |this, cx| {
             let saved = runtime.spawn_blocking(move || {
-                settings_manager.load_scraper_settings("default", &scraper_id)
+                settings_manager.load_scraper_settings("default", &settings_scraper_id)
             }).await;
             let layout = manager.scraper_settings_layout("default", &scraper_id).await;
             let _ = this.update(cx, |this, cx| {
@@ -4920,12 +4921,13 @@ impl SenzoShell {
         let raw_json = self.plugin_settings_input.read(cx).value().to_string();
         let manager = self.plugin_manager.clone();
         let runtime = self.tokio.clone();
+        let settings_json = raw_json.clone();
         self.plugin_busy = true;
         self.plugin_error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = runtime.spawn_blocking(move || {
-                manager.save_scraper_settings("default", &scraper_id, &raw_json)
+                manager.save_scraper_settings("default", &scraper_id, &settings_json)
             }).await;
             let _ = this.update(cx, |this, cx| {
                 this.plugin_busy = false;
@@ -8290,6 +8292,29 @@ mod tests {
         AddonManager::new(Arc::new(TestAddonStore), Arc::new(TestAddonSecrets))
     }
 
+    #[derive(Default)]
+    struct TestPluginSettings;
+
+    impl senzo_plugins::PluginSettingsStore for TestPluginSettings {
+        fn get(&self, _account: &str) -> Result<Option<String>, String> {
+            Ok(None)
+        }
+        fn set(&self, _account: &str, _value: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn delete(&self, _account: &str) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    fn test_plugin_manager() -> PluginManager {
+        PluginManager::new(
+            Arc::new(TestSettingsRepository),
+            Arc::new(TestPluginSettings),
+            std::env::temp_dir().join("senzo-ui-plugin-test-cache"),
+        )
+    }
+
     impl SettingsRepository for TestSettingsRepository {
         fn get(&self, _key: &SettingKey) -> Result<Option<String>, RepositoryError> {
             Ok(None)
@@ -8714,6 +8739,7 @@ mod tests {
                     artwork,
                     settings: Arc::new(TestSettingsRepository),
                     addon_manager: test_addon_manager(),
+                    plugin_manager: test_plugin_manager(),
                 },
                 true,
                 window,
