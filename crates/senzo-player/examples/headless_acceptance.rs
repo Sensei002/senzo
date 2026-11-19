@@ -39,6 +39,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         video_output: Some("gpu".into()),
         audio_output: Some("pulse".into()),
         force_window: Some(true),
+        gpu_api: Some("opengl".into()),
+        gpu_context: Some("x11egl".into()),
         ..MpvConfig::default()
     })?;
     let headers = BTreeMap::new();

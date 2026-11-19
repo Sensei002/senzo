@@ -69,6 +69,10 @@ pub struct MpvConfig {
     pub audio_output: Option<String>,
     /// Optional native output-window visibility override.
     pub force_window: Option<bool>,
+    /// Optional renderer API override (for headless CI, use "opengl").
+    pub gpu_api: Option<String>,
+    /// Optional platform GPU context override (for Xvfb, use "x11egl").
+    pub gpu_context: Option<String>,
 }
 impl Default for MpvConfig {
     fn default() -> Self {
@@ -79,6 +83,8 @@ impl Default for MpvConfig {
             video_output: None,
             audio_output: None,
             force_window: None,
+            gpu_api: None,
+            gpu_context: None,
         }
     }
 }
@@ -824,6 +830,12 @@ fn options(config: &MpvConfig) -> Vec<(String, String)> {
     if let Some(id) = config.window_id {
         v.push(("wid".into(), id.to_string()));
     }
+    if let Some(api) = &config.gpu_api {
+        v.push(("gpu-api".into(), api.clone()));
+    }
+    if let Some(context) = &config.gpu_context {
+        v.push(("gpu-context".into(), context.clone()));
+    }
     if config.start_paused {
         v.push(("pause".into(), "yes".into()));
     }
@@ -1145,11 +1157,15 @@ mod tests {
             video_output: Some("gpu".into()),
             audio_output: Some("pulse".into()),
             force_window: Some(true),
+            gpu_api: Some("opengl".into()),
+            gpu_context: Some("x11egl".into()),
             ..MpvConfig::default()
         });
         assert!(opts.contains(&("vo".into(), "gpu".into())));
         assert!(opts.contains(&("ao".into(), "pulse".into())));
         assert!(opts.contains(&("force-window".into(), "yes".into())));
+        assert!(opts.contains(&("gpu-api".into(), "opengl".into())));
+        assert!(opts.contains(&("gpu-context".into(), "x11egl".into())));
     }
 
     #[test]
