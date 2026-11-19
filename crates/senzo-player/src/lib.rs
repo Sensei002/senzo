@@ -1315,7 +1315,7 @@ mod tests {
         let valid = env::temp_dir().join("senzo-frame.png");
         assert_eq!(
             validate_screenshot_path(&valid).unwrap(),
-            valid.to_string_lossy()
+            valid.to_string_lossy().into_owned()
         );
         let invalid = env::temp_dir().join("bad\nframe.png");
         assert!(validate_screenshot_path(&invalid).is_err());
