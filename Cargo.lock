@@ -6643,12 +6643,19 @@ dependencies = [
 name = "senzo-plugins"
 version = "0.1.0"
 dependencies = [
+ "aes",
+ "base64 0.22.1",
+ "hmac",
  "kuchiki",
+ "md-5",
+ "pbkdf2",
  "reqwest",
+ "ring",
  "rquickjs",
  "senzo-domain",
  "serde",
  "serde_json",
+ "sha1",
  "sha2 0.10.9",
  "thiserror 2.0.21",
  "tokio",

@@ -9,9 +9,9 @@ use pbkdf2::pbkdf2_hmac;
 use ring::{
     rand::{SecureRandom, SystemRandom},
     signature::{
-        ECDSA_P256_SHA256_ASN1, ECDSA_P256_SHA256_ASN1_SIGNING,
-        RSA_PKCS1_2048_8192_SHA256, RSA_PKCS1_SHA256, EcdsaKeyPair,
-        RsaKeyPair, RsaPublicKeyComponents, UnparsedPublicKey,
+        ECDSA_P256_SHA256_ASN1, ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair,
+        RSA_PKCS1_2048_8192_SHA256, RSA_PKCS1_SHA256, RsaKeyPair, RsaPublicKeyComponents,
+        UnparsedPublicKey,
     },
 };
 use rquickjs::{Object, prelude::Func};
@@ -26,9 +26,7 @@ const MAX_PBKDF2_OUTPUT_BYTES: usize = 512;
 type CryptoResult<T> = Result<T, String>;
 
 fn normalize_hash(name: &str) -> CryptoResult<&'static str> {
-    let normalized = name
-        .to_ascii_uppercase()
-        .replace(['-', '_', '/', ' '], "");
+    let normalized = name.to_ascii_uppercase().replace(['-', '_', '/', ' '], "");
     match normalized.as_str() {
         "MD5" => Ok("MD5"),
         "SHA1" => Ok("SHA1"),
@@ -59,8 +57,8 @@ fn hmac_bytes(algorithm: &str, key: &[u8], data: &[u8]) -> CryptoResult<Vec<u8>>
     }
     macro_rules! compute {
         ($digest:ty) => {{
-            let mut mac = <Hmac<$digest> as Mac>::new_from_slice(key)
-                .map_err(|error| error.to_string())?;
+            let mut mac =
+                <Hmac<$digest> as Mac>::new_from_slice(key).map_err(|error| error.to_string())?;
             mac.update(data);
             mac.finalize().into_bytes().to_vec()
         }};
@@ -260,12 +258,7 @@ where
     (mask ^ state).to_be_bytes()
 }
 
-fn aes_gcm<C>(
-    key: &[u8],
-    iv: &[u8],
-    input: &[u8],
-    encrypt: bool,
-) -> CryptoResult<Vec<u8>>
+fn aes_gcm<C>(key: &[u8], iv: &[u8], input: &[u8], encrypt: bool) -> CryptoResult<Vec<u8>>
 where
     C: KeyInit + BlockEncrypt,
 {
@@ -300,8 +293,7 @@ where
             return Err("AES-GCM ciphertext is shorter than its authentication tag".to_owned());
         }
         let (ciphertext, supplied_tag) = input.split_at(input.len() - 16);
-        let expected_tag =
-            gcm_authentication_tag(&cipher, initial_counter, ciphertext, hash_key);
+        let expected_tag = gcm_authentication_tag(&cipher, initial_counter, ciphertext, hash_key);
         let mut difference = 0u8;
         for (expected, actual) in expected_tag.iter().zip(supplied_tag.iter()) {
             difference |= expected ^ actual;
@@ -478,12 +470,8 @@ fn sign_bytes(algorithm: &str, private_key: &[u8], data: &[u8]) -> CryptoResult<
     let rng = SystemRandom::new();
     match signature_algorithm(algorithm) {
         "ECDSA" => {
-            let key = EcdsaKeyPair::from_pkcs8(
-                &ECDSA_P256_SHA256_ASN1_SIGNING,
-                private_key,
-                &rng,
-            )
-            .map_err(|_| "Invalid ECDSA PKCS#8 private key".to_owned())?;
+            let key = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, private_key, &rng)
+                .map_err(|_| "Invalid ECDSA PKCS#8 private key".to_owned())?;
             key.sign(&rng, data)
                 .map(|signature| signature.as_ref().to_vec())
                 .map_err(|_| "ECDSA signing failed".to_owned())
@@ -554,7 +542,12 @@ pub(crate) fn register_crypto_bridge(globals: &Object<'_>) -> rquickjs::Result<(
     globals.set(
         "__crypto_pbkdf2_hex",
         Func::from(
-            |password: String, salt: String, iterations: i32, key_bits: i32, algorithm: String| -> String {
+            |password: String,
+             salt: String,
+             iterations: i32,
+             key_bits: i32,
+             algorithm: String|
+             -> String {
                 let output_bytes = usize::try_from(key_bits)
                     .ok()
                     .filter(|bits| bits.is_multiple_of(8))
@@ -575,39 +568,45 @@ pub(crate) fn register_crypto_bridge(globals: &Object<'_>) -> rquickjs::Result<(
     )?;
     globals.set(
         "__crypto_aes_encrypt_hex",
-        Func::from(|mode: String, key: String, iv: String, input: String| -> String {
-            aes_bytes(
-                &mode,
-                &parse_hex(&key),
-                &parse_hex(&iv),
-                &parse_hex(&input),
-                true,
-            )
-            .map(|bytes| hex(&bytes))
-            .unwrap_or_else(|error| format!("__SENZO_CRYPTO_ERROR__:{error}"))
-        }),
+        Func::from(
+            |mode: String, key: String, iv: String, input: String| -> String {
+                aes_bytes(
+                    &mode,
+                    &parse_hex(&key),
+                    &parse_hex(&iv),
+                    &parse_hex(&input),
+                    true,
+                )
+                .map(|bytes| hex(&bytes))
+                .unwrap_or_else(|error| format!("__SENZO_CRYPTO_ERROR__:{error}"))
+            },
+        ),
     )?;
     globals.set(
         "__crypto_aes_decrypt_hex",
-        Func::from(|mode: String, key: String, iv: String, input: String| -> String {
-            aes_bytes(
-                &mode,
-                &parse_hex(&key),
-                &parse_hex(&iv),
-                &parse_hex(&input),
-                false,
-            )
-            .map(|bytes| hex(&bytes))
-            .unwrap_or_else(|error| format!("__SENZO_CRYPTO_ERROR__:{error}"))
-        }),
+        Func::from(
+            |mode: String, key: String, iv: String, input: String| -> String {
+                aes_bytes(
+                    &mode,
+                    &parse_hex(&key),
+                    &parse_hex(&iv),
+                    &parse_hex(&input),
+                    false,
+                )
+                .map(|bytes| hex(&bytes))
+                .unwrap_or_else(|error| format!("__SENZO_CRYPTO_ERROR__:{error}"))
+            },
+        ),
     )?;
     globals.set(
         "__crypto_sign_hex",
-        Func::from(|algorithm: String, private_key: String, data: String| -> String {
-            sign_bytes(&algorithm, &parse_hex(&private_key), &parse_hex(&data))
-                .map(|bytes| hex(&bytes))
-                .unwrap_or_default()
-        }),
+        Func::from(
+            |algorithm: String, private_key: String, data: String| -> String {
+                sign_bytes(&algorithm, &parse_hex(&private_key), &parse_hex(&data))
+                    .map(|bytes| hex(&bytes))
+                    .unwrap_or_default()
+            },
+        ),
     )?;
     globals.set(
         "__crypto_verify_hex",

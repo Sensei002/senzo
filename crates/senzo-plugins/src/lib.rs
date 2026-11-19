@@ -17,7 +17,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use reqwest::{
     Method, StatusCode,
     blocking::{Client, Response},
@@ -1206,11 +1206,7 @@ fn select_dom_elements(root: &kuchiki::NodeRef, selector: &str) -> Vec<kuchiki::
             .unwrap_or_default();
     }
     root.select(selector)
-        .map(|selection| {
-            selection
-                .map(|element| element.as_node().clone())
-                .collect()
-        })
+        .map(|selection| selection.map(|element| element.as_node().clone()).collect())
         .unwrap_or_default()
 }
 
@@ -2051,7 +2047,6 @@ globalThis.require = function(moduleName) {
 };
 "#;
 
-
 const JS_COMPAT_POLYFILLS: &str = r#"
 if (!Array.prototype.flat) {
   Array.prototype.flat = function(depth) {
@@ -2162,7 +2157,9 @@ fn native_fetch(http: &PluginHttp, raw_url: &str, raw_options: &str, deadline: I
         options.body.map(String::into_bytes)
     };
     if options.headers.len() > MAX_HEADERS
-        || request_body.as_ref().is_some_and(|body| body.len() > MAX_REQUEST_BODY)
+        || request_body
+            .as_ref()
+            .is_some_and(|body| body.len() > MAX_REQUEST_BODY)
     {
         return fallback("Request exceeds safety limits".to_owned());
     }
@@ -2600,14 +2597,35 @@ mod tests {
             false,
         )
         .unwrap();
-        assert!(raw.contains("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"), "crypto fixture SHA-256 result: {raw}");
-        assert!(raw.contains("900150983cd24fb0d6963f7d28e17f72"), "crypto fixture MD5 result: {raw}");
-        assert!(raw.contains("f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"), "crypto fixture HMAC result: {raw}");
-        assert!(raw.contains("0c60c80f961f0e71f3a9b524af6012062fe037a6"), "crypto fixture PBKDF2 result: {raw}");
+        assert!(
+            raw.contains("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"),
+            "crypto fixture SHA-256 result: {raw}"
+        );
+        assert!(
+            raw.contains("900150983cd24fb0d6963f7d28e17f72"),
+            "crypto fixture MD5 result: {raw}"
+        );
+        assert!(
+            raw.contains("f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"),
+            "crypto fixture HMAC result: {raw}"
+        );
+        assert!(
+            raw.contains("0c60c80f961f0e71f3a9b524af6012062fe037a6"),
+            "crypto fixture PBKDF2 result: {raw}"
+        );
         assert!(raw.contains("SENZO crypto fixture"));
-        assert!(raw.contains(":8:36"), "crypto fixture random/UUID result: {raw}");
-        assert!(raw.contains("AES192-GCM fixture"), "crypto fixture AES-GCM result: {raw}");
-        assert!(raw.contains("0,255,254,128"), "crypto fixture binary base64 result: {raw}");
+        assert!(
+            raw.contains(":8:36"),
+            "crypto fixture random/UUID result: {raw}"
+        );
+        assert!(
+            raw.contains("AES192-GCM fixture"),
+            "crypto fixture AES-GCM result: {raw}"
+        );
+        assert!(
+            raw.contains("0,255,254,128"),
+            "crypto fixture binary base64 result: {raw}"
+        );
     }
 
     #[test]
@@ -2638,7 +2656,10 @@ mod tests {
             false,
         )
         .unwrap();
-        assert!(raw.contains("SENZO:ENZ"), "TextDecoder fixture result: {raw}");
+        assert!(
+            raw.contains("SENZO:ENZ"),
+            "TextDecoder fixture result: {raw}"
+        );
     }
 
     #[test]
@@ -2685,7 +2706,10 @@ mod tests {
             false,
         )
         .unwrap();
-        assert!(raw.contains("0,255,254,128:AQIDBA==:application/octet-stream"), "binary fetch fixture result: {raw}");
+        assert!(
+            raw.contains("0,255,254,128:AQIDBA==:application/octet-stream"),
+            "binary fetch fixture result: {raw}"
+        );
     }
 
     #[test]
@@ -2938,11 +2962,15 @@ mod tests {
             .save_scraper_settings("profile-b", "fixture:one", r#"{"token":"bravo"}"#)
             .unwrap();
         assert_eq!(
-            manager.load_scraper_settings("profile-a", "fixture:one").unwrap(),
+            manager
+                .load_scraper_settings("profile-a", "fixture:one")
+                .unwrap(),
             r#"{"token":"alpha"}"#
         );
         assert_eq!(
-            manager.load_scraper_settings("profile-b", "fixture:one").unwrap(),
+            manager
+                .load_scraper_settings("profile-b", "fixture:one")
+                .unwrap(),
             r#"{"token":"bravo"}"#
         );
         let raw = settings.0.lock().unwrap().values().next().unwrap().clone();
