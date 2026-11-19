@@ -20,6 +20,9 @@ tracing.workspace = true
 senzo-domain = { path = "../senzo-domain" }
 senzo-catalog = { path = "../senzo-catalog" }
 senzo-plugins = { path = "../senzo-plugins" }
+senzo-sources = { path = "../senzo-sources" }
+senzo-debrid = { path = "../senzo-debrid" }
+senzo-integrations = { path = "../senzo-integrations" }
 serde_json.workspace = true
 
 [dev-dependencies]

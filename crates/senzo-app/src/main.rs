@@ -4,6 +4,9 @@ use anyhow::{Context, ensure};
 use senzo_addons::{AddonManager, AddonSecretStore};
 use senzo_artwork::{ArtworkConfig, ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_domain::{ProfileRepository, SettingsRepository};
+use senzo_debrid::{DebridCredentialStore, DebridManager};
+use senzo_integrations::{MediaServerCredentialStore, MediaServerManager};
+use senzo_sources::{AddonSourceAdapter, MediaServerSourceAdapter, PluginSourceAdapter, SourceAggregator, SourceAdapter};
 use senzo_metadata::{
     DEFAULT_API_BASE_URL, DiscoverRequest, DiscoverSort, MediaType, MetadataClient,
     MetadataClientConfig, SearchType,
@@ -49,6 +52,34 @@ impl PluginSettingsStore for PlatformPluginSettings {
     }
 }
 
+struct PlatformDebridSecrets(Arc<dyn CredentialStore>);
+
+impl DebridCredentialStore for PlatformDebridSecrets {
+    fn get(&self, account: &str) -> Result<Option<String>, String> {
+        self.0.get(account).map_err(|error| error.to_string())
+    }
+    fn set(&self, account: &str, secret: &str) -> Result<(), String> {
+        self.0.set(account, secret).map_err(|error| error.to_string())
+    }
+    fn delete(&self, account: &str) -> Result<(), String> {
+        self.0.delete(account).map_err(|error| error.to_string())
+    }
+}
+
+struct PlatformMediaServerSecrets(Arc<dyn CredentialStore>);
+
+impl MediaServerCredentialStore for PlatformMediaServerSecrets {
+    fn get(&self, account: &str) -> Result<Option<String>, String> {
+        self.0.get(account).map_err(|error| error.to_string())
+    }
+    fn set(&self, account: &str, secret: &str) -> Result<(), String> {
+        self.0.set(account, secret).map_err(|error| error.to_string())
+    }
+    fn delete(&self, account: &str) -> Result<(), String> {
+        self.0.delete(account).map_err(|error| error.to_string())
+    }
+}
+
 struct AppServices {
     _settings: Arc<dyn SettingsRepository>,
     _profiles: Arc<dyn ProfileRepository>,
@@ -57,6 +88,9 @@ struct AppServices {
     _credentials: Arc<dyn CredentialStore>,
     _addon_manager: AddonManager,
     _plugin_manager: PluginManager,
+    _debrid_manager: DebridManager,
+    _media_server_manager: MediaServerManager,
+    _source_aggregator: SourceAggregator,
 }
 
 fn main() {
@@ -106,6 +140,20 @@ fn run() -> anyhow::Result<()> {
         directories.data_dir().join("plugins"),
     );
 
+    let debrid_manager = DebridManager::new(Arc::new(PlatformDebridSecrets(credentials.clone())))
+        .context("initialize the optional debrid provider manager")?;
+    let media_server_manager = MediaServerManager::new(
+        database.clone(),
+        Arc::new(PlatformMediaServerSecrets(credentials.clone())),
+    )
+    .context("initialize the Jellyfin and Emby provider manager")?;
+    let source_adapters: Vec<Arc<dyn SourceAdapter>> = vec![
+        Arc::new(AddonSourceAdapter::new(addon_manager.clone(), "default")),
+        Arc::new(PluginSourceAdapter::new(plugin_manager.clone(), "default")),
+        Arc::new(MediaServerSourceAdapter::new(media_server_manager.clone(), "default")),
+    ];
+    let source_aggregator = SourceAggregator::new(source_adapters).with_debrid(debrid_manager.clone());
+
     let services = AppServices {
         _settings: database.clone(),
         _profiles: database.clone(),
@@ -114,6 +162,9 @@ fn run() -> anyhow::Result<()> {
         _credentials: credentials,
         _addon_manager: addon_manager.clone(),
         _plugin_manager: plugin_manager.clone(),
+        _debrid_manager: debrid_manager.clone(),
+        _media_server_manager: media_server_manager.clone(),
+        _source_aggregator: source_aggregator.clone(),
     };
 
     let schema_version = database
@@ -146,6 +197,9 @@ fn run() -> anyhow::Result<()> {
         database.clone(),
         addon_manager,
         plugin_manager,
+        debrid_manager,
+        media_server_manager,
+        source_aggregator,
     );
 
     drop(services);

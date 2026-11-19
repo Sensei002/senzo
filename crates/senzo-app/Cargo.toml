@@ -25,3 +25,6 @@ senzo-storage = { path = "../senzo-storage" }
 senzo-ui = { path = "../senzo-ui" }
 senzo-addons = { path = "../senzo-addons" }
 senzo-plugins = { path = "../senzo-plugins" }
+senzo-sources = { path = "../senzo-sources" }
+senzo-debrid = { path = "../senzo-debrid" }
+senzo-integrations = { path = "../senzo-integrations" }
