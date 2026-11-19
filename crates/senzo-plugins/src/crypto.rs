@@ -355,7 +355,7 @@ fn parse_hex(value: &str) -> Vec<u8> {
         .chars()
         .filter(|character| character.is_ascii_hexdigit())
         .collect::<Vec<_>>();
-    if chars.len() % 2 == 1 {
+    if !chars.len().is_multiple_of(2) {
         chars.insert(0, '0');
     }
     chars
@@ -395,7 +395,7 @@ fn encode_base64(value: &[u8]) -> String {
     STANDARD.encode(value)
 }
 
-fn read_der<'a>(bytes: &'a [u8], offset: &mut usize) -> CryptoResult<(u8, &'a [u8])> {
+fn read_der(bytes: &[u8], offset: &mut usize) -> CryptoResult<(u8, &[u8])> {
     let tag = *bytes
         .get(*offset)
         .ok_or_else(|| "Invalid DER key".to_owned())?;
@@ -557,7 +557,7 @@ pub(crate) fn register_crypto_bridge(globals: &Object<'_>) -> rquickjs::Result<(
             |password: String, salt: String, iterations: i32, key_bits: i32, algorithm: String| -> String {
                 let output_bytes = usize::try_from(key_bits)
                     .ok()
-                    .filter(|bits| bits % 8 == 0)
+                    .filter(|bits| bits.is_multiple_of(8))
                     .map(|bits| bits / 8);
                 let result = output_bytes.and_then(|output_bytes| {
                     pbkdf2_bytes(
