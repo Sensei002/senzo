@@ -90,6 +90,8 @@ actions!(
         PlayerShowSources,
         PlayerRetry,
         PlayerNextSource,
+        PlayerPreviousEpisode,
+        PlayerNextEpisode,
         PlayerTogglePip,
         Quit
     ]
@@ -924,6 +926,32 @@ fn person_credit_candidates(person: &Person, media_type: MediaType) -> Vec<Perso
     selected.retain(|credit| seen.insert(credit.id));
     selected.truncate(20);
     selected
+}
+
+fn chapter_skip_target(snapshot: &PlaybackSnapshot) -> Option<(String, f64)> {
+    let position = snapshot.position_seconds.unwrap_or_default();
+    if !position.is_finite() || position < 0.0 || snapshot.chapters.len() < 2 {
+        return None;
+    }
+    let current_index = snapshot.chapters.iter().enumerate()
+        .filter(|(_, chapter)| chapter.start_seconds <= position)
+        .map(|(index, _)| index)
+        .last()?;
+    let chapter = snapshot.chapters.get(current_index)?;
+    let title = chapter.title.as_deref()?.trim().to_ascii_lowercase();
+    let label = if title.contains("recap") {
+        "SKIP RECAP"
+    } else if title.contains("intro") || title.contains("opening credits") || title.contains("opening") {
+        "SKIP INTRO"
+    } else if title.contains("credits") || title.contains("outro") || title.contains("ending") {
+        "SKIP CREDITS"
+    } else {
+        return None;
+    };
+    let target = snapshot.chapters.get(current_index + 1)
+        .map(|next| next.start_seconds)
+        .or(snapshot.duration_seconds)?;
+    (target > position).then_some((label.to_owned(), target))
 }
 
 impl SenzoShell {
@@ -4381,6 +4409,29 @@ impl SenzoShell {
                                 .child(episode_facts.join(" · ")),
                         );
                     }
+                    let watched_item = WatchedItem {
+                        profile_id: "default".to_owned(),
+                        media_id: d.id.to_string(),
+                        media_kind: MediaKind::Series,
+                        season_number: Some(episode.season_number),
+                        episode_number: Some(episode.episode_number),
+                        marked_at_ms: 0,
+                    };
+                    let is_watched = self.playback_progress_repository
+                        .is_watched(&watched_item)
+                        .unwrap_or(false);
+                    selected_episode = selected_episode.child(
+                        div()
+                            .id("toggle-episode-watched")
+                            .cursor_pointer()
+                            .rounded_md()
+                            .bg(rgb(if is_watched { Theme::SURFACE_RAISED } else { Theme::ACCENT_DARK }))
+                            .px_3()
+                            .py_2()
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_selected_episode_watched(cx)))
+                            .child(div().text_xs().text_color(rgb(if is_watched { Theme::TEXT_PRIMARY } else { Theme::ACCENT }))
+                                .child(if is_watched { "MARK UNWATCHED" } else { "MARK WATCHED" })),
+                    );
                     selected_episode = selected_episode.child(
                         div()
                             .text_sm()
@@ -5139,6 +5190,14 @@ impl SenzoShell {
             .on_action(cx.listener(|this, _: &PlayerNextSource, _window, cx| {
                 this.try_next_playback_source(cx);
             }))
+            .on_action(cx.listener(|this, _: &PlayerPreviousEpisode, _window, cx| {
+                this.navigate_selected_episode(-1, cx);
+                this.reveal_playback_controls(cx);
+            }))
+            .on_action(cx.listener(|this, _: &PlayerNextEpisode, _window, cx| {
+                this.navigate_selected_episode(1, cx);
+                this.reveal_playback_controls(cx);
+            }))
             .on_action(cx.listener(|this, _: &PlayerTogglePip, _window, cx| {
                 this.toggle_player_picture_in_picture(cx);
                 this.reveal_playback_controls(cx);
@@ -5215,6 +5274,46 @@ impl SenzoShell {
                         ),
                 );
             }
+            nav = nav.child(
+                div()
+                    .id("player-previous-episode")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(Theme::SURFACE_RAISED))
+                    .px_3()
+                    .py_2()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.navigate_selected_episode(-1, cx);
+                        this.reveal_playback_controls(cx);
+                    }))
+                    .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child("PREV EP")),
+            );
+            nav = nav.child(
+                div()
+                    .id("player-next-episode")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(Theme::SURFACE_RAISED))
+                    .px_3()
+                    .py_2()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.navigate_selected_episode(1, cx);
+                        this.reveal_playback_controls(cx);
+                    }))
+                    .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child("NEXT EP")),
+            );
+            nav = nav.child(
+                div()
+                    .id("player-autoplay-next")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(if self.playback_autoplay_next { Theme::ACCENT_DARK } else { Theme::SURFACE_RAISED }))
+                    .px_3()
+                    .py_2()
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_autoplay_next(cx)))
+                    .child(div().text_xs().text_color(rgb(if self.playback_autoplay_next { Theme::ACCENT } else { Theme::TEXT_SECONDARY }))
+                        .child(if self.playback_autoplay_next { "AUTO NEXT ON" } else { "AUTO NEXT OFF" })),
+            );
             nav = nav.child(
                 div()
                     .id("player-resize-mode")
@@ -5427,6 +5526,78 @@ impl SenzoShell {
             );
         }
         root = root.child(stage);
+
+        if let Some(progress) = self.playback_resume_prompt.as_ref() {
+            let episode_label = match (progress.season_number, progress.episode_number) {
+                (Some(season), Some(episode)) => format!("S{season:02} E{episode:02}"),
+                _ => "MOVIE".to_owned(),
+            };
+            let saved_time = format_playback_time(progress.position_ms as f64 / 1000.0);
+            root = root.child(
+                div()
+                    .id("player-resume-prompt")
+                    .absolute()
+                    .inset_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(rgb(0x050607).opacity(0.94))
+                    .child(
+                        div()
+                            .w(px(520.0))
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(rgb(Theme::BORDER_STRONG))
+                            .bg(rgb(Theme::SURFACE))
+                            .p_6()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .child(div().text_xs().text_color(rgb(Theme::ACCENT)).child("CONTINUE WATCHING"))
+                            .child(div().text_2xl().text_color(rgb(Theme::TEXT_PRIMARY)).child(progress.title.clone()))
+                            .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("{episode_label} · Last position {saved_time}")))
+                            .child(div().flex().gap_3()
+                                .child(div().id("resume-playback")
+                                    .cursor_pointer()
+                                    .rounded_md()
+                                    .bg(rgb(Theme::ACCENT))
+                                    .px_4()
+                                    .py_3()
+                                    .on_click(cx.listener(|this, _, _, cx| this.choose_resume_action(true, cx)))
+                                    .child(div().text_sm().text_color(rgb(Theme::BACKGROUND)).child("RESUME")))
+                                .child(div().id("restart-playback")
+                                    .cursor_pointer()
+                                    .rounded_md()
+                                    .border_1()
+                                    .border_color(rgb(Theme::BORDER_STRONG))
+                                    .bg(rgb(Theme::SURFACE_RAISED))
+                                    .px_4()
+                                    .py_3()
+                                    .on_click(cx.listener(|this, _, _, cx| this.choose_resume_action(false, cx)))
+                                    .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child("START OVER")))),
+                    ),
+            );
+        }
+
+        if let Some((label, target_seconds)) = chapter_skip_target(&snapshot) {
+            root = root.child(
+                div()
+                    .id("player-skip-named-chapter")
+                    .absolute()
+                    .bottom(px(112.0))
+                    .right(px(32.0))
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(Theme::ACCENT))
+                    .px_4()
+                    .py_3()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.seek_playback_absolute(target_seconds, cx);
+                        this.reveal_playback_controls(cx);
+                    }))
+                    .child(div().text_sm().text_color(rgb(Theme::BACKGROUND)).child(label)),
+            );
+        }
 
         if let Some(panel) = self.playback_panel {
             let mut body = div()
@@ -10351,6 +10522,45 @@ impl SenzoShell {
             )
     }
 
+    fn render_continue_watching(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let mut cards = div().flex().gap_4();
+        for (index, entry) in self.home_continue_watching.iter().enumerate() {
+            let progress = entry.clone();
+            let position = format_playback_time(entry.position_ms as f64 / 1000.0);
+            let duration = format_playback_time(entry.duration_ms as f64 / 1000.0);
+            let episode_label = match (entry.season_number, entry.episode_number) {
+                (Some(season), Some(episode)) => format!("S{season:02} E{episode:02}"),
+                _ => "MOVIE".to_owned(),
+            };
+            let detail = format!(
+                "{} · {}{}",
+                episode_label,
+                position,
+                if entry.duration_ms > 0 { format!(" / {duration}") } else { String::new() }
+            );
+            cards = cards.child(
+                div()
+                    .id(format!("continue-watching-{}", index))
+                    .tab_index(120 + index as isize)
+                    .cursor_pointer()
+                    .rounded_lg()
+                    .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                    .aria_label(format!("Continue watching {}", entry.title))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.open_continue_watching(progress.clone(), cx);
+                    }))
+                    .child(poster_card(&entry.title, &detail, None, false)),
+            );
+        }
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(div().text_lg().text_color(rgb(Theme::TEXT_PRIMARY)).child("Continue Watching"))
+            .child(div().id("home-continue-watching-scroll").w_full().overflow_x_scroll().child(cards))
+    }
+
     fn render_home(&self, cx: &mut Context<Self>) -> gpui::Div {
         let featured = self.home_featured_items.get(self.home_featured_index);
         let featured_title = featured
@@ -10614,6 +10824,9 @@ impl SenzoShell {
             );
 
         let mut page = div().w_full().flex().flex_col().gap_6().child(home_toolbar);
+        if !self.home_continue_watching.is_empty() {
+            page = page.child(self.render_continue_watching(cx));
+        }
         if self.home_settings.hero_enabled {
             page = page.child(hero);
         }
@@ -11706,6 +11919,8 @@ fn bind_shell_keys(cx: &mut App) {
         KeyBinding::new("c", PlayerShowChapters, Some("SENZO_PLAYER")),
         KeyBinding::new("i", PlayerShowInfo, Some("SENZO_PLAYER")),
         KeyBinding::new("o", PlayerShowSources, Some("SENZO_PLAYER")),
+        KeyBinding::new("[", PlayerPreviousEpisode, Some("SENZO_PLAYER")),
+        KeyBinding::new("]", PlayerNextEpisode, Some("SENZO_PLAYER")),
         KeyBinding::new("p", PlayerTogglePip, Some("SENZO_PLAYER")),
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("ctrl-q", Quit, None),
