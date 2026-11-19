@@ -1848,16 +1848,43 @@ globalThis.URL = URL;
 globalThis.URLSearchParams = URLSearchParams;
 globalThis.Headers = Headers;
 
+var __plugin_base64_alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 function __plugin_fetch_bytes_to_base64(bytes) {
-  var binary = '';
-  for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
+  var output = '';
+  for (var i = 0; i < bytes.length; i += 3) {
+    var first = bytes[i] & 255;
+    var hasSecond = i + 1 < bytes.length;
+    var hasThird = i + 2 < bytes.length;
+    var second = hasSecond ? bytes[i + 1] & 255 : 0;
+    var third = hasThird ? bytes[i + 2] & 255 : 0;
+    output += __plugin_base64_alphabet.charAt(first >> 2);
+    output += __plugin_base64_alphabet.charAt(((first & 3) << 4) | (second >> 4));
+    output += hasSecond
+      ? __plugin_base64_alphabet.charAt(((second & 15) << 2) | (third >> 6))
+      : '=';
+    output += hasThird ? __plugin_base64_alphabet.charAt(third & 63) : '=';
+  }
+  return output;
 }
 function __plugin_fetch_base64_to_bytes(value) {
-  var binary = atob(String(value || ''));
-  var bytes = new Uint8Array(binary.length);
-  for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i) & 255;
-  return bytes;
+  var input = String(value || '').replace(/\\s/g, '').replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/g, '');
+  if (input.length % 4 === 1) throw new Error('Invalid base64 response body');
+  var output = new Uint8Array(Math.floor(input.length * 6 / 8));
+  var accumulator = 0;
+  var bits = 0;
+  var position = 0;
+  for (var i = 0; i < input.length; i++) {
+    var value = __plugin_base64_alphabet.indexOf(input.charAt(i));
+    if (value < 0) throw new Error('Invalid base64 response body');
+    accumulator = (accumulator << 6) | value;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      output[position++] = (accumulator >> bits) & 255;
+      accumulator &= (1 << bits) - 1;
+    }
+  }
+  return output;
 }
 globalThis.fetch = async function(rawUrl, options) {
   options = options || {};
@@ -2054,6 +2081,25 @@ if (!String.prototype.replaceAll) {
     return this.split(search).join(replacement);
   };
 }
+globalThis.btoa = function(value) {
+  var input = String(value);
+  var bytes = new Uint8Array(input.length);
+  for (var i = 0; i < input.length; i++) {
+    var code = input.charCodeAt(i);
+    if (code > 255) throw new TypeError('InvalidCharacterError');
+    bytes[i] = code;
+  }
+  return __plugin_fetch_bytes_to_base64(bytes);
+};
+globalThis.atob = function(value) {
+  var bytes = __plugin_fetch_base64_to_bytes(value);
+  var output = '';
+  for (var offset = 0; offset < bytes.length; offset += 8192) {
+    var end = Math.min(bytes.length, offset + 8192);
+    output += String.fromCharCode.apply(null, Array.prototype.slice.call(bytes, offset, end));
+  }
+  return output;
+};
 "#;
 
 #[derive(Debug, Deserialize)]
@@ -2501,6 +2547,11 @@ mod tests {
             ).join('');
             var randomLength = crypto.getRandomValues(new Uint8Array(8)).length;
             var uuidLength = crypto.randomUUID().length;
+            var binaryString = String.fromCharCode(0, 255, 254, 128);
+            var binaryRoundTrip = Array.prototype.map.call(
+              atob(btoa(binaryString)),
+              function(character) { return character.charCodeAt(0); }
+            ).join(',');
             var gcmKey = await crypto.subtle.importKey(
               'raw', new Uint8Array(24), { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']
             );
@@ -2514,7 +2565,7 @@ mod tests {
             );
             var gcmText = new TextDecoder().decode(gcmPlain);
             return [{
-              title: [sha, md5, hmac, derived, decrypted, subtle, randomLength, uuidLength, gcmText].join(':'),
+              title: [sha, md5, hmac, derived, decrypted, subtle, randomLength, uuidLength, gcmText, binaryRoundTrip].join(':'),
               url: 'https://fixture.example/crypto.mp4'
             }];
           };
@@ -2541,6 +2592,7 @@ mod tests {
         assert!(raw.contains("SENZO crypto fixture"));
         assert!(raw.contains(":8:36"), "crypto fixture random/UUID result: {raw}");
         assert!(raw.contains("AES192-GCM fixture"), "crypto fixture AES-GCM result: {raw}");
+        assert!(raw.contains("0,255,254,128"), "crypto fixture binary base64 result: {raw}");
     }
 
     #[test]
@@ -2555,8 +2607,8 @@ mod tests {
                 statusText: 'OK',
                 url: url,
                 body: '',
-                bodyBase64: 'AAECAwQ=',
-                headers: { 'Content-Type': 'application/octet-stream' }
+                bodyBase64: 'AP/+gA==',
+                headers: { 'content-type': 'application/octet-stream' }
               });
             };
             var response = await fetch('https://fixture.example/binary', {
@@ -2587,7 +2639,7 @@ mod tests {
             false,
         )
         .unwrap();
-        assert!(raw.contains("0,1,2,3:AQIDBA==:application/octet-stream"), "binary fetch fixture result: {raw}");
+        assert!(raw.contains("0,255,254,128:AQIDBA==:application/octet-stream"), "binary fetch fixture result: {raw}");
     }
 
     #[test]
