@@ -1,68 +1,74 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(pwd)"
-ARTIFACT_DIR="$ROOT/.artifacts/mpv-headless-av"
-TMP_DIR="$(mktemp -d)"
-FRAME_DIR="$ARTIFACT_DIR/frames"
-mkdir -p "$FRAME_DIR" "$ARTIFACT_DIR"
+PLAYER_BIN="$1"
+OUT="/tmp/senzo-mpv-headless"
+MEDIA="$OUT/media"
+mkdir -p "$MEDIA"
+rm -f "$OUT/audio.wav" "$OUT/screen.mkv" "$OUT/screen.png"
+HTTP_PID=""
+AUDIO_PID=""
+SCREEN_PID=""
+
 cleanup() {
-  for pid in "${capture_pid:-}" "${audio_pid:-}" "${server_pid:-}"; do
-    if [[ -n "$pid" ]]; then kill "$pid" 2>/dev/null || true; fi
-  done
+  if [ -n "$HTTP_PID" ]; then kill "$HTTP_PID" 2>/dev/null || true; fi
+  if [ -n "$AUDIO_PID" ]; then kill -INT "$AUDIO_PID" 2>/dev/null || true; fi
+  if [ -n "$SCREEN_PID" ]; then kill -INT "$SCREEN_PID" 2>/dev/null || true; fi
 }
 trap cleanup EXIT
 
-echo "Starting PulseAudio and creating a virtual output sink"
-pulseaudio --start --exit-idle-time=-1
-for attempt in $(seq 1 20); do
+echo "Generating deterministic audiovisual fixtures"
+ffmpeg -hide_banner -loglevel error -y \
+  -f lavfi -i "testsrc2=size=640x360:rate=30" \
+  -f lavfi -i "sine=frequency=440:sample_rate=48000" \
+  -t 45 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 30 \
+  -c:a aac -b:a 128k -shortest -movflags +faststart "$MEDIA/first.mp4"
+ffmpeg -hide_banner -loglevel error -y \
+  -f lavfi -i "smptebars=size=640x360:rate=30" \
+  -f lavfi -i "sine=frequency=880:sample_rate=48000" \
+  -t 45 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 30 \
+  -c:a aac -b:a 128k -shortest -movflags +faststart "$MEDIA/second.mp4"
+
+echo "Starting PulseAudio with a virtual monitorable sink"
+pulseaudio --start --exit-idle-time=-1 --log-target="file:$OUT/pulseaudio.log"
+for _ in $(seq 1 30); do
   if pactl info >/dev/null 2>&1; then break; fi
-  sleep 0.25
+  sleep 1
 done
 pactl info >/dev/null
-pactl load-module module-null-sink sink_name=senzo_test rate=48000 channels=2
-pactl set-default-sink senzo_test
+pactl load-module module-null-sink sink_name=senzo_headless_sink sink_properties=device.description=SENZO_Headless_Test >/dev/null
+pactl set-default-sink senzo_headless_sink
+parec --device=senzo_headless_sink.monitor --file-format=wav "$OUT/audio.wav" >"$OUT/parec.log" 2>&1 &
+AUDIO_PID=$!
 
-echo "Generating a seekable 60-second H.264/AAC fixture"
-ffmpeg -hide_banner -loglevel error -y \
-  -f lavfi -i "testsrc=size=640x360:rate=30" \
-  -f lavfi -i "sine=frequency=880:sample_rate=48000" \
-  -t 60 -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
-  -c:a aac -b:a 128k -movflags +faststart \
-  "$TMP_DIR/fixture.mp4"
-
-python3 scripts/mpv-range-server.py --directory "$TMP_DIR" --port 18765 \
-  >"$ARTIFACT_DIR/http-server.log" 2>&1 &
-server_pid=$!
-for attempt in $(seq 1 40); do
-  if curl -fsS -I http://127.0.0.1:18765/fixture.mp4 >/dev/null; then break; fi
-  sleep 0.25
+python3 -m http.server 18765 --bind 127.0.0.1 --directory "$MEDIA" >"$OUT/http.log" 2>&1 &
+HTTP_PID=$!
+for _ in $(seq 1 30); do
+  if curl --fail --silent http://127.0.0.1:18765/first.mp4 >/dev/null; then break; fi
+  sleep 1
 done
-curl -fsS -I http://127.0.0.1:18765/fixture.mp4 >/dev/null
+curl --fail --silent --output /dev/null http://127.0.0.1:18765/first.mp4
 
-echo "Capturing virtual display frames and virtual speaker output"
-ffmpeg -hide_banner -loglevel error -y -f x11grab -framerate 1 \
-  -video_size 1280x720 -i "$DISPLAY" -frames:v 40 \
-  "$FRAME_DIR/frame-%03d.png" >"$ARTIFACT_DIR/frame-capture.log" 2>&1 &
-capture_pid=$!
-parec --device=senzo_test.monitor --format=s16le --rate=48000 --channels=2 \
-  >"$ARTIFACT_DIR/audio.pcm" 2>"$ARTIFACT_DIR/audio-capture.log" &
-audio_pid=$!
-sleep 1
+echo "Capturing the X11 display while SENZO drives libmpv"
+ffmpeg -hide_banner -loglevel warning -y \
+  -f x11grab -framerate 8 -video_size 1280x720 -i "$DISPLAY" \
+  -t 16 -an -c:v ffv1 "$OUT/screen.mkv" >"$OUT/screen-capture.log" 2>&1 &
+SCREEN_PID=$!
 
-echo "Running SENZO's libmpv acceptance sequence against the generated fixture"
-LIBGL_ALWAYS_SOFTWARE=1 target/release/senzo \
-  --mpv-headless-test http://127.0.0.1:18765/fixture.mp4 \
-  2>&1 | tee "$ARTIFACT_DIR/player-acceptance.log"
+echo "Running the real SENZO libmpv playback/control integration"
+PULSE_SINK=senzo_headless_sink timeout 100 "$PLAYER_BIN" \
+  "http://127.0.0.1:18765/first.mp4" \
+  "http://127.0.0.1:18765/second.mp4"
 
-sleep 1
-kill "$capture_pid" "$audio_pid" 2>/dev/null || true
-wait "$capture_pid" 2>/dev/null || true
-wait "$audio_pid" 2>/dev/null || true
-unset capture_pid audio_pid
+echo "Stopping audio capture and finalizing display recording"
+kill -INT "$AUDIO_PID" 2>/dev/null || true
+wait "$AUDIO_PID" 2>/dev/null || true
+AUDIO_PID=""
+wait "$SCREEN_PID"
+SCREEN_PID=""
+kill "$HTTP_PID" 2>/dev/null || true
+HTTP_PID=""
 
-echo "Verifying actual captured video and audio output"
-python3 scripts/verify-mpv-av.py \
-  --frames "$FRAME_DIR" \
-  --audio "$ARTIFACT_DIR/audio.pcm" \
-  --report "$ARTIFACT_DIR/verification.json"
+ffmpeg -hide_banner -loglevel error -y -ss 3 -i "$OUT/screen.mkv" -frames:v 1 "$OUT/screen.png"
+python3 scripts/validate-mpv-headless.py "$OUT/screen.png" "$OUT/audio.wav"
+echo "PASS: SENZO headless audiovisual acceptance completed"
