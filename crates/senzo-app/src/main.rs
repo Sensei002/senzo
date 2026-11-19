@@ -311,12 +311,8 @@ async fn run_mpv_smoke_test(url: &str) -> anyhow::Result<()> {
     player
         .play()
         .context("resume the native playback session")?;
-    let advanced_to = wait_for_mpv_progress(
-        &player,
-        position_before_resume,
-        Duration::from_secs(8),
-    )
-    .await?;
+    let advanced_to =
+        wait_for_mpv_progress(&player, position_before_resume, Duration::from_secs(8)).await?;
     println!(
         "PASS  playback resumed and media position advanced to {:.2}s",
         advanced_to
@@ -431,9 +427,7 @@ async fn wait_for_audio_track_selection(
             return Ok(());
         }
         if Instant::now() >= deadline {
-            anyhow::bail!(
-                "MPV did not confirm audio track {track_id} selected within {timeout:?}"
-            );
+            anyhow::bail!("MPV did not confirm audio track {track_id} selected within {timeout:?}");
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
