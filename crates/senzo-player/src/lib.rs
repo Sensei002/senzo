@@ -708,7 +708,11 @@ fn event_update(
 fn synchronized_status(state: PlaybackStatus, paused: bool) -> PlaybackStatus {
     match state {
         PlaybackStatus::Playing | PlaybackStatus::Paused => {
-            if paused { PlaybackStatus::Paused } else { PlaybackStatus::Playing }
+            if paused {
+                PlaybackStatus::Paused
+            } else {
+                PlaybackStatus::Playing
+            }
         }
         other => other,
     }
@@ -820,7 +824,12 @@ fn options(config: &MpvConfig) -> Vec<(String, String)> {
         ("keep-open".into(), "no".into()),
         (
             "force-window".into(),
-            if config.force_window.unwrap_or(false) { "yes" } else { "no" }.into(),
+            if config.force_window.unwrap_or(false) {
+                "yes"
+            } else {
+                "no"
+            }
+            .into(),
         ),
         (
             "vo".into(),

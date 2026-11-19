@@ -21,7 +21,9 @@ fn wait_for(
             return Ok(snapshot);
         }
         if Instant::now() >= deadline {
-            return Err(format!("timed out waiting for {label}; last snapshot: {snapshot:?}").into());
+            return Err(
+                format!("timed out waiting for {label}; last snapshot: {snapshot:?}").into(),
+            );
         }
         thread::sleep(Duration::from_millis(50));
     }
@@ -57,7 +59,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 && s.video_height.is_some_and(|v| v > 0)
                 && s.video_codec.is_some()
                 && s.audio_codec.is_some()
-                && s.tracks.iter().any(|t| t.kind == TrackKind::Audio && t.selected)
+                && s.tracks
+                    .iter()
+                    .any(|t| t.kind == TrackKind::Audio && t.selected)
         },
     )?;
     println!(
@@ -84,32 +88,59 @@ fn main() -> Result<(), Box<dyn Error>> {
         .ok_or("decoded stream has no selected audio track")?;
     player.select_audio_track(Some(audio_id))?;
     player.set_volume(63.0)?;
-    wait_for(&player, "volume control is applied", Duration::from_secs(3), |s| {
-        (s.volume_percent - 63.0).abs() < 1.0
-    })?;
+    wait_for(
+        &player,
+        "volume control is applied",
+        Duration::from_secs(3),
+        |s| (s.volume_percent - 63.0).abs() < 1.0,
+    )?;
     player.set_muted(true)?;
-    wait_for(&player, "mute control is applied", Duration::from_secs(3), |s| s.muted)?;
+    wait_for(
+        &player,
+        "mute control is applied",
+        Duration::from_secs(3),
+        |s| s.muted,
+    )?;
     player.set_muted(false)?;
-    wait_for(&player, "unmute control is applied", Duration::from_secs(3), |s| !s.muted)?;
+    wait_for(
+        &player,
+        "unmute control is applied",
+        Duration::from_secs(3),
+        |s| !s.muted,
+    )?;
     player.set_speed(1.25)?;
-    wait_for(&player, "playback speed control is applied", Duration::from_secs(3), |s| {
-        (s.speed - 1.25).abs() < 0.02
-    })?;
+    wait_for(
+        &player,
+        "playback speed control is applied",
+        Duration::from_secs(3),
+        |s| (s.speed - 1.25).abs() < 0.02,
+    )?;
     player.set_speed(1.0)?;
 
     player.pause()?;
-    wait_for(&player, "pause control reaches Paused state", Duration::from_secs(3), |s| {
-        s.status == PlaybackStatus::Paused && s.paused
-    })?;
+    wait_for(
+        &player,
+        "pause control reaches Paused state",
+        Duration::from_secs(3),
+        |s| s.status == PlaybackStatus::Paused && s.paused,
+    )?;
     player.seek_absolute(5.0)?;
-    wait_for(&player, "absolute seek updates the paused playback position", Duration::from_secs(5), |s| {
-        s.status == PlaybackStatus::Paused
-            && s.position_seconds.is_some_and(|p| (4.7..=5.5).contains(&p))
-    })?;
+    wait_for(
+        &player,
+        "absolute seek updates the paused playback position",
+        Duration::from_secs(5),
+        |s| {
+            s.status == PlaybackStatus::Paused
+                && s.position_seconds.is_some_and(|p| (4.7..=5.5).contains(&p))
+        },
+    )?;
     player.play()?;
-    wait_for(&player, "resume advances playback after seek", Duration::from_secs(5), |s| {
-        s.status == PlaybackStatus::Playing && s.position_seconds.unwrap_or(0.0) > 5.5
-    })?;
+    wait_for(
+        &player,
+        "resume advances playback after seek",
+        Duration::from_secs(5),
+        |s| s.status == PlaybackStatus::Playing && s.position_seconds.unwrap_or(0.0) > 5.5,
+    )?;
 
     println!("Replacing the source while keeping the same MPV owner alive");
     player.load(&second, &headers)?;
@@ -119,16 +150,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         Duration::from_secs(15),
         |s| {
             s.status == PlaybackStatus::Playing
-                && s.media_title.as_deref().is_some_and(|title| title.contains("second"))
+                && s.media_title
+                    .as_deref()
+                    .is_some_and(|title| title.contains("second"))
                 && s.video_width.is_some_and(|v| v > 0)
                 && s.audio_codec.is_some()
         },
     )?;
 
     player.stop(Duration::from_secs(10))?;
-    wait_for(&player, "stop acknowledgement publishes Stopped", Duration::from_secs(3), |s| {
-        s.status == PlaybackStatus::Stopped
-    })?;
+    wait_for(
+        &player,
+        "stop acknowledgement publishes Stopped",
+        Duration::from_secs(3),
+        |s| s.status == PlaybackStatus::Stopped,
+    )?;
 
     println!("Starting a second playback session on the same MPV owner");
     player.load(&first, &headers)?;
@@ -138,15 +174,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         Duration::from_secs(15),
         |s| {
             s.status == PlaybackStatus::Playing
-                && s.media_title.as_deref().is_some_and(|title| title.contains("first"))
+                && s.media_title
+                    .as_deref()
+                    .is_some_and(|title| title.contains("first"))
                 && s.video_width.is_some_and(|v| v > 0)
                 && s.audio_codec.is_some()
         },
     )?;
     player.stop(Duration::from_secs(10))?;
-    wait_for(&player, "second session stops cleanly", Duration::from_secs(3), |s| {
-        s.status == PlaybackStatus::Stopped
-    })?;
+    wait_for(
+        &player,
+        "second session stops cleanly",
+        Duration::from_secs(3),
+        |s| s.status == PlaybackStatus::Stopped,
+    )?;
 
     player.shutdown()?;
     println!("PASS: MPV owner thread shuts down cleanly");
