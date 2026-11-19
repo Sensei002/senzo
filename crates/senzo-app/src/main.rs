@@ -309,12 +309,8 @@ async fn run_mpv_smoke_test(url: &str) -> anyhow::Result<()> {
     player
         .seek_relative(5.0)
         .context("seek the active source")?;
-    let position_before_resume = wait_for_mpv_seek(
-        &player,
-        position_before_seek + 4.0,
-        Duration::from_secs(5),
-    )
-    .await?;
+    let position_before_resume =
+        wait_for_mpv_seek(&player, position_before_seek + 4.0, Duration::from_secs(5)).await?;
     player
         .play()
         .context("resume the native playback session")?;
@@ -511,7 +507,9 @@ fn confirm_native_av_output() -> anyhow::Result<()> {
     println!();
     println!("Physical desktop check — playback is currently running.");
     print!("Can you see the native MPV window showing moving video? Type YES to confirm: ");
-    io::stdout().flush().context("flush video confirmation prompt")?;
+    io::stdout()
+        .flush()
+        .context("flush video confirmation prompt")?;
     io::stdin()
         .read_line(&mut answer)
         .context("read video visibility confirmation")?;
@@ -521,8 +519,12 @@ fn confirm_native_av_output() -> anyhow::Result<()> {
     );
 
     answer.clear();
-    print!("Can you hear the video's audio from your expected output device? Type YES to confirm: ");
-    io::stdout().flush().context("flush audio confirmation prompt")?;
+    print!(
+        "Can you hear the video's audio from your expected output device? Type YES to confirm: "
+    );
+    io::stdout()
+        .flush()
+        .context("flush audio confirmation prompt")?;
     io::stdin()
         .read_line(&mut answer)
         .context("read audio audibility confirmation")?;
