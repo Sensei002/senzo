@@ -914,7 +914,7 @@ impl SenzoShell {
         });
         let playback_timeline = cx.new(|_| SliderState::new());
         let playback_timeline_subscription =
-            cx.subscribe(&playback_timeline, |this, state, event, cx| {
+            cx.subscribe(&playback_timeline, |this, _state, event, cx| {
                 if let SliderEvent::Change(_) = event {
                     this.playback_scrubbing = true;
                     return;
@@ -5376,14 +5376,14 @@ impl SenzoShell {
                         .items_center()
                         .justify_between()
                         .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(format_playback_time(position)))
+                        .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child("TIMELINE"))
                         .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(format!("-{}", format_playback_time(remaining)))),
                 )
                 .child(
                     div()
-                        .aria_label("Playback timeline")
+                        .id("player-playback-timeline")
                         .child(
                             Slider::new(&self.playback_timeline)
-                                .tab_index(200)
                                 .w_full()
                                 .h(px(24.0)),
                         ),
