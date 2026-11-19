@@ -127,6 +127,31 @@ struct PlaybackContext {
     last_persisted_position_ms: u64,
 }
 
+#[derive(Clone)]
+struct HomeUpNextCard {
+    parent_progress: PlaybackProgress,
+    season_number: u32,
+    episode_number: u32,
+    episode_title: String,
+    air_date: Option<String>,
+    still: Option<Arc<RenderImage>>,
+}
+
+fn current_utc_date() -> String {
+    let days = (SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() / 86_400) as i64;
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let day_of_era = z - era * 146_097;
+    let year_of_era = (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let mut year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
+    year += i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
 fn current_epoch_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -624,6 +649,9 @@ pub(crate) struct SenzoShell {
     tokio: Handle,
     playback_progress_repository: Arc<dyn PlaybackProgressRepository>,
     home_continue_watching: Vec<PlaybackProgress>,
+    home_up_next: Vec<HomeUpNextCard>,
+    home_up_next_loading: bool,
+    home_up_next_requested: bool,
     pending_continue_watching_episode: Option<(u64, u32, u32)>,
     addon_manager: AddonManager,
     addon_url_input: Entity<InputState>,
@@ -1137,6 +1165,9 @@ impl SenzoShell {
             tokio,
             playback_progress_repository: playback_progress,
             home_continue_watching,
+            home_up_next: Vec::new(),
+            home_up_next_loading: false,
+            home_up_next_requested: false,
             pending_continue_watching_episode: None,
             addon_manager,
             addon_url_input,
@@ -2985,7 +3016,12 @@ impl SenzoShell {
         cx.spawn(async move |this, cx| {
             match task.await {
                 Ok(Ok(entries)) => {
-                    let _ = this.update(cx, |this, cx| { this.home_continue_watching = entries; cx.notify(); });
+                    let _ = this.update(cx, |this, cx| {
+                        this.home_continue_watching = entries;
+                        this.home_up_next_requested = false;
+                        this.load_home_up_next(cx);
+                        cx.notify();
+                    });
                 }
                 Ok(Err(error)) => tracing::warn!(error = %error, "could not persist playback progress"),
                 Err(error) => tracing::warn!(error = %error, "playback progress task failed"),
@@ -3041,6 +3077,8 @@ impl SenzoShell {
                 } else { "Episode marked as watched.".to_owned() });
                 self.home_continue_watching = self.playback_progress_repository
                     .list_continue_watching("default", 20).unwrap_or_default();
+                self.home_up_next_requested = false;
+                self.load_home_up_next(cx);
             }
             Err(error) => self.notification = Some(format!("Could not update watched state: {error}")),
         }
@@ -10522,6 +10560,106 @@ impl SenzoShell {
             )
     }
 
+    fn load_home_up_next(&mut self, cx: &mut Context<Self>) {
+        if self.home_up_next_requested || self.smoke_test {
+            return;
+        }
+        self.home_up_next_requested = true;
+        self.home_up_next_loading = true;
+        let repository = self.playback_progress_repository.clone();
+        let metadata = self.metadata.clone();
+        let artwork = self.artwork.clone();
+        let cancellation = self.home_cancellation.child_token();
+        let task_token = cancellation.clone();
+        let task = self.tokio.spawn(async move {
+            let completed = tokio::task::spawn_blocking(move || {
+                repository.list_recent_completed_series("default", 20)
+            }).await.map_err(|error| error.to_string())?
+                .map_err(|error| error.to_string())?;
+            let mut jobs = JoinSet::new();
+            for progress in completed.into_iter().take(16) {
+                let metadata = metadata.clone();
+                let artwork = artwork.clone();
+                let token = task_token.child_token();
+                jobs.spawn(async move {
+                    let show_id = progress.media_id.parse::<u64>().ok()?;
+                    let tv = metadata.tv(show_id, &token).await.ok()?;
+                    let mut season_numbers = tv.seasons.iter()
+                        .map(|season| season.season_number)
+                        .filter(|number| *number > 0)
+                        .collect::<Vec<_>>();
+                    season_numbers.sort_unstable();
+                    season_numbers.dedup();
+                    let completed_season = progress.season_number.unwrap_or(0);
+                    let completed_episode = progress.episode_number.unwrap_or(0);
+                    for season_number in season_numbers.into_iter().filter(|number| *number >= completed_season) {
+                        if token.is_cancelled() { return None; }
+                        let season = metadata.season(show_id, season_number, &token).await.ok()?;
+                        let mut episodes = season.episodes.iter()
+                            .filter(|episode| season_number != completed_season || episode.episode_number > completed_episode)
+                            .collect::<Vec<_>>();
+                        episodes.sort_by_key(|episode| episode.episode_number);
+                        if let Some(episode) = episodes.first() {
+                            let still = match episode.still_path.as_deref() {
+                                Some(path) => load_gpui_artwork(
+                                    artwork.clone(),
+                                    path.to_owned(),
+                                    ArtworkSize::W780,
+                                    token.child_token(),
+                                ).await,
+                                None => None,
+                            };
+                            return Some(HomeUpNextCard {
+                                parent_progress: progress,
+                                season_number,
+                                episode_number: episode.episode_number,
+                                episode_title: episode.name.clone(),
+                                air_date: episode.air_date.clone(),
+                                still,
+                            });
+                        }
+                    }
+                    None
+                });
+            }
+            let mut cards = Vec::new();
+            while let Some(result) = jobs.join_next().await {
+                if task_token.is_cancelled() { return Ok::<_, String>(Vec::new()); }
+                if let Ok(Some(card)) = result { cards.push(card); }
+            }
+            let today = current_utc_date();
+            cards.sort_by(|left, right| {
+                let left_date = left.air_date.as_deref().filter(|date| date.len() >= 10).unwrap_or("9999-99-99");
+                let right_date = right.air_date.as_deref().filter(|date| date.len() >= 10).unwrap_or("9999-99-99");
+                let left_future = left_date > today.as_str();
+                let right_future = right_date > today.as_str();
+                left_future.cmp(&right_future)
+                    .then_with(|| left_date.cmp(right_date))
+                    .then_with(|| right.parent_progress.updated_at_ms.cmp(&left.parent_progress.updated_at_ms))
+            });
+            Ok::<_, String>(cards)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if cancellation.is_cancelled() { return; }
+                this.home_up_next_loading = false;
+                match result {
+                    Ok(Ok(cards)) => this.home_up_next = cards,
+                    Ok(Err(error)) => {
+                        tracing::warn!(error = %error, "could not enrich the Home Up Next shelf");
+                        this.home_up_next = Vec::new();
+                    }
+                    Err(error) => {
+                        tracing::warn!(error = %error, "Home Up Next task failed");
+                        this.home_up_next = Vec::new();
+                    }
+                }
+                cx.notify();
+            });
+        }).detach();
+    }
+
     fn render_continue_watching(&self, cx: &mut Context<Self>) -> gpui::Div {
         let mut cards = div().flex().gap_4();
         for (index, entry) in self.home_continue_watching.iter().enumerate() {
@@ -10552,13 +10690,64 @@ impl SenzoShell {
                     .child(poster_card(&entry.title, &detail, None, false)),
             );
         }
-        div()
-            .w_full()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .child(div().text_lg().text_color(rgb(Theme::TEXT_PRIMARY)).child("Continue Watching"))
-            .child(div().id("home-continue-watching-scroll").w_full().overflow_x_scroll().child(cards))
+        let mut sections = div().w_full().flex().flex_col().gap_5();
+        if !self.home_continue_watching.is_empty() {
+            sections = sections.child(
+                div()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(div().text_lg().text_color(rgb(Theme::TEXT_PRIMARY)).child("Continue Watching"))
+                    .child(div().id("home-continue-watching-scroll").w_full().overflow_x_scroll().child(cards)),
+            );
+        }
+        if !self.home_up_next.is_empty() {
+            let today = current_utc_date();
+            let mut up_next_cards = div().flex().gap_4();
+            for (index, card) in self.home_up_next.iter().enumerate() {
+                let mut progress = card.parent_progress.clone();
+                progress.season_number = Some(card.season_number);
+                progress.episode_number = Some(card.episode_number);
+                progress.episode_title = Some(card.episode_title.clone());
+                progress.still_path = progress.still_path.clone();
+                progress.position_ms = 0;
+                progress.duration_ms = 0;
+                progress.is_completed = false;
+                let date_label = card.air_date.as_deref()
+                    .filter(|date| date.len() >= 10)
+                    .map(|date| if date > today.as_str() { format!("COMING · {date}") } else { format!("UP NEXT · {date}") })
+                    .unwrap_or_else(|| "UP NEXT".to_owned());
+                let detail = format!("S{:02} E{:02} · {}",
+                    card.season_number, card.episode_number, date_label);
+                up_next_cards = up_next_cards.child(
+                    div()
+                        .id(format!("home-up-next-{index}"))
+                        .tab_index(160 + index as isize)
+                        .cursor_pointer()
+                        .rounded_lg()
+                        .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                        .aria_label(format!("Open next episode {}", card.episode_title))
+                        .on_click(cx.listener(move |this, _, _, cx| this.open_continue_watching(progress.clone(), cx)))
+                        .child(poster_card(
+                            &card.parent_progress.title,
+                            &detail,
+                            card.still.clone(),
+                            false,
+                        )),
+                );
+            }
+            sections = sections.child(
+                div().w_full().flex().flex_col().gap_3()
+                    .child(div().text_lg().text_color(rgb(Theme::TEXT_PRIMARY)).child("Up Next"))
+                    .child(div().id("home-up-next-scroll").w_full().overflow_x_scroll().child(up_next_cards)),
+            );
+        } else if self.home_up_next_loading {
+            sections = sections.child(
+                div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child("Finding next episodes from your watched series…"),
+            );
+        }
+        sections
     }
 
     fn render_home(&self, cx: &mut Context<Self>) -> gpui::Div {
@@ -11707,6 +11896,7 @@ impl Drop for SenzoShell {
 impl Render for SenzoShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.smoke_test && self.navigation.current() == AppPage::Home {
+            self.load_home_up_next(cx);
             self.load_home_collection_artwork(cx);
             if self.home_catalogue_status == HomeCatalogueStatus::NotRequested {
                 self.load_home_catalogue(cx);
