@@ -1,4 +1,4 @@
-use std::{env, sync::Arc};
+use std::{env, sync::Arc, time::{Duration, Instant}};
 
 use anyhow::{Context, ensure};
 use senzo_addons::{AddonManager, AddonSecretStore};
@@ -12,6 +12,7 @@ use senzo_metadata::{
 };
 use senzo_network::{HttpClient, HttpPolicy};
 use senzo_platform::{AppDirectories, CredentialStore, KeyringCredentialStore};
+use senzo_player::{MpvConfig, MpvPlayer, PlaybackStatus, TrackKind};
 use senzo_plugins::{PluginManager, PluginSettingsStore};
 use senzo_sources::{
     AddonSourceAdapter, MediaServerSourceAdapter, PluginSourceAdapter, SourceAdapter,
@@ -199,6 +200,19 @@ fn run() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    let args = env::args().collect::<Vec<_>>();
+    if let Some(index) = args.iter().position(|argument| argument == "--mpv-smoke-test") {
+        let url = args.get(index + 1).context(
+            "usage: senzo --mpv-smoke-test <direct-http-or-https-media-url>"
+        )?;
+        runtime
+            .block_on(run_mpv_smoke_test(url))
+            .context("validate native MPV playback, controls and teardown")?;
+        drop(services);
+        drop(runtime);
+        return Ok(());
+    }
+
     let smoke_test = env::args().any(|argument| argument == "--smoke-test");
     senzo_ui::run(
         senzo_ui::ShellServices {
@@ -217,6 +231,66 @@ fn run() -> anyhow::Result<()> {
 
     drop(services);
     drop(runtime);
+    Ok(())
+}
+
+async fn run_mpv_smoke_test(url:&str)->anyhow::Result<()> {
+    let mut player=MpvPlayer::spawn(MpvConfig::default())
+        .context("load the native libmpv runtime; install it or set SENZO_LIBMPV_PATH")?;
+    player.load(url,&std::collections::BTreeMap::new())
+        .context("load the direct HTTP(S) test source")?;
+
+    let deadline=Instant::now()+Duration::from_secs(35);
+    let snapshot=loop {
+        let current=player.snapshot();
+        if current.status==PlaybackStatus::Error {
+            anyhow::bail!("libmpv entered an error state: {:?}",current.diagnostics.last());
+        }
+        if current.status==PlaybackStatus::Playing
+            && current.video_width.is_some_and(|width|width>0)
+            && current.video_height.is_some_and(|height|height>0)
+        {
+            break current;
+        }
+        if Instant::now()>=deadline {
+            anyhow::bail!("MPV did not start a video stream with nonzero dimensions within 35 seconds; last state: {:?}",current.status);
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    };
+
+    println!(
+        "PASS  native MPV video stream started: {}x{}; video codec: {}; audio codec: {}",
+        snapshot.video_width.unwrap_or_default(),
+        snapshot.video_height.unwrap_or_default(),
+        snapshot.video_codec.as_deref().unwrap_or("unknown"),
+        snapshot.audio_codec.as_deref().unwrap_or("not detected")
+    );
+    println!(
+        "Tracks: {} audio, {} subtitle",
+        snapshot.tracks.iter().filter(|track|track.kind==TrackKind::Audio).count(),
+        snapshot.tracks.iter().filter(|track|track.kind==TrackKind::Subtitle).count()
+    );
+
+    player.pause().context("pause the native playback session")?;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    ensure!(player.snapshot().paused,"MPV did not report the paused state");
+    player.seek_relative(5.0).context("seek the active source")?;
+    player.play().context("resume the native playback session")?;
+    player.set_volume(35.0).context("set playback volume")?;
+    player.set_muted(true).context("mute playback")?;
+    player.set_muted(false).context("unmute playback")?;
+    player.set_speed(1.25).context("change playback speed")?;
+    player.set_speed(1.0).context("restore normal playback speed")?;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let stop=tokio::task::spawn_blocking(move||{
+        player.stop(Duration::from_secs(8)).context("wait for MPV stop acknowledgement")?;
+        player.shutdown().context("shut down the MPV owner thread")?;
+        anyhow::Ok(())
+    }).await.context("join the MPV teardown task")?;
+    stop?;
+    println!("PASS  pause, seek, resume, volume, mute, speed, stop acknowledgement and owner-thread shutdown");
+    println!("VISUAL/AUDIO CHECK: confirm the native video window was visible and sound was audible during this test.");
     Ok(())
 }
 

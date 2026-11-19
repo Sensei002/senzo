@@ -1,5 +1,6 @@
 //! Single-owner native libmpv engine and typed playback contract.
 use std::{
+    env,
     ffi::{CStr,CString,c_char,c_double,c_int,c_void},
     path::{Path,PathBuf},
     ptr,
@@ -43,12 +44,21 @@ pub enum MpvError {
     #[error("could not start MPV owner thread: {0}")] WorkerStart(String),
 }
 
-#[derive(Debug,Clone,Default)]
+#[derive(Debug,Clone)]
 pub struct MpvConfig {
     pub library_path:Option<PathBuf>,
     /// Native parent handle (HWND or X11 XID). None lets libmpv open its own surface.
     pub window_id:Option<u64>,
     pub start_paused:bool,
+}
+impl Default for MpvConfig {
+    fn default() -> Self {
+        Self {
+            library_path: env::var_os("SENZO_LIBMPV_PATH").map(PathBuf::from),
+            window_id: None,
+            start_paused: false,
+        }
+    }
 }
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
 pub enum PlaybackStatus { Idle,Loading,Playing,Paused,Stopped,Ended,Error }
@@ -134,22 +144,22 @@ impl MpvPlayer {
     pub fn seek_absolute(&self,seconds:f64)->Result<(),MpvError>{self.seek(seconds,false)}
     pub fn seek_relative(&self,seconds:f64)->Result<(),MpvError>{self.seek(seconds,true)}
     fn seek(&self,seconds:f64,relative:bool)->Result<(),MpvError>{
-        if !seconds.is_finite()||seconds.abs()>31_536_000.0{return Err(MpvError::InvalidValue);}
+        validate_seek(seconds)?;
         self.request(|reply|Command::Seek{seconds,relative,reply})
     }
     pub fn set_volume(&self,value:f64)->Result<(),MpvError>{
-        if !value.is_finite()||!(0.0..=100.0).contains(&value){return Err(MpvError::InvalidValue);}
+        validate_volume(value)?;
         self.set("volume",&format!("{value:.2}"))
     }
     pub fn set_muted(&self,value:bool)->Result<(),MpvError>{self.set("mute",if value{"yes"}else{"no"})}
     pub fn set_speed(&self,value:f64)->Result<(),MpvError>{
-        if !value.is_finite()||!(0.25..=4.0).contains(&value){return Err(MpvError::InvalidValue);}
+        validate_speed(value)?;
         self.set("speed",&format!("{value:.3}"))
     }
     pub fn select_audio_track(&self,id:Option<i64>)->Result<(),MpvError>{self.select(TrackKind::Audio,id)}
     pub fn select_subtitle_track(&self,id:Option<i64>)->Result<(),MpvError>{self.select(TrackKind::Subtitle,id)}
     fn select(&self,kind:TrackKind,id:Option<i64>)->Result<(),MpvError>{
-        if id.is_some_and(|v|v<0){return Err(MpvError::InvalidValue);}
+        validate_track_id(id)?;
         self.request(|reply|Command::Select{kind,id,reply})
     }
     fn set(&self,property:&'static str,value:&str)->Result<(),MpvError>{
@@ -440,6 +450,19 @@ fn library_names()->&'static [&'static str]{&["libmpv.so.2","libmpv.so"]}
 #[cfg(target_os="macos")]
 fn library_names()->&'static [&'static str]{&["libmpv.2.dylib","libmpv.dylib"]}
 
+fn validate_seek(seconds:f64)->Result<(),MpvError>{
+    if seconds.is_finite()&&seconds.abs()<=31_536_000.0{Ok(())}else{Err(MpvError::InvalidValue)}
+}
+fn validate_volume(value:f64)->Result<(),MpvError>{
+    if value.is_finite()&&(0.0..=100.0).contains(&value){Ok(())}else{Err(MpvError::InvalidValue)}
+}
+fn validate_speed(value:f64)->Result<(),MpvError>{
+    if value.is_finite()&&(0.25..=4.0).contains(&value){Ok(())}else{Err(MpvError::InvalidValue)}
+}
+fn validate_track_id(id:Option<i64>)->Result<(),MpvError>{
+    if id.is_some_and(|value|value<0){Err(MpvError::InvalidValue)}else{Ok(())}
+}
+
 #[cfg(test)]
 mod tests{
     use super::*;
@@ -450,6 +473,21 @@ mod tests{
         assert_eq!(validate_headers(&ok).unwrap().len(),2);
         let bad=std::collections::BTreeMap::from([("X-Test".into(),"ok\r\nInjected: yes".into())]);assert!(validate_headers(&bad).is_err());
         let name=std::collections::BTreeMap::from([("Bad Header".into(),"x".into())]);assert!(validate_headers(&name).is_err());
+    }
+    #[test]fn rejects_out_of_range_controls_and_track_ids(){
+        assert!(validate_seek(0.0).is_ok());
+        assert!(validate_seek(f64::NAN).is_err());
+        assert!(validate_seek(31_536_001.0).is_err());
+        assert!(validate_volume(100.0).is_ok());
+        assert!(validate_volume(100.1).is_err());
+        assert!(validate_speed(0.25).is_ok());
+        assert!(validate_speed(4.01).is_err());
+        assert!(validate_track_id(Some(0)).is_ok());
+        assert!(validate_track_id(Some(-1)).is_err());
+    }
+    #[test]fn default_config_reads_optional_libmpv_path(){
+        assert_eq!(MpvConfig::default().window_id,None);
+        assert!(!MpvConfig::default().start_paused);
     }
     #[test]fn escapes_mpv_header_list_delimiters(){assert_eq!(mpv_escape(r"a,b\c"),r"a\,b\\c");}
     #[test]fn config_creates_native_gpu_output_options(){
