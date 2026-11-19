@@ -57,6 +57,7 @@ ffmpeg -hide_banner -loglevel warning -y \
 SCREEN_PID=$!
 
 echo "Running the real SENZO libmpv playback/control integration"
+export SENZO_MPV_LOG_FILE="$OUT/mpv.log"
 PULSE_SINK=senzo_headless_sink timeout 100 "$PLAYER_BIN" \
   "http://127.0.0.1:18765/first.mp4" \
   "http://127.0.0.1:18765/second.mp4"

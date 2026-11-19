@@ -827,6 +827,15 @@ fn options(config: &MpvConfig) -> Vec<(String, String)> {
     if config.start_paused {
         v.push(("pause".into(), "yes".into()));
     }
+    // Opt-in native MPV log file for CI/runtime diagnosis. Disabled by default
+    // because MPV logs may contain user-supplied stream locations.
+    if let Some(path) = env::var_os("SENZO_MPV_LOG_FILE") {
+        let path = PathBuf::from(path).to_string_lossy().into_owned();
+        if !path.is_empty() && path.len() <= 4096 {
+            v.push(("log-file".into(), path));
+            v.push(("msg-level".into(), "all=debug".into()));
+        }
+    }
     v
 }
 fn validate_url(raw: &str) -> Result<String, MpvError> {
