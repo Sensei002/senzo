@@ -530,7 +530,7 @@ where
 }
 fn filename_path_matches(candidate: &str, requested: &str) -> bool {
     let normalize_components = |path: &str| {
-        path.split(|character| character == '/' || character == '\\')
+        path.split(['/', '\\'])
             .filter(|component| !component.trim().is_empty())
             .map(normalize_file_path)
             .collect::<Vec<_>>()
