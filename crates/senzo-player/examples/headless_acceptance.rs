@@ -80,6 +80,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         |s| s.position_seconds.unwrap_or(0.0) > 1.0,
     )?;
 
+    // Keep a real video surface presenting frames long enough for the
+    // independent X11 screen capture to sample multiple moving frames.
+    // A fast headless runner can satisfy every control assertion and replace
+    // the source before a low-rate screenshot sampler sees enough frames.
+    println!("Holding the first rendered video session for audiovisual capture");
+    thread::sleep(Duration::from_secs(4));
+
     let audio_id = initial
         .tracks
         .iter()

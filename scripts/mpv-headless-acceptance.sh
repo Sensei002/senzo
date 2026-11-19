@@ -74,6 +74,6 @@ kill "$HTTP_PID" 2>/dev/null || true
 HTTP_PID=""
 
 ffmpeg -hide_banner -loglevel error -y -i "$OUT/screen.mkv" \
-  -vf fps=1 -frames:v 12 "$OUT/frames/frame-%02d.png"
+  -vf fps=2 -frames:v 24 "$OUT/frames/frame-%02d.png"
 python3 scripts/validate-mpv-headless.py "$OUT/frames" "$OUT/audio.wav"
 echo "PASS: SENZO headless audiovisual acceptance completed"
