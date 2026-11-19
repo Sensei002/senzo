@@ -584,7 +584,7 @@ pub(crate) fn register_crypto_bridge(globals: &Object<'_>) -> rquickjs::Result<(
                 true,
             )
             .map(|bytes| hex(&bytes))
-            .unwrap_or_default()
+            .unwrap_or_else(|error| format!("__SENZO_CRYPTO_ERROR__:{error}"))
         }),
     )?;
     globals.set(
@@ -598,7 +598,7 @@ pub(crate) fn register_crypto_bridge(globals: &Object<'_>) -> rquickjs::Result<(
                 false,
             )
             .map(|bytes| hex(&bytes))
-            .unwrap_or_default()
+            .unwrap_or_else(|error| format!("__SENZO_CRYPTO_ERROR__:{error}"))
         }),
     )?;
     globals.set(

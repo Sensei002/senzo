@@ -173,7 +173,11 @@ function __nativePbkdf2Bytes(passwordBytes, saltBytes, iterations, keySizeBits, 
 function __nativeAesBytes(encrypt, mode, keyBytes, ivBytes, dataBytes) {
     var fn = encrypt ? __crypto_aes_encrypt_hex : __crypto_aes_decrypt_hex;
     if (typeof fn === 'undefined') throw new Error('Native AES bridge is unavailable');
-    return __hexToBytes(fn(mode, __bytesToHex(keyBytes), __bytesToHex(ivBytes), __bytesToHex(dataBytes)));
+    var result = fn(mode, __bytesToHex(keyBytes), __bytesToHex(ivBytes), __bytesToHex(dataBytes));
+    if (typeof result === 'string' && result.indexOf('__SENZO_CRYPTO_ERROR__:') === 0) {
+        throw new Error(result.substring('__SENZO_CRYPTO_ERROR__:'.length));
+    }
+    return __hexToBytes(result);
 }
 
 function __evpKdf(passwordBytes, saltBytes, keySizeBytes, ivSizeBytes) {
