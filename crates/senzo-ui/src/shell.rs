@@ -2667,7 +2667,7 @@ impl SenzoShell {
         self.playback_refresh_cancel = cancel.clone();
         let background_cancel = cancel.clone();
         let (refresh_tx, mut refresh_rx) = mpsc::unbounded_channel::<()>();
-        let _ = self.tokio.spawn(async move {
+        drop(self.tokio.spawn(async move {
             let mut ticker = tokio::time::interval(Duration::from_millis(250));
             loop {
                 tokio::select! {
