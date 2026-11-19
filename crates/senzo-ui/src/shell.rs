@@ -148,7 +148,7 @@ fn current_utc_date() -> String {
     let month_prime = (5 * day_of_year + 2) / 153;
     let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
     let month = month_prime + if month_prime < 10 { 3 } else { -9 };
-    year += i64::from(month <= 2);
+    year += if month <= 2 { 1 } else { 0 };
     format!("{year:04}-{month:02}-{day:02}")
 }
 
@@ -3007,6 +3007,7 @@ impl SenzoShell {
             is_completed: completed,
             updated_at_ms: current_epoch_millis(),
         };
+        let refresh_up_next = completed;
         let repository = self.playback_progress_repository.clone();
         let runtime = self.tokio.clone();
         let task = runtime.spawn_blocking(move || {
@@ -3018,8 +3019,10 @@ impl SenzoShell {
                 Ok(Ok(entries)) => {
                     let _ = this.update(cx, |this, cx| {
                         this.home_continue_watching = entries;
-                        this.home_up_next_requested = false;
-                        this.load_home_up_next(cx);
+                        if refresh_up_next {
+                            this.home_up_next_requested = false;
+                            this.load_home_up_next(cx);
+                        }
                         cx.notify();
                     });
                 }
@@ -3085,7 +3088,7 @@ impl SenzoShell {
         cx.notify();
     }
 
-    fn navigate_selected_episode(&mut self, direction: isize, cx: &mut Context<Self>) {
+    fn navigate_selected_episode(&mut self, direction: isize, autoplay: bool, cx: &mut Context<Self>) {
         let Some(details) = self.details.as_ref() else { return };
         if details.media_type != MediaType::Tv { return; }
         let Some(current_episode) = details.selected_episode.as_ref() else { return };
@@ -3100,8 +3103,8 @@ impl SenzoShell {
             else { position.checked_sub(1).and_then(|index| numbers.get(index).copied()) }
         });
         if let Some(target_episode) = same_season_target {
-            self.autoplay_next_pending = direction > 0 && self.playback_autoplay_next;
-            self.autoplay_next_target = Some((show_id, current_season, target_episode));
+            self.autoplay_next_pending = autoplay;
+            self.autoplay_next_target = autoplay.then_some((show_id, current_season, target_episode));
             self.load_detail_episode(current_season, target_episode, cx);
             return;
         }
@@ -3119,7 +3122,7 @@ impl SenzoShell {
             cx.notify();
             return;
         };
-        self.autoplay_next_pending = direction > 0 && self.playback_autoplay_next;
+        self.autoplay_next_pending = autoplay;
         let cancellation = self.details_cancellation.child_token();
         let artwork = self.artwork.clone();
         let metadata = self.metadata.clone();
@@ -3287,7 +3290,7 @@ impl SenzoShell {
                             this.playback_end_handled = true;
                             this.persist_playback_snapshot(true, cx);
                             if this.playback_autoplay_next {
-                                this.navigate_selected_episode(1, cx);
+                                this.navigate_selected_episode(1, true, cx);
                             }
                         } else {
                             this.persist_playback_snapshot(false, cx);
@@ -5229,11 +5232,11 @@ impl SenzoShell {
                 this.try_next_playback_source(cx);
             }))
             .on_action(cx.listener(|this, _: &PlayerPreviousEpisode, _window, cx| {
-                this.navigate_selected_episode(-1, cx);
+                this.navigate_selected_episode(-1, true, cx);
                 this.reveal_playback_controls(cx);
             }))
             .on_action(cx.listener(|this, _: &PlayerNextEpisode, _window, cx| {
-                this.navigate_selected_episode(1, cx);
+                this.navigate_selected_episode(1, true, cx);
                 this.reveal_playback_controls(cx);
             }))
             .on_action(cx.listener(|this, _: &PlayerTogglePip, _window, cx| {
@@ -5321,7 +5324,7 @@ impl SenzoShell {
                     .px_3()
                     .py_2()
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.navigate_selected_episode(-1, cx);
+                        this.navigate_selected_episode(-1, true, cx);
                         this.reveal_playback_controls(cx);
                     }))
                     .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child("PREV EP")),
@@ -5335,7 +5338,7 @@ impl SenzoShell {
                     .px_3()
                     .py_2()
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.navigate_selected_episode(1, cx);
+                        this.navigate_selected_episode(1, true, cx);
                         this.reveal_playback_controls(cx);
                     }))
                     .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child("NEXT EP")),
