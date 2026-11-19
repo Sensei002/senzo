@@ -208,22 +208,28 @@ See docs/PHASE_5_IMPLEMENTATION.md.
 
 ## Phase 9 — Native MPV playback proof and engine
 
-<badge color="warning">Critical acceptance gate</badge>
+<badge color="warning">Platform acceptance pending</badge>
 
-- [ ] Design the Rust-owned MPV lifecycle and narrow command/event interface.
+**Status:** Core engine and GPUI source handoff implemented; native Windows/Linux playback proof remains open.
+
+- [x] Design the Rust-owned MPV lifecycle and narrow command/event interface.
 - [ ] Prototype MPV render-context integration with GPUI.
-- [ ] Prototype native surface fallback only if GPUI compositing requires it.
+- [x] Implement the native MPV-owned output-window fallback. The current fallback is a separate native video window, not an embedded GPUI child surface.
 - [ ] Prove visible video and audible audio on Windows before UI expansion.
 - [ ] Prove visible video and audible audio on Linux before Linux playback support.
-- [ ] Implement direct HTTP(S) playback with headers.
-- [ ] Implement play/pause/seek/volume/mute/speed.
-- [ ] Implement track enumeration and selection.
-- [ ] Implement MPV state snapshots and useful diagnostics.
-- [ ] Implement single-owner session teardown and stop acknowledgment.
-- [ ] Test source replacement, route navigation, repeated sessions and application exit.
-- [ ] Verify no UI-thread MPV calls, leaks, deadlocks or stop-triggered crashes.
+- [x] Implement direct HTTP(S) playback with bounded request headers.
+- [x] Implement play/pause/seek/volume/mute/speed controls and native GPUI actions.
+- [x] Implement audio/subtitle track enumeration and selection.
+- [x] Implement MPV state snapshots, change events and bounded diagnostics.
+- [x] Implement a single-owner MPV worker, stop acknowledgement and ordered teardown.
+- [x] Wire source replacement and route-navigation stop requests; add a local acceptance command for repeated sessions and clean shutdown.
+- [x] Keep MPV initialization, loading and controls off the GPUI event thread; use a background reaper for final-owner teardown.
 
-**Gate:** Actual visible video, audible audio, working seek/pause, and crash-free stop/shutdown on the target OS. Decoder statistics alone do not pass.
+**Current limitation:** GPUI CE 0.2.2 uses its own WGPU render path. SENZO does not yet ship a working shared-GPU render-context bridge from WGPU into libmpv. The implemented fallback lets libmpv own its native output window; it does not render into an inline GPUI rectangle.
+
+**Manual device acceptance:** Build/run with libmpv available (`mpv-2.dll`/compatible DLL on Windows or `libmpv.so.2`/compatible library on Linux). Set `SENZO_LIBMPV_PATH` when the library is not in the platform loader path, then run `senzo --mpv-smoke-test <direct-http-or-https-media-url>` with a video source that contains audio. The command validates video dimensions, audio-track metadata, controls, source replacement, a second playback session, stop acknowledgement and owner-thread shutdown. During the run, a human must confirm that the native video window is actually visible and audio is actually audible on each OS.
+
+**Gate:** Still open until both Windows and Linux real-desktop checks confirm visible video, audible audio, working pause/seek, and crash-free stop/application exit. Decoder statistics or CI compilation alone do not pass.
 
 ## Phase 10 — Native player experience
 

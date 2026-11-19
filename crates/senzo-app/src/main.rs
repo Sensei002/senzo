@@ -235,40 +235,23 @@ fn run() -> anyhow::Result<()> {
 }
 
 async fn run_mpv_smoke_test(url:&str)->anyhow::Result<()> {
-    let mut player=MpvPlayer::spawn(MpvConfig::default())
+    let player=MpvPlayer::spawn(MpvConfig::default())
         .context("load the native libmpv runtime; install it or set SENZO_LIBMPV_PATH")?;
     player.load(url,&std::collections::BTreeMap::new())
         .context("load the direct HTTP(S) test source")?;
 
-    let deadline=Instant::now()+Duration::from_secs(35);
-    let snapshot=loop {
-        let current=player.snapshot();
-        if current.status==PlaybackStatus::Error {
-            anyhow::bail!("libmpv entered an error state: {:?}",current.diagnostics.last());
-        }
-        if current.status==PlaybackStatus::Playing
-            && current.video_width.is_some_and(|width|width>0)
-            && current.video_height.is_some_and(|height|height>0)
-        {
-            break current;
-        }
-        if Instant::now()>=deadline {
-            anyhow::bail!("MPV did not start a video stream with nonzero dimensions within 35 seconds; last state: {:?}",current.status);
-        }
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    };
-
+    let snapshot=wait_for_mpv_video(&player,Duration::from_secs(35)).await?;
+    ensure!(
+        snapshot.audio_codec.is_some()
+            || snapshot.tracks.iter().any(|track|track.kind==TrackKind::Audio),
+        "the test source did not expose an audio track"
+    );
     println!(
         "PASS  native MPV video stream started: {}x{}; video codec: {}; audio codec: {}",
         snapshot.video_width.unwrap_or_default(),
         snapshot.video_height.unwrap_or_default(),
         snapshot.video_codec.as_deref().unwrap_or("unknown"),
         snapshot.audio_codec.as_deref().unwrap_or("not detected")
-    );
-    ensure!(
-        snapshot.audio_codec.is_some()
-            || snapshot.tracks.iter().any(|track| track.kind == TrackKind::Audio),
-        "the test source did not expose an audio track"
     );
     println!(
         "Tracks: {} audio, {} subtitle",
@@ -286,17 +269,56 @@ async fn run_mpv_smoke_test(url:&str)->anyhow::Result<()> {
     player.set_muted(false).context("unmute playback")?;
     player.set_speed(1.25).context("change playback speed")?;
     player.set_speed(1.0).context("restore normal playback speed")?;
-    tokio::time::sleep(Duration::from_secs(3)).await;
 
-    let stop=tokio::task::spawn_blocking(move||{
-        player.stop(Duration::from_secs(8)).context("wait for MPV stop acknowledgement")?;
+    // Replace the currently playing source to exercise MPV's single-session
+    // replace path, then stop and start it again to exercise repeated sessions.
+    player.load(url,&std::collections::BTreeMap::new())
+        .context("replace the active source in the existing MPV session")?;
+    let _=wait_for_mpv_video(&player,Duration::from_secs(35)).await?;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let stop=tokio::task::spawn_blocking({
+        let player=player.clone();
+        move||player.stop(Duration::from_secs(8))
+    }).await.context("join the first MPV stop acknowledgement task")?;
+    stop.context("wait for the first MPV stop acknowledgement")?;
+
+    player.load(url,&std::collections::BTreeMap::new())
+        .context("start a second playback session on the existing MPV owner")?;
+    let _=wait_for_mpv_video(&player,Duration::from_secs(35)).await?;
+
+    let shutdown=tokio::task::spawn_blocking(move||{
+        player.stop(Duration::from_secs(8)).context("wait for second MPV stop acknowledgement")?;
         player.shutdown().context("shut down the MPV owner thread")?;
-        Ok(())
-    }).await.context("join the MPV teardown task")?;
-    stop?;
-    println!("PASS  pause, seek, resume, volume, mute, speed, stop acknowledgement and owner-thread shutdown");
+        Ok::<(),anyhow::Error>(())
+    }).await.context("join the final MPV teardown task")?;
+    shutdown?;
+    println!("PASS  pause, seek, resume, volume, mute, speed, source replacement, repeated session, stop acknowledgements and owner-thread shutdown");
     println!("VISUAL/AUDIO CHECK: confirm the native video window was visible and sound was audible during this test.");
     Ok(())
+}
+
+async fn wait_for_mpv_video(
+    player:&MpvPlayer,
+    timeout:Duration,
+)->anyhow::Result<senzo_player::PlaybackSnapshot>{
+    let deadline=Instant::now()+timeout;
+    loop {
+        let current=player.snapshot();
+        if current.status==PlaybackStatus::Error {
+            anyhow::bail!("libmpv entered an error state: {:?}",current.diagnostics.last());
+        }
+        if current.status==PlaybackStatus::Playing
+            && current.video_width.is_some_and(|width|width>0)
+            && current.video_height.is_some_and(|height|height>0)
+        {
+            return Ok(current);
+        }
+        if Instant::now()>=deadline {
+            anyhow::bail!("MPV did not start a video stream with nonzero dimensions within {:?}; last state: {:?}",timeout,current.status);
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
 }
 
 async fn run_metadata_smoke_test(

@@ -1,0 +1,70 @@
+# Phase 9 — Native MPV playback proof and engine
+
+**Status:** Core implementation delivered; physical Windows/Linux audiovisual acceptance pending  
+**Branch:** development  
+**Engine commit:** 5f73723765a7592c58862f19377dd58422fcc5ae  
+**Native acceptance harness commit:** 539db0a103564df56198c31f3e8538f5c06b0594  
+**Off-thread GPUI integration commit:** 5f73723765a7592c58862f19377dd58422fcc5ae
+
+## Architecture
+
+- Added the Rust `senzo-player` crate and a narrow typed command/snapshot boundary around libmpv.
+- libmpv is loaded dynamically at runtime. The default loader checks platform library names; `SENZO_LIBMPV_PATH` overrides discovery with an explicit library path.
+- Exactly one `senzo-mpv-owner` thread owns each libmpv context. Commands are serialized there; the UI never calls the libmpv C API.
+- The client handle is cloneable while ownership remains singular. The final client drop signals shutdown and delegates thread joining to a reaper rather than blocking the GPUI thread.
+- MPV uses its native GPU video output and a native MPV-owned output window (`force-window`, `vo=gpu`). SENZO does not embed WebView controls.
+- `MpvConfig.window_id` preserves an optional native-window embedding seam, but the current GPUI shell deliberately uses the standalone native output window.
+
+## Implemented engine contract
+
+- Direct HTTP and HTTPS source loading with bounded, validated request headers; embedded URL credentials and unsupported schemes are rejected.
+- Play, pause, toggle, absolute/relative seek, volume, mute, speed, audio-track selection and subtitle-track selection.
+- Playback snapshots expose state, title, position/duration, volume/mute/speed, audio/video codecs and dimensions, and audio/subtitle track metadata.
+- Event subscribers receive snapshot changes and bounded diagnostics. MPV logs are not copied verbatim into application logs because they can contain sensitive source details.
+- Stop requests can be queued without blocking. The synchronous stop method waits for MPV's end-file/idle acknowledgement and is used only from a blocking worker in the acceptance harness.
+- Source replacement uses MPV's `loadfile ... replace` command. Application navigation requests stop, cancels the refresh task and invalidates any in-flight source startup.
+- MPV startup, source loading and control commands invoked from GPUI are dispatched through the Tokio blocking pool. Snapshot reads are lock-protected in-memory copies.
+
+## Native GPUI integration
+
+- Direct HTTP source cards and resolved debrid sources now expose Play in MPV actions.
+- The native source panel shows playback status, current position/duration, volume and speed, and provides pause/resume, ±10-second seek, volume changes, mute, speed toggle, audio/subtitle track selection and stop.
+- A 250 ms state refresh republishes native snapshot updates into GPUI; it is cancelled on stop and route transitions.
+- Source initialization failures are presented in the native source panel, including the missing-libmpv runtime case.
+
+## GPU/render-context decision
+
+GPUI CE 0.2.2 is built around its WGPU renderer, while libmpv's native render-context integration requires a supported libmpv render backend and graphics-context ownership. SENZO has not implemented a WGPU texture interoperability bridge. The current proof-of-concept therefore uses libmpv's own native output window instead of pretending an OpenGL/D3D11 context can be passed directly through GPUI's WGPU renderer. The optional native window ID is an embedding seam, not a claim that inline GPUI video is already implemented.
+
+## Local native acceptance command
+
+The application supports:
+
+```text
+senzo --mpv-smoke-test <direct-http-or-https-media-url>
+```
+
+Use a video URL with an audio track. Install libmpv in the normal platform loader path or set `SENZO_LIBMPV_PATH` to the exact DLL/SO path. The command opens the native MPV video output and exercises:
+
+- Video stream start and nonzero dimensions.
+- Audio-track metadata presence.
+- Pause state, seek, resume, volume, mute, speed and speed restoration.
+- Source replacement while the owner thread stays alive.
+- Stop acknowledgement, a second playback session and final worker shutdown.
+
+The test explicitly asks the person running it to confirm the video window was visible and sound was audible. CI can compile and run unit tests, but cannot honestly certify that a human saw/heard output on the user's physical Windows/Linux desktop.
+
+## Automated regression coverage
+
+The `senzo-player` unit tests cover direct HTTP(S) URLs, unsafe scheme/credentials/fragment rejection, header validation/bounds, control value limits, header escaping and native output options. Full workspace CI also builds and tests the application on Windows and Linux.
+
+## Acceptance still required
+
+Phase 9 is **not closed yet**. The following are not verified by the current CI environment:
+
+- Visible video and audible audio on a real Windows desktop with the packaged/runtime libmpv build.
+- Visible video and audible audio on a real Linux desktop and the user's actual display server.
+- Human observation that pause/seek behaves correctly against live media and that the native output window tears down cleanly on each platform.
+- A direct WGPU/libmpv render-context bridge into an inline GPUI rectangle; the current design uses a separate native video output window.
+
+To close the critical gate, run the native acceptance command on both OSes, observe actual picture and sound, and verify navigation away and application exit leave no MPV window or worker behind. The roadmap intentionally leaves the platform proof unchecked until those observations exist.
