@@ -311,7 +311,7 @@ impl MediaServerManager {
             let Some(matched) = matched else { continue; };
             let item_id = if media_type == "movie" { matched.id.clone() } else {
                 let (season, episode) = match (season, episode) { (Some(s),Some(e)) => (s,e), _ => continue };
-                self.find_episode_id(&base, connection.provider, &token, &connection.user_id, &matched.id, season, episode).await?
+                self.find_episode_id(&base, connection.provider, &token, &matched.id, season, episode).await?
                     .unwrap_or_default()
             };
             if item_id.is_empty() { continue; }
@@ -321,7 +321,7 @@ impl MediaServerManager {
         Ok(None)
     }
 
-    async fn find_episode_id(&self, base: &Url, provider: MediaServerProvider, token: &str, _user_id: &str, series_id: &str, season: u32, episode: u32) -> Result<Option<String>, IntegrationError> {
+    async fn find_episode_id(&self, base: &Url, provider: MediaServerProvider, token: &str, series_id: &str, season: u32, episode: u32) -> Result<Option<String>, IntegrationError> {
         let path = format!("Shows/{}/Episodes", path_segment(series_id));
         let mut url = endpoint(base, &path)?;
         url.query_pairs_mut().append_pair("Season", &season.to_string()).append_pair("Fields", "ProviderIds,Overview")
