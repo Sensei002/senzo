@@ -352,8 +352,10 @@ fn select_video_file<'a, F>(files: &'a [Value], filename: Option<&str>, season: 
 where F: Fn(&'a Value) -> Option<&'a str> {
     let videos = files.iter().filter(|file| name(file).is_some_and(is_video_name)).collect::<Vec<_>>();
     if videos.is_empty() { return None; }
-    if let Some(hint) = filename.map(normalize_file_name) {
-        if let Some(file) = videos.iter().find(|file| name(file).is_some_and(|n| normalize_file_name(n).contains(&hint))) { return Some(*file); }
+    if let Some(hint) = filename.map(normalize_file_name)
+        && let Some(file) = videos.iter().find(|file| name(file).is_some_and(|n| normalize_file_name(n).contains(&hint)))
+    {
+        return Some(*file);
     }
     if let (Some(season), Some(episode)) = (season, episode) {
         let sxe = format!("s{season:02}e{episode:02}");
