@@ -184,7 +184,7 @@ impl PluginScraper {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginState {
     #[serde(default = "default_true")]
@@ -193,6 +193,16 @@ pub struct PluginState {
     pub repositories: Vec<PluginRepository>,
     #[serde(default)]
     pub scrapers: Vec<PluginScraper>,
+}
+
+impl Default for PluginState {
+    fn default() -> Self {
+        Self {
+            plugins_enabled: true,
+            repositories: Vec::new(),
+            scrapers: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1188,6 +1198,14 @@ mod tests {
         assert_eq!(manifest.scrapers[0].supported_types, ["movie", "series"]);
         assert!(manifest.scrapers[0].has_settings);
         assert!(parse_manifest(r#"{"name":"","version":"1","scrapers":[]}"#).is_err());
+    }
+
+    #[test]
+    fn plugin_state_defaults_to_enabled_but_has_no_repositories_or_scrapers() {
+        let state = PluginState::default();
+        assert!(state.plugins_enabled);
+        assert!(state.repositories.is_empty());
+        assert!(state.scrapers.is_empty());
     }
 
     #[test]

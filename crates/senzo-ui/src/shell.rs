@@ -5037,7 +5037,10 @@ impl SenzoShell {
                         "plugin-global-enable",
                         if self.plugin_state.plugins_enabled { "Disable all" } else { "Enable all" },
                         70,
-                        cx.listener(|this, _, _, cx| this.set_plugins_enabled(!this.plugin_state.plugins_enabled, cx)),
+                        cx.listener(|this, _, _, cx| {
+                            let enabled = !this.plugin_state.plugins_enabled;
+                            this.set_plugins_enabled(enabled, cx);
+                        }),
                     )),
             );
 
@@ -5092,6 +5095,8 @@ impl SenzoShell {
                 let test_id = scraper.id.clone();
                 let execute_id = scraper.id.clone();
                 let settings_id = scraper.id.clone();
+                let scraper_enabled = scraper.enabled;
+                let network_granted = scraper.network_access_granted;
                 let name = scraper.name.clone();
                 section = section.child(
                     div().flex().flex_col().gap_2().rounded_md().border_1()
@@ -5106,13 +5111,13 @@ impl SenzoShell {
                                 format!("plugin-enabled-{index}"),
                                 if scraper.enabled { "Disable" } else { "Enable" },
                                 100 + index as isize * 5,
-                                cx.listener(move |this, _, _, cx| this.set_plugin_enabled(enable_id.clone(), !scraper.enabled, cx)),
+                                cx.listener(move |this, _, _, cx| this.set_plugin_enabled(enable_id.clone(), !scraper_enabled, cx)),
                             ))
                             .child(self.addon_control(
                                 format!("plugin-network-{index}"),
                                 if scraper.network_access_granted { "Revoke network" } else { "Grant network" },
                                 101 + index as isize * 5,
-                                cx.listener(move |this, _, _, cx| this.set_plugin_network_permission(permission_id.clone(), !scraper.network_access_granted, cx)),
+                                cx.listener(move |this, _, _, cx| this.set_plugin_network_permission(permission_id.clone(), !network_granted, cx)),
                             ))
                             .child(self.addon_control(
                                 format!("plugin-test-{index}"),
