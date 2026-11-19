@@ -7,7 +7,6 @@ use hmac::{Hmac, Mac};
 use md5::Md5;
 use pbkdf2::pbkdf2_hmac;
 use ring::{
-    aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_128_GCM, AES_256_GCM},
     rand::{SecureRandom, SystemRandom},
     signature::{
         ECDSA_P256_SHA256_ASN1, ECDSA_P256_SHA256_ASN1_SIGNING,
@@ -188,38 +187,129 @@ where
     Ok(output)
 }
 
-fn aes_gcm(
+fn aes_encrypt_block<C>(cipher: &C, input: &[u8; 16]) -> [u8; 16]
+where
+    C: BlockEncrypt,
+{
+    let mut block = Block::<C>::clone_from_slice(input);
+    cipher.encrypt_block(&mut block);
+    let mut output = [0u8; 16];
+    output.copy_from_slice(&block);
+    output
+}
+
+fn ghash_multiply(left: u128, right: u128) -> u128 {
+    let mut product = 0u128;
+    let mut multiplicand = right;
+    for bit in 0..128 {
+        if left & (1u128 << (127 - bit)) != 0 {
+            product ^= multiplicand;
+        }
+        let least_significant_bit = multiplicand & 1;
+        multiplicand >>= 1;
+        if least_significant_bit != 0 {
+            multiplicand ^= 0xe1000000000000000000000000000000;
+        }
+    }
+    product
+}
+
+fn ghash_blocks(mut state: u128, data: &[u8], hash_key: u128) -> u128 {
+    for chunk in data.chunks(16) {
+        let mut block = [0u8; 16];
+        block[..chunk.len()].copy_from_slice(chunk);
+        state = ghash_multiply(state ^ u128::from_be_bytes(block), hash_key);
+    }
+    state
+}
+
+fn ghash_lengths(state: u128, aad_bits: u64, data_bits: u64, hash_key: u128) -> u128 {
+    let lengths = ((aad_bits as u128) << 64) | data_bits as u128;
+    ghash_multiply(state ^ lengths, hash_key)
+}
+
+fn gcm_counter_crypt<C>(cipher: &C, initial_counter: u128, input: &[u8]) -> Vec<u8>
+where
+    C: BlockEncrypt,
+{
+    let mut output = input.to_vec();
+    let mut counter = initial_counter;
+    for chunk in output.chunks_mut(16) {
+        let next_counter = (counter as u32).wrapping_add(1);
+        counter = (counter & !0xffff_ffffu128) | u128::from(next_counter);
+        let stream = aes_encrypt_block(cipher, &counter.to_be_bytes());
+        for (byte, mask) in chunk.iter_mut().zip(stream.iter()) {
+            *byte ^= *mask;
+        }
+    }
+    output
+}
+
+fn gcm_authentication_tag<C>(
+    cipher: &C,
+    initial_counter: u128,
+    ciphertext: &[u8],
+    hash_key: u128,
+) -> [u8; 16]
+where
+    C: BlockEncrypt,
+{
+    let state = ghash_blocks(0, ciphertext, hash_key);
+    let state = ghash_lengths(state, 0, (ciphertext.len() as u64) * 8, hash_key);
+    let mask = u128::from_be_bytes(aes_encrypt_block(cipher, &initial_counter.to_be_bytes()));
+    (mask ^ state).to_be_bytes()
+}
+
+fn aes_gcm<C>(
     key: &[u8],
     iv: &[u8],
     input: &[u8],
     encrypt: bool,
-) -> CryptoResult<Vec<u8>> {
-    if iv.len() != 12 {
-        return Err("AES-GCM requires a 12-byte nonce".to_owned());
+) -> CryptoResult<Vec<u8>>
+where
+    C: KeyInit + BlockEncrypt,
+{
+    if iv.is_empty() || iv.len() > MAX_CRYPTO_INPUT_BYTES {
+        return Err("AES-GCM requires a bounded, non-empty nonce".to_owned());
     }
     if input.len() > MAX_CRYPTO_INPUT_BYTES {
         return Err("AES input exceeds the runtime limit".to_owned());
     }
-    let algorithm = match key.len() {
-        16 => &AES_128_GCM,
-        32 => &AES_256_GCM,
-        _ => return Err("AES-GCM supports 128-bit and 256-bit keys in SENZO".to_owned()),
-    };
-    let key = LessSafeKey::new(
-        UnboundKey::new(algorithm, key).map_err(|_| "Invalid AES-GCM key".to_owned())?,
-    );
-    let nonce_bytes: [u8; 12] = iv.try_into().map_err(|_| "Invalid AES-GCM nonce".to_owned())?;
-    let nonce = Nonce::assume_unique_for_key(nonce_bytes);
-    let mut output = input.to_vec();
-    if encrypt {
-        key.seal_in_place_append_tag(nonce, Aad::empty(), &mut output)
-            .map_err(|_| "AES-GCM encryption failed".to_owned())?;
-        Ok(output)
+    let cipher = C::new_from_slice(key).map_err(|_| "Invalid AES-GCM key".to_owned())?;
+    let zero_block = [0u8; 16];
+    let hash_key = u128::from_be_bytes(aes_encrypt_block(&cipher, &zero_block));
+
+    // GCM's 96-bit fast path and its general IV derivation are both supported.
+    let initial_counter = if iv.len() == 12 {
+        let mut block = [0u8; 16];
+        block[..12].copy_from_slice(iv);
+        block[15] = 1;
+        u128::from_be_bytes(block)
     } else {
-        let plaintext = key
-            .open_in_place(nonce, Aad::empty(), &mut output)
-            .map_err(|_| "AES-GCM authentication failed".to_owned())?;
-        Ok(plaintext.to_vec())
+        let state = ghash_blocks(0, iv, hash_key);
+        ghash_lengths(state, 0, (iv.len() as u64) * 8, hash_key)
+    };
+
+    if encrypt {
+        let mut ciphertext = gcm_counter_crypt(&cipher, initial_counter, input);
+        let tag = gcm_authentication_tag(&cipher, initial_counter, &ciphertext, hash_key);
+        ciphertext.extend_from_slice(&tag);
+        Ok(ciphertext)
+    } else {
+        if input.len() < 16 {
+            return Err("AES-GCM ciphertext is shorter than its authentication tag".to_owned());
+        }
+        let (ciphertext, supplied_tag) = input.split_at(input.len() - 16);
+        let expected_tag =
+            gcm_authentication_tag(&cipher, initial_counter, ciphertext, hash_key);
+        let mut difference = 0u8;
+        for (expected, actual) in expected_tag.iter().zip(supplied_tag.iter()) {
+            difference |= expected ^ actual;
+        }
+        if difference != 0 {
+            return Err("AES-GCM authentication failed".to_owned());
+        }
+        Ok(gcm_counter_crypt(&cipher, initial_counter, ciphertext))
     }
 }
 
@@ -232,7 +322,12 @@ fn aes_bytes(
 ) -> CryptoResult<Vec<u8>> {
     let normalized = mode.to_ascii_uppercase().replace(['_', ' '], "");
     if normalized.contains("GCM") {
-        return aes_gcm(key, iv, input, encrypt);
+        return match key.len() {
+            16 => aes_gcm::<Aes128>(key, iv, input, encrypt),
+            24 => aes_gcm::<Aes192>(key, iv, input, encrypt),
+            32 => aes_gcm::<Aes256>(key, iv, input, encrypt),
+            _ => Err("AES key must be 16, 24, or 32 bytes".to_owned()),
+        };
     }
     let no_padding = normalized.contains("NOPADDING");
     let cbc = !normalized.contains("ECB");
@@ -620,6 +715,49 @@ mod tests {
         let encrypted = aes_bytes("AES-GCM", &key, &nonce, plaintext, true).unwrap();
         assert_eq!(
             aes_bytes("AES-GCM", &key, &nonce, &encrypted, false).unwrap(),
+            plaintext
+        );
+    }
+
+    #[test]
+    fn aes_gcm_matches_nist_vectors_for_all_aes_key_sizes() {
+        let iv = [0u8; 12];
+        let plaintext = [0u8; 16];
+        for (key, expected) in [
+            (
+                vec![0u8; 16],
+                "0388dace60b6a392f328c2b971b2fe78ab6e47d42cec13bdf53a67b21257bddf",
+            ),
+            (
+                vec![0u8; 24],
+                "98e7247c07f0fe411c267e4384b0f6002ff58d80033927ab8ef4d4587514f0fb",
+            ),
+            (
+                vec![0u8; 32],
+                "cea7403d4d606b6e074ec5d3baf39d18d0d1c8a799996bf0265b98b5d48ab919",
+            ),
+        ] {
+            let encrypted = aes_bytes("AES-GCM", &key, &iv, &plaintext, true).unwrap();
+            assert_eq!(hex(&encrypted), expected);
+            assert_eq!(
+                aes_bytes("AES-GCM", &key, &iv, &encrypted, false).unwrap(),
+                plaintext
+            );
+        }
+    }
+
+    #[test]
+    fn aes_gcm_supports_non_96_bit_nonces() {
+        let key = [0u8; 24];
+        let iv = [0u8; 16];
+        let plaintext = [0u8; 16];
+        let encrypted = aes_bytes("AES-GCM", &key, &iv, &plaintext, true).unwrap();
+        assert_eq!(
+            hex(&encrypted),
+            "d910084572a722684c2b06a3e4c3eb2a5e45b7100696dcadbf835003e743e3d3"
+        );
+        assert_eq!(
+            aes_bytes("AES-GCM", &key, &iv, &encrypted, false).unwrap(),
             plaintext
         );
     }

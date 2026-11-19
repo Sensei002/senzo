@@ -2498,8 +2498,20 @@ mod tests {
             ).join('');
             var randomLength = crypto.getRandomValues(new Uint8Array(8)).length;
             var uuidLength = crypto.randomUUID().length;
+            var gcmKey = await crypto.subtle.importKey(
+              'raw', new Uint8Array(24), { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']
+            );
+            var gcmIv = new Uint8Array(16);
+            var gcmData = new TextEncoder().encode('AES192-GCM fixture');
+            var gcmCipher = await crypto.subtle.encrypt(
+              { name: 'AES-GCM', iv: gcmIv }, gcmKey, gcmData
+            );
+            var gcmPlain = await crypto.subtle.decrypt(
+              { name: 'AES-GCM', iv: gcmIv }, gcmKey, gcmCipher
+            );
+            var gcmText = new TextDecoder().decode(gcmPlain);
             return [{
-              title: [sha, md5, hmac, derived, decrypted, subtle, randomLength, uuidLength].join(':'),
+              title: [sha, md5, hmac, derived, decrypted, subtle, randomLength, uuidLength, gcmText].join(':'),
               url: 'https://fixture.example/crypto.mp4'
             }];
           };
@@ -2525,6 +2537,7 @@ mod tests {
         assert!(raw.contains("0c60c80f961f0e71f3a9b524af6012062fe037a6"));
         assert!(raw.contains("SENZO crypto fixture"));
         assert!(raw.contains(":8:36"));
+        assert!(raw.contains("AES192-GCM fixture"));
     }
 
     #[test]
