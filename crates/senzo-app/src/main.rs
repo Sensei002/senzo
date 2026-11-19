@@ -257,6 +257,12 @@ async fn run_mpv_smoke_test(url: &str) -> anyhow::Result<()> {
                 .any(|track| track.kind == TrackKind::Audio),
         "the test source did not expose an audio track"
     );
+    let audio_track_id = snapshot
+        .tracks
+        .iter()
+        .find(|track| track.kind == TrackKind::Audio)
+        .map(|track| track.id)
+        .context("the test source did not expose a selectable audio track")?;
     println!(
         "PASS  native MPV video stream started: {}x{}; video codec: {}; audio codec: {}",
         snapshot.video_width.unwrap_or_default(),
@@ -279,6 +285,15 @@ async fn run_mpv_smoke_test(url: &str) -> anyhow::Result<()> {
     );
 
     player
+        .select_audio_track(Some(audio_track_id))
+        .context("select the enumerated audio track")?;
+    wait_for_audio_track_selection(&player, audio_track_id, Duration::from_secs(5)).await?;
+    player
+        .select_subtitle_track(None)
+        .context("disable subtitles through the native track-selection API")?;
+    println!("PASS  audio-track selection and subtitle disable");
+
+    player
         .pause()
         .context("pause the native playback session")?;
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -289,9 +304,23 @@ async fn run_mpv_smoke_test(url: &str) -> anyhow::Result<()> {
     player
         .seek_relative(5.0)
         .context("seek the active source")?;
+    let position_before_resume = player
+        .snapshot()
+        .position_seconds
+        .context("MPV did not report a playback position after seek")?;
     player
         .play()
         .context("resume the native playback session")?;
+    let advanced_to = wait_for_mpv_progress(
+        &player,
+        position_before_resume,
+        Duration::from_secs(8),
+    )
+    .await?;
+    println!(
+        "PASS  playback resumed and media position advanced to {:.2}s",
+        advanced_to
+    );
     player.set_volume(35.0).context("set playback volume")?;
     player.set_muted(true).context("mute playback")?;
     player.set_muted(false).context("unmute playback")?;
@@ -315,6 +344,10 @@ async fn run_mpv_smoke_test(url: &str) -> anyhow::Result<()> {
     .await
     .context("join the first MPV stop acknowledgement task")?;
     stop.context("wait for the first MPV stop acknowledgement")?;
+    ensure!(
+        player.snapshot().status == PlaybackStatus::Stopped,
+        "MPV acknowledged stop without publishing the Stopped state"
+    );
 
     player
         .load(url, &std::collections::BTreeMap::new())
@@ -325,6 +358,10 @@ async fn run_mpv_smoke_test(url: &str) -> anyhow::Result<()> {
         player
             .stop(Duration::from_secs(8))
             .context("wait for second MPV stop acknowledgement")?;
+        ensure!(
+            player.snapshot().status == PlaybackStatus::Stopped,
+            "second MPV session did not publish the Stopped state"
+        );
         player
             .shutdown()
             .context("shut down the MPV owner thread")?;
@@ -369,6 +406,67 @@ async fn wait_for_mpv_video(
             );
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
+async fn wait_for_audio_track_selection(
+    player: &MpvPlayer,
+    track_id: i64,
+    timeout: Duration,
+) -> anyhow::Result<()> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let snapshot = player.snapshot();
+        if snapshot.status == PlaybackStatus::Error {
+            anyhow::bail!(
+                "libmpv entered an error state while selecting an audio track: {:?}",
+                snapshot.diagnostics.last()
+            );
+        }
+        if snapshot
+            .tracks
+            .iter()
+            .any(|track| track.kind == TrackKind::Audio && track.id == track_id && track.selected)
+        {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            anyhow::bail!(
+                "MPV did not confirm audio track {track_id} selected within {timeout:?}"
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+async fn wait_for_mpv_progress(
+    player: &MpvPlayer,
+    starting_position: f64,
+    timeout: Duration,
+) -> anyhow::Result<f64> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let snapshot = player.snapshot();
+        if snapshot.status == PlaybackStatus::Error {
+            anyhow::bail!(
+                "libmpv entered an error state while resuming playback: {:?}",
+                snapshot.diagnostics.last()
+            );
+        }
+        if snapshot.status == PlaybackStatus::Playing
+            && snapshot
+                .position_seconds
+                .is_some_and(|position| position > starting_position + 0.25)
+        {
+            return Ok(snapshot.position_seconds.unwrap_or(starting_position));
+        }
+        if Instant::now() >= deadline {
+            anyhow::bail!(
+                "MPV did not advance playback position by at least 250 ms within {timeout:?}; last position: {:?}",
+                snapshot.position_seconds
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 

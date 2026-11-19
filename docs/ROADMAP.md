@@ -213,7 +213,7 @@ See docs/PHASE_5_IMPLEMENTATION.md.
 **Status:** Core engine and GPUI source handoff implemented; native Windows/Linux playback proof remains open.
 
 - [x] Design the Rust-owned MPV lifecycle and narrow command/event interface.
-- [ ] Prototype MPV render-context integration with GPUI.
+- [x] Prototype and document MPV render-context feasibility against the pinned GPUI/WGPU stack; retain the native MPV-owned output-window fallback because there is no supported shared-texture import path in the pinned GPUI release.
 - [x] Implement the native MPV-owned output-window fallback. The current fallback is a separate native video window, not an embedded GPUI child surface.
 - [ ] Prove visible video and audible audio on Windows before UI expansion.
 - [ ] Prove visible video and audible audio on Linux before Linux playback support.

@@ -1,6 +1,6 @@
 # Phase 9 — Native MPV playback proof and engine
 
-**Status:** Core implementation delivered; physical Windows/Linux audiovisual acceptance pending  
+**Status:** Engine and playback acceptance harness implemented; GPUI render-context feasibility prototype documented; physical Windows/Linux audiovisual acceptance pending  
 **Branch:** development  
 **Engine commit:** 5f73723765a7592c58862f19377dd58422fcc5ae  
 **Native acceptance harness commit:** 539db0a103564df56198c31f3e8538f5c06b0594  
@@ -34,25 +34,29 @@
 
 ## GPU/render-context decision
 
-GPUI CE 0.2.2 is built around its WGPU renderer, while libmpv's native render-context integration requires a supported libmpv render backend and graphics-context ownership. SENZO has not implemented a WGPU texture interoperability bridge. The current proof-of-concept therefore uses libmpv's own native output window instead of pretending an OpenGL/D3D11 context can be passed directly through GPUI's WGPU renderer. The optional native window ID is an embedding seam, not a claim that inline GPUI video is already implemented.
+The Phase 9 feasibility prototype is recorded in PHASE_9_RENDER_CONTEXT_SPIKE.md. The pinned GPUI CE 0.2.2 renderer is WGPU-based and does not expose a supported external native-texture import surface. libmpv's render API uses its own supported graphics contexts (D3D11 or OpenGL) and imposes context/thread ownership requirements. Passing a D3D11 or OpenGL context directly into GPUI's WGPU renderer would therefore be an unsupported cross-backend assumption, not a working integration.
+
+**Decision:** Keep the libmpv-owned native output window as the Phase 9 playback surface. The optional MpvConfig.window_id remains an embedding seam for a future native-window integration, not proof of inline GPUI rendering. A real WGPU/shared-texture bridge is explicitly deferred until GPUI exposes a supported import path and a platform-specific interop prototype is validated.
 
 ## Local native acceptance command
 
-The application supports:
+## Local native acceptance command
 
-```text
-senzo --mpv-smoke-test <direct-http-or-https-media-url>
-```
+The application supports the command:
 
-Use a video URL with an audio track. Install libmpv in the normal platform loader path or set `SENZO_LIBMPV_PATH` to the exact DLL/SO path. The command opens the native MPV video output and exercises:
+    senzo --mpv-smoke-test <direct-http-or-https-media-url>
 
-- Video stream start and nonzero dimensions.
-- Audio-track metadata presence.
-- Pause state, seek, resume, volume, mute, speed and speed restoration.
+Use a seekable video URL with at least one audio track. Install libmpv in the normal platform loader path or set SENZO_LIBMPV_PATH to the exact DLL/SO path. The command opens the native MPV video output and exercises:
+
+- Video stream start with nonzero dimensions and a Playing state.
+- Audio-track metadata, explicit audio-track selection and subtitle disable.
+- Pause state, seek, resume and a verified increase in the playback position.
+- Volume, mute, speed and speed restoration.
 - Source replacement while the owner thread stays alive.
-- Stop acknowledgement, a second playback session and final worker shutdown.
+- Stop acknowledgement and the published Stopped state.
+- A second playback session and final worker shutdown.
 
-The test explicitly asks the person running it to confirm the video window was visible and sound was audible. CI can compile and run unit tests, but cannot honestly certify that a human saw/heard output on the user's physical Windows/Linux desktop.
+The test explicitly asks the person running it to confirm the video window was visible and sound was audible. This harness proves the libmpv command/state path and playback progress; it cannot certify that a human saw/heard output on a physical Windows/Linux desktop.
 
 ## Automated regression coverage
 
@@ -60,14 +64,13 @@ The `senzo-player` unit tests cover direct HTTP(S) URLs, unsafe scheme/credentia
 
 ## Acceptance still required
 
-Phase 9 is **not closed yet**. The following are not verified by the current CI environment:
+Phase 9 is not closed until the following are verified on real desktops:
 
 - Visible video and audible audio on a real Windows desktop with the packaged/runtime libmpv build.
-- Visible video and audible audio on a real Linux desktop and the user's actual display server.
+- Visible video and audible audio on a real Linux desktop and the actual display server.
 - Human observation that pause/seek behaves correctly against live media and that the native output window tears down cleanly on each platform.
-- A direct WGPU/libmpv render-context bridge into an inline GPUI rectangle; the current design uses a separate native video output window.
 
-To close the critical gate, run the native acceptance command on both OSes, observe actual picture and sound, and verify navigation away and application exit leave no MPV window or worker behind. The roadmap intentionally leaves the platform proof unchecked until those observations exist.
+The render-context feasibility prototype is complete and the separate native output window is the selected Phase 9 architecture. It is not an inline GPUI video surface. To close the remaining platform gate, run the native acceptance command on both OSes, observe actual picture and sound, and verify navigation away and application exit leave no MPV window or worker behind. The roadmap intentionally leaves the physical platform checks unchecked until those observations exist.
 
 ## libmpv API compatibility correction
 
