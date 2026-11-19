@@ -1,5 +1,6 @@
 use std::{
     env,
+    io::{self, Write},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -301,13 +302,19 @@ async fn run_mpv_smoke_test(url: &str) -> anyhow::Result<()> {
         player.snapshot().paused,
         "MPV did not report the paused state"
     );
+    let position_before_seek = player
+        .snapshot()
+        .position_seconds
+        .context("MPV did not report a playback position before seek")?;
     player
         .seek_relative(5.0)
         .context("seek the active source")?;
-    let position_before_resume = player
-        .snapshot()
-        .position_seconds
-        .context("MPV did not report a playback position after seek")?;
+    let position_before_resume = wait_for_mpv_seek(
+        &player,
+        position_before_seek + 4.0,
+        Duration::from_secs(5),
+    )
+    .await?;
     player
         .play()
         .context("resume the native playback session")?;
@@ -324,6 +331,10 @@ async fn run_mpv_smoke_test(url: &str) -> anyhow::Result<()> {
     player
         .set_speed(1.0)
         .context("restore normal playback speed")?;
+
+    // The source is actively playing here, so the operator can observe real
+    // frames and listen to the audio output before the session is replaced.
+    confirm_native_av_output()?;
 
     // Replace the currently playing source to exercise MPV's single-session
     // replace path, then stop and start it again to exercise repeated sessions.
@@ -433,6 +444,37 @@ async fn wait_for_audio_track_selection(
     }
 }
 
+async fn wait_for_mpv_seek(
+    player: &MpvPlayer,
+    minimum_position: f64,
+    timeout: Duration,
+) -> anyhow::Result<f64> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let snapshot = player.snapshot();
+        if snapshot.status == PlaybackStatus::Error {
+            anyhow::bail!(
+                "libmpv entered an error state while seeking: {:?}",
+                snapshot.diagnostics.last()
+            );
+        }
+        if snapshot.paused
+            && snapshot
+                .position_seconds
+                .is_some_and(|position| position >= minimum_position)
+        {
+            return Ok(snapshot.position_seconds.unwrap_or(minimum_position));
+        }
+        if Instant::now() >= deadline {
+            anyhow::bail!(
+                "MPV did not report the completed seek position ({minimum_position:.2}s) while paused within {timeout:?}; last position: {:?}",
+                snapshot.position_seconds
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
 async fn wait_for_mpv_progress(
     player: &MpvPlayer,
     starting_position: f64,
@@ -462,6 +504,35 @@ async fn wait_for_mpv_progress(
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+}
+
+fn confirm_native_av_output() -> anyhow::Result<()> {
+    let mut answer = String::new();
+    println!();
+    println!("Physical desktop check — playback is currently running.");
+    print!("Can you see the native MPV window showing moving video? Type YES to confirm: ");
+    io::stdout().flush().context("flush video confirmation prompt")?;
+    io::stdin()
+        .read_line(&mut answer)
+        .context("read video visibility confirmation")?;
+    ensure!(
+        answer.trim().eq_ignore_ascii_case("yes"),
+        "video visibility was not confirmed; Phase 9 desktop acceptance failed"
+    );
+
+    answer.clear();
+    print!("Can you hear the video's audio from your expected output device? Type YES to confirm: ");
+    io::stdout().flush().context("flush audio confirmation prompt")?;
+    io::stdin()
+        .read_line(&mut answer)
+        .context("read audio audibility confirmation")?;
+    ensure!(
+        answer.trim().eq_ignore_ascii_case("yes"),
+        "audio audibility was not confirmed; Phase 9 desktop acceptance failed"
+    );
+
+    println!("PASS  operator confirmed visible moving video and audible audio");
+    Ok(())
 }
 
 async fn run_metadata_smoke_test(

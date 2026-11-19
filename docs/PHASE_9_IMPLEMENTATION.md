@@ -40,13 +40,11 @@ The Phase 9 feasibility prototype is recorded in PHASE_9_RENDER_CONTEXT_SPIKE.md
 
 ## Local native acceptance command
 
-## Local native acceptance command
-
 The application supports the command:
 
     senzo --mpv-smoke-test <direct-http-or-https-media-url>
 
-Use a seekable video URL with at least one audio track. Install libmpv in the normal platform loader path or set SENZO_LIBMPV_PATH to the exact DLL/SO path. The command opens the native MPV video output and exercises:
+Use a seekable video URL with at least one audio track and at least ten seconds of content remaining after the player starts. Install libmpv in the normal platform loader path or set SENZO_LIBMPV_PATH to the exact DLL/SO path. Run this command in an interactive terminal: it pauses for the operator to type YES separately after confirming moving video is visible and audio is audible. A missing or negative confirmation fails the command. The command opens the native MPV video output and exercises:
 
 - Video stream start with nonzero dimensions and a Playing state.
 - Audio-track metadata, explicit audio-track selection and subtitle disable.
@@ -56,7 +54,7 @@ Use a seekable video URL with at least one audio track. Install libmpv in the no
 - Stop acknowledgement and the published Stopped state.
 - A second playback session and final worker shutdown.
 
-The test explicitly asks the person running it to confirm the video window was visible and sound was audible. This harness proves the libmpv command/state path and playback progress; it cannot certify that a human saw/heard output on a physical Windows/Linux desktop.
+The command requires two interactive operator confirmations while the first playback session is actively running: visible moving video and audible audio. This records an explicit human acceptance in the command output rather than merely printing a reminder. The harness also waits for the seeked position to update while paused before measuring post-resume progress. It cannot independently sense the display or audio device; the confirmation is an operator attestation, not machine verification.
 
 ## Automated regression coverage
 
