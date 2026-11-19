@@ -147,6 +147,8 @@ pub struct PluginRepository {
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default)]
+    pub author: Option<String>,
     pub version: String,
     pub scraper_count: usize,
     pub last_updated_epoch_ms: u64,
@@ -169,9 +171,19 @@ pub struct PluginScraper {
     pub manifest_enabled: bool,
     pub has_settings: bool,
     #[serde(default)]
+    pub logo: Option<String>,
+    #[serde(default)]
     pub content_language: Vec<String>,
     #[serde(default)]
+    pub supported_platforms: Vec<String>,
+    #[serde(default)]
+    pub disabled_platforms: Vec<String>,
+    #[serde(default)]
     pub formats: Vec<String>,
+    #[serde(default)]
+    pub supports_external_player: Option<bool>,
+    #[serde(default)]
+    pub limited: Option<bool>,
     /// Grant is intentionally separate from enabling a plugin.
     #[serde(default)]
     pub network_access_granted: bool,
@@ -342,8 +354,13 @@ impl PluginManager {
                 enabled: scraper.enabled,
                 manifest_enabled: scraper.enabled,
                 has_settings: scraper.has_settings,
+                logo: scraper.logo.clone(),
                 content_language: scraper.content_language.clone().unwrap_or_default(),
+                supported_platforms: scraper.supported_platforms.clone().unwrap_or_default(),
+                disabled_platforms: scraper.disabled_platforms.clone().unwrap_or_default(),
                 formats: scraper.formats.clone().or(scraper.supported_formats.clone()).unwrap_or_default(),
+                supports_external_player: scraper.supports_external_player,
+                limited: scraper.limited,
                 network_access_granted: false,
             });
         }
@@ -351,6 +368,7 @@ impl PluginManager {
             manifest_url: manifest_url.clone(),
             name: manifest.name,
             description: manifest.description,
+            author: manifest.author,
             version: manifest.version,
             scraper_count: installed_scrapers.len(),
             last_updated_epoch_ms: epoch_millis(),
@@ -394,8 +412,13 @@ impl PluginManager {
                 enabled: old.map(|item| item.enabled).unwrap_or(scraper.enabled) && scraper.enabled,
                 manifest_enabled: scraper.enabled,
                 has_settings: scraper.has_settings,
+                logo: scraper.logo.clone(),
                 content_language: scraper.content_language.clone().unwrap_or_default(),
+                supported_platforms: scraper.supported_platforms.clone().unwrap_or_default(),
+                disabled_platforms: scraper.disabled_platforms.clone().unwrap_or_default(),
                 formats: scraper.formats.clone().or(scraper.supported_formats.clone()).unwrap_or_default(),
+                supports_external_player: scraper.supports_external_player,
+                limited: scraper.limited,
                 network_access_granted: old.is_some_and(|item| item.network_access_granted),
             });
         }
@@ -405,6 +428,7 @@ impl PluginManager {
         if let Some(repo) = next.repositories.iter_mut().find(|repo| repo.manifest_url == manifest_url) {
             repo.name = manifest.name;
             repo.description = manifest.description;
+            repo.author = manifest.author;
             repo.version = manifest.version;
             repo.scraper_count = next.scrapers.iter().filter(|item| item.repository_url == manifest_url).count();
             repo.last_updated_epoch_ms = epoch_millis();
@@ -820,6 +844,29 @@ fn is_public_ip(ip: IpAddr) -> bool {
     }
 }
 
+
+fn parse_url_json(raw_url: &str) -> String {
+    let result = Url::parse(raw_url).ok().map(|url| {
+        let protocol = format!("{}:", url.scheme());
+        let hostname = url.host_str().unwrap_or_default().to_owned();
+        let port = url.port().map(|value| value.to_string()).unwrap_or_default();
+        let host = if port.is_empty() { hostname.clone() } else { format!("{hostname}:{port}") };
+        json!({
+            "protocol": protocol,
+            "host": host,
+            "hostname": hostname,
+            "port": port,
+            "pathname": url.path(),
+            "search": url.query().map(|value| format!("?{value}")).unwrap_or_default(),
+            "hash": url.fragment().map(|value| format!("#{value}")).unwrap_or_default()
+        })
+    }).unwrap_or_else(|| json!({
+        "protocol": "", "host": "", "hostname": "", "port": "",
+        "pathname": "/", "search": "", "hash": ""
+    }));
+    result.to_string()
+}
+
 fn execute_settings(code: &str, scraper_id: &str) -> Result<String, PluginError> {
     run_javascript(code, scraper_id, "{}", ScraperInput {
         tmdb_id: "603".to_owned(), media_type: "movie".to_owned(), season: None, episode: None,
@@ -874,6 +921,7 @@ fn run_javascript(
             let delay = Duration::from_millis(milliseconds.max(0).min(MAX_TIMER_DELAY_MS as i32) as u64);
             if Instant::now() + delay <= sleep_deadline { std::thread::sleep(delay); }
         }))?;
+        globals.set("__parse_url", Func::from(|raw_url: String| parse_url_json(&raw_url)))?;
         ctx.eval::<(), _>(JS_POLYFILLS)?;
         let mut script = String::from(
             "var module = { exports: {} }; var exports = module.exports;\
@@ -913,20 +961,57 @@ const JS_POLYFILLS: &str = r#"
 globalThis.console = {
   log: function(){}, info: function(){}, warn: function(){}, error: function(){}, debug: function(){}
 };
-globalThis.fetch = async function(url, options) {
-  var response = JSON.parse(__native_fetch(String(url), JSON.stringify(options || {})));
-  if (response.status === 0) throw new Error(response.statusText || 'Network request failed');
-  var body = response.body || '';
-  var headers = { get: function(name) { return response.headers[String(name).toLowerCase()] || null; } };
-  return {
-    ok: response.status >= 200 && response.status < 300,
-    status: response.status, statusText: response.statusText || '', url: response.url,
-    headers: headers,
-    text: async function(){ return body; },
-    json: async function(){ return body ? JSON.parse(body) : null; },
-    arrayBuffer: async function(){ return new TextEncoder().encode(body).buffer; }
-  };
+globalThis.global = globalThis;
+globalThis.window = globalThis;
+globalThis.self = globalThis;
+globalThis.SCRAPER_ID = SCRAPER_ID;
+globalThis.SCRAPER_SETTINGS = globalThis.SCRAPER_SETTINGS || {};
+globalThis.TMDB_API_KEY = '';
+
+function __plugin_clamp_delay(value) {
+  var number = Number(value);
+  if (!isFinite(number) || number < 0) number = 0;
+  return Math.min(Math.floor(number), 60000);
+}
+var __plugin_timer_counter = 0;
+var __plugin_timers = Object.create(null);
+globalThis.__plugin_sleep_async = function(delay) {
+  __plugin_sleep(__plugin_clamp_delay(delay));
+  return Promise.resolve();
 };
+globalThis.setTimeout = function(callback, delay) {
+  if (typeof callback !== 'function') throw new TypeError('Timer callback must be a function');
+  var id = ++__plugin_timer_counter;
+  __plugin_timers[id] = true;
+  var args = Array.prototype.slice.call(arguments, 2);
+  Promise.resolve().then(function() {
+    return globalThis.__plugin_sleep_async(delay);
+  }).then(function() {
+    if (!__plugin_timers[id]) return;
+    delete __plugin_timers[id];
+    callback.apply(globalThis, args);
+  });
+  return id;
+};
+globalThis.clearTimeout = function(id) { delete __plugin_timers[id]; };
+globalThis.setInterval = function(callback, delay) {
+  if (typeof callback !== 'function') throw new TypeError('Timer callback must be a function');
+  var id = ++__plugin_timer_counter;
+  var args = Array.prototype.slice.call(arguments, 2);
+  var duration = Math.max(1, __plugin_clamp_delay(delay));
+  __plugin_timers[id] = true;
+  function tick() {
+    globalThis.__plugin_sleep_async(duration).then(function() {
+      if (!__plugin_timers[id]) return;
+      callback.apply(globalThis, args);
+      if (__plugin_timers[id]) tick();
+    });
+  }
+  tick();
+  return id;
+};
+globalThis.clearInterval = globalThis.clearTimeout;
+
 if (typeof TextEncoder === 'undefined') {
   globalThis.TextEncoder = function(){};
   TextEncoder.prototype.encode = function(value) {
@@ -948,6 +1033,7 @@ if (typeof atob === 'undefined') {
   globalThis.atob = function(value) {
     var alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
     var source = String(value).replace(/=+$/, '');
+    if (source.length % 4 === 1) throw new Error('InvalidCharacterError');
     var output = '', bits = 0, buffer = 0;
     for (var i = 0; i < source.length; i++) {
       var index = alphabet.indexOf(source.charAt(i));
@@ -973,17 +1059,133 @@ if (typeof btoa === 'undefined') {
     return output;
   };
 }
-globalThis.setTimeout = function(callback, delay) {
-  var id = 0;
-  Promise.resolve().then(function() {
-    __plugin_sleep(Number(delay) || 0);
-    if (typeof callback === 'function') callback();
-  });
-  return id;
+
+var URLSearchParams = function(init) {
+  this._params = Object.create(null);
+  var self = this;
+  if (init && typeof init === 'object' && !Array.isArray(init)) {
+    Object.keys(init).forEach(function(key) { self.append(key, init[key]); });
+  } else if (typeof init === 'string') {
+    init.replace(/^\?/, '').split('&').forEach(function(pair) {
+      if (!pair) return;
+      var parts = pair.split('=');
+      self.append(decodeURIComponent(parts.shift() || ''), decodeURIComponent(parts.join('=') || ''));
+    });
+  }
 };
-globalThis.clearTimeout = function(){};
-globalThis.setInterval = function(){ throw new Error('setInterval is not supported in the bounded plugin runtime'); };
-globalThis.clearInterval = function(){};
+URLSearchParams.prototype.toString = function() {
+  var self = this;
+  return Object.keys(this._params).map(function(key) {
+    return encodeURIComponent(key) + '=' + encodeURIComponent(self._params[key]);
+  }).join('&');
+};
+URLSearchParams.prototype.get = function(key) { return Object.prototype.hasOwnProperty.call(this._params,key) ? this._params[key] : null; };
+URLSearchParams.prototype.getAll = function(key) { return this.get(key) === null ? [] : [this.get(key)]; };
+URLSearchParams.prototype.set = function(key,value) { this._params[key] = String(value); };
+URLSearchParams.prototype.append = function(key,value) {
+  key = String(key); value = String(value);
+  this._params[key] = this._params[key] === undefined ? value : this._params[key] + ',' + value;
+};
+URLSearchParams.prototype.has = function(key) { return Object.prototype.hasOwnProperty.call(this._params,key); };
+URLSearchParams.prototype.delete = function(key) { delete this._params[key]; };
+URLSearchParams.prototype.keys = function() { return Object.keys(this._params); };
+URLSearchParams.prototype.values = function() {
+  var self = this; return Object.keys(this._params).map(function(k){return self._params[k];});
+};
+URLSearchParams.prototype.entries = function() {
+  var self = this; return Object.keys(this._params).map(function(k){return [k,self._params[k]];});
+};
+URLSearchParams.prototype.forEach = function(callback) {
+  var self = this; Object.keys(this._params).forEach(function(k){callback(self._params[k],k,self);});
+};
+
+var URL = function(input, base) {
+  var value = String(input);
+  if (base && !/^[a-z][a-z0-9+.-]*:/i.test(value)) {
+    var parsedBase = new URL(String(base));
+    if (value.charAt(0) === '/') value = parsedBase.origin + value;
+    else value = parsedBase.href.substring(0, parsedBase.href.lastIndexOf('/') + 1) + value;
+  }
+  var parsed = JSON.parse(__parse_url(value));
+  if (!parsed.protocol) throw new TypeError('Invalid URL');
+  this.href = value;
+  this.protocol = parsed.protocol;
+  this.host = parsed.host;
+  this.hostname = parsed.hostname;
+  this.port = parsed.port;
+  this.pathname = parsed.pathname;
+  this.search = parsed.search;
+  this.hash = parsed.hash;
+  this.origin = parsed.protocol + '//' + parsed.host;
+  this.searchParams = new URLSearchParams(parsed.search);
+};
+URL.prototype.toString = function(){return this.href;};
+
+var Headers = function(init) {
+  this._headers = Object.create(null);
+  var self = this;
+  if (init && typeof init.forEach === 'function') init.forEach(function(v,k){self.append(k,v);});
+  else if (Array.isArray(init)) init.forEach(function(pair){if(pair&&pair.length>1)self.append(pair[0],pair[1]);});
+  else if (init && typeof init === 'object') Object.keys(init).forEach(function(k){self.append(k,init[k]);});
+};
+Headers.prototype.set = function(k,v){this._headers[String(k).toLowerCase()]=String(v);};
+Headers.prototype.append = function(k,v){
+  k=String(k).toLowerCase();v=String(v);
+  this._headers[k]=this._headers[k] ? this._headers[k]+', '+v : v;
+};
+Headers.prototype.get = function(k){return this._headers[String(k).toLowerCase()] || null;};
+Headers.prototype.has = function(k){return Object.prototype.hasOwnProperty.call(this._headers,String(k).toLowerCase());};
+Headers.prototype.delete = function(k){delete this._headers[String(k).toLowerCase()];};
+Headers.prototype.forEach = function(fn){var self=this;Object.keys(this._headers).forEach(function(k){fn(self._headers[k],k,self);});};
+
+var AbortSignal = function(){this.aborted=false;this.reason=undefined;this._listeners=[];};
+AbortSignal.prototype.addEventListener = function(type,fn){if(type==='abort'&&typeof fn==='function')this._listeners.push(fn);};
+AbortSignal.prototype.removeEventListener = function(type,fn){if(type==='abort')this._listeners=this._listeners.filter(function(x){return x!==fn;});};
+AbortSignal.prototype.dispatchEvent = function(event){
+  if(!event||event.type!=='abort')return true;
+  this._listeners.slice().forEach(function(fn){try{fn.call(this,event);}catch(e){}},this);
+  return true;
+};
+var AbortController = function(){this.signal=new AbortSignal();};
+AbortController.prototype.abort = function(reason){
+  if(this.signal.aborted)return;
+  this.signal.aborted=true;this.signal.reason=reason;
+  this.signal.dispatchEvent({type:'abort'});
+};
+globalThis.AbortSignal = AbortSignal;
+globalThis.AbortController = AbortController;
+globalThis.URL = URL;
+globalThis.URLSearchParams = URLSearchParams;
+globalThis.Headers = Headers;
+
+globalThis.fetch = async function(rawUrl, options) {
+  options = options || {};
+  if (options.signal && options.signal.aborted) throw new Error('AbortError');
+  var headers = new Headers(options.headers);
+  var headerMap = {};
+  headers.forEach(function(value,key){headerMap[key]=value;});
+  var method = String(options.method || 'GET').toUpperCase();
+  var body = options.body == null ? null : String(options.body);
+  var raw = JSON.parse(__native_fetch(String(rawUrl), JSON.stringify({
+    method: method, headers: headerMap, body: body,
+    redirect: options.redirect === 'manual' ? 'manual' : 'follow'
+  })));
+  if (raw.status === 0) throw new Error(raw.statusText || 'Network request failed');
+  var responseHeaders = new Headers(raw.headers || {});
+  var consumed = false;
+  var text = async function(){if(consumed)throw new Error('Body already consumed');consumed=true;return raw.body || '';};
+  return {
+    ok: raw.status >= 200 && raw.status < 300, status: raw.status,
+    statusText: raw.statusText || '', url: raw.url || String(rawUrl),
+    headers: responseHeaders,
+    text: text,
+    json: async function(){var value=await text();return value ? JSON.parse(value) : null;},
+    arrayBuffer: async function(){var value=await text();return new TextEncoder().encode(value).buffer;}
+  };
+};
+globalThis.require = function(moduleName) {
+  throw new Error("Module '" + String(moduleName) + "' is not available in SENZO's bounded plugin runtime");
+};
 "#;
 
 #[derive(Debug, Deserialize)]
@@ -1193,11 +1395,17 @@ mod tests {
 
     #[test]
     fn parses_nuvio_manifest_contract_and_ignores_unknown_fields() {
-        let payload = r#"{"name":"Fixture Repository","version":"1.0.0","author":"Fixture","unknown":"ignored","scrapers":[{"id":"fixture","name":"Fixture Scraper","version":"2.0","filename":"fixture.js","supportedTypes":["movie","series"],"hasSettings":true}]}"#;
+        let payload = r#"{"name":"Fixture Repository","version":"1.0.0","author":"Fixture Author","unknown":"ignored","scrapers":[{"id":"fixture","name":"Fixture Scraper","version":"2.0","filename":"fixture.js","supportedTypes":["movie","series"],"hasSettings":true,"logo":"https://example.test/logo.png","contentLanguage":["en"],"supportedPlatforms":["windows","linux"],"disabledPlatforms":["android"],"supportedFormats":["hls"],"supportsExternalPlayer":true,"limited":false}]}"#;
         let manifest = parse_manifest(payload).unwrap();
         assert_eq!(manifest.name, "Fixture Repository");
+        assert_eq!(manifest.author.as_deref(), Some("Fixture Author"));
         assert_eq!(manifest.scrapers[0].supported_types, ["movie", "series"]);
         assert!(manifest.scrapers[0].has_settings);
+        assert_eq!(manifest.scrapers[0].logo.as_deref(), Some("https://example.test/logo.png"));
+        assert_eq!(manifest.scrapers[0].supported_platforms.as_deref(), Some(["windows".to_owned(), "linux".to_owned()].as_slice()));
+        assert_eq!(manifest.scrapers[0].supported_formats.as_deref(), Some(["hls".to_owned()].as_slice()));
+        assert_eq!(manifest.scrapers[0].supports_external_player, Some(true));
+        assert_eq!(manifest.scrapers[0].limited, Some(false));
         assert!(parse_manifest(r#"{"name":"","version":"1","scrapers":[]}"#).is_err());
     }
 
@@ -1254,6 +1462,31 @@ mod tests {
         assert!(settings.contains("token"));
     }
 
+
+    #[test]
+    fn quickjs_compatibility_includes_url_headers_abort_and_timer_apis() {
+        let code = r#"
+          module.exports.getStreams = async function() {
+            var url = new URL('/movie?id=603', 'https://cdn.example/path/');
+            var headers = new Headers({ 'X-Test': 'yes' });
+            var controller = new AbortController();
+            var timerRan = false;
+            await new Promise(function(resolve) {
+              setTimeout(function(){ timerRan = true; resolve(); }, 1);
+            });
+            return [{
+              title: url.pathname + url.search + ' ' + headers.get('x-test') + ' ' + controller.signal.aborted + ' ' + timerRan,
+              url: 'https://cdn.example/video.mp4'
+            }];
+          };
+        "#;
+        let input = ScraperInput {
+            tmdb_id: "603".into(), media_type: "movie".into(), season: None, episode: None
+        };
+        let raw = run_javascript(code, "compat", "{}", input, PluginHttp, Duration::from_secs(2), false).unwrap();
+        assert!(raw.contains("/movie?id=603 yes false true"));
+    }
+
     #[test]
     fn execution_budget_interrupts_infinite_javascript() {
         let error = run_javascript("while (true) {}", "fixture", "{}", ScraperInput {
@@ -1276,13 +1509,14 @@ mod tests {
         let mut state = PluginState::default();
         state.repositories.push(PluginRepository {
             manifest_url: "https://fixture.example/manifest.json".into(), name: "Fixture".into(),
-            description: None, version: "1".into(), scraper_count: 1, last_updated_epoch_ms: 1, last_error: None
+            description: None, author: None, version: "1".into(), scraper_count: 1, last_updated_epoch_ms: 1, last_error: None
         });
         state.scrapers.push(PluginScraper {
             id: "fixture:one".into(), repository_url: "https://fixture.example/manifest.json".into(),
             name: "One".into(), description: String::new(), version: "1".into(), filename: "one.js".into(),
             supported_types: vec!["movie".into()], enabled: true, manifest_enabled: true, has_settings: true,
-            content_language: Vec::new(), formats: Vec::new(), network_access_granted: false
+            logo: None, content_language: Vec::new(), supported_platforms: Vec::new(), disabled_platforms: Vec::new(),
+            formats: Vec::new(), supports_external_player: None, limited: None, network_access_granted: false
         });
         manager.save_state("profile-a", &state).unwrap();
         assert_eq!(manager.list_state("profile-a").unwrap(), state);
@@ -1305,7 +1539,8 @@ mod tests {
             id: "x".into(), repository_url: "https://x.example/manifest.json".into(), name: "x".into(),
             description: String::new(), version: "1".into(), filename: "x.js".into(),
             supported_types: vec!["series".into()], enabled: true, manifest_enabled: true, has_settings: false,
-            content_language: vec![], formats: vec![], network_access_granted: false,
+            logo: None, content_language: vec![], supported_platforms: vec![], disabled_platforms: vec![],
+            formats: vec![], supports_external_player: None, limited: None, network_access_granted: false,
         };
         assert!(scraper.supports_type("tv"));
     }
