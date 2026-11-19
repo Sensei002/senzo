@@ -68,3 +68,7 @@ Phase 9 is **not closed yet**. The following are not verified by the current CI 
 - A direct WGPU/libmpv render-context bridge into an inline GPUI rectangle; the current design uses a separate native video output window.
 
 To close the critical gate, run the native acceptance command on both OSes, observe actual picture and sound, and verify navigation away and application exit leave no MPV window or worker behind. The roadmap intentionally leaves the platform proof unchecked until those observations exist.
+
+## libmpv API compatibility correction
+
+The player now uses libmpv's documented `MPV_EVENT_IDLE = 11` value (rather than `MPV_EVENT_HOOK = 25`) and writes HTTP headers through the documented `options/http-header-fields` runtime option property. Stop completion leaves the snapshot in `Stopped`, including when MPV subsequently emits its idle notification. Regression tests lock the event ID and option-property name.

@@ -24,12 +24,13 @@ const EV_PAUSE:c_int=12;
 const EV_UNPAUSE:c_int=13;
 const EV_RESTART:c_int=21;
 const EV_PROPERTY:c_int=22;
-const EV_IDLE:c_int=25;
+const EV_IDLE:c_int=11;
 const POLL:f64=0.04;
 const MAX_HEADERS:usize=64;
 const MAX_HEADER_BYTES:usize=8192;
 const MAX_TRACKS:usize=64;
 const MAX_DIAGNOSTICS:usize=128;
+const HTTP_HEADER_OPTION_PROPERTY:&str="options/http-header-fields";
 
 #[derive(Debug,Clone,Error,PartialEq,Eq)]
 pub enum MpvError {
@@ -274,7 +275,7 @@ fn process(command:Command,api:&Api,ctx:*mut c_void,snapshot:&Arc<RwLock<Playbac
     match command{
         Command::Load{url,headers,reply}=>{
             let value=headers.iter().map(|(k,v)|format!("{k}:{}",mpv_escape(v))).collect::<Vec<_>>().join(",");
-            let result=api.set(ctx,"http-header-fields",&value).and_then(|_|api.cmd(ctx,&["loadfile",&url,"replace"]));
+            let result=api.set(ctx,HTTP_HEADER_OPTION_PROPERTY,&value).and_then(|_|api.cmd(ctx,&["loadfile",&url,"replace"]));
             match result{
                 Ok(())=>{*state=PlaybackStatus::Loading;set_state(snapshot,listeners,*state);diagnostic(snapshot,listeners,DiagnosticLevel::Info,"MPV accepted a source replacement");let _=reply.send(Ok(()));}
                 Err(e)=>{*state=PlaybackStatus::Error;set_state(snapshot,listeners,*state);diagnostic(snapshot,listeners,DiagnosticLevel::Error,&format!("MPV source load failed: {e}"));let _=reply.send(Err(e));}
@@ -319,7 +320,15 @@ fn event_update(id:c_int,api:&Api,ctx:*mut c_void,snapshot:&Arc<RwLock<PlaybackS
         EV_LOADED|EV_RESTART=>{*state=if api.flag(ctx,"pause").unwrap_or(false){PlaybackStatus::Paused}else{PlaybackStatus::Playing};set_state(snapshot,listeners,*state);}
         EV_PAUSE=>{*state=PlaybackStatus::Paused;set_state(snapshot,listeners,*state);}
         EV_UNPAUSE=>{*state=PlaybackStatus::Playing;set_state(snapshot,listeners,*state);}
-        EV_END|EV_IDLE=>{*state=PlaybackStatus::Ended;set_state(snapshot,listeners,*state);if let Some(tx)=stop_waiter.take(){let _=tx.send(Ok(()));}}
+        EV_END|EV_IDLE=>{
+            if stop_waiter.is_some() {
+                *state=PlaybackStatus::Stopped;
+            } else if matches!(*state,PlaybackStatus::Loading|PlaybackStatus::Playing|PlaybackStatus::Paused) {
+                *state=PlaybackStatus::Ended;
+            }
+            set_state(snapshot,listeners,*state);
+            if let Some(tx)=stop_waiter.take(){let _=tx.send(Ok(()));}
+        }
         EV_SHUTDOWN=>{*state=PlaybackStatus::Stopped;set_state(snapshot,listeners,*state);}
         EV_LOG=>diagnostic(snapshot,listeners,DiagnosticLevel::Warning,"libmpv emitted a warning/error log event; consult the native MPV log"),
         EV_PROPERTY=>update_snapshot(api,ctx,snapshot,listeners,*state),
@@ -509,6 +518,14 @@ mod tests{
     #[test]fn default_config_reads_optional_libmpv_path(){
         assert_eq!(MpvConfig::default().window_id,None);
         assert!(!MpvConfig::default().start_paused);
+    }
+    #[test]fn libmpv_event_ids_match_the_documented_client_abi(){
+        assert_eq!(EV_END,7);
+        assert_eq!(EV_IDLE,11);
+        assert_eq!(EV_RESTART,21);
+    }
+    #[test]fn request_headers_use_the_runtime_option_property(){
+        assert_eq!(HTTP_HEADER_OPTION_PROPERTY,"options/http-header-fields");
     }
     #[test]fn escapes_mpv_header_list_delimiters(){assert_eq!(mpv_escape(r"a,b\c"),r"a\,b\\c");}
     #[test]fn config_creates_native_gpu_output_options(){
