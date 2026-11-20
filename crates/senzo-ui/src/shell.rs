@@ -24,13 +24,15 @@ use senzo_addons::{
 use senzo_artwork::{ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_catalog::{
     BuiltInHomeCatalog as HomeShelfKey, HomeCatalogDefinition, HomeCatalogProviderRegistry,
-    HomeCollection, HomeCollectionsSettings, HomeSettings, home_collection_folder_key,
-    visible_home_collections,
+    HomeCollection, HomeCollectionFolder, HomeCollectionPosterShape, HomeCollectionsSettings,
+    HomeSettings, home_collection_folder_key, visible_home_collections,
 };
 use senzo_debrid::{DebridManager, DebridProviderId, ResolvedDebridSource};
 use senzo_domain::{
-    AppPage, MediaKind, PlaybackProgress, PlaybackProgressRepository, SettingKey,
-    SettingsRepository, WatchedItem, playback_is_complete, should_store_playback_progress,
+    AppPage, LibraryCollection, LibraryItem, LibraryRepository, MediaKind, PlaybackProgress,
+    PlaybackProgressRepository, Profile, ProfileRepository, ProfileScope,
+    ProfileSecurityRepository, ProfileSettingsRepository, SettingKey, SettingsRepository,
+    SyncOutboxRepository, WatchedItem, playback_is_complete, should_store_playback_progress,
 };
 use senzo_integrations::{MediaServerManager, MediaServerProvider};
 #[cfg(test)]
@@ -706,6 +708,12 @@ pub struct ShellServices {
     pub metadata: MetadataClient,
     pub artwork: ArtworkService,
     pub settings: Arc<dyn SettingsRepository>,
+    pub profiles: Arc<dyn ProfileRepository>,
+    pub library: Arc<dyn LibraryRepository>,
+    pub profile_security: Arc<dyn ProfileSecurityRepository>,
+    pub profile_settings: Arc<dyn ProfileSettingsRepository>,
+    pub sync_outbox: Arc<dyn SyncOutboxRepository>,
+    pub profile_scope: ProfileScope,
     pub playback_progress: Arc<dyn PlaybackProgressRepository>,
     pub addon_manager: AddonManager,
     pub plugin_manager: PluginManager,
@@ -720,6 +728,25 @@ pub(crate) struct SenzoShell {
     dialog_focus: FocusHandle,
     tokio: Handle,
     playback_progress_repository: Arc<dyn PlaybackProgressRepository>,
+    profiles_repository: Arc<dyn ProfileRepository>,
+    library_repository: Arc<dyn LibraryRepository>,
+    profile_security_repository: Arc<dyn ProfileSecurityRepository>,
+    profile_settings_repository: Arc<dyn ProfileSettingsRepository>,
+    sync_outbox_repository: Arc<dyn SyncOutboxRepository>,
+    profile_scope: ProfileScope,
+    active_profile_id: String,
+    profiles: Vec<Profile>,
+    profile_name_input: Entity<InputState>,
+    profile_pin_input: Entity<InputState>,
+    profile_switch_target: Option<String>,
+    profile_error: Option<String>,
+    profile_notice: Option<String>,
+    library_search_input: Entity<InputState>,
+    library_collection_input: Entity<InputState>,
+    library_items: Vec<LibraryItem>,
+    library_collections: Vec<LibraryCollection>,
+    library_collection_items: HashMap<String, Vec<LibraryItem>>,
+    library_error: Option<String>,
     home_continue_watching: Vec<PlaybackProgress>,
     home_continue_watching_artwork: HashMap<String, Arc<RenderImage>>,
     home_progress_artwork_requested: bool,
@@ -809,6 +836,7 @@ pub(crate) struct SenzoShell {
     artwork: ArtworkService,
     settings: Arc<dyn SettingsRepository>,
     home_settings: HomeSettings,
+    configured_home_collections: Vec<HomeCollection>,
     home_collections: Vec<HomeCollection>,
     home_collection_artwork: HashMap<String, Arc<RenderImage>>,
     home_collection_artwork_requested: bool,
@@ -1077,6 +1105,12 @@ impl SenzoShell {
             metadata,
             artwork,
             settings,
+            profiles: profiles_repository,
+            library: library_repository,
+            profile_security: profile_security_repository,
+            profile_settings: profile_settings_repository,
+            sync_outbox: sync_outbox_repository,
+            profile_scope,
             playback_progress,
             addon_manager,
             plugin_manager,
@@ -1090,6 +1124,27 @@ impl SenzoShell {
             .map(|(index, page)| (*page, cx.focus_handle().tab_index(index as isize)))
             .collect();
         let dialog_focus = cx.focus_handle().tab_index(60);
+        let active_profile_id = profile_scope.current();
+        let profiles = profiles_repository.list_profiles().unwrap_or_else(|error| {
+            tracing::warn!(error = %error, "could not load local profiles");
+            Vec::new()
+        });
+        let active_profile_name = profiles.iter()
+            .find(|profile| profile.id == active_profile_id)
+            .map(|profile| profile.name.clone())
+            .unwrap_or_else(|| "Default".to_owned());
+        let profile_name_input = cx.new(|cx| {
+            InputState::new(window, cx).default_value(active_profile_name).placeholder("Profile name")
+        });
+        let profile_pin_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Profile PIN (4-12 digits)")
+        });
+        let library_search_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Search your library")
+        });
+        let library_collection_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("New collection name")
+        });
         let search_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search movies, TV shows, and people")
         });
@@ -1181,7 +1236,7 @@ impl SenzoShell {
             }
         });
         let home_continue_watching = playback_progress
-            .list_continue_watching("default", 20)
+            .list_continue_watching(&active_profile_id, 20)
             .unwrap_or_else(|error| {
                 tracing::warn!(error = %error, "could not load Continue Watching progress");
                 Vec::new()
@@ -1205,12 +1260,33 @@ impl SenzoShell {
             tracing::warn!(error = %error, "could not load persisted Home layout; using defaults");
             HomeSettings::default()
         });
-        let home_collections = HomeCollectionsSettings::load(settings.as_ref())
+        let configured_home_collections = HomeCollectionsSettings::load(settings.as_ref())
             .unwrap_or_else(|error| {
                 tracing::warn!(error = %error, "could not load Home collections; using an empty collection list");
                 HomeCollectionsSettings::default()
             })
             .collections;
+        let library_items = library_repository.list_library_items(&active_profile_id).unwrap_or_else(|error| {
+            tracing::warn!(error = %error, "could not load local library");
+            Vec::new()
+        });
+        let library_collections = library_repository.list_library_collections(&active_profile_id).unwrap_or_else(|error| {
+            tracing::warn!(error = %error, "could not load library collections");
+            Vec::new()
+        });
+        let library_collection_items = library_collections.iter().map(|collection| {
+            let items = library_repository.list_collection_items(&active_profile_id, &collection.id)
+                .unwrap_or_else(|error| {
+                    tracing::warn!(collection_id = %collection.id, error = %error, "could not load collection items");
+                    Vec::new()
+                });
+            (collection.id.clone(), items)
+        }).collect::<HashMap<_, _>>();
+        let home_collections = merge_library_home_collections(
+            &configured_home_collections,
+            &library_collections,
+            &library_collection_items,
+        );
         let home_featured_info_focus = cx.focus_handle();
         let mut home_card_focus_handles = HashMap::new();
         home_card_focus_handles.insert(
@@ -1247,6 +1323,25 @@ impl SenzoShell {
             dialog_focus,
             tokio,
             playback_progress_repository: playback_progress,
+            profiles_repository,
+            library_repository,
+            profile_security_repository,
+            profile_settings_repository,
+            sync_outbox_repository,
+            profile_scope,
+            active_profile_id,
+            profiles,
+            profile_name_input,
+            profile_pin_input,
+            profile_switch_target: None,
+            profile_error: None,
+            profile_notice: None,
+            library_search_input,
+            library_collection_input,
+            library_items,
+            library_collections,
+            library_collection_items,
+            library_error: None,
             home_continue_watching,
             home_continue_watching_artwork: HashMap::new(),
             home_progress_artwork_requested: false,
@@ -1336,6 +1431,7 @@ impl SenzoShell {
             artwork,
             settings,
             home_settings,
+            configured_home_collections,
             home_collections,
             home_collection_artwork: HashMap::new(),
             home_collection_artwork_requested: false,
@@ -1469,6 +1565,9 @@ impl SenzoShell {
         self.remember_focused_home_card(window);
         if self.navigation.navigate(page) {
             self.menu_open = false;
+            if page == AppPage::Library {
+                self.reload_library_state();
+            }
             if page == AppPage::Addons {
                 self.load_addon_registry(cx);
             } else if page == AppPage::Settings {
@@ -12067,6 +12166,7 @@ impl SenzoShell {
                 "Settings",
                 "Everyday controls will stay simple, with advanced options kept separate.",
             ))
+            .child(self.render_profiles_settings(cx))
             .child(self.render_home_layout_settings(cx))
             .child(self.render_plugin_settings(cx))
             .child(self.render_source_provider_settings(cx))
@@ -12153,22 +12253,7 @@ impl SenzoShell {
             AppPage::Movies => self.render_discovery(MediaType::Movie, cx),
             AppPage::TvShows => self.render_discovery(MediaType::Tv, cx),
             AppPage::Search => self.render_search(cx),
-            AppPage::Library => div()
-                .w_full()
-                .flex()
-                .flex_col()
-                .gap_5()
-                .child(page_intro(
-                    "YOUR SPACE",
-                    "Library",
-                    "Your saved titles and personal collections belong here.",
-                ))
-                .child(status_panel(
-                    StatusTone::Empty,
-                    "EMPTY LIBRARY",
-                    "Your library is empty",
-                    "When library and collection workflows are implemented, saved media will appear here. Your local data foundation is already in place.",
-                )),
+            AppPage::Library => self.render_library(cx),
             AppPage::Addons => self.render_addons(cx),
             AppPage::Settings => self.render_settings(cx),
         }

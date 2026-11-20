@@ -29,3 +29,5 @@ serde_json.workspace = true
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
 senzo-network = { path = "../senzo-network" }
+
+senzo-storage = { path = "../senzo-storage" }
