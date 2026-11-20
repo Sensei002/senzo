@@ -6,13 +6,15 @@
 //! during the next application startup.
 
 use std::{
-    fs,
+    fs::{self, File, OpenOptions},
+    io::ErrorKind,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result, bail};
+use fs2::FileExt;
 
 const SESSION_PREFIX: &str = "session-";
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -22,6 +24,7 @@ static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
 pub struct TorrentSessionDirectory {
     root: PathBuf,
     path: Option<PathBuf>,
+    lock_file: Option<File>,
 }
 
 impl TorrentSessionDirectory {
@@ -56,18 +59,46 @@ impl TorrentSessionDirectory {
             {
                 continue;
             }
-            match fs::remove_dir_all(entry.path()) {
-                Ok(()) => removed += 1,
-                Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
-                    // Windows may still have a locked file after an abnormal shutdown.
-                    // Leave it for another startup cleanup attempt.
-                }
+            let lock_path = entry.path().join(".senzo-session.lock");
+            let lock_file = match OpenOptions::new().read(true).write(true).open(&lock_path) {
+                Ok(file) => file,
+                // Older/uninitialized directories are left alone: a second process
+                // may be between create_dir and acquiring its lock.
+                Err(error) if error.kind() == ErrorKind::NotFound => continue,
+                Err(error) if error.kind() == ErrorKind::PermissionDenied => continue,
                 Err(error) => {
                     return Err(error).with_context(|| {
-                        format!(
-                            "failed to remove abandoned torrent session {}",
-                            entry.path().display()
-                        )
+                        format!("failed to inspect torrent session lock {}", lock_path.display())
+                    });
+                }
+            };
+            match lock_file.try_lock_exclusive() {
+                Ok(()) => {
+                    // Release our temporary recovery lock before removing the directory
+                    // so Windows can delete the lock file too.
+                    drop(lock_file);
+                    match fs::remove_dir_all(entry.path()) {
+                        Ok(()) => removed += 1,
+                        Err(error) if error.kind() == ErrorKind::PermissionDenied => {
+                            // Leave locked payloads for another startup cleanup attempt.
+                        }
+                        Err(error) => {
+                            return Err(error).with_context(|| {
+                                format!(
+                                    "failed to remove abandoned torrent session {}",
+                                    entry.path().display()
+                                )
+                            });
+                        }
+                    }
+                }
+                Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                    // Another SENZO process still owns this active session.
+                }
+                Err(error) if error.kind() == ErrorKind::PermissionDenied => continue,
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("failed to acquire torrent session recovery lock {}", lock_path.display())
                     });
                 }
             }
@@ -92,9 +123,20 @@ impl TorrentSessionDirectory {
             ));
             match fs::create_dir(&path) {
                 Ok(()) => {
+                    let lock_path = path.join(".senzo-session.lock");
+                    let lock_file = OpenOptions::new()
+                        .create_new(true)
+                        .read(true)
+                        .write(true)
+                        .open(&lock_path)
+                        .with_context(|| format!("failed to create torrent session lock {}", lock_path.display()))?;
+                    lock_file
+                        .try_lock_exclusive()
+                        .with_context(|| format!("failed to lock torrent session {}", path.display()))?;
                     return Ok(Self {
                         root,
                         path: Some(path),
+                        lock_file: Some(lock_file),
                     });
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -144,6 +186,8 @@ impl TorrentSessionDirectory {
         let Some(path) = self.path.take() else {
             return Ok(());
         };
+        // Unlock before recursive removal so Windows can delete the lock file.
+        drop(self.lock_file.take());
         match fs::remove_dir_all(&path) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -201,6 +245,7 @@ mod tests {
         let file = temp.path().join("notes.txt");
         fs::create_dir_all(&abandoned).unwrap();
         fs::create_dir_all(&unrelated).unwrap();
+        File::create(abandoned.join(".senzo-session.lock")).unwrap();
         fs::write(abandoned.join("partial.mkv"), b"partial").unwrap();
         fs::write(unrelated.join("important.txt"), b"keep").unwrap();
         fs::write(&file, b"keep").unwrap();
@@ -212,6 +257,27 @@ mod tests {
         assert!(!abandoned.exists());
         assert!(unrelated.join("important.txt").exists());
         assert!(file.exists());
+    }
+
+    #[test]
+    fn startup_recovery_preserves_sessions_owned_by_another_running_instance() {
+        let temp = tempdir().unwrap();
+        let active = TorrentSessionDirectory::create_at(temp.path()).unwrap();
+        let active_path = active.path().to_path_buf();
+
+        let abandoned = temp.path().join("session-abandoned");
+        fs::create_dir_all(&abandoned).unwrap();
+        File::create(abandoned.join(".senzo-session.lock")).unwrap();
+        fs::write(abandoned.join("partial.mkv"), b"partial").unwrap();
+
+        assert_eq!(
+            TorrentSessionDirectory::recover_abandoned_sessions_at(temp.path()).unwrap(),
+            1
+        );
+        assert!(active_path.is_dir(), "another running process still owns this session");
+        assert!(!abandoned.exists(), "unlocked crash residue should be removed");
+        drop(active);
+        assert!(!active_path.exists());
     }
 
     #[cfg(unix)]

@@ -33,6 +33,7 @@ publish = false
 anyhow = "1"
 axum = "0.8"
 futures-util = "0.3"
+fs2 = "0.4"
 librqbit = { version = "=9.1.0", default-features = false, features = ["rust-tls", "disable-upload"] }
 async-trait = "0.1"
 image = { version = "0.25", default-features = false }
