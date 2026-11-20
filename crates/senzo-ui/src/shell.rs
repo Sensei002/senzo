@@ -14149,7 +14149,7 @@ impl SenzoShell {
             );
             return;
         }
-        let SourceTarget::Torrent { info_hash, file_index, .. } = source.target else {
+        let SourceTarget::Torrent { info_hash, magnet_uri, file_index } = source.target else {
             self.playback_error = Some("The selected source is not a supported torrent.".to_owned());
             cx.notify();
             return;
@@ -14165,7 +14165,15 @@ impl SenzoShell {
         self.torrent_start_cancel = cancel.clone();
         let runtime = self.tokio.clone();
         let task = runtime.spawn(async move {
-            let (mut session, files) = TorrentPlaybackSession::inspect(&info_hash)
+            let trackers = magnet_uri.as_deref()
+                .and_then(|magnet| url::Url::parse(magnet).ok())
+                .map(|magnet| {
+                    magnet.query_pairs()
+                        .filter_map(|(key, value)| (key == "tr").then(|| value.into_owned()))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let (mut session, files) = TorrentPlaybackSession::inspect_with_trackers(&info_hash, &trackers)
                 .await
                 .map_err(|error| format!("Could not inspect torrent metadata: {error:#}"))?;
             let selected = file_index
