@@ -3,6 +3,8 @@ name: SENZO Desktop Releases
 on:
   workflow_dispatch:
   push:
+    branches:
+      - migration/stremio-native
     tags:
       - "v*"
 
@@ -19,8 +21,48 @@ env:
   CARGO_HTTP_MULTIPLEXING: false
 
 jobs:
+  validate:
+    name: Validate release workflow and release notes
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Set up Go for actionlint
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+
+      - name: Lint GitHub Actions workflows
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@latest
+          "$HOME/go/bin/actionlint" -color .github/workflows/ci.yml .github/workflows/release.yml
+
+      - name: Validate release-note generator
+        run: |
+          python3 -m py_compile scripts/generate_release_notes.py
+          version="$(sed -n 's/^version = "\\(.*\\)"/\\1/p' app/Cargo.toml | head -n 1)"
+          test -n "$version"
+          mkdir -p "$RUNNER_TEMP/senzo-release-assets"
+          touch "$RUNNER_TEMP/senzo-release-assets/SENZO-Setup-v${version}-x64.exe"
+          touch "$RUNNER_TEMP/senzo-release-assets/senzo-v${version}-x86_64-pc-windows-msvc.zip"
+          touch "$RUNNER_TEMP/senzo-release-assets/senzo-v${version}-x86_64-unknown-linux-gnu"
+          touch "$RUNNER_TEMP/senzo-release-assets/senzo_${version}-1_amd64.deb"
+          touch "$RUNNER_TEMP/senzo-release-assets/senzo-${version}-1-x86_64.pkg.tar.zst"
+          touch "$RUNNER_TEMP/senzo-release-assets/senzo-${version}-1.fc44.x86_64.rpm"
+          touch "$RUNNER_TEMP/senzo-release-assets/SHA256SUMS.txt"
+          python3 scripts/generate_release_notes.py \
+            --repo Sensei002/senzo \
+            --tag "v${version}" \
+            --asset-dir "$RUNNER_TEMP/senzo-release-assets" \
+            --changelog CHANGELOG.md \
+            --output "$RUNNER_TEMP/SENZO-RELEASE-NOTES.md"
+          grep -q "SENZO v${version}" "$RUNNER_TEMP/SENZO-RELEASE-NOTES.md"
+
   windows:
     name: Windows x64
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     runs-on: windows-2022
     env:
       VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
@@ -203,6 +245,7 @@ jobs:
 
   linux:
     name: Linux x64 and Debian package
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
@@ -288,6 +331,7 @@ jobs:
 
   arch:
     name: Arch Linux x64 package
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     needs: linux
     runs-on: ubuntu-24.04
     container:
@@ -349,6 +393,7 @@ jobs:
 
   fedora:
     name: Fedora x64 RPM package
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     needs: linux
     runs-on: ubuntu-24.04
     container:
@@ -411,7 +456,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    needs: [windows, linux, arch, fedora]
+    needs: [validate, windows, linux, arch, fedora]
     runs-on: ubuntu-24.04
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
