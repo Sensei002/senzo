@@ -1,0 +1,35 @@
+[package]
+name = "senzo-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui.workspace = true
+gpui_component.workspace = true
+gpui_platform.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+image.workspace = true
+senzo-artwork = { path = "../senzo-artwork" }
+senzo-addons = { path = "../senzo-addons" }
+senzo-metadata = { path = "../senzo-metadata" }
+tracing.workspace = true
+senzo-domain = { path = "../senzo-domain" }
+senzo-sync = { path = "../senzo-sync" }
+senzo-catalog = { path = "../senzo-catalog" }
+senzo-plugins = { path = "../senzo-plugins" }
+senzo-sources = { path = "../senzo-sources" }
+senzo-debrid = { path = "../senzo-debrid" }
+senzo-integrations = { path = "../senzo-integrations" }
+senzo-player = { path = "../senzo-player" }
+serde_json.workspace = true
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+senzo-network = { path = "../senzo-network" }
+
+senzo-storage = { path = "../senzo-storage" }
+senzo-platform = { path = "../senzo-platform" }

@@ -1,0 +1,32 @@
+[package]
+name = "senzo-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "senzo"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+senzo-artwork = { path = "../senzo-artwork" }
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+senzo-diagnostics = { path = "../senzo-diagnostics" }
+senzo-domain = { path = "../senzo-domain" }
+senzo-metadata = { path = "../senzo-metadata" }
+senzo-network = { path = "../senzo-network" }
+senzo-platform = { path = "../senzo-platform" }
+senzo-storage = { path = "../senzo-storage" }
+senzo-ui = { path = "../senzo-ui" }
+senzo-addons = { path = "../senzo-addons" }
+senzo-plugins = { path = "../senzo-plugins" }
+senzo-sources = { path = "../senzo-sources" }
+senzo-debrid = { path = "../senzo-debrid" }
+senzo-integrations = { path = "../senzo-integrations" }
+senzo-player = { path = "../senzo-player" }
+senzo-sync = { path = "../senzo-sync" }
