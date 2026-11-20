@@ -42,7 +42,7 @@ jobs:
       - name: Validate release-note generator
         run: |
           python3 -m py_compile scripts/generate_release_notes.py
-          version="$(sed -n 's/^version = "\\(.*\\)"/\\1/p' app/Cargo.toml | head -n 1)"
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("app/Cargo.toml", "rb"))["package"]["version"])')"
           test -n "$version"
           mkdir -p "$RUNNER_TEMP/senzo-release-assets"
           touch "$RUNNER_TEMP/senzo-release-assets/SENZO-Setup-v${version}-x64.exe"
