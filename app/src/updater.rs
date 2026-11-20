@@ -636,7 +636,7 @@ mod tests {
 
         assert_eq!(
             launcher.take_pending(),
-            Some(PathBuf::from("stremio-installer.exe"))
+            Some(PathBuf::from("senzo-installer.exe"))
         );
     }
 }
