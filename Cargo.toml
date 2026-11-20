@@ -14,6 +14,7 @@ members = [
     "crates/senzo-network",
     "crates/senzo-platform",
     "crates/senzo-storage",
+    "crates/senzo-sync",
     "crates/senzo-ui",
     "crates/senzo-player",
 ]
