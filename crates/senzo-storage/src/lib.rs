@@ -9,12 +9,18 @@ use std::{
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 use senzo_addons::{AddonRecord, AddonStore, AddonStoreError};
 use senzo_domain::{
-    MediaKind, PlaybackProgress, PlaybackProgressRepository, Profile, ProfileRepository,
-    RepositoryError, SettingKey, SettingsRepository, WatchedItem,
+    LibraryCollection, LibraryItem, LibraryRepository, MediaKind, PlaybackProgress,
+    PlaybackProgressRepository, Profile, ProfileRepository, ProfileSecurityRepository,
+    ProfileSettingsRepository, RepositoryError, SettingKey, SettingsRepository, SyncMutation,
+    SyncOutboxRepository, WatchedItem,
 };
+use pbkdf2::pbkdf2_hmac;
+use ring::{constant_time::verify_slices_are_equal, rand::{SecureRandom, SystemRandom}};
+use serde::Serialize;
+use sha2::Sha256;
 use thiserror::Error;
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 4;
+pub const CURRENT_SCHEMA_VERSION: i64 = 5;
 
 const MIGRATIONS: &[(i64, &str)] = &[
     (
@@ -95,6 +101,97 @@ const MIGRATIONS: &[(i64, &str)] = &[
         );
         CREATE INDEX watched_items_profile_media_idx
             ON watched_items(profile_id, media_kind, media_id);",
+    ),
+    (
+        5,
+        "CREATE TABLE profile_settings (
+            profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            updated_at_ms INTEGER NOT NULL,
+            PRIMARY KEY(profile_id, key)
+        );
+        CREATE TABLE profile_security (
+            profile_id TEXT PRIMARY KEY NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            pin_salt BLOB NOT NULL,
+            pin_hash BLOB NOT NULL,
+            pin_iterations INTEGER NOT NULL,
+            failed_attempts INTEGER NOT NULL DEFAULT 0,
+            locked_until_ms INTEGER NOT NULL DEFAULT 0,
+            updated_at_ms INTEGER NOT NULL
+        );
+        CREATE TABLE library_items (
+            profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            media_kind TEXT NOT NULL CHECK (media_kind IN ('movie', 'series')),
+            media_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            overview TEXT,
+            release_year INTEGER,
+            poster_path TEXT,
+            backdrop_path TEXT,
+            added_at_ms INTEGER NOT NULL,
+            updated_at_ms INTEGER NOT NULL,
+            is_favorite INTEGER NOT NULL DEFAULT 0,
+            is_deleted INTEGER NOT NULL DEFAULT 0,
+            deleted_at_ms INTEGER,
+            PRIMARY KEY(profile_id, media_kind, media_id)
+        );
+        CREATE INDEX library_items_profile_added_idx
+            ON library_items(profile_id, is_deleted, is_favorite DESC, added_at_ms DESC);
+        CREATE TABLE library_collections (
+            id TEXT PRIMARY KEY NOT NULL,
+            profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            title TEXT NOT NULL,
+            description TEXT,
+            sort_order INTEGER NOT NULL,
+            created_at_ms INTEGER NOT NULL,
+            updated_at_ms INTEGER NOT NULL,
+            is_deleted INTEGER NOT NULL DEFAULT 0,
+            deleted_at_ms INTEGER,
+            UNIQUE(profile_id, id)
+        );
+        CREATE INDEX library_collections_profile_order_idx
+            ON library_collections(profile_id, is_deleted, sort_order, created_at_ms);
+        CREATE TABLE library_collection_items (
+            profile_id TEXT NOT NULL,
+            collection_id TEXT NOT NULL,
+            media_kind TEXT NOT NULL CHECK (media_kind IN ('movie', 'series')),
+            media_id TEXT NOT NULL,
+            sort_order INTEGER NOT NULL,
+            added_at_ms INTEGER NOT NULL,
+            updated_at_ms INTEGER NOT NULL,
+            is_deleted INTEGER NOT NULL DEFAULT 0,
+            deleted_at_ms INTEGER,
+            PRIMARY KEY(profile_id, collection_id, media_kind, media_id),
+            FOREIGN KEY(profile_id, collection_id)
+                REFERENCES library_collections(profile_id, id) ON DELETE CASCADE,
+            FOREIGN KEY(profile_id, media_kind, media_id)
+                REFERENCES library_items(profile_id, media_kind, media_id) ON DELETE CASCADE
+        );
+        CREATE INDEX library_collection_items_order_idx
+            ON library_collection_items(profile_id, collection_id, is_deleted, sort_order, added_at_ms);
+        CREATE TABLE sync_outbox (
+            id TEXT PRIMARY KEY NOT NULL,
+            profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            operation TEXT NOT NULL CHECK (operation IN ('upsert', 'delete')),
+            payload_json TEXT NOT NULL,
+            changed_at_ms INTEGER NOT NULL,
+            attempt_count INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at_ms INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            UNIQUE(profile_id, entity_type, entity_id)
+        );
+        CREATE INDEX sync_outbox_due_idx
+            ON sync_outbox(profile_id, next_attempt_at_ms, changed_at_ms);
+        CREATE TABLE sync_checkpoints (
+            profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            provider TEXT NOT NULL,
+            cursor TEXT NOT NULL,
+            updated_at_ms INTEGER NOT NULL,
+            PRIMARY KEY(profile_id, provider)
+        );",
     ),
 ];
 
@@ -368,6 +465,516 @@ impl ProfileRepository for SqliteDatabase {
             )
             .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
         Ok(profile)
+    }
+
+    fn update_profile(&self, profile_id: &str, name: &str) -> Result<Profile, RepositoryError> {
+        let name = validate_profile_name(name)?;
+        if profile_id.trim().is_empty() || profile_id.len() > 128 || profile_id.chars().any(char::is_control) {
+            return Err(RepositoryError::InvalidLibraryEntry);
+        }
+        let connection = self.lock()?;
+        let changed = connection.execute(
+            "UPDATE profiles SET name = ?2 WHERE id = ?1",
+            (profile_id, &name),
+        ).map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        if changed == 0 { return Err(RepositoryError::NotFound); }
+        Ok(Profile { id: profile_id.to_owned(), name })
+    }
+
+    fn delete_profile(&self, profile_id: &str) -> Result<(), RepositoryError> {
+        if profile_id == "default" || profile_id.trim().is_empty() {
+            return Err(RepositoryError::InvalidLibraryEntry);
+        }
+        let connection = self.lock()?;
+        let changed = connection.execute("DELETE FROM profiles WHERE id = ?1", [profile_id])
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        if changed == 0 { return Err(RepositoryError::NotFound); }
+        Ok(())
+    }
+}
+
+fn validate_profile_name(name: &str) -> Result<String, RepositoryError> {
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() > 64 || name.chars().any(char::is_control) {
+        return Err(RepositoryError::InvalidProfileName);
+    }
+    Ok(name.to_owned())
+}
+
+impl ProfileSettingsRepository for SqliteDatabase {
+    fn get_profile_setting(&self, profile_id: &str, key: &SettingKey) -> Result<Option<String>, RepositoryError> {
+        validate_profile_id(profile_id)?;
+        let connection = self.lock()?;
+        connection.query_row(
+            "SELECT value FROM profile_settings WHERE profile_id = ?1 AND key = ?2",
+            (profile_id, key.as_str()),
+            |row| row.get(0),
+        ).optional().map_err(|error| RepositoryError::Unavailable(error.to_string()))
+    }
+
+    fn set_profile_setting(&self, profile_id: &str, key: &SettingKey, value: &str) -> Result<(), RepositoryError> {
+        validate_profile_id(profile_id)?;
+        if value.len() > 1_048_576 { return Err(RepositoryError::InvalidLibraryEntry); }
+        let connection = self.lock()?;
+        connection.execute(
+            "INSERT INTO profile_settings(profile_id,key,value,updated_at_ms)
+             VALUES(?1,?2,?3,?4)
+             ON CONFLICT(profile_id,key) DO UPDATE SET value=excluded.value,updated_at_ms=excluded.updated_at_ms",
+            (profile_id, key.as_str(), value, now_epoch_millis()),
+        ).map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        Ok(())
+    }
+}
+
+const PROFILE_PIN_ITERATIONS: u32 = 310_000;
+const PROFILE_PIN_SALT_BYTES: usize = 16;
+const PROFILE_PIN_HASH_BYTES: usize = 32;
+const PROFILE_PIN_MAX_ATTEMPTS: i64 = 5;
+const PROFILE_PIN_LOCK_MS: i64 = 5 * 60 * 1000;
+
+impl ProfileSecurityRepository for SqliteDatabase {
+    fn has_profile_pin(&self, profile_id: &str) -> Result<bool, RepositoryError> {
+        validate_profile_id(profile_id)?;
+        let connection = self.lock()?;
+        connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM profile_security WHERE profile_id = ?1)",
+            [profile_id],
+            |row| row.get::<_, i64>(0),
+        ).map(|value| value != 0)
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))
+    }
+
+    fn set_profile_pin(&self, profile_id: &str, pin: &str) -> Result<(), RepositoryError> {
+        validate_profile_pin(profile_id, pin)?;
+        let random = SystemRandom::new();
+        let mut salt = [0u8; PROFILE_PIN_SALT_BYTES];
+        random.fill(&mut salt).map_err(|_| RepositoryError::Unavailable("secure random generator failed".to_owned()))?;
+        let mut hash = [0u8; PROFILE_PIN_HASH_BYTES];
+        pbkdf2_hmac::<Sha256>(pin.as_bytes(), &salt, PROFILE_PIN_ITERATIONS, &mut hash);
+        let connection = self.lock()?;
+        connection.execute(
+            "INSERT INTO profile_security(profile_id,pin_salt,pin_hash,pin_iterations,failed_attempts,locked_until_ms,updated_at_ms)
+             VALUES(?1,?2,?3,?4,0,0,?5)
+             ON CONFLICT(profile_id) DO UPDATE SET pin_salt=excluded.pin_salt,pin_hash=excluded.pin_hash,
+                pin_iterations=excluded.pin_iterations,failed_attempts=0,locked_until_ms=0,updated_at_ms=excluded.updated_at_ms",
+            (profile_id, salt.as_slice(), hash.as_slice(), i64::from(PROFILE_PIN_ITERATIONS), now_epoch_millis()),
+        ).map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        Ok(())
+    }
+
+    fn verify_profile_pin(&self, profile_id: &str, pin: &str, now_ms: i64) -> Result<bool, RepositoryError> {
+        validate_profile_id(profile_id)?;
+        if pin.len() > 12 || !pin.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Ok(false);
+        }
+        let mut connection = self.lock()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        let row = transaction.query_row(
+            "SELECT pin_salt,pin_hash,pin_iterations,failed_attempts,locked_until_ms
+             FROM profile_security WHERE profile_id = ?1",
+            [profile_id],
+            |row| Ok((
+                row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?,
+                row.get::<_, i64>(2)?, row.get::<_, i64>(3)?, row.get::<_, i64>(4)?
+            )),
+        ).optional().map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        let Some((salt, stored_hash, iterations, attempts, locked_until)) = row else {
+            transaction.commit().map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+            return Ok(false);
+        };
+        if locked_until > now_ms {
+            return Err(RepositoryError::ProfilePinLocked);
+        }
+        if !(1..=1_000_000).contains(&iterations) || stored_hash.len() != PROFILE_PIN_HASH_BYTES || salt.len() != PROFILE_PIN_SALT_BYTES {
+            return Err(RepositoryError::Unavailable("stored profile PIN material is invalid".to_owned()));
+        }
+        let mut candidate = vec![0u8; stored_hash.len()];
+        pbkdf2_hmac::<Sha256>(pin.as_bytes(), &salt, iterations as u32, &mut candidate);
+        let verified = verify_slices_are_equal(&candidate, &stored_hash).is_ok();
+        if verified {
+            transaction.execute(
+                "UPDATE profile_security SET failed_attempts=0,locked_until_ms=0 WHERE profile_id=?1",
+                [profile_id],
+            ).map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        } else {
+            let next_attempts = attempts.saturating_add(1);
+            let lock_until = if next_attempts >= PROFILE_PIN_MAX_ATTEMPTS {
+                now_ms.saturating_add(PROFILE_PIN_LOCK_MS)
+            } else { 0 };
+            transaction.execute(
+                "UPDATE profile_security SET failed_attempts=?2,locked_until_ms=?3 WHERE profile_id=?1",
+                (profile_id, next_attempts, lock_until),
+            ).map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        }
+        transaction.commit().map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        Ok(verified)
+    }
+
+    fn clear_profile_pin(&self, profile_id: &str) -> Result<(), RepositoryError> {
+        validate_profile_id(profile_id)?;
+        let connection = self.lock()?;
+        connection.execute("DELETE FROM profile_security WHERE profile_id=?1", [profile_id])
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        Ok(())
+    }
+}
+
+fn validate_profile_pin(profile_id: &str, pin: &str) -> Result<(), RepositoryError> {
+    validate_profile_id(profile_id)?;
+    if !(4..=12).contains(&pin.len()) || !pin.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(RepositoryError::InvalidProfilePin);
+    }
+    Ok(())
+}
+
+fn now_epoch_millis() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis().min(i64::MAX as u128) as i64)
+        .unwrap_or_default()
+}
+
+impl LibraryRepository for SqliteDatabase {
+    fn list_library_items(&self, profile_id: &str) -> Result<Vec<LibraryItem>, RepositoryError> {
+        validate_profile_id(profile_id)?;
+        let connection = self.lock()?;
+        let mut statement = connection.prepare(
+            "SELECT profile_id,media_id,media_kind,title,overview,release_year,poster_path,backdrop_path,
+                    added_at_ms,updated_at_ms,is_favorite
+             FROM library_items WHERE profile_id=?1 AND is_deleted=0
+             ORDER BY is_favorite DESC,added_at_ms DESC,title COLLATE NOCASE,media_id",
+        ).map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        statement.query_map([profile_id], library_item_from_row)
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))?
+            .collect::<Result<Vec<_>,_>>()
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))
+    }
+
+    fn get_library_item(&self, profile_id: &str, media_id: &str, media_kind: MediaKind) -> Result<Option<LibraryItem>, RepositoryError> {
+        validate_library_identity(profile_id, media_id, media_kind)?;
+        let connection = self.lock()?;
+        connection.query_row(
+            "SELECT profile_id,media_id,media_kind,title,overview,release_year,poster_path,backdrop_path,
+                    added_at_ms,updated_at_ms,is_favorite
+             FROM library_items WHERE profile_id=?1 AND media_kind=?2 AND media_id=?3 AND is_deleted=0",
+            (profile_id, library_media_kind(media_kind), media_id), library_item_from_row,
+        ).optional().map_err(|error| RepositoryError::Unavailable(error.to_string()))
+    }
+
+    fn save_library_item(&self, item: &LibraryItem) -> Result<(), RepositoryError> {
+        validate_library_item(item)?;
+        let mut connection = self.lock()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        transaction.execute(
+            "INSERT INTO library_items(profile_id,media_kind,media_id,title,overview,release_year,poster_path,
+                    backdrop_path,added_at_ms,updated_at_ms,is_favorite,is_deleted,deleted_at_ms)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,0,NULL)
+             ON CONFLICT(profile_id,media_kind,media_id) DO UPDATE SET
+                title=excluded.title,overview=excluded.overview,release_year=excluded.release_year,
+                poster_path=excluded.poster_path,backdrop_path=excluded.backdrop_path,
+                added_at_ms=MIN(library_items.added_at_ms,excluded.added_at_ms),
+                updated_at_ms=MAX(library_items.updated_at_ms,excluded.updated_at_ms),
+                is_favorite=excluded.is_favorite,is_deleted=0,deleted_at_ms=NULL",
+            (&item.profile_id, library_media_kind(item.media_kind), &item.media_id, &item.title,
+             &item.overview, item.release_year.map(i64::from), &item.poster_path, &item.backdrop_path,
+             item.added_at_ms, item.updated_at_ms, i64::from(item.is_favorite)),
+        ).map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        enqueue_sync_mutation(&transaction, &item.profile_id, "library_item",
+            &sync_media_key(&item.media_id,item.media_kind), "upsert", item, item.updated_at_ms)?;
+        transaction.commit().map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        Ok(())
+    }
+
+    fn remove_library_item(&self, profile_id: &str, media_id: &str, media_kind: MediaKind, removed_at_ms: i64) -> Result<(), RepositoryError> {
+        validate_library_identity(profile_id, media_id, media_kind)?;
+        if removed_at_ms < 0 { return Err(RepositoryError::InvalidLibraryEntry); }
+        let mut connection = self.lock()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        let changed = transaction.execute(
+            "UPDATE library_items SET is_deleted=1,deleted_at_ms=?4,updated_at_ms=MAX(updated_at_ms,?4)
+             WHERE profile_id=?1 AND media_kind=?2 AND media_id=?3 AND is_deleted=0",
+            (profile_id, library_media_kind(media_kind), media_id, removed_at_ms),
+        ).map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        if changed > 0 {
+            let payload = serde_json::json!({"media_id":media_id,"media_kind":library_media_kind(media_kind),"deleted":true,"deleted_at_ms":removed_at_ms});
+            enqueue_sync_mutation(&transaction, profile_id, "library_item", &sync_media_key(media_id,media_kind), "delete", &payload, removed_at_ms)?;
+        }
+        transaction.commit().map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        Ok(())
+    }
+
+    fn list_library_collections(&self, profile_id: &str) -> Result<Vec<LibraryCollection>, RepositoryError> {
+        validate_profile_id(profile_id)?;
+        let connection=self.lock()?;
+        let mut statement=connection.prepare(
+            "SELECT id,profile_id,title,description,sort_order,created_at_ms,updated_at_ms
+             FROM library_collections WHERE profile_id=?1 AND is_deleted=0 ORDER BY sort_order,created_at_ms,id"
+        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        statement.query_map([profile_id],library_collection_from_row)
+            .map_err(|error|RepositoryError::Unavailable(error.to_string()))?
+            .collect::<Result<Vec<_>,_>>()
+            .map_err(|error|RepositoryError::Unavailable(error.to_string()))
+    }
+
+    fn create_library_collection(&self, profile_id:&str,title:&str,description:Option<&str>,created_at_ms:i64)->Result<LibraryCollection,RepositoryError>{
+        validate_collection_fields(profile_id,title,description,created_at_ms)?;
+        let mut connection=self.lock()?;
+        let transaction=connection.transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        let sort_order:i64=transaction.query_row(
+            "SELECT COALESCE(MAX(sort_order)+1,0) FROM library_collections WHERE profile_id=?1 AND is_deleted=0",
+            [profile_id],|row|row.get(0)
+        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        let collection=LibraryCollection{
+            id:uuid::Uuid::new_v4().to_string(),profile_id:profile_id.to_owned(),
+            title:title.trim().to_owned(),description:description.map(str::trim).filter(|v|!v.is_empty()).map(str::to_owned),
+            sort_order,created_at_ms,updated_at_ms:created_at_ms
+        };
+        transaction.execute(
+            "INSERT INTO library_collections(id,profile_id,title,description,sort_order,created_at_ms,updated_at_ms,is_deleted,deleted_at_ms)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,0,NULL)",
+            (&collection.id,&collection.profile_id,&collection.title,&collection.description,collection.sort_order,collection.created_at_ms,collection.updated_at_ms)
+        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        enqueue_sync_mutation(&transaction,profile_id,"library_collection",&collection.id,"upsert",&collection,created_at_ms)?;
+        transaction.commit().map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        Ok(collection)
+    }
+
+    fn update_library_collection(&self,profile_id:&str,collection_id:&str,title:&str,description:Option<&str>,updated_at_ms:i64)->Result<LibraryCollection,RepositoryError>{
+        validate_collection_fields(profile_id,title,description,updated_at_ms)?;
+        let mut connection=self.lock()?;
+        let transaction=connection.transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        let changed=transaction.execute(
+            "UPDATE library_collections SET title=?3,description=?4,updated_at_ms=MAX(updated_at_ms,?5)
+             WHERE profile_id=?1 AND id=?2 AND is_deleted=0",
+            (profile_id,collection_id,title.trim(),description.map(str::trim).filter(|v|!v.is_empty()),updated_at_ms)
+        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        if changed==0 {return Err(RepositoryError::NotFound);}
+        let collection=transaction.query_row(
+            "SELECT id,profile_id,title,description,sort_order,created_at_ms,updated_at_ms
+             FROM library_collections WHERE profile_id=?1 AND id=?2 AND is_deleted=0",
+            (profile_id,collection_id),library_collection_from_row
+        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        enqueue_sync_mutation(&transaction,profile_id,"library_collection",collection_id,"upsert",&collection,updated_at_ms)?;
+        transaction.commit().map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        Ok(collection)
+    }
+
+    fn delete_library_collection(&self,profile_id:&str,collection_id:&str,deleted_at_ms:i64)->Result<(),RepositoryError>{
+        validate_profile_id(profile_id)?;
+        if collection_id.trim().is_empty()||collection_id.len()>128||deleted_at_ms<0{return Err(RepositoryError::InvalidLibraryEntry);}
+        let mut connection=self.lock()?;
+        let transaction=connection.transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        let changed=transaction.execute(
+            "UPDATE library_collections SET is_deleted=1,deleted_at_ms=?3,updated_at_ms=MAX(updated_at_ms,?3)
+             WHERE profile_id=?1 AND id=?2 AND is_deleted=0",
+            (profile_id,collection_id,deleted_at_ms)
+        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        if changed==0{return Err(RepositoryError::NotFound);}
+        let payload=serde_json::json!({"collection_id":collection_id,"deleted":true,"deleted_at_ms":deleted_at_ms});
+        enqueue_sync_mutation(&transaction,profile_id,"library_collection",collection_id,"delete",&payload,deleted_at_ms)?;
+        transaction.commit().map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        Ok(())
+    }
+
+    fn list_collection_items(&self,profile_id:&str,collection_id:&str)->Result<Vec<LibraryItem>,RepositoryError>{
+        validate_profile_id(profile_id)?;
+        let connection=self.lock()?;
+        let mut statement=connection.prepare(
+            "SELECT l.profile_id,l.media_id,l.media_kind,l.title,l.overview,l.release_year,l.poster_path,l.backdrop_path,
+                    l.added_at_ms,l.updated_at_ms,l.is_favorite
+             FROM library_collection_items c
+             JOIN library_items l ON l.profile_id=c.profile_id AND l.media_kind=c.media_kind AND l.media_id=c.media_id
+             JOIN library_collections g ON g.profile_id=c.profile_id AND g.id=c.collection_id
+             WHERE c.profile_id=?1 AND c.collection_id=?2 AND c.is_deleted=0 AND l.is_deleted=0 AND g.is_deleted=0
+             ORDER BY c.sort_order,c.added_at_ms,c.media_id"
+        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        statement.query_map((profile_id,collection_id),library_item_from_row)
+            .map_err(|error|RepositoryError::Unavailable(error.to_string()))?
+            .collect::<Result<Vec<_>,_>>()
+            .map_err(|error|RepositoryError::Unavailable(error.to_string()))
+    }
+
+    fn set_collection_item(&self,profile_id:&str,collection_id:&str,media_id:&str,media_kind:MediaKind,included:bool,changed_at_ms:i64)->Result<(),RepositoryError>{
+        validate_library_identity(profile_id,media_id,media_kind)?;
+        if collection_id.trim().is_empty()||collection_id.len()>128||changed_at_ms<0{return Err(RepositoryError::InvalidLibraryEntry);}
+        let mut connection=self.lock()?;
+        let transaction=connection.transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        if included {
+            let exists:i64=transaction.query_row(
+                "SELECT COUNT(*) FROM library_items WHERE profile_id=?1 AND media_kind=?2 AND media_id=?3 AND is_deleted=0",
+                (profile_id,library_media_kind(media_kind),media_id),|row|row.get(0)
+            ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+            if exists==0{return Err(RepositoryError::NotFound);}
+            let sort_order:i64=transaction.query_row(
+                "SELECT COALESCE(MAX(sort_order)+1,0) FROM library_collection_items
+                 WHERE profile_id=?1 AND collection_id=?2 AND is_deleted=0",
+                (profile_id,collection_id),|row|row.get(0)
+            ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+            transaction.execute(
+                "INSERT INTO library_collection_items(profile_id,collection_id,media_kind,media_id,sort_order,added_at_ms,updated_at_ms,is_deleted,deleted_at_ms)
+                 VALUES(?1,?2,?3,?4,?5,?6,?6,0,NULL)
+                 ON CONFLICT(profile_id,collection_id,media_kind,media_id) DO UPDATE SET
+                    sort_order=excluded.sort_order,updated_at_ms=excluded.updated_at_ms,is_deleted=0,deleted_at_ms=NULL",
+                (profile_id,collection_id,library_media_kind(media_kind),media_id,sort_order,changed_at_ms)
+            ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        }else{
+            let changed=transaction.execute(
+                "UPDATE library_collection_items SET is_deleted=1,deleted_at_ms=?5,updated_at_ms=MAX(updated_at_ms,?5)
+                 WHERE profile_id=?1 AND collection_id=?2 AND media_kind=?3 AND media_id=?4 AND is_deleted=0",
+                (profile_id,collection_id,library_media_kind(media_kind),media_id,changed_at_ms)
+            ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+            if changed==0 {transaction.commit().map_err(|error|RepositoryError::Unavailable(error.to_string()))?;return Ok(());}
+        }
+        let payload=serde_json::json!({"collection_id":collection_id,"media_id":media_id,"media_kind":library_media_kind(media_kind),"included":included,"changed_at_ms":changed_at_ms});
+        enqueue_sync_mutation(&transaction,profile_id,"collection_item",&format!("{collection_id}:{}",sync_media_key(media_id,media_kind)),if included{"upsert"}else{"delete"},&payload,changed_at_ms)?;
+        transaction.commit().map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        Ok(())
+    }
+
+    fn reorder_collection_items(&self,profile_id:&str,collection_id:&str,ordered:&[(String,MediaKind)],changed_at_ms:i64)->Result<(),RepositoryError>{
+        validate_profile_id(profile_id)?;
+        if collection_id.trim().is_empty()||collection_id.len()>128||ordered.len()>500||changed_at_ms<0{return Err(RepositoryError::InvalidLibraryEntry);}
+        let mut connection=self.lock()?;
+        let transaction=connection.transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        for (index,(media_id,media_kind)) in ordered.iter().enumerate(){
+            validate_library_identity(profile_id,media_id,*media_kind)?;
+            let changed=transaction.execute(
+                "UPDATE library_collection_items SET sort_order=?5,updated_at_ms=MAX(updated_at_ms,?6)
+                 WHERE profile_id=?1 AND collection_id=?2 AND media_kind=?3 AND media_id=?4 AND is_deleted=0",
+                (profile_id,collection_id,library_media_kind(*media_kind),media_id,index as i64,changed_at_ms)
+            ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+            if changed==0{return Err(RepositoryError::NotFound);}
+        }
+        let payload=serde_json::json!({"collection_id":collection_id,"items":ordered.iter().map(|(id,kind)|serde_json::json!({"media_id":id,"media_kind":library_media_kind(*kind)})).collect::<Vec<_>>(),"changed_at_ms":changed_at_ms});
+        enqueue_sync_mutation(&transaction,profile_id,"collection_order",collection_id,"upsert",&payload,changed_at_ms)?;
+        transaction.commit().map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        Ok(())
+    }
+}
+
+fn library_media_kind(kind:MediaKind)->&'static str {
+    match kind {MediaKind::Movie=>"movie",MediaKind::Series=>"series",MediaKind::Episode=>"episode"}
+}
+fn sync_media_key(media_id:&str,kind:MediaKind)->String {format!("{}:{}",library_media_kind(kind),media_id)}
+fn validate_library_identity(profile_id:&str,media_id:&str,kind:MediaKind)->Result<(),RepositoryError>{
+    validate_profile_id(profile_id)?;
+    if media_id.trim().is_empty()||media_id.len()>128||media_id.chars().any(char::is_control)||!matches!(kind,MediaKind::Movie|MediaKind::Series){return Err(RepositoryError::InvalidLibraryEntry);}
+    Ok(())
+}
+fn validate_library_item(item:&LibraryItem)->Result<(),RepositoryError>{
+    validate_library_identity(&item.profile_id,&item.media_id,item.media_kind)?;
+    if item.title.trim().is_empty()||item.title.chars().count()>512||item.title.chars().any(char::is_control)
+        ||item.overview.as_ref().is_some_and(|v|v.len()>20_000||v.chars().any(char::is_control))
+        ||item.release_year.is_some_and(|y|!(1800..=2200).contains(&y))
+        ||item.added_at_ms<0||item.updated_at_ms<0
+        ||!valid_artwork_path(item.poster_path.as_deref())||!valid_artwork_path(item.backdrop_path.as_deref())
+    {return Err(RepositoryError::InvalidLibraryEntry);}
+    Ok(())
+}
+fn validate_collection_fields(profile_id:&str,title:&str,description:Option<&str>,timestamp:i64)->Result<(),RepositoryError>{
+    validate_profile_id(profile_id)?;
+    if title.trim().is_empty()||title.chars().count()>80||title.chars().any(char::is_control)
+        ||description.is_some_and(|v|v.chars().count()>1000||v.chars().any(char::is_control))||timestamp<0
+    {return Err(RepositoryError::InvalidLibraryEntry);}
+    Ok(())
+}
+fn library_item_from_row(row:&rusqlite::Row<'_>)->Result<LibraryItem,rusqlite::Error>{
+    let kind:String=row.get(2)?;
+    let media_kind=match kind.as_str(){"movie"=>MediaKind::Movie,"series"=>MediaKind::Series,_=>return Err(rusqlite::Error::InvalidQuery)};
+    let year:Option<i64>=row.get(5)?;
+    Ok(LibraryItem{
+        profile_id:row.get(0)?,media_id:row.get(1)?,media_kind,title:row.get(3)?,overview:row.get(4)?,
+        release_year:year.and_then(|v|u16::try_from(v).ok()),poster_path:row.get(6)?,backdrop_path:row.get(7)?,
+        added_at_ms:row.get(8)?,updated_at_ms:row.get(9)?,is_favorite:row.get::<_,i64>(10)?!=0
+    })
+}
+fn library_collection_from_row(row:&rusqlite::Row<'_>)->Result<LibraryCollection,rusqlite::Error>{
+    Ok(LibraryCollection{id:row.get(0)?,profile_id:row.get(1)?,title:row.get(2)?,description:row.get(3)?,sort_order:row.get(4)?,created_at_ms:row.get(5)?,updated_at_ms:row.get(6)?})
+}
+fn enqueue_sync_mutation<T:Serialize>(
+    transaction:&Transaction<'_>,profile_id:&str,entity_type:&str,entity_id:&str,operation:&str,payload:&T,changed_at_ms:i64
+)->Result<(),RepositoryError>{
+    let payload_json=serde_json::to_string(payload).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+    transaction.execute(
+        "INSERT INTO sync_outbox(id,profile_id,entity_type,entity_id,operation,payload_json,changed_at_ms,attempt_count,next_attempt_at_ms,last_error)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,0,0,NULL)
+         ON CONFLICT(profile_id,entity_type,entity_id) DO UPDATE SET
+            id=excluded.id,operation=excluded.operation,payload_json=excluded.payload_json,
+            changed_at_ms=MAX(sync_outbox.changed_at_ms,excluded.changed_at_ms),attempt_count=0,
+            next_attempt_at_ms=0,last_error=NULL",
+        (uuid::Uuid::new_v4().to_string(),profile_id,entity_type,entity_id,operation,payload_json,changed_at_ms)
+    ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+    Ok(())
+}
+
+impl SyncOutboxRepository for SqliteDatabase {
+    fn list_pending_sync_mutations(&self,profile_id:&str,now_ms:i64,limit:usize)->Result<Vec<SyncMutation>,RepositoryError>{
+        validate_profile_id(profile_id)?;
+        let limit=limit.clamp(1,500) as i64;
+        let connection=self.lock()?;
+        let mut statement=connection.prepare(
+            "SELECT id,profile_id,entity_type,entity_id,operation,payload_json,changed_at_ms,attempt_count,next_attempt_at_ms,last_error
+             FROM sync_outbox WHERE profile_id=?1 AND next_attempt_at_ms<=?2
+             ORDER BY changed_at_ms,id LIMIT ?3"
+        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        statement.query_map((profile_id,now_ms,limit),|row|Ok(SyncMutation{
+            id:row.get(0)?,profile_id:row.get(1)?,entity_type:row.get(2)?,entity_id:row.get(3)?,
+            operation:row.get(4)?,payload_json:row.get(5)?,changed_at_ms:row.get(6)?,
+            attempt_count:u32::try_from(row.get::<_,i64>(7)?).unwrap_or_default(),
+            next_attempt_at_ms:row.get(8)?,last_error:row.get(9)?
+        })).map_err(|error|RepositoryError::Unavailable(error.to_string()))?
+            .collect::<Result<Vec<_>,_>>().map_err(|error|RepositoryError::Unavailable(error.to_string()))
+    }
+    fn mark_sync_mutations_applied(&self,profile_id:&str,mutation_ids:&[String])->Result<(),RepositoryError>{
+        validate_profile_id(profile_id)?;
+        if mutation_ids.len()>500{return Err(RepositoryError::InvalidLibraryEntry);}
+        let mut connection=self.lock()?;
+        let tx=connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|e|RepositoryError::Unavailable(e.to_string()))?;
+        for id in mutation_ids {
+            tx.execute("DELETE FROM sync_outbox WHERE profile_id=?1 AND id=?2",(profile_id,id))
+                .map_err(|e|RepositoryError::Unavailable(e.to_string()))?;
+        }
+        tx.commit().map_err(|e|RepositoryError::Unavailable(e.to_string()))?;
+        Ok(())
+    }
+    fn record_sync_mutation_failure(&self,profile_id:&str,mutation_id:&str,error:&str,next_attempt_at_ms:i64)->Result<(),RepositoryError>{
+        validate_profile_id(profile_id)?;
+        if error.len()>1000||next_attempt_at_ms<0{return Err(RepositoryError::InvalidLibraryEntry);}
+        let connection=self.lock()?;
+        let changed=connection.execute(
+            "UPDATE sync_outbox SET attempt_count=attempt_count+1,next_attempt_at_ms=?3,last_error=?4
+             WHERE profile_id=?1 AND id=?2",
+            (profile_id,mutation_id,next_attempt_at_ms,error)
+        ).map_err(|e|RepositoryError::Unavailable(e.to_string()))?;
+        if changed==0{return Err(RepositoryError::NotFound);}
+        Ok(())
+    }
+    fn get_sync_checkpoint(&self,profile_id:&str,provider:&str)->Result<Option<String>,RepositoryError>{
+        validate_profile_id(profile_id)?;
+        if provider.trim().is_empty()||provider.len()>100{return Err(RepositoryError::InvalidLibraryEntry);}
+        let connection=self.lock()?;
+        connection.query_row(
+            "SELECT cursor FROM sync_checkpoints WHERE profile_id=?1 AND provider=?2",
+            (profile_id,provider),|row|row.get(0)
+        ).optional().map_err(|e|RepositoryError::Unavailable(e.to_string()))
+    }
+    fn set_sync_checkpoint(&self,profile_id:&str,provider:&str,cursor:&str,updated_at_ms:i64)->Result<(),RepositoryError>{
+        validate_profile_id(profile_id)?;
+        if provider.trim().is_empty()||provider.len()>100||cursor.len()>4096||updated_at_ms<0{return Err(RepositoryError::InvalidLibraryEntry);}
+        let connection=self.lock()?;
+        connection.execute(
+            "INSERT INTO sync_checkpoints(profile_id,provider,cursor,updated_at_ms) VALUES(?1,?2,?3,?4)
+             ON CONFLICT(profile_id,provider) DO UPDATE SET cursor=excluded.cursor,updated_at_ms=MAX(sync_checkpoints.updated_at_ms,excluded.updated_at_ms)",
+            (profile_id,provider,cursor,updated_at_ms)
+        ).map_err(|e|RepositoryError::Unavailable(e.to_string()))?;
+        Ok(())
     }
 }
 

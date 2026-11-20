@@ -10,6 +10,11 @@ publish.workspace = true
 rusqlite.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+pbkdf2 = "=0.12.2"
+sha2 = "0.10"
+ring = "=0.17.14"
 senzo-domain = { path = "../senzo-domain" }
 
 senzo-addons = { path = "../senzo-addons" }
