@@ -389,7 +389,21 @@ mod tests {
         let redacted = redact_text("request=https://example.test/api?token=private&language=en");
         assert!(!redacted.contains("private"));
         assert!(redacted.contains("language=en"));
-        assert!(redacted.contains("[REDACTED]"));
+
+        // URL serialization percent-encodes the brackets in the marker. Verify
+        // the decoded query value rather than requiring a particular encoding.
+        let url_text = redacted
+            .split_once("request=")
+            .map(|(_, value)| value)
+            .expect("redacted request URL should remain present");
+        let parsed = Url::parse(url_text).expect("redacted request URL should remain valid");
+        let pairs: Vec<_> = parsed.query_pairs().collect();
+        assert!(pairs
+            .iter()
+            .any(|(key, value)| key == "token" && value == "[REDACTED]"));
+        assert!(pairs
+            .iter()
+            .any(|(key, value)| key == "language" && value == "en"));
     }
 
     #[test]
