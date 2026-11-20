@@ -110,6 +110,47 @@ struct PlaybackSourceCandidate {
     headers: BTreeMap<String, String>,
     title: String,
     provider_id: String,
+    binge_group: Option<String>,
+}
+
+fn select_next_episode_source_candidate(
+    result: &SourceDiscoveryResult,
+    preferred_binge_group: Option<&str>,
+    preferred_provider_id: Option<&str>,
+) -> Option<PlaybackSourceCandidate> {
+    result
+        .groups
+        .iter()
+        .flat_map(|group| group.sources.iter())
+        .enumerate()
+        .filter_map(|(index, source)| match &source.target {
+            SourceTarget::Http(url) => Some((index, source, url)),
+            _ => None,
+        })
+        .min_by_key(|(index, source, _)| {
+            (
+                if preferred_binge_group.is_some_and(|group| {
+                    source.binge_group.as_deref() == Some(group)
+                }) {
+                    0
+                } else {
+                    1
+                },
+                if preferred_provider_id == Some(source.provider_id.as_str()) {
+                    0
+                } else {
+                    1
+                },
+                *index,
+            )
+        })
+        .map(|(_, source, url)| PlaybackSourceCandidate {
+            url: url.clone(),
+            headers: source.headers.clone(),
+            title: source.title.clone(),
+            provider_id: source.provider_id.clone(),
+            binge_group: source.binge_group.clone(),
+        })
 }
 
 #[derive(Clone)]
@@ -715,6 +756,8 @@ pub(crate) struct SenzoShell {
     playback_resume_source: Option<PlaybackSourceCandidate>,
     playback_resume_position_seconds: Option<f64>,
     playback_preferred_provider_id: Option<String>,
+    playback_preferred_binge_group: Option<String>,
+    pending_episode_autoplay_source: Option<PlaybackSourceCandidate>,
     playback_autoplay_next: bool,
     playback_end_handled: bool,
     autoplay_next_pending: bool,
@@ -1240,6 +1283,8 @@ impl SenzoShell {
             playback_resume_source: None,
             playback_resume_position_seconds: None,
             playback_preferred_provider_id: None,
+            playback_preferred_binge_group: None,
+            pending_episode_autoplay_source: None,
             playback_autoplay_next,
             playback_end_handled: false,
             autoplay_next_pending: false,
@@ -2861,56 +2906,63 @@ impl SenzoShell {
                 if completion_cancellation.is_cancelled() {
                     return;
                 }
-                let Some(details) = this.details.as_mut().filter(|details| {
-                    format!(
-                        "{}:{}:{:?}:{:?}",
-                        details.id,
-                        if details.media_type == MediaType::Movie {
-                            "movie"
-                        } else {
-                            "tv"
-                        },
-                        details.source_season,
-                        details.source_episode
-                    ) == request_key
-                }) else {
-                    return;
-                };
-                details.source_loading = false;
-                match result {
-                    Ok(result) => {
-                        details.source_result = Some(result);
-                        details.source_error = None;
+                let (should_auto_play, candidate) = {
+                    let Some(details) = this.details.as_mut().filter(|details| {
+                        format!(
+                            "{}:{}:{:?}:{:?}",
+                            details.id,
+                            if details.media_type == MediaType::Movie {
+                                "movie"
+                            } else {
+                                "tv"
+                            },
+                            details.source_season,
+                            details.source_episode
+                        ) == request_key
+                    }) else {
+                        return;
+                    };
+                    details.source_loading = false;
+                    match result {
+                        Ok(result) => {
+                            details.source_result = Some(result);
+                            details.source_error = None;
+                        }
+                        Err(error) => {
+                            details.source_error = Some(error);
+                            details.source_result = None;
+                        }
                     }
-                    Err(error) => {
-                        details.source_error = Some(error);
-                        details.source_result = None;
-                    }
-                }
-                let should_auto_play = this.autoplay_next_pending
-                    && this.autoplay_next_target == Some((details.id, season.unwrap_or(0), episode.unwrap_or(0)));
-                let discovered_sources = details.source_result.clone();
-                if should_auto_play {
-                    let preferred_provider = this.playback_preferred_provider_id.clone();
-                    let candidate = discovered_sources.as_ref().and_then(|result| {
-                        let mut sources = result.groups.iter()
-                            .flat_map(|group| group.sources.iter())
-                            .filter(|source| matches!(source.target, SourceTarget::Http(_)))
-                            .collect::<Vec<_>>();
-                        sources.sort_by_key(|source| {
-                            if preferred_provider.as_deref() == Some(source.provider_id.as_str()) { 0 } else { 1 }
-                        });
-                        sources.first().map(|source| match &source.target {
-                            SourceTarget::Http(url) => (url.clone(), source.headers.clone()),
-                            _ => unreachable!(),
+                    let should_auto_play = this.autoplay_next_pending
+                        && this.autoplay_next_target
+                            == Some((details.id, season.unwrap_or(0), episode.unwrap_or(0)));
+                    let candidate = if should_auto_play {
+                        details.source_result.as_ref().and_then(|result| {
+                            select_next_episode_source_candidate(
+                                result,
+                                this.playback_preferred_binge_group.as_deref(),
+                                this.playback_preferred_provider_id.as_deref(),
+                            )
                         })
-                    });
-                    this.autoplay_next_pending = false;
-                    this.autoplay_next_target = None;
-                    if let Some((url, headers)) = candidate {
-                        this.play_source(url, headers, cx);
                     } else {
-                        this.notification = Some("The next episode has no direct source ready. Choose a source manually.".to_owned());
+                        None
+                    };
+                    (should_auto_play, candidate)
+                };
+                if should_auto_play {
+                    if let Some(candidate) = candidate {
+                        // Source and episode metadata can arrive in either order. Keep the
+                        // candidate until the selected episode identity is ready.
+                        this.pending_episode_autoplay_source = Some(candidate);
+                        this.maybe_start_pending_episode_autoplay(cx);
+                    } else {
+                        this.autoplay_next_pending = false;
+                        this.autoplay_next_target = None;
+                        this.pending_episode_autoplay_source = None;
+                        this.notification = Some(
+                            "The next episode has no direct source ready. Choose a source manually."
+                                .to_owned(),
+                        );
                     }
                 }
                 cx.notify();
@@ -2918,6 +2970,30 @@ impl SenzoShell {
         })
         .detach();
         cx.notify();
+    }
+
+    fn maybe_start_pending_episode_autoplay(&mut self, cx: &mut Context<Self>) {
+        if !self.autoplay_next_pending {
+            return;
+        }
+        let Some((show_id, season, episode_number)) = self.autoplay_next_target else {
+            return;
+        };
+        let episode_ready = self.details.as_ref().is_some_and(|details| {
+            details.id == show_id
+                && details.selected_episode.as_ref().is_some_and(|episode| {
+                    episode.season_number == season && episode.episode_number == episode_number
+                })
+        });
+        if !episode_ready {
+            return;
+        }
+        let Some(source) = self.pending_episode_autoplay_source.take() else {
+            return;
+        };
+        self.autoplay_next_pending = false;
+        self.autoplay_next_target = None;
+        self.play_source(source.url, source.headers, cx);
     }
 
     fn play_source(
@@ -2941,6 +3017,7 @@ impl SenzoShell {
                             headers: source.headers.clone(),
                             title: source.title.clone(),
                             provider_id: source.provider_id.clone(),
+                            binge_group: source.binge_group.clone(),
                         }),
                         _ => None,
                     })
@@ -2954,7 +3031,11 @@ impl SenzoShell {
                     url: url.clone(),
                     headers: headers.clone(),
                     title: "Resolved source".to_owned(),
-                    provider_id: "resolved".to_owned(),
+                    provider_id: self
+                        .playback_preferred_provider_id
+                        .clone()
+                        .unwrap_or_else(|| "resolved".to_owned()),
+                    binge_group: self.playback_preferred_binge_group.clone(),
                 },
             );
         }
@@ -2965,6 +3046,10 @@ impl SenzoShell {
         self.playback_preferred_provider_id = sources
             .get(self.playback_source_index)
             .map(|source| source.provider_id.clone());
+        self.playback_preferred_binge_group = sources
+            .get(self.playback_source_index)
+            .and_then(|source| source.binge_group.clone());
+        self.pending_episode_autoplay_source = None;
         self.playback_sources = sources;
         self.playback_open = true;
         self.playback_panel = None;
