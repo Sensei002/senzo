@@ -15,7 +15,8 @@ use senzo_domain::{
     SyncOutboxRepository, WatchedItem, ProfileScope,
 };
 use pbkdf2::pbkdf2_hmac;
-use ring::{constant_time::verify_slices_are_equal, rand::{SecureRandom, SystemRandom}};
+use ring::rand::{SecureRandom, SystemRandom};
+use subtle::ConstantTimeEq;
 use serde::Serialize;
 use sha2::Sha256;
 use thiserror::Error;
@@ -627,7 +628,7 @@ impl ProfileSecurityRepository for SqliteDatabase {
         }
         let mut candidate = vec![0u8; stored_hash.len()];
         pbkdf2_hmac::<Sha256>(pin.as_bytes(), &salt, iterations as u32, &mut candidate);
-        let verified = verify_slices_are_equal(&candidate, &stored_hash).is_ok();
+        let verified = bool::from(candidate.ct_eq(&stored_hash));
         if verified {
             transaction.execute(
                 "UPDATE profile_security SET failed_attempts=0,locked_until_ms=0 WHERE profile_id=?1",
