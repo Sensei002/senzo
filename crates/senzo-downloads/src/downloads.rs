@@ -357,8 +357,21 @@ impl DownloadManager {
             item.updated_at_ms = now_ms();
         })?;
         let inner = self.inner.clone();
+        let file_name = inner.state.lock()
+            .map_err(|_| DownloadError::Storage("download queue lock is unavailable".into()))?
+            .items.iter()
+            .find(|item| item.id == id)
+            .map(|item| item.file_name.clone())
+            .ok_or(DownloadError::NotFound)?;
         self.inner.runtime.spawn(async move {
             run_download(inner.clone(), id.clone(), token).await;
+            let item_still_exists = inner.state.lock()
+                .map(|state| state.items.iter().any(|item| item.id == id))
+                .unwrap_or(true);
+            if !item_still_exists {
+                let partial = inner.download_dir.join(format!("{file_name}.part"));
+                let _ = tokio::fs::remove_file(partial).await;
+            }
             if let Ok(mut tasks) = inner.tasks.lock() {
                 tasks.remove(&id);
             }
@@ -718,5 +731,138 @@ mod tests {
         let mut invalid = BTreeMap::new();
         invalid.insert("X-Test".into(), "bad\nvalue".into());
         assert!(sanitize_headers(invalid).is_err());
+    }
+
+    #[derive(Default)]
+    struct TestCredentials(Mutex<HashMap<String, String>>);
+
+    impl CredentialStore for TestCredentials {
+        fn get(&self, account: &str) -> Result<Option<String>, senzo_platform::CredentialError> {
+            Ok(self.0.lock().unwrap().get(account).cloned())
+        }
+
+        fn set(&self, account: &str, secret: &str) -> Result<(), senzo_platform::CredentialError> {
+            self.0.lock().unwrap().insert(account.to_owned(), secret.to_owned());
+            Ok(())
+        }
+
+        fn delete(&self, account: &str) -> Result<(), senzo_platform::CredentialError> {
+            self.0.lock().unwrap().remove(account);
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn resumes_partial_http_download_and_keeps_source_secrets_out_of_queue() {
+        use axum::{
+            Router,
+            body::Body,
+            http::{HeaderMap, Response, StatusCode, header},
+            routing::get,
+        };
+        use tokio::net::TcpListener;
+
+        let payload = (0..131_072).map(|index| (index % 251) as u8).collect::<Vec<_>>();
+        let server_payload = payload.clone();
+        let app = Router::new().route("/video.mp4", get(move |headers: HeaderMap| {
+            let payload = server_payload.clone();
+            async move {
+                let start = headers.get(header::RANGE)
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| value.strip_prefix("bytes="))
+                    .and_then(|value| value.split('-').next())
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap_or(0)
+                    .min(payload.len());
+                let body = payload[start..].to_vec();
+                let status = if start > 0 { StatusCode::PARTIAL_CONTENT } else { StatusCode::OK };
+                let mut response = Response::builder()
+                    .status(status)
+                    .header(header::ACCEPT_RANGES, "bytes")
+                    .header(header::CONTENT_LENGTH, body.len());
+                if start > 0 && start < payload.len() {
+                    response = response.header(
+                        header::CONTENT_RANGE,
+                        format!("bytes {}-{}/{}", start, payload.len() - 1, payload.len()),
+                    );
+                }
+                response.body(Body::from(body)).unwrap()
+            }
+        }));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+
+        let directory = tempfile::tempdir().unwrap();
+        let source_url = format!("http://{address}/video.mp4");
+        let download_id = "range-resume-test";
+        let file_name = build_file_name("Range resume", &Url::parse(&source_url).unwrap(), download_id);
+        let download_root = directory.path().join("downloads");
+        std::fs::create_dir_all(&download_root).unwrap();
+        let resume_at = payload.len() / 2;
+        std::fs::write(download_root.join(format!("{file_name}.part")), &payload[..resume_at]).unwrap();
+
+        let item = DownloadItem {
+            id: download_id.to_owned(),
+            profile_id: "default".to_owned(),
+            media_id: "603".to_owned(),
+            title: "Range resume".to_owned(),
+            file_name: file_name.clone(),
+            status: DownloadStatus::Downloading,
+            downloaded_bytes: resume_at as u64,
+            total_bytes: Some(payload.len() as u64),
+            local_path: None,
+            error: None,
+            created_at_ms: 1,
+            updated_at_ms: 1,
+        };
+        let stored = StoredQueue { version: QUEUE_SCHEMA_VERSION, items: vec![item] };
+        std::fs::write(
+            directory.path().join("downloads.json"),
+            serde_json::to_vec(&stored).unwrap(),
+        ).unwrap();
+
+        let credentials = Arc::new(TestCredentials::default());
+        let secret = DownloadSecret {
+            source_url: source_url.clone(),
+            headers: BTreeMap::from([("Authorization".to_owned(), "Bearer do-not-write-to-disk".to_owned())]),
+        };
+        credentials.set(&secret_key(download_id), &serde_json::to_string(&secret).unwrap()).unwrap();
+
+        let manager = DownloadManager::open(
+            directory.path(),
+            tokio::runtime::Handle::current(),
+            credentials,
+        ).unwrap();
+        let recovered = manager.snapshot("default");
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(recovered[0].status, DownloadStatus::Paused);
+        assert!(manager.snapshot("guest").is_empty());
+
+        manager.resume(download_id).unwrap();
+        let completed = tokio::time::timeout(Duration::from_secs(8), async {
+            loop {
+                let item = manager.snapshot("default").into_iter().find(|item| item.id == download_id).unwrap();
+                if item.status == DownloadStatus::Completed {
+                    break item;
+                }
+                if item.status == DownloadStatus::Failed {
+                    panic!("resumed transfer failed: {:?}", item.error);
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        }).await.expect("download did not complete within the test deadline");
+
+        let local_path = manager.local_file_path(download_id).expect("completed payload should be playable");
+        assert_eq!(std::fs::read(&local_path).unwrap(), payload);
+        assert_eq!(completed.downloaded_bytes, payload.len() as u64);
+        assert!(completed.local_file_url().is_some_and(|url| url.starts_with("file:")));
+
+        let queue_json = std::fs::read_to_string(directory.path().join("downloads.json")).unwrap();
+        assert!(!queue_json.contains(&source_url));
+        assert!(!queue_json.contains("do-not-write-to-disk"));
+        server.abort();
     }
 }
