@@ -678,7 +678,7 @@ impl LibraryRepository for SqliteDatabase {
                 is_favorite=excluded.is_favorite,is_deleted=0,deleted_at_ms=NULL",
             (&item.profile_id, library_media_kind(item.media_kind), &item.media_id, &item.title,
              &item.overview, item.release_year.map(i64::from), &item.poster_path, &item.backdrop_path,
-             item.added_at_ms, item.updated_at_ms, i64::from(item.is_favorite)),
+             item.added_at_ms, item.updated_at_ms, if item.is_favorite { 1_i64 } else { 0_i64 }),
         ).map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
         enqueue_sync_mutation(&transaction, &item.profile_id, "library_item",
             &sync_media_key(&item.media_id,item.media_kind), "upsert", item, item.updated_at_ms)?;
@@ -1472,7 +1472,10 @@ fn playback_progress_from_row(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use senzo_domain::{ProfileRepository, SettingKey, SettingsRepository};
+    use senzo_domain::{
+        LibraryRepository, ProfileRepository, ProfileSecurityRepository, ProfileSettingsRepository,
+        SettingKey, SettingsRepository, SyncOutboxRepository,
+    };
 
     #[test]
     fn playback_progress_is_profile_scoped_and_survives_repository_reads() {
@@ -1851,6 +1854,138 @@ mod tests {
             database.save_playback_progress(&progress),
             Err(RepositoryError::InvalidPlaybackProgress)
         ));
+    }
+
+    fn test_library_item(profile_id: &str, media_id: &str, title: &str, timestamp: i64) -> LibraryItem {
+        LibraryItem {
+            profile_id: profile_id.to_owned(),
+            media_id: media_id.to_owned(),
+            media_kind: MediaKind::Movie,
+            title: title.to_owned(),
+            overview: Some("A local-first test title".to_owned()),
+            release_year: Some(2024),
+            poster_path: Some("/poster.jpg".to_owned()),
+            backdrop_path: Some("/backdrop.jpg".to_owned()),
+            added_at_ms: timestamp,
+            updated_at_ms: timestamp,
+            is_favorite: false,
+        }
+    }
+
+    #[test]
+    fn phase12_library_and_collections_are_profile_scoped_and_ordered() {
+        let database = SqliteDatabase::in_memory().unwrap();
+        let guest = database.create_profile("Guest").unwrap();
+        let first = test_library_item("default", "550", "Fight Club", 100);
+        let second = test_library_item("default", "680", "Pulp Fiction", 200);
+        let guest_item = test_library_item(&guest.id, "550", "Guest Fight Club", 300);
+        database.save_library_item(&first).unwrap();
+        database.save_library_item(&second).unwrap();
+        database.save_library_item(&guest_item).unwrap();
+
+        let mut favorite = second.clone();
+        favorite.is_favorite = true;
+        database.save_library_item(&favorite).unwrap();
+        let items = database.list_library_items("default").unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].media_id, "680");
+        assert!(items[0].is_favorite);
+        assert_eq!(database.list_library_items(&guest.id).unwrap(), vec![guest_item]);
+
+        let collection = database.create_library_collection(
+            "default", "Weekend", Some("Watch these together"), 400
+        ).unwrap();
+        database.set_collection_item("default", &collection.id, "550", MediaKind::Movie, true, 410).unwrap();
+        database.set_collection_item("default", &collection.id, "680", MediaKind::Movie, true, 420).unwrap();
+        let collection_items = database.list_collection_items("default", &collection.id).unwrap();
+        assert_eq!(collection_items.iter().map(|item| item.media_id.as_str()).collect::<Vec<_>>(), vec!["550", "680"]);
+
+        database.reorder_collection_items(
+            "default", &collection.id,
+            &[("680".to_owned(), MediaKind::Movie), ("550".to_owned(), MediaKind::Movie)],
+            430,
+        ).unwrap();
+        let reordered = database.list_collection_items("default", &collection.id).unwrap();
+        assert_eq!(reordered.iter().map(|item| item.media_id.as_str()).collect::<Vec<_>>(), vec!["680", "550"]);
+
+        let renamed = database.update_library_collection(
+            "default", &collection.id, "Weekend queue", None, 440
+        ).unwrap();
+        assert_eq!(renamed.title, "Weekend queue");
+        assert_eq!(database.list_library_collections("default").unwrap().len(), 1);
+        assert!(database.list_library_collections(&guest.id).unwrap().is_empty());
+
+        database.remove_library_item("default", "550", MediaKind::Movie, 450).unwrap();
+        assert_eq!(database.list_library_items("default").unwrap().len(), 1);
+        assert!(database.list_collection_items("default", &collection.id).unwrap().is_empty());
+        database.delete_library_collection("default", &collection.id, 460).unwrap();
+        assert!(database.list_library_collections("default").unwrap().is_empty());
+    }
+
+    #[test]
+    fn phase12_profile_settings_and_management_do_not_cross_profile_boundaries() {
+        let database = SqliteDatabase::in_memory().unwrap();
+        let guest = database.create_profile("Guest").unwrap();
+        let key = SettingKey::new("appearance.language").unwrap();
+        database.set_profile_setting("default", &key, "en-US").unwrap();
+        database.set_profile_setting(&guest.id, &key, "bn-BD").unwrap();
+        assert_eq!(database.get_profile_setting("default", &key).unwrap().as_deref(), Some("en-US"));
+        assert_eq!(database.get_profile_setting(&guest.id, &key).unwrap().as_deref(), Some("bn-BD"));
+
+        let renamed = database.update_profile(&guest.id, "  Family  ").unwrap();
+        assert_eq!(renamed.name, "Family");
+        assert!(database.delete_profile("default").is_err());
+        database.delete_profile(&guest.id).unwrap();
+        assert_eq!(database.list_profiles().unwrap(), vec![Profile {
+            id: "default".to_owned(), name: "Default".to_owned()
+        }]);
+        assert_eq!(database.get_profile_setting(&guest.id, &key).unwrap(), None);
+    }
+
+    #[test]
+    fn phase12_profile_pin_uses_salted_hashes_and_temporary_lockout() {
+        let database = SqliteDatabase::in_memory().unwrap();
+        let profile = database.create_profile("Kids").unwrap();
+        assert!(!database.has_profile_pin(&profile.id).unwrap());
+        assert!(matches!(
+            database.set_profile_pin(&profile.id, "12"),
+            Err(RepositoryError::InvalidProfilePin)
+        ));
+        database.set_profile_pin(&profile.id, "4826").unwrap();
+        assert!(database.has_profile_pin(&profile.id).unwrap());
+        assert!(database.verify_profile_pin(&profile.id, "4826", 10_000).unwrap());
+        for attempt in 0..5 {
+            assert!(!database.verify_profile_pin(&profile.id, "0000", 20_000 + attempt).unwrap());
+        }
+        assert!(matches!(
+            database.verify_profile_pin(&profile.id, "4826", 20_010),
+            Err(RepositoryError::ProfilePinLocked)
+        ));
+        assert!(database.verify_profile_pin(&profile.id, "4826", 320_011).unwrap());
+        database.clear_profile_pin(&profile.id).unwrap();
+        assert!(!database.has_profile_pin(&profile.id).unwrap());
+    }
+
+    #[test]
+    fn phase12_sync_outbox_retries_offline_mutations_and_persists_checkpoints() {
+        let database = SqliteDatabase::in_memory().unwrap();
+        database.save_library_item(&test_library_item("default", "550", "Fight Club", 100)).unwrap();
+        let first = database.list_pending_sync_mutations("default", 100, 20).unwrap();
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].entity_type, "library_item");
+        assert_eq!(first[0].operation, "upsert");
+
+        database.record_sync_mutation_failure("default", &first[0].id, "offline", 1_000).unwrap();
+        assert!(database.list_pending_sync_mutations("default", 999, 20).unwrap().is_empty());
+        let retry = database.list_pending_sync_mutations("default", 1_000, 20).unwrap();
+        assert_eq!(retry.len(), 1);
+        assert_eq!(retry[0].attempt_count, 1);
+        assert_eq!(retry[0].last_error.as_deref(), Some("offline"));
+
+        database.set_sync_checkpoint("default", "supabase", "cursor-42", 1_200).unwrap();
+        assert_eq!(database.get_sync_checkpoint("default", "supabase").unwrap().as_deref(), Some("cursor-42"));
+        database.mark_sync_mutations_applied("default", &[retry[0].id.clone()]).unwrap();
+        assert!(database.list_pending_sync_mutations("default", 2_000, 20).unwrap().is_empty());
     }
 
     #[test]
