@@ -191,7 +191,12 @@ const MIGRATIONS: &[(i64, &str)] = &[
             cursor TEXT NOT NULL,
             updated_at_ms INTEGER NOT NULL,
             PRIMARY KEY(profile_id, provider)
-        );",
+        );
+        INSERT OR IGNORE INTO profile_settings(profile_id,key,value,updated_at_ms)
+            SELECT 'default',key,value,
+                CAST(COALESCE(strftime('%s',updated_at), '0') AS INTEGER) * 1000
+            FROM app_settings
+            WHERE key <> 'profiles.active';",
     ),
 ];
 
