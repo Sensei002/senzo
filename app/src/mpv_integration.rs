@@ -4888,7 +4888,7 @@ fn cancel_statistics_poll(poll: &Mutex<Option<StatisticsPoll>>) {
 
 
 fn torrent_relative_path(name: &str) -> Option<PathBuf> {
-    let portable = name.replace('\\\\', "/");
+    let portable = name.replace('\\', "/");
     let path = Path::new(&portable);
     if portable.is_empty()
         || portable.starts_with('/')
@@ -4904,7 +4904,7 @@ fn torrent_relative_path(name: &str) -> Option<PathBuf> {
 
 fn torrent_relative_path_key(path: &Path) -> String {
     path.to_string_lossy()
-        .replace('\\\\', "/")
+        .replace('\\', "/")
         .to_lowercase()
 }
 
