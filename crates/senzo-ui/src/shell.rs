@@ -12445,6 +12445,9 @@ impl SenzoShell {
         }
         self.profile_scope.set(profile_id.clone());
         self.active_profile_id = profile_id.clone();
+        self.cloud_signed_in = self.cloud_service.stored_session(&profile_id).ok().flatten().is_some();
+        self.cloud_status = None;
+        self.cloud_error = None;
         self.profile_switch_target = None;
         self.profile_error = None;
         if let Some(name) = self.profiles.iter().find(|profile| profile.id == profile_id).map(|profile| profile.name.clone()) {
@@ -14545,6 +14548,57 @@ mod tests {
             })
             .contains("could not be found")
         );
+    }
+
+    #[test]
+    fn phase12_library_collections_project_to_stable_home_rows() {
+        let item = LibraryItem {
+            profile_id: "default".to_owned(),
+            media_id: "550".to_owned(),
+            media_kind: MediaKind::Movie,
+            title: "Fight Club".to_owned(),
+            overview: None,
+            release_year: Some(1999),
+            poster_path: Some("/poster.jpg".to_owned()),
+            backdrop_path: None,
+            added_at_ms: 1,
+            updated_at_ms: 1,
+            is_favorite: false,
+        };
+        let collection = LibraryCollection {
+            id: "weekend".to_owned(),
+            profile_id: "default".to_owned(),
+            title: "Weekend picks".to_owned(),
+            description: None,
+            sort_order: 0,
+            created_at_ms: 1,
+            updated_at_ms: 1,
+        };
+        let projected = merge_library_home_collections(
+            &[],
+            &[collection],
+            &HashMap::from([("weekend".to_owned(), vec![item])]),
+        );
+        assert_eq!(projected.len(), 1);
+        assert_eq!(projected[0].id, "library-weekend");
+        assert_eq!(projected[0].title, "Weekend picks");
+        assert_eq!(projected[0].folders.len(), 1);
+        assert_eq!(projected[0].folders[0].title, "Fight Club");
+        assert_eq!(projected[0].folders[0].cover_artwork_path.as_deref(), Some("/poster.jpg"));
+    }
+
+    #[test]
+    fn phase12_library_home_projection_ignores_empty_collections() {
+        let collection = LibraryCollection {
+            id: "empty".to_owned(),
+            profile_id: "default".to_owned(),
+            title: "Empty".to_owned(),
+            description: None,
+            sort_order: 0,
+            created_at_ms: 1,
+            updated_at_ms: 1,
+        };
+        assert!(merge_library_home_collections(&[], &[collection], &HashMap::new()).is_empty());
     }
 
     #[test]

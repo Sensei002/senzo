@@ -419,6 +419,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn profile_scope_updates_all_clones_and_keeps_profiles_independent() {
+        let scope = ProfileScope::new("default");
+        let other_view = scope.clone();
+        assert_eq!(scope.current(), "default");
+        other_view.set("guest");
+        assert_eq!(scope.current(), "guest");
+        scope.set("family");
+        assert_eq!(other_view.current(), "family");
+        let independent = ProfileScope::new("default");
+        assert_eq!(independent.current(), "default");
+    }
+
+    #[test]
     fn setting_keys_are_validated() {
         assert_eq!(
             SettingKey::new("player.audio_language").unwrap().as_str(),

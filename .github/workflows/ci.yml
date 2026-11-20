@@ -54,6 +54,12 @@ jobs:
           cargo test -p senzo-sources stremio_behavior_hints_and_file_index_survive_source_normalization --locked
           cargo test -p senzo-storage phase11_ --locked
           cargo test -p senzo-ui phase11_ --locked
+      - name: Verify Phase 12 profiles, library and cloud sync
+        run: |
+          cargo test -p senzo-domain profile_scope_ --locked
+          cargo test -p senzo-storage phase12_ --locked
+          cargo test -p senzo-sync --locked
+          cargo test -p senzo-ui phase12_ --locked
       - name: Build native Windows application
         run: cargo build --release --locked -p senzo-app
       - name: Smoke-test native window startup and shutdown
