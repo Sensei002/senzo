@@ -9,6 +9,7 @@ use anyhow::{Context, ensure};
 use senzo_addons::{AddonManager, AddonSecretStore};
 use senzo_artwork::{ArtworkConfig, ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_debrid::{DebridCredentialStore, DebridManager};
+use senzo_downloads::{DownloadManager, TorrentSessionDirectory};
 use senzo_domain::{
     LibraryRepository, ProfileRepository, ProfileScope, ProfileSecurityRepository,
     ProfileSettingsRepository, SettingKey, SettingsRepository, SyncOutboxRepository,
@@ -129,6 +130,8 @@ fn run() -> anyhow::Result<()> {
         .map_err(|error| anyhow::anyhow!("initialize structured diagnostics: {error}"))?;
     let directories =
         AppDirectories::discover().context("resolve native application directories")?;
+    TorrentSessionDirectory::recover_default_root()
+        .context("recover abandoned torrent playback sessions")?;
     let database = Arc::new(
         SqliteDatabase::open(directories.database_file())
             .context("open the local SENZO database and apply migrations")?,
@@ -217,7 +220,7 @@ fn run() -> anyhow::Result<()> {
         _playback_progress: database.clone(),
         _metadata: metadata.clone(),
         _artwork: artwork.clone(),
-        _credentials: credentials,
+        _credentials: credentials.clone(),
         _addon_manager: addon_manager.clone(),
         _plugin_manager: plugin_manager.clone(),
         _debrid_manager: debrid_manager.clone(),
@@ -236,6 +239,12 @@ fn run() -> anyhow::Result<()> {
     );
 
     let runtime = create_runtime().context("create application-owned Tokio runtime")?;
+    let download_manager = DownloadManager::open(
+        directories.data_dir(),
+        runtime.handle().clone(),
+        credentials.clone(),
+    )
+    .context("initialize the profile-scoped HTTP download queue")?;
     if env::args().any(|argument| argument == "--metadata-smoke-test") {
         runtime
             .block_on(run_metadata_smoke_test(&metadata, &artwork))
@@ -282,6 +291,7 @@ fn run() -> anyhow::Result<()> {
             debrid_manager,
             media_server_manager,
             source_aggregator,
+            download_manager,
         },
         smoke_test,
     );
