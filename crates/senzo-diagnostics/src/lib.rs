@@ -79,7 +79,8 @@ impl DiagnosticsSink {
             && state.file.set_len(0).is_ok()
             && state.file.seek(SeekFrom::Start(0)).is_ok()
         {
-            let _ = state.file.write_all(state.recent.as_bytes());
+            let recent = state.recent.clone();
+            let _ = state.file.write_all(recent.as_bytes());
             let _ = state.file.flush();
         }
     }
@@ -168,12 +169,14 @@ impl Drop for DiagnosticsWriter {
     }
 }
 
-impl<'a> MakeWriter<'a> for Arc<DiagnosticsSink> {
+struct DiagnosticsSinkWriter(Arc<DiagnosticsSink>);
+
+impl<'a> MakeWriter<'a> for DiagnosticsSinkWriter {
     type Writer = DiagnosticsWriter;
 
     fn make_writer(&'a self) -> Self::Writer {
         DiagnosticsWriter {
-            sink: self.clone(),
+            sink: self.0.clone(),
             pending: Vec::new(),
         }
     }
@@ -193,7 +196,7 @@ pub fn init_with_file(path: impl Into<PathBuf>) -> Result<(), Box<dyn Error + Se
         .with_thread_ids(true)
         .with_ansi(false)
         .compact()
-        .with_writer(sink.clone())
+        .with_writer(DiagnosticsSinkWriter(sink.clone()))
         .try_init()?;
     let _ = ACTIVE_SINK.set(sink);
 
