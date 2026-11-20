@@ -25,7 +25,7 @@ jobs:
           ref: migration/stremio-native
           fetch-depth: 0
 
-      - name: Import source tree and preserve SENZO logo
+      - name: Import source tree and preserve SENZO assets and bootstrap workflow
         shell: bash
         env:
           UPSTREAM_SHA: 936ee48771bb3d9c242ebc029abe260dae60c617
@@ -33,9 +33,17 @@ jobs:
           set -euo pipefail
 
           current="$(git rev-parse HEAD)"
-          logo="$(mktemp)"
+          preserve="$(mktemp -d)"
+          logo="$preserve/senzo-logo.png"
+
           git show "${current}:assets/branding/senzo-logo.png" > "$logo"
           test -s "$logo"
+
+          # The default GITHUB_TOKEN cannot modify files under .github/workflows.
+          # Keep the two existing workflow files byte-for-byte during this import;
+          # workflow migration will be performed through the repository integration.
+          git show "${current}:.github/workflows/ci.yml" > "$preserve/ci.yml"
+          git show "${current}:.github/workflows/import-stremio-native.yml" > "$preserve/import-stremio-native.yml"
 
           git fetch --no-tags https://github.com/Sensei002/stremio-native.git main
           upstream="$(git rev-parse FETCH_HEAD)"
@@ -47,9 +55,17 @@ jobs:
           upstream_tree="$(git rev-parse "${upstream}^{tree}")"
           git read-tree --reset -u "$upstream_tree"
 
+          # Preserve SENZO's canonical logo without changing its artwork.
           mkdir -p assets/branding app/ui/assets/images
           cp "$logo" assets/branding/senzo-logo.png
           cp "$logo" app/ui/assets/images/senzo-logo.png
+
+          # Restore SENZO workflows unchanged. Upstream workflows are imported
+          # in a later API-backed step that has the required workflow-file grant.
+          rm -rf .github/workflows
+          mkdir -p .github/workflows
+          cp "$preserve/ci.yml" .github/workflows/ci.yml
+          cp "$preserve/import-stremio-native.yml" .github/workflows/import-stremio-native.yml
 
           cat > README.md <<'EOF'
           # SENZO
@@ -60,7 +76,7 @@ jobs:
 
           ## Account access
 
-          - Sign in with an existing Stremio account when synchronization and account-backed features are wanted.
+          - Sign in with an existing Stremio account when account-backed features are wanted.
           - Choose **Guest login** to use the application without creating or signing into a Stremio account.
           - SENZO does not operate its own hosted authentication service, user database, or application backend.
           - The desktop application still uses local on-device storage for settings, profiles, library data, and other application state.
