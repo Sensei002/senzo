@@ -10083,7 +10083,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "stremio-native"
+name = "senzo"
 version = "1.0.6"
 dependencies = [
  "anyhow",
