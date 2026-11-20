@@ -3251,7 +3251,7 @@ impl SenzoShell {
             let saved = self
                 .playback_progress_repository
                 .get_playback_progress(
-                    "default",
+                    &self.active_profile_id,
                     &context.media_id,
                     context.media_kind,
                     context.season_number,
@@ -3314,7 +3314,7 @@ impl SenzoShell {
             return;
         }
         let progress = PlaybackProgress {
-            profile_id: "default".to_owned(),
+            profile_id: self.active_profile_id.clone(),
             media_id: context.media_id.clone(),
             media_kind: context.media_kind,
             title: context.title.clone(),
@@ -3348,7 +3348,8 @@ impl SenzoShell {
         let refresh_up_next = completed;
         let repository = self.playback_progress_repository.clone();
         let runtime = self.tokio.clone();
-        let task = runtime.spawn_blocking(move || repository.list_continue_watching("default", 20));
+        let profile_id = self.active_profile_id.clone();
+        let task = runtime.spawn_blocking(move || repository.list_continue_watching(&profile_id, 20));
         cx.spawn(async move |this, cx| match task.await {
             Ok(Ok(entries)) => {
                 let _ = this.update(cx, |this, cx| {
@@ -3415,7 +3416,7 @@ impl SenzoShell {
             return;
         };
         let item = WatchedItem {
-            profile_id: "default".to_owned(),
+            profile_id: self.active_profile_id.clone(),
             media_id: details.id.to_string(),
             media_kind: MediaKind::Series,
             season_number: Some(episode.season_number),
@@ -3438,7 +3439,7 @@ impl SenzoShell {
                 });
                 self.home_continue_watching = self
                     .playback_progress_repository
-                    .list_continue_watching("default", 20)
+                    .list_continue_watching(&self.active_profile_id, 20)
                     .unwrap_or_default();
                 self.home_progress_artwork_requested = false;
                 self.load_home_progress_artwork(cx);
@@ -3914,7 +3915,7 @@ impl SenzoShell {
             return;
         }
         let progress = PlaybackProgress {
-            profile_id: "default".to_owned(),
+            profile_id: self.active_profile_id.clone(),
             media_id: context.media_id.clone(),
             media_kind: context.media_kind,
             title: context.title.clone(),
@@ -4122,9 +4123,10 @@ impl SenzoShell {
         let aggregator = self.source_aggregator.clone();
         let cancellation = self.details_cancellation.child_token();
         let completion_cancellation = cancellation.clone();
+        let profile_id = self.active_profile_id.clone();
         let task = self.tokio.spawn(async move {
             aggregator
-                .resolve_torrent("default", &source, provider, season, episode)
+                .resolve_torrent(&profile_id, &source, provider, season, episode)
                 .await
         });
         cx.spawn(async move |this, cx| {
@@ -5037,7 +5039,7 @@ impl SenzoShell {
                         );
                     }
                     let watched_item = WatchedItem {
-                        profile_id: "default".to_owned(),
+                        profile_id: self.active_profile_id.clone(),
                         media_id: d.id.to_string(),
                         media_kind: MediaKind::Series,
                         season_number: Some(episode.season_number),
@@ -5418,7 +5420,7 @@ impl SenzoShell {
                     );
                 }
                 if source.is_torrent()
-                    && let Ok(accounts) = self.debrid_manager.accounts("default")
+                    && let Ok(accounts) = self.debrid_manager.accounts(&self.active_profile_id)
                 {
                     for account in accounts.into_iter().filter(|account| account.configured) {
                         let provider = account.provider;
@@ -8442,9 +8444,10 @@ impl SenzoShell {
         let manager = self.plugin_manager.clone();
         let runtime = self.tokio.clone();
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let result = runtime
-                .spawn_blocking(move || manager.list_state("default"))
+                .spawn_blocking(move || manager.list_state(&profile_id))
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.plugin_busy = false;
@@ -8480,8 +8483,9 @@ impl SenzoShell {
         self.plugin_error = None;
         self.plugin_notice = None;
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
-            let result = runtime.spawn_blocking(move || manager.add_repository("default", &raw_url)).await;
+            let result = runtime.spawn_blocking(move || manager.add_repository(&profile_id, &raw_url)).await;
             let _ = this.update(cx, |this, cx| {
                 this.plugin_busy = false;
                 match result {
@@ -8507,8 +8511,9 @@ impl SenzoShell {
         self.plugin_busy = true;
         self.plugin_error = None;
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
-            let result = runtime.spawn_blocking(move || manager.refresh_repository("default", &manifest_url)).await;
+            let result = runtime.spawn_blocking(move || manager.refresh_repository(&profile_id, &manifest_url)).await;
             let _ = this.update(cx, |this, cx| {
                 this.plugin_busy = false;
                 match result {
@@ -8533,9 +8538,10 @@ impl SenzoShell {
         self.plugin_busy = true;
         self.plugin_error = None;
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let result = runtime
-                .spawn_blocking(move || manager.remove_repository("default", &manifest_url))
+                .spawn_blocking(move || manager.remove_repository(&profile_id, &manifest_url))
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.plugin_busy = false;
@@ -8569,9 +8575,10 @@ impl SenzoShell {
         let runtime = self.tokio.clone();
         self.plugin_busy = true;
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let result = runtime
-                .spawn_blocking(move || manager.set_enabled("default", &scraper_id, enabled))
+                .spawn_blocking(move || manager.set_enabled(&profile_id, &scraper_id, enabled))
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.plugin_busy = false;
@@ -8601,10 +8608,11 @@ impl SenzoShell {
         let runtime = self.tokio.clone();
         self.plugin_busy = true;
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let result = runtime
                 .spawn_blocking(move || {
-                    manager.set_network_permission("default", &scraper_id, granted)
+                    manager.set_network_permission(&profile_id, &scraper_id, granted)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -8638,9 +8646,10 @@ impl SenzoShell {
         let runtime = self.tokio.clone();
         self.plugin_busy = true;
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let result = runtime
-                .spawn_blocking(move || manager.set_plugins_enabled("default", enabled))
+                .spawn_blocking(move || manager.set_plugins_enabled(&profile_id, enabled))
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.plugin_busy = false;
@@ -8674,9 +8683,10 @@ impl SenzoShell {
         self.plugin_error = None;
         self.plugin_stream_results.clear();
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let result = runtime
-                .spawn(async move { manager.test_scraper("default", &scraper_id).await })
+                .spawn(async move { manager.test_scraper(&profile_id, &scraper_id).await })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.plugin_busy = false;
@@ -8732,9 +8742,10 @@ impl SenzoShell {
         self.plugin_error = None;
         self.plugin_stream_results.clear();
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let result = runtime
-                .spawn(async move { manager.execute_scraper("default", &scraper_id, input).await })
+                .spawn(async move { manager.execute_scraper(&profile_id, &scraper_id, input).await })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.plugin_busy = false;
@@ -8808,10 +8819,11 @@ impl SenzoShell {
         self.plugin_busy = true;
         self.plugin_error = None;
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let result = runtime
                 .spawn_blocking(move || {
-                    manager.save_scraper_settings("default", &scraper_id, &settings_json)
+                    manager.save_scraper_settings(&profile_id, &scraper_id, &settings_json)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -9262,9 +9274,10 @@ impl SenzoShell {
         let manager = self.addon_manager.clone();
         let runtime = self.tokio.clone();
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let result = runtime
-                .spawn_blocking(move || manager.list_addons("default"))
+                .spawn_blocking(move || manager.list_addons(&profile_id))
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.addon_busy = false;
@@ -9342,11 +9355,12 @@ impl SenzoShell {
         self.addon_busy = true;
         self.addon_error = None;
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let result = runtime
                 .spawn_blocking(move || {
-                    let installed = manager.install_preview("default", &preview);
-                    let current = manager.list_addons("default");
+                    let installed = manager.install_preview(&profile_id, &preview);
+                    let current = manager.list_addons(&profile_id);
                     (installed, current)
                 })
                 .await;
@@ -9391,11 +9405,12 @@ impl SenzoShell {
         self.addon_busy = true;
         self.addon_error = None;
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let result = runtime
                 .spawn_blocking(move || {
-                    manager.set_enabled("default", &addon_id, enabled)?;
-                    manager.list_addons("default")
+                    manager.set_enabled(&profile_id, &addon_id, enabled)?;
+                    manager.list_addons(&profile_id)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -9429,11 +9444,12 @@ impl SenzoShell {
         self.addon_busy = true;
         self.addon_error = None;
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let result = runtime
                 .spawn_blocking(move || {
-                    manager.remove_addon("default", &addon_id)?;
-                    manager.list_addons("default")
+                    manager.remove_addon(&profile_id, &addon_id)?;
+                    manager.list_addons(&profile_id)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -9466,11 +9482,12 @@ impl SenzoShell {
         self.addon_busy = true;
         self.addon_error = None;
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let result = runtime
                 .spawn(async move {
-                    let refresh = manager.refresh_addon("default", &addon_id).await;
-                    let current = manager.list_addons("default");
+                    let refresh = manager.refresh_addon(&profile_id, &addon_id).await;
+                    let current = manager.list_addons(&profile_id);
                     (refresh, current)
                 })
                 .await;
@@ -9509,10 +9526,11 @@ impl SenzoShell {
         self.addon_busy = true;
         self.addon_error = None;
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let result = runtime.spawn(async move {
-                let outcomes = manager.refresh_all("default").await;
-                let current = manager.list_addons("default");
+                let outcomes = manager.refresh_all(&profile_id).await;
+                let current = manager.list_addons(&profile_id);
                 (outcomes, current)
             }).await;
             let _ = this.update(cx, |this, cx| {
@@ -9556,6 +9574,7 @@ impl SenzoShell {
         self.addon_busy = true;
         self.addon_error = None;
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let request_addon_id = addon_id.clone();
             let request_catalog_id = catalog_id.clone();
@@ -9563,7 +9582,7 @@ impl SenzoShell {
                 .spawn(async move {
                     manager
                         .fetch_catalog(
-                            "default",
+                            &profile_id,
                             &request_addon_id,
                             &media_type,
                             &request_catalog_id,
@@ -9612,11 +9631,12 @@ impl SenzoShell {
         self.addon_error = None;
         self.addon_meta_result = None;
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let result = runtime
                 .spawn(async move {
                     manager
-                        .fetch_meta("default", &addon_id, media_type.trim(), media_id.trim())
+                        .fetch_meta(&profile_id, &addon_id, media_type.trim(), media_id.trim())
                         .await
                 })
                 .await;
@@ -9663,11 +9683,12 @@ impl SenzoShell {
         self.addon_busy = true;
         self.addon_error = None;
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let result = runtime
                 .spawn_blocking(move || {
-                    manager.reorder_addons("default", &ids)?;
-                    manager.list_addons("default")
+                    manager.reorder_addons(&profile_id, &ids)?;
+                    manager.list_addons(&profile_id)
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -9705,9 +9726,10 @@ impl SenzoShell {
         self.addon_busy = true;
         self.addon_error = None;
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let result = runtime.spawn(async move {
-                manager.fetch_streams("default", &addon_id, media_type.trim(), media_id.trim()).await
+                manager.fetch_streams(&profile_id, &addon_id, media_type.trim(), media_id.trim()).await
             }).await;
             let _ = this.update(cx, |this, cx| {
                 this.addon_busy = false;
@@ -9753,9 +9775,10 @@ impl SenzoShell {
         self.addon_busy = true;
         self.addon_error = None;
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let result = runtime.spawn(async move {
-                manager.fetch_subtitles("default", &addon_id, media_type.trim(), media_id.trim(), &extras).await
+                manager.fetch_subtitles(&profile_id, &addon_id, media_type.trim(), media_id.trim(), &extras).await
             }).await;
             let _ = this.update(cx, |this, cx| {
                 this.addon_busy = false;
@@ -11311,9 +11334,10 @@ impl SenzoShell {
         let artwork = self.artwork.clone();
         let cancellation = self.home_cancellation.child_token();
         let task_token = cancellation.clone();
+        let profile_id = self.active_profile_id.clone();
         let task = self.tokio.spawn(async move {
             let completed = tokio::task::spawn_blocking(move || {
-                repository.list_recent_completed_series("default", 20)
+                repository.list_recent_completed_series(&profile_id, 20)
             })
             .await
             .map_err(|error| error.to_string())?
@@ -11918,8 +11942,9 @@ impl SenzoShell {
         self.source_settings_error = None;
         self.source_settings_notice = None;
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
-            let task = runtime.spawn(async move { manager.connect("default", provider, &api_key).await });
+            let task = runtime.spawn(async move { manager.connect(&profile_id, provider, &api_key).await });
             let result = task.await.map_err(|error| error.to_string()).and_then(|value| value.map_err(|error| error.to_string()));
             let _ = this.update(cx, |this, cx| {
                 this.source_settings_busy = false;
@@ -11933,7 +11958,7 @@ impl SenzoShell {
     }
 
     fn disconnect_debrid_provider(&mut self, provider: DebridProviderId, cx: &mut Context<Self>) {
-        match self.debrid_manager.disconnect("default", provider) {
+        match self.debrid_manager.disconnect(&self.active_profile_id, provider) {
             Ok(()) => {
                 self.source_settings_notice = Some(format!("{} disconnected.", provider.name()))
             }
@@ -11975,10 +12000,11 @@ impl SenzoShell {
         self.source_settings_error = None;
         self.source_settings_notice = None;
         cx.notify();
+        let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let task = runtime.spawn(async move {
                 manager
-                    .connect("default", provider, &name, &address, &username, &password)
+                    .connect(&profile_id, provider, &name, &address, &username, &password)
                     .await
             });
             let result = task
@@ -12004,7 +12030,7 @@ impl SenzoShell {
     }
 
     fn remove_media_server(&mut self, connection_id: String, cx: &mut Context<Self>) {
-        match self.media_server_manager.remove("default", &connection_id) {
+        match self.media_server_manager.remove(&self.active_profile_id, &connection_id) {
             Ok(()) => {
                 self.source_settings_notice = Some(
                     "Media-server connection removed and its saved credential deleted.".to_owned(),
@@ -12096,7 +12122,7 @@ impl SenzoShell {
             .child(debrid_provider).child(debrid_key)
             .child(self.addon_control("source-connect-debrid", if self.source_settings_busy { "Connecting…" } else { "Connect debrid provider" }, 112,
                 cx.listener(|this, _, _, cx| this.connect_debrid_provider(cx))));
-        if let Ok(accounts) = self.debrid_manager.accounts("default") {
+        if let Ok(accounts) = self.debrid_manager.accounts(&self.active_profile_id) {
             for account in accounts {
                 let provider = account.provider;
                 panel = panel.child(
@@ -12140,7 +12166,7 @@ impl SenzoShell {
             .child(server_provider).child(server_name).child(server_address).child(server_username).child(server_password)
             .child(self.addon_control("source-connect-media-server", if self.source_settings_busy { "Connecting…" } else { "Connect media server" }, 119,
                 cx.listener(|this, _, _, cx| this.connect_media_server(cx))));
-        if let Ok(connections) = self.media_server_manager.list_connections("default") {
+        if let Ok(connections) = self.media_server_manager.list_connections(&self.active_profile_id) {
             if connections.is_empty() {
                 panel = panel.child(status_panel(StatusTone::Empty, "NO MEDIA SERVERS", "No Jellyfin or Emby connections", "Connected libraries will be available as independent sources in movie and episode Details."));
             } else {
