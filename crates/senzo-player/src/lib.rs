@@ -43,7 +43,7 @@ pub enum MpvError {
     Initialization(String),
     #[error("libmpv command failed: {0}")]
     Command(String),
-    #[error("invalid direct HTTP(S) source URL")]
+    #[error("invalid playback source URL")]
     InvalidUrl,
     #[error("invalid request headers or header limits exceeded")]
     InvalidHeaders,
@@ -1032,6 +1032,13 @@ fn validate_url(raw: &str) -> Result<String, MpvError> {
         return Err(MpvError::InvalidUrl);
     }
     let u = Url::parse(raw.trim()).map_err(|_| MpvError::InvalidUrl)?;
+    if u.scheme() == "file" {
+        let path = u.to_file_path().map_err(|_| MpvError::InvalidUrl)?;
+        if u.host_str().is_some_and(|host| !host.is_empty()) || !path.is_file() {
+            return Err(MpvError::InvalidUrl);
+        }
+        return Ok(u.to_string());
+    }
     if !matches!(u.scheme(), "http" | "https")
         || u.host_str().is_none()
         || !u.username().is_empty()

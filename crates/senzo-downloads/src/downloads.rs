@@ -65,6 +65,16 @@ impl DownloadItem {
         self.status == DownloadStatus::Completed
             && self.local_path.as_deref().is_some_and(|path| Path::new(path).is_file())
     }
+
+    /// Returns a local file URL only after the completed payload has been verified.
+    pub fn local_file_url(&self) -> Option<String> {
+        if !self.is_playable() {
+            return None;
+        }
+        Url::from_file_path(self.local_path.as_deref()?)
+            .ok()
+            .map(|url| url.to_string())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -162,7 +172,6 @@ impl DownloadManager {
                 runtime,
                 client: Client::builder()
                     .connect_timeout(Duration::from_secs(30))
-                    .timeout(Duration::from_secs(0))
                     .redirect(reqwest::redirect::Policy::limited(10))
                     .build()
                     .map_err(|error| DownloadError::Storage(error.to_string()))?,
@@ -491,7 +500,7 @@ async fn run_download(inner: Arc<Inner>, id: String, cancel: CancellationToken) 
             result = request.send() => match result {
                 Ok(response) => response,
                 Err(error) => {
-                    if !retry_or_fail(&inner, &id, &mut no_progress_retries, baseline, &partial, error.to_string()).await {
+                    if !retry_or_fail(&inner, &id, &mut no_progress_retries, baseline, &partial, error.to_string(), &cancel).await {
                         return;
                     }
                     continue;
@@ -505,7 +514,7 @@ async fn run_download(inner: Arc<Inner>, id: String, cancel: CancellationToken) 
         if response.status() != StatusCode::OK && response.status() != StatusCode::PARTIAL_CONTENT {
             let status = response.status();
             if status == StatusCode::REQUEST_TIMEOUT || status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
-                if !retry_or_fail(&inner, &id, &mut no_progress_retries, baseline, &partial, format!("HTTP {status}")).await {
+                if !retry_or_fail(&inner, &id, &mut no_progress_retries, baseline, &partial, format!("HTTP {status}"), &cancel).await {
                     return;
                 }
                 continue;
@@ -577,13 +586,13 @@ async fn run_download(inner: Arc<Inner>, id: String, cancel: CancellationToken) 
         drop(file);
 
         if let Some(error) = transfer_error {
-            if !retry_or_fail(&inner, &id, &mut no_progress_retries, baseline, &partial, error).await {
+            if !retry_or_fail(&inner, &id, &mut no_progress_retries, baseline, &partial, error, &cancel).await {
                 return;
             }
             continue;
         }
         if total_bytes.is_some_and(|total| downloaded < total) {
-            if !retry_or_fail(&inner, &id, &mut no_progress_retries, baseline, &partial, format!("Connection ended at {downloaded} bytes before the expected total")).await {
+            if !retry_or_fail(&inner, &id, &mut no_progress_retries, baseline, &partial, format!("Connection ended at {downloaded} bytes before the expected total"), &cancel).await {
                 return;
             }
             continue;
@@ -659,6 +668,7 @@ async fn retry_or_fail(
     baseline: u64,
     partial: &Path,
     message: String,
+    cancel: &CancellationToken,
 ) -> bool {
     let current = tokio::fs::metadata(partial).await.map(|metadata| metadata.len()).unwrap_or(0);
     if current > baseline {
@@ -670,8 +680,10 @@ async fn retry_or_fail(
         return false;
     }
     let seconds = (1u64 << (*no_progress_retries).min(5)).min(30);
-    tokio::time::sleep(Duration::from_secs(seconds)).await;
-    true
+    tokio::select! {
+        _ = cancel.cancelled() => false,
+        _ = tokio::time::sleep(Duration::from_secs(seconds)) => true,
+    }
 }
 
 #[cfg(test)]
