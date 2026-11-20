@@ -18,7 +18,7 @@ AppId={{9B7477C6-8E3D-4EA7-A128-EB249D052C6C}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher=Sensei002
-DefaultDirName={localappdata}\Programs\stremio-native
+DefaultDirName={localappdata}\Programs\SENZO
 DefaultGroupName=SENZO
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
@@ -41,7 +41,7 @@ VersionInfoProductVersion={#AppVersion}
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 Name: "startup"; Description: "Start SENZO when I sign in"; GroupDescription: "Startup:"; Flags: unchecked
-Name: "magnet"; Description: "Open magnet links with Stremio"; GroupDescription: "Link handling:"; Flags: unchecked
+Name: "magnet"; Description: "Open magnet links with SENZO"; GroupDescription: "Link handling:"; Flags: unchecked
 
 [Files]
 Source: "{#BuildRoot}\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
@@ -53,9 +53,9 @@ Source: "{#BuildRoot}\licenses\mpv\LICENSE.LGPL"; DestDir: "{app}\licenses\mpv";
 ; AppUserModelID must match SetCurrentProcessExplicitAppUserModelID in the app so
 ; Windows resolves the friendly name and icon shown in the media overlay / taskbar.
 [Icons]
-Name: "{group}\Stremio"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; AppUserModelID: "com.senzo.desktop"
-Name: "{autodesktop}\Stremio"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon; AppUserModelID: "com.stremio.native"
-Name: "{userstartup}\Stremio"; Filename: "{app}\{#AppExeName}"; Parameters: "--start-hidden"; WorkingDir: "{app}"; Tasks: startup; AppUserModelID: "com.stremio.native"
+Name: "{group}\SENZO"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; AppUserModelID: "com.senzo.desktop"
+Name: "{autodesktop}\SENZO"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon; AppUserModelID: "com.senzo.desktop"
+Name: "{userstartup}\SENZO"; Filename: "{app}\{#AppExeName}"; Parameters: "--start-hidden"; WorkingDir: "{app}"; Tasks: startup; AppUserModelID: "com.senzo.desktop"
 
 [Registry]
 Root: HKCU; Subkey: "Software\Classes\stremio"; ValueType: string; ValueData: "URL:Stremio Protocol"; Flags: uninsdeletekey
