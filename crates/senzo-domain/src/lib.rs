@@ -297,7 +297,25 @@ pub struct SyncMutation {
     pub last_error: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteSyncMutation {
+    pub cursor: i64,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub operation: String,
+    pub payload_json: String,
+    pub changed_at_ms: i64,
+}
+
 pub trait SyncOutboxRepository: Send + Sync {
+    fn apply_remote_sync_page(
+        &self,
+        profile_id: &str,
+        provider: &str,
+        next_cursor: &str,
+        mutations: &[RemoteSyncMutation],
+        updated_at_ms: i64,
+    ) -> Result<(), RepositoryError>;
     fn list_pending_sync_mutations(
         &self, profile_id: &str, now_ms: i64, limit: usize,
     ) -> Result<Vec<SyncMutation>, RepositoryError>;
@@ -315,7 +333,7 @@ pub trait SyncOutboxRepository: Send + Sync {
 
 /// A local playback checkpoint. Series progress is keyed by parent series and
 /// season/episode; movies use neither season nor episode.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlaybackProgress {
     pub profile_id: String,
     pub media_id: String,
@@ -334,7 +352,7 @@ pub struct PlaybackProgress {
 }
 
 /// An explicit watched marker for a movie or a specific TV episode.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WatchedItem {
     pub profile_id: String,
     pub media_id: String,
