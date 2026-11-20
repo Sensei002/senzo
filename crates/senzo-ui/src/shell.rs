@@ -2,6 +2,7 @@
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    rc::Rc,
     sync::Arc,
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -797,7 +798,7 @@ pub(crate) struct SenzoShell {
     active_torrent_session: Option<TorrentPlaybackSession>,
     torrent_start_cancel: CancellationToken,
     mpv_player: Option<MpvPlayer>,
-    native_video_surface: Option<Arc<NativeVideoSurface>>,
+    native_video_surface: Option<Rc<NativeVideoSurface>>,
     native_window_hwnd: Option<isize>,
     playback_start_cancel: CancellationToken,
     playback_refresh_cancel: CancellationToken,
@@ -3800,7 +3801,7 @@ impl SenzoShell {
         })?;
         let surface = NativeVideoSurface::create(parent)?;
         let hwnd = surface.hwnd() as u64;
-        self.native_video_surface = Some(Arc::new(surface));
+        self.native_video_surface = Some(Rc::new(surface));
         tracing::info!(parent_hwnd = parent, child_hwnd = hwnd, "Created embedded MPV video surface");
         Ok(hwnd)
     }
