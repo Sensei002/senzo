@@ -2,7 +2,7 @@
 
 use std::{
     path::Path,
-    sync::{Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard},
     time::Duration,
 };
 
@@ -12,7 +12,7 @@ use senzo_domain::{
     LibraryCollection, LibraryItem, LibraryRepository, MediaKind, PlaybackProgress,
     PlaybackProgressRepository, Profile, ProfileRepository, ProfileSecurityRepository,
     ProfileSettingsRepository, RepositoryError, SettingKey, SettingsRepository, SyncMutation,
-    SyncOutboxRepository, WatchedItem,
+    SyncOutboxRepository, WatchedItem, ProfileScope,
 };
 use pbkdf2::pbkdf2_hmac;
 use ring::{constant_time::verify_slices_are_equal, rand::{SecureRandom, SystemRandom}};
@@ -209,6 +209,37 @@ pub enum StorageError {
 
 pub struct SqliteDatabase {
     connection: Mutex<Connection>,
+}
+
+/// A settings facade that routes ordinary settings through the current profile
+/// while keeping the active-profile pointer installation-wide.
+pub struct ProfileScopedSettingsRepository {
+    database: Arc<SqliteDatabase>,
+    profile_scope: ProfileScope,
+}
+
+impl ProfileScopedSettingsRepository {
+    pub fn new(database: Arc<SqliteDatabase>, profile_scope: ProfileScope) -> Self {
+        Self { database, profile_scope }
+    }
+}
+
+impl SettingsRepository for ProfileScopedSettingsRepository {
+    fn get(&self, key: &SettingKey) -> Result<Option<String>, RepositoryError> {
+        if key.as_str() == "profiles.active" {
+            self.database.get(key)
+        } else {
+            self.database.get_profile_setting(&self.profile_scope.current(), key)
+        }
+    }
+
+    fn set(&self, key: &SettingKey, value: &str) -> Result<(), RepositoryError> {
+        if key.as_str() == "profiles.active" {
+            self.database.set(key, value)
+        } else {
+            self.database.set_profile_setting(&self.profile_scope.current(), key, value)
+        }
+    }
 }
 
 impl SqliteDatabase {
@@ -2055,6 +2086,24 @@ mod tests {
             Err(AddonStoreError::NotFound)
         ));
         assert_eq!(database.list(&guest_profile.id).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn phase12_profile_scoped_settings_facade_switches_namespace_without_losing_data() {
+        let database = Arc::new(SqliteDatabase::in_memory().unwrap());
+        let guest = database.create_profile("Guest").unwrap();
+        let scope = ProfileScope::new("default");
+        let settings = ProfileScopedSettingsRepository::new(database.clone(), scope.clone());
+        let language = SettingKey::new("appearance.language").unwrap();
+        let active = SettingKey::new("profiles.active").unwrap();
+        settings.set(&language, "en-US").unwrap();
+        settings.set(&active, &guest.id).unwrap();
+        scope.set(guest.id.clone());
+        settings.set(&language, "bn-BD").unwrap();
+        assert_eq!(settings.get(&language).unwrap().as_deref(), Some("bn-BD"));
+        assert_eq!(settings.get(&active).unwrap().as_deref(), Some(guest.id.as_str()));
+        scope.set("default");
+        assert_eq!(settings.get(&language).unwrap().as_deref(), Some("en-US"));
     }
 
     #[test]
