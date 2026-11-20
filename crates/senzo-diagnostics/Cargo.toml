@@ -8,10 +8,9 @@ publish.workspace = true
 
 [dependencies]
 regex = "1"
-
-[dev-dependencies]
-tempfile = "3"
-
 tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
