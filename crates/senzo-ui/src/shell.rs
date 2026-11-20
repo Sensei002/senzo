@@ -11197,8 +11197,19 @@ impl SenzoShell {
         };
         let current = handle.offset();
         let maximum = handle.max_offset();
-        let step = (f32::from(handle.bounds().size.width) * 0.72).max(160.0);
-        let next_x = (f32::from(current.x) - step * direction).clamp(-f32::from(maximum.x), 0.0);
+        let viewport_width = f32::from(handle.bounds().size.width).max(0.0);
+        let max_scroll = f32::from(maximum.x).max(0.0);
+        let step = (viewport_width * 0.72).max(160.0);
+        let next_x = (f32::from(current.x) - step * direction).clamp(-max_scroll, 0.0);
+        tracing::info!(
+            catalogue = key.as_str(),
+            direction,
+            viewport_width,
+            max_scroll,
+            previous_offset = f32::from(current.x),
+            next_offset = next_x,
+            "Scrolling Home catalogue shelf"
+        );
         handle.set_offset(point(px(next_x), current.y));
         cx.notify();
     }
@@ -11273,6 +11284,9 @@ impl SenzoShell {
                 "This catalogue did not return titles with usable poster artwork.",
             ))
         } else {
+            // Keep poster cards at their intended 148px width. Without
+            // non-shrinking flex items GPUI can compress the row to the viewport,
+            // leaving no horizontal scroll range for appended pages or arrow controls.
             let mut row = div().flex().gap_4();
             for (index, card) in shelf.cards.iter().enumerate() {
                 let id = card.id;
@@ -11283,6 +11297,8 @@ impl SenzoShell {
                 let focus = self.home_card_focus_handles.get(&focus_id);
                 let mut card_element = div()
                     .id(focus_id.clone())
+                    .w(px(148.0))
+                    .flex_shrink_0()
                     .tab_index(tab_start + index as isize)
                     .cursor_pointer()
                     .rounded_lg()
