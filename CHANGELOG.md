@@ -1,8 +1,16 @@
 # Changelog
 
-This file records notable changes to Stremio Native relative to the initial source snapshot.
+This file records notable changes to SENZO and the imported Stremio Native application foundation.
 
-## 1.0.6 - 2026-08-14
+## 1.0.6 - 2026-11-21
+
+### SENZO adoption and release workflow
+
+- Adopted the Stremio Native Rust and Slint desktop application foundation as the SENZO codebase, retaining upstream source provenance and GPL-3.0-only licensing.
+- Applied SENZO product branding, the canonical logo, generated Windows application icons, a separate installation identity, and SENZO-specific local data paths.
+- Added optional Stremio account access with a guest entry option labelled **Continue without signing in**; supported guest settings and library state remain on the local device.
+- Added a multi-OS release pipeline for Windows x64, Linux x64, Debian/Ubuntu, Arch Linux, and Fedora, with checksums and generated GitHub release notes.
+
 
 ### Browsing, discovery, and metadata
 
