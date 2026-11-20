@@ -8239,19 +8239,12 @@ impl SenzoShell {
             )
     }
 
-    fn render_discovery(&self, media_type: MediaType, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
+    fn render_discovery(&self, media_type: MediaType, cx: &mut Context<Self>) -> gpui::Div {
         let state = self.discovery_state(media_type);
         let movie = media_type == MediaType::Movie;
         let title = if movie { "Movies" } else { "TV Shows" };
+        let selector = if movie { "discover-page-movies" } else { "discover-page-tv" };
         let mut page = div()
-            .id(if movie { "discover-page-movies" } else { "discover-page-tv" })
-            .debug_selector(|| {
-                if movie {
-                    "discover-page-movies".to_owned()
-                } else {
-                    "discover-page-tv".to_owned()
-                }
-            })
             .w_full()
             .flex()
             .flex_col()
@@ -8434,7 +8427,11 @@ impl SenzoShell {
             for _ in 0..8 {
                 skeletons = skeletons.child(poster_card(" ", " ", None, true));
             }
-            return page.child(skeletons);
+            return div().w_full().child(
+                page.child(skeletons)
+                    .id(selector)
+                    .debug_selector(|| selector.to_owned()),
+            );
         }
         if state.status == DiscoveryStatus::Failed {
             page = page.child(status_panel(
@@ -8540,7 +8537,9 @@ impl SenzoShell {
                 error,
             ));
         }
-        page
+        div().w_full().child(
+            page.id(selector).debug_selector(|| selector.to_owned()),
+        )
     }
 
     fn update_search_query(&mut self, query: String, cx: &mut Context<Self>) {
