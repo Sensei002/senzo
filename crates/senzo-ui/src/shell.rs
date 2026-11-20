@@ -8,10 +8,11 @@ use std::{
 };
 
 use gpui::{
-    App, Bounds, ColorExt, Context, Entity, FocusHandle, Image, ImageFormat, KeyBinding, Menu,
-    MenuItem, MouseButton, NavigationDirection, QuitMode, Render, RenderImage, ScrollHandle,
-    SharedString, Subscription, TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div,
-    img, point, prelude::*, px, rgb, size,
+    App, Bounds, ClipboardItem, ColorExt, Context, Entity, FocusHandle, Image, ImageFormat,
+    KeyBinding, Menu, MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent, NavigationDirection,
+    Pixels, QuitMode, Render, RenderImage, ScrollHandle, SharedString, Subscription,
+    TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div, img, point, prelude::*, px,
+    rgb, size,
 };
 use gpui_component::scroll::ScrollableElement;
 use gpui_component::{
@@ -874,6 +875,8 @@ pub(crate) struct SenzoShell {
     _home_title_subscriptions: Vec<Subscription>,
     home_title_errors: HashMap<String, String>,
     home_card_focus_handles: HashMap<String, FocusHandle>,
+    home_shelf_scroll_handles: HashMap<HomeShelfKey, ScrollHandle>,
+    home_shelf_drag: Option<(HomeShelfKey, Pixels)>,
     last_home_focus_id: Option<String>,
     home_return_focus_id: Option<String>,
     page_scroll_handle: ScrollHandle,
@@ -1399,6 +1402,10 @@ impl SenzoShell {
             &library_collection_items,
         );
         let home_featured_info_focus = cx.focus_handle();
+        let home_shelf_scroll_handles = HomeShelfKey::ALL
+            .into_iter()
+            .map(|key| (key, ScrollHandle::new()))
+            .collect::<HashMap<_, _>>();
         let mut home_card_focus_handles = HashMap::new();
         home_card_focus_handles.insert(
             "home-featured-more-info".to_owned(),
@@ -1579,6 +1586,8 @@ impl SenzoShell {
             _home_title_subscriptions: home_title_subscriptions,
             home_title_errors: HashMap::new(),
             home_card_focus_handles,
+            home_shelf_scroll_handles,
+            home_shelf_drag: None,
             last_home_focus_id: None,
             home_return_focus_id: None,
             page_scroll_handle: ScrollHandle::new(),
@@ -1688,6 +1697,12 @@ impl SenzoShell {
     }
 
     fn navigate(&mut self, page: AppPage, window: &mut Window, cx: &mut Context<Self>) {
+        tracing::info!(
+            from_page = self.navigation.current().key(),
+            to_page = page.key(),
+            playback_open = self.playback_open,
+            "SENZO navigation requested"
+        );
         self.downloads_refresh_cancel.cancel();
         self.stop_playback();
         self.remember_current_page_scroll();
@@ -1952,6 +1967,7 @@ impl SenzoShell {
             shelf.load_more_error = None;
             shelf.page.saturating_add(1)
         };
+        tracing::info!(catalogue = key.as_str(), page, "Loading more Home catalogue items");
 
         let generation = self.home_catalogue_generation;
         let Some(descriptor_identity) =
@@ -2063,12 +2079,26 @@ impl SenzoShell {
                 shelf.loading_more = false;
                 match result {
                     Ok(data) => {
-                        append_unique_home_cards(&mut shelf.cards, data.cards);
+                        let added = append_unique_home_cards(&mut shelf.cards, data.cards);
                         shelf.page = data.page;
                         shelf.total_pages = data.total_pages;
                         shelf.load_more_error = None;
+                        tracing::info!(
+                            catalogue = key.as_str(),
+                            page = shelf.page,
+                            total_pages = shelf.total_pages,
+                            added,
+                            total_items = shelf.cards.len(),
+                            "Home catalogue page appended"
+                        );
                     }
                     Err(message) => {
+                        tracing::warn!(
+                            catalogue = key.as_str(),
+                            page,
+                            error = %message,
+                            "Home catalogue pagination failed"
+                        );
                         shelf.load_more_error = Some(message);
                     }
                 }
@@ -7945,6 +7975,7 @@ impl SenzoShell {
         reset: bool,
         cx: &mut Context<Self>,
     ) {
+        tracing::info!(media_type = ?media_type, page, reset, "Starting discovery catalogue request");
         if !matches!(media_type, MediaType::Movie | MediaType::Tv) || !(1..=500).contains(&page) {
             return;
         }
@@ -8006,6 +8037,7 @@ impl SenzoShell {
             let response = match response_result {
                 Ok(response) => response,
                 Err(error) => {
+                    tracing::warn!(media_type = ?media_type, page, error = %error, "Discovery catalogue request failed");
                     let message = metadata_error_message(&error);
                     let _ = this.update(cx, |this, cx| {
                         let state = this.discovery_state_mut(media_type);
@@ -8027,6 +8059,13 @@ impl SenzoShell {
                 .map(|response| response.genres)
                 .unwrap_or_default();
             let total_pages = response.total_pages.unwrap_or(page).clamp(1, 500);
+            tracing::info!(
+                media_type = ?media_type,
+                page = response.page,
+                total_pages,
+                result_count = response.results.len(),
+                "Discovery catalogue response received"
+            );
             let mut cards = Vec::new();
             let mut image_requests = Vec::new();
             let mut seen = existing;
@@ -8204,7 +8243,14 @@ impl SenzoShell {
         let state = self.discovery_state(media_type);
         let movie = media_type == MediaType::Movie;
         let title = if movie { "Movies" } else { "TV Shows" };
-        let mut page = div().w_full().flex().flex_col().gap_5().child(page_intro(
+        let mut page = div()
+            .id(if movie { "discover-page-movies" } else { "discover-page-tv" })
+            .debug_selector(|| if movie { "discover-page-movies" } else { "discover-page-tv" })
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_5()
+            .child(page_intro(
             "DISCOVER",
             title,
             if movie {
@@ -8476,7 +8522,7 @@ impl SenzoShell {
                         div()
                             .text_sm()
                             .text_color(rgb(Theme::ACCENT))
-                            .child("Load more titles"),
+                            .child("Show more titles"),
                     ),
             );
         }
@@ -11103,6 +11149,61 @@ impl SenzoShell {
         page
     }
 
+    fn scroll_home_shelf(&mut self, key: HomeShelfKey, direction: f32, cx: &mut Context<Self>) {
+        let Some(handle) = self.home_shelf_scroll_handles.get(&key) else {
+            return;
+        };
+        let current = handle.offset();
+        let maximum = handle.max_offset();
+        let step = (f32::from(handle.bounds().size.width) * 0.72).max(160.0);
+        let next_x = (f32::from(current.x) - step * direction)
+            .clamp(-f32::from(maximum.x), 0.0);
+        handle.set_offset(point(px(next_x), current.y));
+        cx.notify();
+    }
+
+    fn begin_home_shelf_drag(
+        &mut self,
+        key: HomeShelfKey,
+        event: &MouseDownEvent,
+        cx: &mut Context<Self>,
+    ) {
+        self.home_shelf_drag = Some((key, event.position.x));
+        cx.notify();
+    }
+
+    fn drag_home_shelf(
+        &mut self,
+        key: HomeShelfKey,
+        event: &MouseMoveEvent,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((active_key, previous_x)) = self.home_shelf_drag else {
+            return;
+        };
+        if active_key != key {
+            return;
+        }
+        let Some(handle) = self.home_shelf_scroll_handles.get(&key) else {
+            return;
+        };
+        let current = handle.offset();
+        let maximum = handle.max_offset();
+        let delta = event.position.x - previous_x;
+        let next_x = (f32::from(current.x) + f32::from(delta))
+            .clamp(-f32::from(maximum.x), 0.0);
+        handle.set_offset(point(px(next_x), current.y));
+        self.home_shelf_drag = Some((key, event.position.x));
+        cx.notify();
+    }
+
+    fn end_home_shelf_drag(&mut self, key: HomeShelfKey, cx: &mut Context<Self>) {
+        if self.home_shelf_drag.is_some_and(|(active_key, _)| active_key == key) {
+            self.home_shelf_drag = None;
+            cx.notify();
+        }
+    }
+
     fn render_home_shelf(
         &self,
         key: HomeShelfKey,
@@ -11170,6 +11271,40 @@ impl SenzoShell {
             row
         };
 
+        let scroll_handle = self
+            .home_shelf_scroll_handles
+            .get(&key)
+            .expect("every built-in Home catalogue has a persistent scroll handle")
+            .clone();
+        let mut arrows = div().flex().items_center().gap_2();
+        for (direction, label, name) in [
+            (-1.0_f32, "‹", "left"),
+            (1.0_f32, "›", "right"),
+        ] {
+            arrows = arrows.child(
+                div()
+                    .id(format!("home-{}-scroll-{name}", key.as_str()))
+                    .tab_index(tab_start + if direction < 0.0 { 42 } else { 43 })
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(Theme::BORDER))
+                    .bg(rgb(Theme::SURFACE_RAISED))
+                    .px_3()
+                    .py_1()
+                    .cursor_pointer()
+                    .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                    .aria_label(format!("Scroll {title} {name}"))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.scroll_home_shelf(key, direction, cx);
+                    }))
+                    .child(
+                        div()
+                            .text_lg()
+                            .text_color(rgb(Theme::TEXT_PRIMARY))
+                            .child(label),
+                    ),
+            );
+        }
         let mut section = div()
             .w_full()
             .flex()
@@ -11177,16 +11312,34 @@ impl SenzoShell {
             .gap_3()
             .child(
                 div()
-                    .text_lg()
-                    .text_color(rgb(Theme::TEXT_PRIMARY))
-                    .child(title.to_owned()),
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .text_lg()
+                            .text_color(rgb(Theme::TEXT_PRIMARY))
+                            .child(title.to_owned()),
+                    )
+                    .child(arrows),
             )
             .child(
                 div()
                     .id(format!("home-{}-shelf-scroll", key.as_str()))
                     .debug_selector(|| format!("home-{}-shelf-scroll", key.as_str()))
                     .w_full()
+                    .track_scroll(&scroll_handle)
                     .overflow_x_scroll()
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, event, _, cx| {
+                        this.begin_home_shelf_drag(key, event, cx);
+                    }))
+                    .on_mouse_move(cx.listener(move |this, event, _, cx| {
+                        this.drag_home_shelf(key, event, cx);
+                    }))
+                    .on_mouse_up(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                        this.end_home_shelf_drag(key, cx);
+                    }))
                     .child(content),
             );
 
@@ -11236,12 +11389,12 @@ impl SenzoShell {
             } else if shelf.load_more_error.is_some() {
                 "Retry"
             } else {
-                "Load more"
+                "Show more"
             };
             let button_aria = if shelf.load_more_error.is_some() {
                 format!("Retry loading more from {title}")
             } else {
-                format!("Load more from {title}")
+                format!("Show more from {title}")
             };
             section = section.child(
                 div()
@@ -14472,6 +14625,16 @@ impl SenzoShell {
         cx.notify();
     }
 
+    fn copy_diagnostic_logs(&mut self, cx: &mut Context<Self>) {
+        let report = senzo_diagnostics::export_text();
+        cx.write_to_clipboard(ClipboardItem::new_string(report));
+        self.notification = Some(
+            "Redacted diagnostic report copied. Review it before sharing.".to_owned(),
+        );
+        tracing::info!("User copied the SENZO diagnostic report");
+        cx.notify();
+    }
+
     fn render_settings(&self, cx: &mut Context<Self>) -> gpui::Div {
         div()
             .w_full()
@@ -14554,6 +14717,57 @@ impl SenzoShell {
                                     .text_xs()
                                     .text_color(rgb(Theme::ACCENT))
                                     .child("Run check"),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(Theme::BORDER))
+                    .bg(rgb(Theme::SURFACE))
+                    .p_4()
+                    .child(
+                        div()
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                                    .child("Copy diagnostic logs"),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(Theme::TEXT_MUTED))
+                                    .child("Copies recent app events, panic details and runtime information. Credentials and sensitive URL values are redacted."),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("copy-diagnostic-logs")
+                            .tab_index(41)
+                            .rounded_md()
+                            .bg(rgb(Theme::ACCENT_DARK))
+                            .px_3()
+                            .py_2()
+                            .cursor_pointer()
+                            .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
+                            .aria_label("Copy redacted SENZO diagnostic logs")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.copy_diagnostic_logs(cx);
+                            }))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(Theme::ACCENT))
+                                    .child("COPY LOGS"),
                             ),
                     ),
             )

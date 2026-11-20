@@ -26,6 +26,7 @@ senzo-debrid = { path = "../senzo-debrid" }
 senzo-integrations = { path = "../senzo-integrations" }
 senzo-player = { path = "../senzo-player" }
 senzo-downloads = { path = "../senzo-downloads" }
+senzo-diagnostics = { path = "../senzo-diagnostics" }
 serde_json.workspace = true
 url.workspace = true
 

@@ -349,7 +349,9 @@ See docs/PHASE_5_IMPLEMENTATION.md.
 - [ ] Port general, appearance, navigation, player and integration settings.
 - [ ] Implement typed settings models, defaults and migrations.
 - [ ] Implement settings search and progressive disclosure.
-- [ ] Implement diagnostic logs, redaction and support export.
+- [x] Implement bounded persistent diagnostics, panic capture, redaction and a clipboard support export.
+
+**Diagnostics implementation:** Recent logs are stored in the user data directory at `logs/senzo.log`, with an 8 MiB persistent-file cap and a 4 MiB in-memory recent buffer. The Settings **Copy Logs** action exports app/OS metadata, recent logs and panic details. Authorization/Bearer values, API keys, passwords, tokens, cookies and sensitive URL query values are redacted before persistence and clipboard export. The export is bounded and should still be reviewed before sharing.
 - [ ] Implement update channels, metadata validation and integrity checks.
 - [ ] Implement safe update staging, rollback and recovery.
 - [ ] Implement About, licenses and third-party attribution.
