@@ -14,7 +14,7 @@
 #define AppExeName "senzo.exe"
 
 [Setup]
-AppId={{9B7477C6-8E3D-4EA7-A128-EB249D052C6C}
+AppId={{72D80CF4-E53C-4A71-91DD-8027CF2BFFAB}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher=Sensei002
