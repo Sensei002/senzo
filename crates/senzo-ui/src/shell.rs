@@ -748,6 +748,7 @@ pub(crate) struct SenzoShell {
     profile_name_input: Entity<InputState>,
     profile_pin_input: Entity<InputState>,
     profile_switch_target: Option<String>,
+    profile_locked: bool,
     profile_error: Option<String>,
     profile_notice: Option<String>,
     library_search_input: Entity<InputState>,
@@ -1192,6 +1193,7 @@ impl SenzoShell {
             .find(|profile| profile.id == active_profile_id)
             .map(|profile| profile.name.clone())
             .unwrap_or_else(|| "Default".to_owned());
+        let profile_locked = profile_security_repository.has_profile_pin(&active_profile_id).unwrap_or(false);
         let profile_name_input = cx.new(|cx| {
             InputState::new(window, cx).default_value(active_profile_name).placeholder("Profile name")
         });
@@ -1411,6 +1413,7 @@ impl SenzoShell {
             profile_name_input,
             profile_pin_input,
             profile_switch_target: None,
+            profile_locked,
             profile_error: None,
             profile_notice: None,
             library_search_input,
@@ -12389,6 +12392,49 @@ impl SenzoShell {
         cx.notify();
     }
 
+    fn unlock_startup_profile(&mut self, cx: &mut Context<Self>) {
+        let pin = self.profile_pin_input.read(cx).value().to_string();
+        match self.profile_security_repository.verify_profile_pin(
+            &self.active_profile_id, &pin, current_epoch_millis(),
+        ) {
+            Ok(true) => {
+                self.profile_locked = false;
+                self.profile_error = None;
+                self.profile_pin_input.update(cx, |input, window, cx| {
+                    input.set_value(String::new(), window, cx);
+                });
+                self.profile_notice = Some("Profile unlocked.".to_owned());
+                if self.navigation.current() == AppPage::Home {
+                    self.refresh_home_catalogue(cx);
+                }
+            }
+            Ok(false) => self.profile_error = Some("That PIN was not accepted.".to_owned()),
+            Err(error) => self.profile_error = Some(format!("Could not unlock profile: {error}")),
+        }
+        cx.notify();
+    }
+
+    fn render_startup_profile_lock(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let name = self.profiles.iter().find(|profile| profile.id == self.active_profile_id)
+            .map(|profile| profile.name.clone()).unwrap_or_else(|| "Profile".to_owned());
+        let mut view = div().id("profile-startup-lock").size_full().flex()
+            .items_center().justify_center().bg(rgb(Theme::BACKGROUND))
+            .child(div().w(px(420.0)).rounded_xl().border_1().border_color(rgb(Theme::BORDER))
+                .bg(rgb(Theme::SURFACE)).p_6().flex().flex_col().gap_4()
+                .child(div().text_xl().text_color(rgb(Theme::TEXT_PRIMARY)).child("Unlock profile"))
+                .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY))
+                    .child(format!("Enter the PIN for {name} to continue.")))
+                .child(Input::new(&self.profile_pin_input))
+                .child(div().id("profile-startup-unlock").cursor_pointer().rounded_md()
+                    .bg(rgb(Theme::ACCENT_DARK)).px_4().py_3()
+                    .on_click(cx.listener(|this, _, _, cx| this.unlock_startup_profile(cx)))
+                    .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child("Unlock"))));
+        if let Some(error) = &self.profile_error {
+            view = view.child(status_panel(StatusTone::Error,"PROFILE","Unlock failed",error));
+        }
+        view
+    }
+
     fn request_profile_switch(&mut self, profile_id: String, window: &mut Window, cx: &mut Context<Self>) {
         if profile_id == self.active_profile_id {
             return;
@@ -12446,6 +12492,7 @@ impl SenzoShell {
         self.profile_scope.set(profile_id.clone());
         self.active_profile_id = profile_id.clone();
         self.cloud_signed_in = self.cloud_service.stored_session(&profile_id).ok().flatten().is_some();
+        self.profile_locked = false;
         self.cloud_status = None;
         self.cloud_error = None;
         self.profile_switch_target = None;
@@ -13555,6 +13602,9 @@ impl Drop for SenzoShell {
 
 impl Render for SenzoShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.profile_locked {
+            return self.render_startup_profile_lock(cx);
+        }
         if !self.smoke_test && self.navigation.current() == AppPage::Home {
             self.load_home_progress_artwork(cx);
             self.load_home_up_next(cx);
