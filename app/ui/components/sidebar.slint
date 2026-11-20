@@ -16,9 +16,22 @@ export component NavTabButton inherits Rectangle {
     width: root.item-size;
     height: root.selected || button.has-hover ? root.item-size : 3.8 * root.unit;
     border-radius: Theme.border-radius;
-    background: button.has-hover ? Theme.overlay-color : transparent;
+    background: root.selected
+        ? Theme.primary-accent.with-alpha(0.13)
+        : (button.has-hover ? Theme.overlay-hover : transparent);
+    border-width: root.selected ? 1px : 0px;
+    border-color: Theme.primary-accent.with-alpha(0.30);
 
-    animate background, height { duration: Theme.motion-fast; }
+    animate background, height, border-width, border-color { duration: Theme.motion-control; easing: ease-out; }
+
+    if (root.selected) : Rectangle {
+        x: 0px;
+        y: (parent.height - 2.0 * root.unit) / 2;
+        width: 3px;
+        height: 2.0 * root.unit;
+        border-radius: 1.5px;
+        background: Theme.primary-accent;
+    }
 
     button := ButtonSurface {
         width: parent.width;
