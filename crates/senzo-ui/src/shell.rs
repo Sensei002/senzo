@@ -8783,9 +8783,9 @@ impl SenzoShell {
         cx.notify();
         cx.spawn(async move |this, cx| {
             let saved = runtime.spawn_blocking(move || {
-                settings_manager.load_scraper_settings("default", &settings_scraper_id)
+                settings_manager.load_scraper_settings(&settings_profile_id, &settings_scraper_id)
             }).await;
-            let layout = manager.scraper_settings_layout("default", &scraper_id).await;
+            let layout = manager.scraper_settings_layout(&profile_id, &scraper_id).await;
             let _ = this.update(cx, |this, cx| {
                 this.plugin_busy = false;
                 match saved {
