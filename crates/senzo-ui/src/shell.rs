@@ -15901,6 +15901,20 @@ mod tests {
                 .expect("Phase 12 test database should initialize"),
         );
         let phase12_profile_scope = ProfileScope::new("default");
+        let downloads_data_dir = std::env::temp_dir().join(format!(
+            "senzo-ui-downloads-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos(),
+        ));
+        let download_manager = DownloadManager::open(
+            downloads_data_dir,
+            runtime.handle().clone(),
+            Arc::new(TestCredentialStore),
+        )
+        .expect("test download queue should initialize");
 
         let (shell, window_cx) = cx.add_window_view(|window, cx| {
             let mut shell = SenzoShell::new(
@@ -15921,6 +15935,7 @@ mod tests {
                     debrid_manager: test_debrid_manager(),
                     media_server_manager: test_media_server_manager(),
                     source_aggregator: test_source_aggregator(),
+                    download_manager,
                     cloud_service: Arc::new(
                         senzo_sync::CloudService::new(
                             "https://senzo-api.vercel.app",
