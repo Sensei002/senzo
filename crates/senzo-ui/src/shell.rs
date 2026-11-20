@@ -904,7 +904,11 @@ fn merge_library_home_collections(
             .into_iter()
             .flatten()
             .map(|item| HomeCollectionFolder {
-                id: format!("{}-{}", item.media_kind as u8, item.media_id),
+                id: format!("{}-{}", match item.media_kind {
+                    MediaKind::Movie => "movie",
+                    MediaKind::Series => "series",
+                    MediaKind::Episode => "episode",
+                }, item.media_id),
                 title: item.title.clone(),
                 poster_shape: HomeCollectionPosterShape::Poster,
                 cover_emoji: None,
@@ -4562,6 +4566,19 @@ impl SenzoShell {
             );
         }
         page = page.child(hero.child(info));
+        let detail_kind = if d.media_type == MediaType::Movie { MediaKind::Movie } else { MediaKind::Series };
+        let is_saved = self.library_items.iter().any(|item| {
+            item.media_id == d.id.to_string() && item.media_kind == detail_kind
+        });
+        page = page.child(
+            div().w_full().flex().items_center().gap_2()
+                .child(div().id("detail-save-library").cursor_pointer().rounded_md()
+                    .bg(rgb(if is_saved { Theme::SURFACE_RAISED } else { Theme::ACCENT_DARK }))
+                    .px_3().py_2()
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_current_detail_library(cx)))
+                    .child(div().text_sm().text_color(rgb(if is_saved { Theme::TEXT_PRIMARY } else { Theme::ACCENT }))
+                        .child(if is_saved { "Remove from Library" } else { "Save to Library" })))
+        );
         page = page.child(
             div()
                 .w_full()
@@ -12310,7 +12327,7 @@ impl SenzoShell {
         cx.notify();
     }
 
-    fn request_profile_switch(&mut self, profile_id: String, cx: &mut Context<Self>) {
+    fn request_profile_switch(&mut self, profile_id: String, window: &mut Window, cx: &mut Context<Self>) {
         if profile_id == self.active_profile_id {
             return;
         }
@@ -12322,13 +12339,13 @@ impl SenzoShell {
                 });
                 self.profile_error = None;
             }
-            Ok(false) => self.switch_active_profile(profile_id, cx),
+            Ok(false) => self.switch_active_profile(profile_id, window, cx),
             Err(error) => self.profile_error = Some(format!("Could not check profile security: {error}")),
         }
         cx.notify();
     }
 
-    fn confirm_profile_switch(&mut self, cx: &mut Context<Self>) {
+    fn confirm_profile_switch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(profile_id) = self.profile_switch_target.clone() else { return };
         let pin = self.profile_pin_input.read(cx).value().to_string();
         match self.profile_security_repository.verify_profile_pin(
@@ -12336,14 +12353,14 @@ impl SenzoShell {
             &pin,
             current_epoch_millis(),
         ) {
-            Ok(true) => self.switch_active_profile(profile_id, cx),
+            Ok(true) => self.switch_active_profile(profile_id, window, cx),
             Ok(false) => self.profile_error = Some("That PIN was not accepted.".to_owned()),
             Err(error) => self.profile_error = Some(format!("Could not unlock profile: {error}")),
         }
         cx.notify();
     }
 
-    fn switch_active_profile(&mut self, profile_id: String, cx: &mut Context<Self>) {
+    fn switch_active_profile(&mut self, profile_id: String, window: &mut Window, cx: &mut Context<Self>) {
         if !self.profiles.iter().any(|profile| profile.id == profile_id) {
             self.profile_error = Some("That profile is no longer available.".to_owned());
             return;
@@ -12368,6 +12385,14 @@ impl SenzoShell {
         }
         self.profile_switch_target = None;
         self.profile_error = None;
+        if let Some(name) = self.profiles.iter().find(|profile| profile.id == profile_id).map(|profile| profile.name.clone()) {
+            self.profile_name_input.update(cx, |input, window, cx| {
+                input.set_value(name, window, cx);
+            });
+        }
+        self.profile_pin_input.update(cx, |input, window, cx| {
+            input.set_value(String::new(), window, cx);
+        });
         self.profile_notice = self.profiles.iter()
             .find(|profile| profile.id == profile_id)
             .map(|profile| format!("Switched to '{}'.", profile.name));
@@ -12408,6 +12433,20 @@ impl SenzoShell {
             self.refresh_home_catalogue(cx);
         }
         cx.notify();
+    }
+
+    fn toggle_current_detail_library(&mut self, cx: &mut Context<Self>) {
+        let Some(details) = self.details.as_ref() else { return };
+        let media_id = details.id.to_string();
+        let media_kind = if details.media_type == MediaType::Movie { MediaKind::Movie } else { MediaKind::Series };
+        let saved = self.library_repository.get_library_item(
+            &self.active_profile_id, &media_id, media_kind,
+        ).ok().flatten().is_some();
+        if saved {
+            self.remove_library_item(media_id, media_kind, cx);
+        } else {
+            self.save_current_details_to_library(cx);
+        }
     }
 
     fn save_current_details_to_library(&mut self, cx: &mut Context<Self>) {
@@ -12589,7 +12628,7 @@ impl SenzoShell {
                 .child(Input::new(&self.profile_pin_input))
                 .child(div().id("profile-unlock").cursor_pointer().rounded_md()
                     .bg(rgb(Theme::ACCENT_DARK)).px_3().py_2()
-                    .on_click(cx.listener(|this, _, _, cx| this.confirm_profile_switch(cx)))
+                    .on_click(cx.listener(|this, _, _, cx| this.confirm_profile_switch(window, cx)))
                     .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child("Unlock and switch")))
         });
         let mut profile_rows = div().w_full().flex().flex_col().gap_2();
@@ -12605,7 +12644,7 @@ impl SenzoShell {
                     .when(!active, |element| element.child(
                         div().id(format!("profile-use-{}", id)).cursor_pointer().rounded_md()
                             .bg(rgb(Theme::ACCENT_DARK)).px_3().py_2()
-                            .on_click(cx.listener(move |this, _, _, cx| this.request_profile_switch(id.clone(), cx)))
+                            .on_click(cx.listener(move |this, _, _, cx| this.request_profile_switch(id.clone(), window, cx)))
                             .child(div().text_xs().text_color(rgb(Theme::ACCENT)).child("Use profile"))
                     ))
                     .when(!active, |element| {
@@ -14338,6 +14377,10 @@ mod tests {
             Default::default(),
         )
         .expect("test artwork cache should initialize");
+        let phase12_database = Arc::new(
+            senzo_storage::SqliteDatabase::in_memory().expect("Phase 12 test database should initialize")
+        );
+        let phase12_profile_scope = ProfileScope::new("default");
 
         let (shell, window_cx) = cx.add_window_view(|window, cx| {
             let mut shell = SenzoShell::new(
@@ -14346,6 +14389,12 @@ mod tests {
                     metadata,
                     artwork,
                     settings: Arc::new(TestSettingsRepository),
+                    profiles: phase12_database.clone(),
+                    library: phase12_database.clone(),
+                    profile_security: phase12_database.clone(),
+                    profile_settings: phase12_database.clone(),
+                    sync_outbox: phase12_database.clone(),
+                    profile_scope: phase12_profile_scope.clone(),
                     playback_progress: Arc::new(TestPlaybackProgressRepository),
                     addon_manager: test_addon_manager(),
                     plugin_manager: test_plugin_manager(),
