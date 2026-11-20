@@ -534,8 +534,10 @@ mod tests {
 
     #[test]
     fn primary_pages_have_stable_titles_and_keys() {
-        assert_eq!(AppPage::ALL.len(), 7);
+        assert_eq!(AppPage::ALL.len(), 8);
         assert_eq!(AppPage::TvShows.title(), "TV Shows");
+        assert_eq!(AppPage::Downloads.title(), "Downloads");
+        assert_eq!(AppPage::Downloads.key(), "downloads");
         assert_eq!(AppPage::Addons.key(), "addons");
         assert_eq!(AppPage::Settings.short_label(), "ST");
     }
