@@ -104,6 +104,9 @@ pub struct Source {
     pub description: Option<String>,
     #[serde(default)]
     pub filename_hint: Option<String>,
+    /// Stremio behaviorHints.bingeGroup, used to prefer the same release group across episodes.
+    #[serde(default)]
+    pub binge_group: Option<String>,
     pub target: SourceTarget,
     pub quality: Option<String>,
     pub size_bytes: Option<u64>,
@@ -513,6 +516,7 @@ impl SourceAdapter for MediaServerSourceAdapter {
                 title: resolved.title,
                 description: Some("Resolved from your connected media server".into()),
                 filename_hint: None,
+                binge_group: None,
                 target: SourceTarget::Http(resolved.url),
                 quality: resolved.quality,
                 size_bytes: resolved.size_bytes,
@@ -1001,6 +1005,12 @@ fn addon_stream_to_source(
             .and_then(|value| value.get("filename"))
             .and_then(Value::as_str)
             .map(str::to_owned),
+        binge_group: behavior
+            .and_then(|value| value.get("bingeGroup"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned),
         target,
         quality,
         size_bytes: size,
@@ -1066,6 +1076,7 @@ fn plugin_stream_to_source(
         title: stream.title,
         description: stream.name,
         filename_hint: None,
+        binge_group: None,
         target,
         quality,
         size_bytes: parse_size_text(stream.size.as_deref()),
@@ -1236,6 +1247,7 @@ mod tests {
             title: "Title".into(),
             description: None,
             filename_hint: None,
+            binge_group: None,
             target,
             quality: quality.map(str::to_owned),
             size_bytes: None,
@@ -1290,6 +1302,7 @@ mod tests {
             yt_id: None,
             behavior_hints: Some(serde_json::json!({
                 "filename": "Show.S02E03.1080p.mkv",
+                "bingeGroup": "season-pack",
                 "proxyHeaders": { "request": { "Referer": "https://provider.example/" } }
             })),
             extra: BTreeMap::new(),
@@ -1303,6 +1316,7 @@ mod tests {
             source.headers.get("Referer").map(String::as_str),
             Some("https://provider.example/")
         );
+        assert_eq!(source.binge_group.as_deref(), Some("season-pack"));
         assert!(matches!(
             source.target,
             SourceTarget::Torrent {
