@@ -779,7 +779,7 @@ mod tests {
                 let mut response = Response::builder()
                     .status(status)
                     .header(header::ACCEPT_RANGES, "bytes")
-                    .header(header::CONTENT_LENGTH, body.len());
+                    .header(header::CONTENT_LENGTH, body.len().to_string());
                 if start > 0 && start < payload.len() {
                     response = response.header(
                         header::CONTENT_RANGE,

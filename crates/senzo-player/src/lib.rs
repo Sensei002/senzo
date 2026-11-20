@@ -1280,9 +1280,20 @@ mod tests {
         assert!(validate_url("http://127.0.0.1/video").is_ok());
     }
     #[test]
+    fn local_files_must_exist_before_they_can_be_played() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("offline.mp4");
+        std::fs::write(&path, b"test media").unwrap();
+        let url = Url::from_file_path(&path).unwrap();
+        assert!(validate_url(url.as_str()).is_ok());
+        let missing = Url::from_file_path(directory.path().join("missing.mp4")).unwrap();
+        assert!(validate_url(missing.as_str()).is_err());
+        assert!(validate_url("file://remote-host/share/video.mp4").is_err());
+    }
+
+    #[test]
     fn rejects_unsafe_source_targets() {
         for v in [
-            "file:///etc/passwd",
             "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
             "https://user:pass@host/video",
             "https://host/video#frag",

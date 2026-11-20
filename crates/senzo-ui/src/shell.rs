@@ -14170,12 +14170,20 @@ impl SenzoShell {
                 .map_err(|error| format!("Could not inspect torrent metadata: {error:#}"))?;
             let selected = file_index
                 .and_then(|index| files.iter().find(|file| file.index == index as usize))
-                .or_else(|| files.first())
-                .ok_or_else(|| "This torrent does not contain a supported video file.".to_owned())?;
+                .or_else(|| files.first());
+            let Some(selected) = selected else {
+                let _ = session.shutdown().await;
+                return Err("This torrent does not contain a supported video file.".to_owned());
+            };
             let selected_index = selected.index;
             let selected_name = selected.name.clone();
-            let stream_url = session.start_file(selected_index).await
-                .map_err(|error| format!("Could not start the selected torrent file: {error:#}"))?;
+            let stream_url = match session.start_file(selected_index).await {
+                Ok(url) => url,
+                Err(error) => {
+                    let _ = session.shutdown().await;
+                    return Err(format!("Could not start the selected torrent file: {error:#}"));
+                }
+            };
             Ok::<_, String>((session, stream_url, selected_name))
         });
         cx.spawn(async move |this, cx| {
@@ -14713,7 +14721,10 @@ impl Drop for SenzoShell {
         self.search_cancellation.cancel();
         self.details_cancellation.cancel();
         self.person_details_cancellation.cancel();
+        self.downloads_refresh_cancel.cancel();
         self.playback_controls_timer.cancel();
+        self.download_manager.pause_all();
+        self.stop_playback();
     }
 }
 
