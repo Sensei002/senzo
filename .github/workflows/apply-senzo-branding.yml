@@ -1,0 +1,81 @@
+name: Apply SENZO branding assets
+
+on:
+  push:
+    branches: [migration/stremio-native]
+    paths:
+      - .github/workflows/apply-senzo-branding.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: senzo-branding-assets
+  cancel-in-progress: false
+
+jobs:
+  brand:
+    name: Apply canonical SENZO logo
+    runs-on: windows-2022
+    steps:
+      - name: Checkout migration branch
+        uses: actions/checkout@v4
+        with:
+          ref: migration/stremio-native
+          fetch-depth: 0
+
+      - name: Prepare Python image tooling
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate SENZO application icon assets
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pillow
+          @'
+          from pathlib import Path
+          from PIL import Image
+
+          source = Path("assets/branding/senzo-logo.png")
+          if not source.is_file():
+              raise SystemExit("Canonical SENZO logo is missing.")
+
+          logo = Image.open(source).convert("RGBA")
+          if logo.width < 1 or logo.height < 1:
+              raise SystemExit("Canonical SENZO logo is empty.")
+
+          # Preserve the uploaded artwork exactly for all full-logo placements.
+          logo.save("app/ui/assets/images/logo.png")
+          logo.save("app/ui/assets/images/senzo-logo.png")
+
+          # Derive square application icons by containing (never cropping or
+          # redrawing) the canonical artwork on SENZO's solid black background.
+          canvas_size = 512
+          canvas = Image.new("RGBA", (canvas_size, canvas_size), (10, 10, 10, 255))
+          contained = logo.copy()
+          contained.thumbnail((440, 440), Image.Resampling.LANCZOS)
+          x = (canvas_size - contained.width) // 2
+          y = (canvas_size - contained.height) // 2
+          canvas.alpha_composite(contained, (x, y))
+
+          canvas.save("app/ui/assets/images/app_icon.png", optimize=True)
+          canvas.save(
+              "app/assets/app.ico",
+              format="ICO",
+              sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
+          )
+          '@ | Set-Content -Path "$env:RUNNER_TEMP\make_senzo_icons.py" -Encoding utf8
+          python "$env:RUNNER_TEMP\make_senzo_icons.py"
+
+      - name: Commit SENZO branding assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/ui/assets/images/logo.png app/ui/assets/images/senzo-logo.png app/ui/assets/images/app_icon.png app/assets/app.ico
+          git diff --cached --quiet && { echo "No branding changes to commit."; exit 0; }
+          git commit -m "branding: apply canonical SENZO logo and app icons"
+          git push origin HEAD:migration/stremio-native
