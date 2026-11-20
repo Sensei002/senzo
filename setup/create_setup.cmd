@@ -20,9 +20,9 @@ if not exist "%ISCC_EXE%" (
   exit /b 1
 )
 
-echo Building Stremio %APP_VERSION%...
+echo Building SENZO %APP_VERSION%...
 if not defined SKIP_BUILD (
-  cargo build --release --package stremio-native
+  cargo build --release --package senzo
   if errorlevel 1 exit /b %errorlevel%
 ) else (
   echo Reusing the completed Cargo release build.
@@ -36,9 +36,9 @@ echo Creating the installer...
 "%ISCC_EXE%" "/DAppVersion=%APP_VERSION%" "/DBuildRoot=%CD%\target\release" "/DArtifactsDir=%CD%\artifacts" setup\StremioNative.iss
 if errorlevel 1 exit /b %errorlevel%
 
-set "INSTALLER=%CD%\artifacts\StremioSetup-v%APP_VERSION%-x64.exe"
+set "INSTALLER=%CD%\artifacts\SENZO-Setup-v%APP_VERSION%-x64.exe"
 set "UPDATER_PACKAGE_DIR=%CD%\artifacts\updater-package"
-set "UPDATER_ARCHIVE=%CD%\artifacts\stremio-native-v%APP_VERSION%-x86_64-pc-windows-msvc.zip"
+set "UPDATER_ARCHIVE=%CD%\artifacts\senzo-v%APP_VERSION%-x86_64-pc-windows-msvc.zip"
 
 if not exist "%INSTALLER%" (
   echo Expected installer was not created: %INSTALLER%
@@ -46,7 +46,7 @@ if not exist "%INSTALLER%" (
 )
 
 if not exist "%UPDATER_PACKAGE_DIR%" mkdir "%UPDATER_PACKAGE_DIR%"
-if exist "%UPDATER_PACKAGE_DIR%\stremio-installer.exe" del /q "%UPDATER_PACKAGE_DIR%\stremio-installer.exe"
+if exist "%UPDATER_PACKAGE_DIR%\senzo-installer.exe" del /q "%UPDATER_PACKAGE_DIR%\stremio-installer.exe"
 copy /y "%INSTALLER%" "%UPDATER_PACKAGE_DIR%\stremio-installer.exe" >nul
 if errorlevel 1 exit /b %errorlevel%
 
