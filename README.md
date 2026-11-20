@@ -85,7 +85,7 @@ The installer script also stages the app-local MSVC runtime and the MPV license 
 The release workflow is designed to publish one GitHub Release for a version tag such as `v1.0.7`, after all platform jobs succeed:
 
 - **Windows x64:** SENZO installer (`.exe`) and automatic-updater archive (`.zip`), including the native MPV runtime and app-local MSVC runtime.
-- **Linux x64:** portable executable and Debian/Ubuntu package (`.deb`).
+- **Linux x64:** standalone executable and Debian/Ubuntu package (`.deb`).
 - **Arch Linux x64:** Pacman package (`.pkg.tar.zst`).
 - **Fedora x64:** RPM package (`.rpm`).
 - **Release assets:** SHA-256 checksum manifest and generated release notes.
