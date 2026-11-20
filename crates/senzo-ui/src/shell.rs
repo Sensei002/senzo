@@ -39,9 +39,7 @@ use senzo_metadata::{
     DiscoverRequest, DiscoverSort, EpisodeDetails, Genre, MediaItem, MediaType, MetadataClient,
     MetadataError, Person, SearchType, SeasonDetails, SeasonSummary, VideoItem,
 };
-use senzo_player::{
-    MpvConfig, MpvPlayer, PlaybackSnapshot, PlaybackStatus, ResizeMode, TrackKind,
-};
+use senzo_player::{MpvConfig, MpvPlayer, PlaybackSnapshot, PlaybackStatus, ResizeMode, TrackKind};
 use senzo_plugins::{PluginManager, PluginState, PluginStream, ScraperInput};
 use senzo_sources::{
     Source, SourceAggregator, SourceDiscoveryResult, SourceRequest, SourceSort, SourceTarget,
@@ -139,11 +137,16 @@ struct HomeUpNextCard {
 }
 
 fn current_utc_date() -> String {
-    let days = (SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() / 86_400) as i64;
+    let days = (SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        / 86_400) as i64;
     let z = days + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
     let day_of_era = z - era * 146_097;
-    let year_of_era = (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
     let mut year = year_of_era + era * 400;
     let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
     let month_prime = (5 * day_of_year + 2) / 153;
@@ -983,21 +986,29 @@ fn chapter_skip_target(snapshot: &PlaybackSnapshot) -> Option<(String, f64)> {
     if !position.is_finite() || position < 0.0 || snapshot.chapters.len() < 2 {
         return None;
     }
-    let current_index = snapshot.chapters.iter().enumerate()
+    let current_index = snapshot
+        .chapters
+        .iter()
+        .enumerate()
         .rfind(|(_, chapter)| chapter.start_seconds <= position)
         .map(|(index, _)| index)?;
     let chapter = snapshot.chapters.get(current_index)?;
     let title = chapter.title.as_deref()?.trim().to_ascii_lowercase();
     let label = if title.contains("recap") {
         "SKIP RECAP"
-    } else if title.contains("intro") || title.contains("opening credits") || title.contains("opening") {
+    } else if title.contains("intro")
+        || title.contains("opening credits")
+        || title.contains("opening")
+    {
         "SKIP INTRO"
     } else if title.contains("credits") || title.contains("outro") || title.contains("ending") {
         "SKIP CREDITS"
     } else {
         return None;
     };
-    let target = snapshot.chapters.get(current_index + 1)
+    let target = snapshot
+        .chapters
+        .get(current_index + 1)
         .map(|next| next.start_seconds)
         .or(snapshot.duration_seconds)?;
     (target > position).then_some((label.to_owned(), target))
@@ -2920,7 +2931,10 @@ impl SenzoShell {
             .as_ref()
             .and_then(|details| details.source_result.as_ref())
             .map(|result| {
-                result.groups.iter().flat_map(|group| group.sources.iter())
+                result
+                    .groups
+                    .iter()
+                    .flat_map(|group| group.sources.iter())
                     .filter_map(|source| match &source.target {
                         SourceTarget::Http(source_url) => Some(PlaybackSourceCandidate {
                             url: source_url.clone(),
@@ -2929,18 +2943,27 @@ impl SenzoShell {
                             provider_id: source.provider_id.clone(),
                         }),
                         _ => None,
-                    }).collect::<Vec<_>>()
-            }).unwrap_or_default();
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         if !sources.iter().any(|source| source.url == url) {
-            sources.insert(0, PlaybackSourceCandidate {
-                url: url.clone(),
-                headers: headers.clone(),
-                title: "Resolved source".to_owned(),
-                provider_id: "resolved".to_owned(),
-            });
+            sources.insert(
+                0,
+                PlaybackSourceCandidate {
+                    url: url.clone(),
+                    headers: headers.clone(),
+                    title: "Resolved source".to_owned(),
+                    provider_id: "resolved".to_owned(),
+                },
+            );
         }
-        self.playback_source_index = sources.iter().position(|source| source.url == url).unwrap_or(0);
-        self.playback_preferred_provider_id = sources.get(self.playback_source_index)
+        self.playback_source_index = sources
+            .iter()
+            .position(|source| source.url == url)
+            .unwrap_or(0);
+        self.playback_preferred_provider_id = sources
+            .get(self.playback_source_index)
             .map(|source| source.provider_id.clone());
         self.playback_sources = sources;
         self.playback_open = true;
@@ -2948,42 +2971,59 @@ impl SenzoShell {
         self.playback_error = None;
         self.playback_end_handled = false;
         self.playback_resume_position_seconds = None;
-        self.playback_context = self.details.as_ref().and_then(|details| match details.media_type {
-            MediaType::Movie => Some(PlaybackContext {
-                media_id: details.id.to_string(),
-                media_kind: MediaKind::Movie,
-                title: details.title.clone(),
-                season_number: None,
-                episode_number: None,
-                episode_title: None,
-                poster_path: details.poster_path.clone(),
-                backdrop_path: details.backdrop_path.clone(),
-                still_path: None,
-                last_persisted_position_ms: 0,
-            }),
-            MediaType::Tv => details.selected_episode.as_ref().map(|episode| PlaybackContext {
-                media_id: details.id.to_string(),
-                media_kind: MediaKind::Series,
-                title: details.title.clone(),
-                season_number: Some(episode.season_number),
-                episode_number: Some(episode.episode_number),
-                episode_title: Some(episode.name.clone()),
-                poster_path: details.poster_path.clone(),
-                backdrop_path: details.backdrop_path.clone(),
-                still_path: episode.still_path.clone(),
-                last_persisted_position_ms: 0,
-            }),
-            MediaType::Person | MediaType::Other => None,
-        });
+        self.playback_context =
+            self.details
+                .as_ref()
+                .and_then(|details| match details.media_type {
+                    MediaType::Movie => Some(PlaybackContext {
+                        media_id: details.id.to_string(),
+                        media_kind: MediaKind::Movie,
+                        title: details.title.clone(),
+                        season_number: None,
+                        episode_number: None,
+                        episode_title: None,
+                        poster_path: details.poster_path.clone(),
+                        backdrop_path: details.backdrop_path.clone(),
+                        still_path: None,
+                        last_persisted_position_ms: 0,
+                    }),
+                    MediaType::Tv => {
+                        details
+                            .selected_episode
+                            .as_ref()
+                            .map(|episode| PlaybackContext {
+                                media_id: details.id.to_string(),
+                                media_kind: MediaKind::Series,
+                                title: details.title.clone(),
+                                season_number: Some(episode.season_number),
+                                episode_number: Some(episode.episode_number),
+                                episode_title: Some(episode.name.clone()),
+                                poster_path: details.poster_path.clone(),
+                                backdrop_path: details.backdrop_path.clone(),
+                                still_path: episode.still_path.clone(),
+                                last_persisted_position_ms: 0,
+                            })
+                    }
+                    MediaType::Person | MediaType::Other => None,
+                });
         self.playback_resume_prompt = None;
         self.playback_resume_source = None;
         let selected_source = self.playback_sources[self.playback_source_index].clone();
         if let Some(context) = self.playback_context.as_ref() {
-            let saved = self.playback_progress_repository.get_playback_progress(
-                "default", &context.media_id, context.media_kind,
-                context.season_number, context.episode_number,
-            ).ok().flatten();
-            if let Some(progress) = saved.filter(|progress| !progress.is_completed && progress.position_ms >= 30_000) {
+            let saved = self
+                .playback_progress_repository
+                .get_playback_progress(
+                    "default",
+                    &context.media_id,
+                    context.media_kind,
+                    context.season_number,
+                    context.episode_number,
+                )
+                .ok()
+                .flatten();
+            if let Some(progress) =
+                saved.filter(|progress| !progress.is_completed && progress.position_ms >= 30_000)
+            {
                 self.playback_resume_prompt = Some(progress);
                 self.playback_resume_source = Some(selected_source);
                 self.playback_loading = false;
@@ -3002,23 +3042,41 @@ impl SenzoShell {
             return;
         };
         self.playback_resume_position_seconds = if resume {
-            self.playback_resume_prompt.as_ref()
+            self.playback_resume_prompt
+                .as_ref()
                 .map(|progress| progress.position_ms as f64 / 1000.0)
-        } else { None };
+        } else {
+            None
+        };
         self.playback_resume_prompt = None;
         self.start_playback_url(source.url, source.headers, cx);
     }
 
     fn persist_playback_snapshot(&mut self, force: bool, cx: &mut Context<Self>) {
-        let Some(context) = self.playback_context.as_mut() else { return };
-        let Some(snapshot) = self.mpv_player.as_ref().map(MpvPlayer::snapshot) else { return };
+        let Some(context) = self.playback_context.as_mut() else {
+            return;
+        };
+        let Some(snapshot) = self.mpv_player.as_ref().map(MpvPlayer::snapshot) else {
+            return;
+        };
         let position_ms = (snapshot.position_seconds.unwrap_or_default().max(0.0) * 1000.0)
             .min(u64::MAX as f64) as u64;
         let duration_ms = (snapshot.duration_seconds.unwrap_or_default().max(0.0) * 1000.0)
             .min(u64::MAX as f64) as u64;
-        let completed = playback_is_complete(position_ms, duration_ms, snapshot.status == PlaybackStatus::Ended);
-        if !should_store_playback_progress(position_ms, duration_ms) && !completed { return; }
-        if !force && !completed && position_ms.saturating_sub(context.last_persisted_position_ms) < 5_000 { return; }
+        let completed = playback_is_complete(
+            position_ms,
+            duration_ms,
+            snapshot.status == PlaybackStatus::Ended,
+        );
+        if !should_store_playback_progress(position_ms, duration_ms) && !completed {
+            return;
+        }
+        if !force
+            && !completed
+            && position_ms.saturating_sub(context.last_persisted_position_ms) < 5_000
+        {
+            return;
+        }
         context.last_persisted_position_ms = position_ms;
         let progress = PlaybackProgress {
             profile_id: "default".to_owned(),
@@ -3043,35 +3101,43 @@ impl SenzoShell {
             repository.save_playback_progress(&progress)?;
             repository.list_continue_watching("default", 20)
         });
-        cx.spawn(async move |this, cx| {
-            match task.await {
-                Ok(Ok(entries)) => {
-                    let _ = this.update(cx, |this, cx| {
-                        this.home_continue_watching = entries;
-                        this.home_progress_artwork_requested = false;
-                        this.load_home_progress_artwork(cx);
-                        if refresh_up_next {
-                            this.home_up_next_requested = false;
-                            this.load_home_up_next(cx);
-                        }
-                        cx.notify();
-                    });
-                }
-                Ok(Err(error)) => tracing::warn!(error = %error, "could not persist playback progress"),
-                Err(error) => tracing::warn!(error = %error, "playback progress task failed"),
+        cx.spawn(async move |this, cx| match task.await {
+            Ok(Ok(entries)) => {
+                let _ = this.update(cx, |this, cx| {
+                    this.home_continue_watching = entries;
+                    this.home_progress_artwork_requested = false;
+                    this.load_home_progress_artwork(cx);
+                    if refresh_up_next {
+                        this.home_up_next_requested = false;
+                        this.load_home_up_next(cx);
+                    }
+                    cx.notify();
+                });
             }
-        }).detach();
+            Ok(Err(error)) => tracing::warn!(error = %error, "could not persist playback progress"),
+            Err(error) => tracing::warn!(error = %error, "playback progress task failed"),
+        })
+        .detach();
     }
 
     fn toggle_autoplay_next(&mut self, cx: &mut Context<Self>) {
         self.playback_autoplay_next = !self.playback_autoplay_next;
         let key = SettingKey::new("playback.autoplay_next").expect("valid autoplay setting key");
-        if let Err(error) = self.settings.set(&key, if self.playback_autoplay_next { "true" } else { "false" }) {
+        if let Err(error) = self.settings.set(
+            &key,
+            if self.playback_autoplay_next {
+                "true"
+            } else {
+                "false"
+            },
+        ) {
             tracing::warn!(error = %error, "could not save autoplay-next preference");
         }
         self.notification = Some(if self.playback_autoplay_next {
             "Autoplay next episode enabled.".to_owned()
-        } else { "Autoplay next episode disabled.".to_owned() });
+        } else {
+            "Autoplay next episode disabled.".to_owned()
+        });
         cx.notify();
     }
 
@@ -3082,7 +3148,8 @@ impl SenzoShell {
             return;
         };
         if progress.media_kind == MediaKind::Series {
-            if let (Some(season), Some(episode)) = (progress.season_number, progress.episode_number) {
+            if let (Some(season), Some(episode)) = (progress.season_number, progress.episode_number)
+            {
                 self.pending_continue_watching_episode = Some((id, season, episode));
             }
             self.load_details(id, MediaType::Tv, progress.title, cx);
@@ -3093,8 +3160,12 @@ impl SenzoShell {
     }
 
     fn toggle_selected_episode_watched(&mut self, cx: &mut Context<Self>) {
-        let Some(details) = self.details.as_ref() else { return };
-        let Some(episode) = details.selected_episode.as_ref() else { return };
+        let Some(details) = self.details.as_ref() else {
+            return;
+        };
+        let Some(episode) = details.selected_episode.as_ref() else {
+            return;
+        };
         let item = WatchedItem {
             profile_id: "default".to_owned(),
             media_id: details.id.to_string(),
@@ -3103,49 +3174,87 @@ impl SenzoShell {
             episode_number: Some(episode.episode_number),
             marked_at_ms: current_epoch_millis(),
         };
-        let watched = self.playback_progress_repository.is_watched(&item).unwrap_or(false);
-        match self.playback_progress_repository.set_watched(&item, !watched) {
+        let watched = self
+            .playback_progress_repository
+            .is_watched(&item)
+            .unwrap_or(false);
+        match self
+            .playback_progress_repository
+            .set_watched(&item, !watched)
+        {
             Ok(()) => {
                 self.notification = Some(if watched {
                     "Episode removed from watched history.".to_owned()
-                } else { "Episode marked as watched.".to_owned() });
-                self.home_continue_watching = self.playback_progress_repository
-                    .list_continue_watching("default", 20).unwrap_or_default();
+                } else {
+                    "Episode marked as watched.".to_owned()
+                });
+                self.home_continue_watching = self
+                    .playback_progress_repository
+                    .list_continue_watching("default", 20)
+                    .unwrap_or_default();
                 self.home_progress_artwork_requested = false;
                 self.load_home_progress_artwork(cx);
                 self.home_up_next_requested = false;
                 self.load_home_up_next(cx);
             }
-            Err(error) => self.notification = Some(format!("Could not update watched state: {error}")),
+            Err(error) => {
+                self.notification = Some(format!("Could not update watched state: {error}"))
+            }
         }
         cx.notify();
     }
 
-    fn navigate_selected_episode(&mut self, direction: isize, autoplay: bool, cx: &mut Context<Self>) {
+    fn navigate_selected_episode(
+        &mut self,
+        direction: isize,
+        autoplay: bool,
+        cx: &mut Context<Self>,
+    ) {
         self.persist_playback_snapshot(true, cx);
         self.autoplay_next_pending = false;
         self.autoplay_next_target = None;
-        let Some(details) = self.details.as_ref() else { return };
-        if details.media_type != MediaType::Tv { return; }
-        let Some(current_episode) = details.selected_episode.as_ref() else { return };
+        let Some(details) = self.details.as_ref() else {
+            return;
+        };
+        if details.media_type != MediaType::Tv {
+            return;
+        }
+        let Some(current_episode) = details.selected_episode.as_ref() else {
+            return;
+        };
         let current_season = current_episode.season_number;
         let current_number = current_episode.episode_number;
         let show_id = details.id;
         let season_summaries = details.seasons.clone();
         let same_season_target = details.selected_season.as_ref().and_then(|season| {
-            let mut numbers = season.episodes.iter().map(|episode| episode.episode_number).collect::<Vec<_>>();
+            let mut numbers = season
+                .episodes
+                .iter()
+                .map(|episode| episode.episode_number)
+                .collect::<Vec<_>>();
             numbers.sort_unstable();
-            let position = numbers.iter().position(|number| *number == current_number)?;
-            if direction > 0 { numbers.get(position + 1).copied() }
-            else { position.checked_sub(1).and_then(|index| numbers.get(index).copied()) }
+            let position = numbers
+                .iter()
+                .position(|number| *number == current_number)?;
+            if direction > 0 {
+                numbers.get(position + 1).copied()
+            } else {
+                position
+                    .checked_sub(1)
+                    .and_then(|index| numbers.get(index).copied())
+            }
         });
         if let Some(target_episode) = same_season_target {
             let target_release_date = details.selected_season.as_ref().and_then(|season| {
-                season.episodes.iter()
+                season
+                    .episodes
+                    .iter()
                     .find(|episode| episode.episode_number == target_episode)
                     .and_then(|episode| episode.air_date.clone())
             });
-            if let Some(date) = target_release_date.as_deref().filter(|date| date.len() >= 10)
+            if let Some(date) = target_release_date
+                .as_deref()
+                .filter(|date| date.len() >= 10)
                 && date > current_utc_date().as_str()
             {
                 self.notification = Some(format!("The next episode releases on {date}."));
@@ -3153,12 +3262,16 @@ impl SenzoShell {
                 return;
             }
             self.autoplay_next_pending = autoplay;
-            self.autoplay_next_target = autoplay.then_some((show_id, current_season, target_episode));
+            self.autoplay_next_target =
+                autoplay.then_some((show_id, current_season, target_episode));
             self.load_detail_episode(current_season, target_episode, cx);
             return;
         }
-        let mut seasons = season_summaries.iter().map(|season| season.season_number)
-            .filter(|number| *number > 0).collect::<Vec<_>>();
+        let mut seasons = season_summaries
+            .iter()
+            .map(|season| season.season_number)
+            .filter(|number| *number > 0)
+            .collect::<Vec<_>>();
         seasons.sort_unstable();
         seasons.dedup();
         let target_season = if direction > 0 {
@@ -3177,52 +3290,63 @@ impl SenzoShell {
         let metadata = self.metadata.clone();
         let task_token = cancellation.clone();
         let task = self.tokio.spawn(async move {
-            let season = metadata.season(show_id, target_season, &task_token).await
+            let season = metadata
+                .season(show_id, target_season, &task_token)
+                .await
                 .map_err(|error| metadata_error_message(&error))?;
             let poster = match season.poster_path.as_deref() {
-                Some(path) => load_gpui_artwork(artwork, path.to_owned(), ArtworkSize::W500, task_token.child_token()).await,
+                Some(path) => {
+                    load_gpui_artwork(
+                        artwork,
+                        path.to_owned(),
+                        ArtworkSize::W500,
+                        task_token.child_token(),
+                    )
+                    .await
+                }
                 None => None,
             };
             Ok::<_, String>((season, poster))
         });
-        cx.spawn(async move |this, cx| {
-            match task.await {
-                Ok(Ok((season, poster))) => {
-                    let _ = this.update(cx, |this, cx| {
-                        if cancellation.is_cancelled() { return; }
-                        let target_episode = if direction > 0 {
-                            season.episodes.iter().map(|episode| episode.episode_number).min()
-                        } else {
-                            season.episodes.iter().map(|episode| episode.episode_number).max()
-                        };
-                        let Some(target_episode) = target_episode else {
-                            this.autoplay_next_pending = false;
-                            this.notification = Some("The adjacent season has no episode entries.".to_owned());
-                            cx.notify();
-                            return;
-                        };
-                        let release_date = season.episodes.iter()
-                            .find(|episode| episode.episode_number == target_episode)
-                            .and_then(|episode| episode.air_date.clone());
-                        if let Some(date) = release_date.as_deref().filter(|date| date.len() >= 10)
-                            && date > current_utc_date().as_str()
+        cx.spawn(async move |this, cx| match task.await {
+            Ok(Ok((season, poster))) => {
+                let _ = this.update(cx, |this, cx| {
+                    if cancellation.is_cancelled() {
+                        return;
+                    }
+                    let target_episode = if direction > 0 {
+                        season
+                            .episodes
+                            .iter()
+                            .map(|episode| episode.episode_number)
+                            .min()
+                    } else {
+                        season
+                            .episodes
+                            .iter()
+                            .map(|episode| episode.episode_number)
+                            .max()
+                    };
+                    let Some(target_episode) = target_episode else {
+                        this.autoplay_next_pending = false;
+                        this.notification =
+                            Some("The adjacent season has no episode entries.".to_owned());
+                        cx.notify();
+                        return;
+                    };
+                    let release_date = season
+                        .episodes
+                        .iter()
+                        .find(|episode| episode.episode_number == target_episode)
+                        .and_then(|episode| episode.air_date.clone());
+                    if let Some(date) = release_date.as_deref().filter(|date| date.len() >= 10)
+                        && date > current_utc_date().as_str()
+                    {
+                        if let Some(details) = this
+                            .details
+                            .as_mut()
+                            .filter(|details| details.id == show_id)
                         {
-                            if let Some(details) = this.details.as_mut().filter(|details| details.id == show_id) {
-                                details.selected_season_number = Some(target_season);
-                                details.selected_season = Some(season);
-                                details.selected_season_poster = poster;
-                                details.selected_episode = None;
-                                details.selected_episode_identity = None;
-                                details.selected_episode_artwork = None;
-                                details.season_loading = false;
-                                details.season_error = None;
-                            }
-                            this.autoplay_next_pending = false;
-                            this.notification = Some(format!("The next episode releases on {date}."));
-                            cx.notify();
-                            return;
-                        }
-                        if let Some(details) = this.details.as_mut().filter(|details| details.id == show_id) {
                             details.selected_season_number = Some(target_season);
                             details.selected_season = Some(season);
                             details.selected_season_poster = poster;
@@ -3232,26 +3356,46 @@ impl SenzoShell {
                             details.season_loading = false;
                             details.season_error = None;
                         }
-                        this.autoplay_next_target = Some((show_id, target_season, target_episode));
-                        this.load_detail_episode(target_season, target_episode, cx);
-                    });
-                }
-                Ok(Err(error)) => {
-                    let _ = this.update(cx, |this, cx| {
                         this.autoplay_next_pending = false;
-                        this.notification = Some(format!("Could not load the adjacent season: {error}"));
+                        this.notification = Some(format!("The next episode releases on {date}."));
                         cx.notify();
-                    });
-                }
-                Err(error) => {
-                    let _ = this.update(cx, |this, cx| {
-                        this.autoplay_next_pending = false;
-                        this.notification = Some(format!("Episode navigation failed: {error}"));
-                        cx.notify();
-                    });
-                }
+                        return;
+                    }
+                    if let Some(details) = this
+                        .details
+                        .as_mut()
+                        .filter(|details| details.id == show_id)
+                    {
+                        details.selected_season_number = Some(target_season);
+                        details.selected_season = Some(season);
+                        details.selected_season_poster = poster;
+                        details.selected_episode = None;
+                        details.selected_episode_identity = None;
+                        details.selected_episode_artwork = None;
+                        details.season_loading = false;
+                        details.season_error = None;
+                    }
+                    this.autoplay_next_target = Some((show_id, target_season, target_episode));
+                    this.load_detail_episode(target_season, target_episode, cx);
+                });
             }
-        }).detach();
+            Ok(Err(error)) => {
+                let _ = this.update(cx, |this, cx| {
+                    this.autoplay_next_pending = false;
+                    this.notification =
+                        Some(format!("Could not load the adjacent season: {error}"));
+                    cx.notify();
+                });
+            }
+            Err(error) => {
+                let _ = this.update(cx, |this, cx| {
+                    this.autoplay_next_pending = false;
+                    this.notification = Some(format!("Episode navigation failed: {error}"));
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
         cx.notify();
     }
 
@@ -3284,13 +3428,19 @@ impl SenzoShell {
             };
             let loaded = player.load(&url, &headers);
             if loaded.is_ok()
-                && let Some(position) = resume_position.filter(|position| position.is_finite() && *position >= 0.0)
+                && let Some(position) =
+                    resume_position.filter(|position| position.is_finite() && *position >= 0.0)
             {
                 let deadline = Instant::now() + Duration::from_secs(8);
                 while Instant::now() < deadline {
                     let snapshot = player.snapshot();
-                    if snapshot.duration_seconds.is_some_and(|duration| duration > 0.0)
-                        && matches!(snapshot.status, PlaybackStatus::Playing | PlaybackStatus::Paused)
+                    if snapshot
+                        .duration_seconds
+                        .is_some_and(|duration| duration > 0.0)
+                        && matches!(
+                            snapshot.status,
+                            PlaybackStatus::Playing | PlaybackStatus::Paused
+                        )
                     {
                         let _ = player.seek_absolute(position);
                         break;
@@ -3836,7 +3986,10 @@ impl SenzoShell {
                         this.pending_continue_watching_episode
                         && pending_id == id
                         && pending_season == number
-                        && this.details.as_ref().is_some_and(|details| details.selected_season.is_some())
+                        && this
+                            .details
+                            .as_ref()
+                            .is_some_and(|details| details.selected_season.is_some())
                     {
                         this.pending_continue_watching_episode = None;
                         this.load_detail_episode(pending_season, pending_episode, cx);
@@ -4528,7 +4681,8 @@ impl SenzoShell {
                         episode_number: Some(episode.episode_number),
                         marked_at_ms: 0,
                     };
-                    let is_watched = self.playback_progress_repository
+                    let is_watched = self
+                        .playback_progress_repository
                         .is_watched(&watched_item)
                         .unwrap_or(false);
                     selected_episode = selected_episode.child(
@@ -4536,12 +4690,30 @@ impl SenzoShell {
                             .id("toggle-episode-watched")
                             .cursor_pointer()
                             .rounded_md()
-                            .bg(rgb(if is_watched { Theme::SURFACE_RAISED } else { Theme::ACCENT_DARK }))
+                            .bg(rgb(if is_watched {
+                                Theme::SURFACE_RAISED
+                            } else {
+                                Theme::ACCENT_DARK
+                            }))
                             .px_3()
                             .py_2()
-                            .on_click(cx.listener(|this, _, _, cx| this.toggle_selected_episode_watched(cx)))
-                            .child(div().text_xs().text_color(rgb(if is_watched { Theme::TEXT_PRIMARY } else { Theme::ACCENT }))
-                                .child(if is_watched { "MARK UNWATCHED" } else { "MARK WATCHED" })),
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.toggle_selected_episode_watched(cx)
+                            }))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(if is_watched {
+                                        Theme::TEXT_PRIMARY
+                                    } else {
+                                        Theme::ACCENT
+                                    }))
+                                    .child(if is_watched {
+                                        "MARK UNWATCHED"
+                                    } else {
+                                        "MARK WATCHED"
+                                    }),
+                            ),
                     );
                     selected_episode = selected_episode.child(
                         div()
@@ -5397,7 +5569,12 @@ impl SenzoShell {
                         this.navigate_selected_episode(-1, true, cx);
                         this.reveal_playback_controls(cx);
                     }))
-                    .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child("PREV EP")),
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child("PREV EP"),
+                    ),
             );
             nav = nav.child(
                 div()
@@ -5411,19 +5588,40 @@ impl SenzoShell {
                         this.navigate_selected_episode(1, true, cx);
                         this.reveal_playback_controls(cx);
                     }))
-                    .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child("NEXT EP")),
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child("NEXT EP"),
+                    ),
             );
             nav = nav.child(
                 div()
                     .id("player-autoplay-next")
                     .cursor_pointer()
                     .rounded_md()
-                    .bg(rgb(if self.playback_autoplay_next { Theme::ACCENT_DARK } else { Theme::SURFACE_RAISED }))
+                    .bg(rgb(if self.playback_autoplay_next {
+                        Theme::ACCENT_DARK
+                    } else {
+                        Theme::SURFACE_RAISED
+                    }))
                     .px_3()
                     .py_2()
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_autoplay_next(cx)))
-                    .child(div().text_xs().text_color(rgb(if self.playback_autoplay_next { Theme::ACCENT } else { Theme::TEXT_SECONDARY }))
-                        .child(if self.playback_autoplay_next { "AUTO NEXT ON" } else { "AUTO NEXT OFF" })),
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(if self.playback_autoplay_next {
+                                Theme::ACCENT
+                            } else {
+                                Theme::TEXT_SECONDARY
+                            }))
+                            .child(if self.playback_autoplay_next {
+                                "AUTO NEXT ON"
+                            } else {
+                                "AUTO NEXT OFF"
+                            }),
+                    ),
             );
             nav = nav.child(
                 div()
@@ -5664,28 +5862,67 @@ impl SenzoShell {
                             .flex()
                             .flex_col()
                             .gap_3()
-                            .child(div().text_xs().text_color(rgb(Theme::ACCENT)).child("CONTINUE WATCHING"))
-                            .child(div().text_2xl().text_color(rgb(Theme::TEXT_PRIMARY)).child(progress.title.clone()))
-                            .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!("{episode_label} · Last position {saved_time}")))
-                            .child(div().flex().gap_3()
-                                .child(div().id("resume-playback")
-                                    .cursor_pointer()
-                                    .rounded_md()
-                                    .bg(rgb(Theme::ACCENT))
-                                    .px_4()
-                                    .py_3()
-                                    .on_click(cx.listener(|this, _, _, cx| this.choose_resume_action(true, cx)))
-                                    .child(div().text_sm().text_color(rgb(Theme::BACKGROUND)).child("RESUME")))
-                                .child(div().id("restart-playback")
-                                    .cursor_pointer()
-                                    .rounded_md()
-                                    .border_1()
-                                    .border_color(rgb(Theme::BORDER_STRONG))
-                                    .bg(rgb(Theme::SURFACE_RAISED))
-                                    .px_4()
-                                    .py_3()
-                                    .on_click(cx.listener(|this, _, _, cx| this.choose_resume_action(false, cx)))
-                                    .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child("START OVER")))),
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(Theme::ACCENT))
+                                    .child("CONTINUE WATCHING"),
+                            )
+                            .child(
+                                div()
+                                    .text_2xl()
+                                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                                    .child(progress.title.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(Theme::TEXT_SECONDARY))
+                                    .child(format!("{episode_label} · Last position {saved_time}")),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .id("resume-playback")
+                                            .cursor_pointer()
+                                            .rounded_md()
+                                            .bg(rgb(Theme::ACCENT))
+                                            .px_4()
+                                            .py_3()
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.choose_resume_action(true, cx)
+                                            }))
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .text_color(rgb(Theme::BACKGROUND))
+                                                    .child("RESUME"),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("restart-playback")
+                                            .cursor_pointer()
+                                            .rounded_md()
+                                            .border_1()
+                                            .border_color(rgb(Theme::BORDER_STRONG))
+                                            .bg(rgb(Theme::SURFACE_RAISED))
+                                            .px_4()
+                                            .py_3()
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.choose_resume_action(false, cx)
+                                            }))
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                                                    .child("START OVER"),
+                                            ),
+                                    ),
+                            ),
                     ),
             );
         }
@@ -5706,7 +5943,12 @@ impl SenzoShell {
                         this.seek_playback_absolute(target_seconds, cx);
                         this.reveal_playback_controls(cx);
                     }))
-                    .child(div().text_sm().text_color(rgb(Theme::BACKGROUND)).child(label)),
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::BACKGROUND))
+                            .child(label),
+                    ),
             );
         }
 
@@ -10637,12 +10879,13 @@ impl SenzoShell {
         if self.home_progress_artwork_requested {
             return;
         }
-        let requests = self.home_continue_watching.iter()
+        let requests = self
+            .home_continue_watching
+            .iter()
             .filter_map(|progress| {
                 let path = progress_artwork_path(progress)?;
                 let key = playback_progress_artwork_key(progress);
-                (!self.home_continue_watching_artwork.contains_key(&key))
-                    .then_some((key, path))
+                (!self.home_continue_watching_artwork.contains_key(&key)).then_some((key, path))
             })
             .collect::<Vec<_>>();
         if requests.is_empty() {
@@ -10655,7 +10898,13 @@ impl SenzoShell {
             for (key, path) in requests {
                 let service = artwork.clone();
                 jobs.spawn(async move {
-                    let image = load_gpui_artwork(service, path, ArtworkSize::W780, CancellationToken::new()).await;
+                    let image = load_gpui_artwork(
+                        service,
+                        path,
+                        ArtworkSize::W780,
+                        CancellationToken::new(),
+                    )
+                    .await;
                     (key, image)
                 });
             }
@@ -10678,7 +10927,8 @@ impl SenzoShell {
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 
     fn load_home_up_next(&mut self, cx: &mut Context<Self>) {
@@ -10695,8 +10945,10 @@ impl SenzoShell {
         let task = self.tokio.spawn(async move {
             let completed = tokio::task::spawn_blocking(move || {
                 repository.list_recent_completed_series("default", 20)
-            }).await.map_err(|error| error.to_string())?
-                .map_err(|error| error.to_string())?;
+            })
+            .await
+            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())?;
             let mut jobs = JoinSet::new();
             for progress in completed.into_iter().take(16) {
                 let metadata = metadata.clone();
@@ -10705,7 +10957,9 @@ impl SenzoShell {
                 jobs.spawn(async move {
                     let show_id = progress.media_id.parse::<u64>().ok()?;
                     let tv = metadata.tv(show_id, &token).await.ok()?;
-                    let mut season_numbers = tv.seasons.iter()
+                    let mut season_numbers = tv
+                        .seasons
+                        .iter()
                         .map(|season| season.season_number)
                         .filter(|number| *number > 0)
                         .collect::<Vec<_>>();
@@ -10713,21 +10967,34 @@ impl SenzoShell {
                     season_numbers.dedup();
                     let completed_season = progress.season_number.unwrap_or(0);
                     let completed_episode = progress.episode_number.unwrap_or(0);
-                    for season_number in season_numbers.into_iter().filter(|number| *number >= completed_season) {
-                        if token.is_cancelled() { return None; }
+                    for season_number in season_numbers
+                        .into_iter()
+                        .filter(|number| *number >= completed_season)
+                    {
+                        if token.is_cancelled() {
+                            return None;
+                        }
                         let season = metadata.season(show_id, season_number, &token).await.ok()?;
-                        let mut episodes = season.episodes.iter()
-                            .filter(|episode| season_number != completed_season || episode.episode_number > completed_episode)
+                        let mut episodes = season
+                            .episodes
+                            .iter()
+                            .filter(|episode| {
+                                season_number != completed_season
+                                    || episode.episode_number > completed_episode
+                            })
                             .collect::<Vec<_>>();
                         episodes.sort_by_key(|episode| episode.episode_number);
                         if let Some(episode) = episodes.first() {
                             let still = match episode.still_path.as_deref() {
-                                Some(path) => load_gpui_artwork(
-                                    artwork.clone(),
-                                    path.to_owned(),
-                                    ArtworkSize::W780,
-                                    token.child_token(),
-                                ).await,
+                                Some(path) => {
+                                    load_gpui_artwork(
+                                        artwork.clone(),
+                                        path.to_owned(),
+                                        ArtworkSize::W780,
+                                        token.child_token(),
+                                    )
+                                    .await
+                                }
                                 None => None,
                             };
                             return Some(HomeUpNextCard {
@@ -10745,25 +11012,45 @@ impl SenzoShell {
             }
             let mut cards = Vec::new();
             while let Some(result) = jobs.join_next().await {
-                if task_token.is_cancelled() { return Ok::<_, String>(Vec::new()); }
-                if let Ok(Some(card)) = result { cards.push(card); }
+                if task_token.is_cancelled() {
+                    return Ok::<_, String>(Vec::new());
+                }
+                if let Ok(Some(card)) = result {
+                    cards.push(card);
+                }
             }
             let today = current_utc_date();
             cards.sort_by(|left, right| {
-                let left_date = left.air_date.as_deref().filter(|date| date.len() >= 10).unwrap_or("9999-99-99");
-                let right_date = right.air_date.as_deref().filter(|date| date.len() >= 10).unwrap_or("9999-99-99");
+                let left_date = left
+                    .air_date
+                    .as_deref()
+                    .filter(|date| date.len() >= 10)
+                    .unwrap_or("9999-99-99");
+                let right_date = right
+                    .air_date
+                    .as_deref()
+                    .filter(|date| date.len() >= 10)
+                    .unwrap_or("9999-99-99");
                 let left_future = left_date > today.as_str();
                 let right_future = right_date > today.as_str();
-                left_future.cmp(&right_future)
+                left_future
+                    .cmp(&right_future)
                     .then_with(|| left_date.cmp(right_date))
-                    .then_with(|| right.parent_progress.updated_at_ms.cmp(&left.parent_progress.updated_at_ms))
+                    .then_with(|| {
+                        right
+                            .parent_progress
+                            .updated_at_ms
+                            .cmp(&left.parent_progress.updated_at_ms)
+                    })
             });
             Ok::<_, String>(cards)
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                if cancellation.is_cancelled() { return; }
+                if cancellation.is_cancelled() {
+                    return;
+                }
                 this.home_up_next_loading = false;
                 match result {
                     Ok(Ok(cards)) => this.home_up_next = cards,
@@ -10778,7 +11065,8 @@ impl SenzoShell {
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 
     fn render_continue_watching(&self, cx: &mut Context<Self>) -> gpui::Div {
@@ -10795,9 +11083,14 @@ impl SenzoShell {
                 "{} · {}{}",
                 episode_label,
                 position,
-                if entry.duration_ms > 0 { format!(" / {duration}") } else { String::new() }
+                if entry.duration_ms > 0 {
+                    format!(" / {duration}")
+                } else {
+                    String::new()
+                }
             );
-            let artwork = self.home_continue_watching_artwork
+            let artwork = self
+                .home_continue_watching_artwork
                 .get(&playback_progress_artwork_key(entry))
                 .cloned();
             cards = cards.child(
@@ -10822,8 +11115,19 @@ impl SenzoShell {
                     .flex()
                     .flex_col()
                     .gap_3()
-                    .child(div().text_lg().text_color(rgb(Theme::TEXT_PRIMARY)).child("Continue Watching"))
-                    .child(div().id("home-continue-watching-scroll").w_full().overflow_x_scroll().child(cards)),
+                    .child(
+                        div()
+                            .text_lg()
+                            .text_color(rgb(Theme::TEXT_PRIMARY))
+                            .child("Continue Watching"),
+                    )
+                    .child(
+                        div()
+                            .id("home-continue-watching-scroll")
+                            .w_full()
+                            .overflow_x_scroll()
+                            .child(cards),
+                    ),
             );
         }
         if !self.home_up_next.is_empty() {
@@ -10838,12 +11142,22 @@ impl SenzoShell {
                 progress.position_ms = 0;
                 progress.duration_ms = 0;
                 progress.is_completed = false;
-                let date_label = card.air_date.as_deref()
+                let date_label = card
+                    .air_date
+                    .as_deref()
                     .filter(|date| date.len() >= 10)
-                    .map(|date| if date > today.as_str() { format!("COMING · {date}") } else { format!("UP NEXT · {date}") })
+                    .map(|date| {
+                        if date > today.as_str() {
+                            format!("COMING · {date}")
+                        } else {
+                            format!("UP NEXT · {date}")
+                        }
+                    })
                     .unwrap_or_else(|| "UP NEXT".to_owned());
-                let detail = format!("S{:02} E{:02} · {}",
-                    card.season_number, card.episode_number, date_label);
+                let detail = format!(
+                    "S{:02} E{:02} · {}",
+                    card.season_number, card.episode_number, date_label
+                );
                 up_next_cards = up_next_cards.child(
                     div()
                         .id(format!("home-up-next-{index}"))
@@ -10852,7 +11166,9 @@ impl SenzoShell {
                         .rounded_lg()
                         .focus_visible(|style| style.border_1().border_color(rgb(Theme::ACCENT)))
                         .aria_label(format!("Open next episode {}", card.episode_title))
-                        .on_click(cx.listener(move |this, _, _, cx| this.open_continue_watching(progress.clone(), cx)))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.open_continue_watching(progress.clone(), cx)
+                        }))
                         .child(poster_card(
                             &card.parent_progress.title,
                             &detail,
@@ -10862,13 +11178,31 @@ impl SenzoShell {
                 );
             }
             sections = sections.child(
-                div().w_full().flex().flex_col().gap_3()
-                    .child(div().text_lg().text_color(rgb(Theme::TEXT_PRIMARY)).child("Up Next"))
-                    .child(div().id("home-up-next-scroll").w_full().overflow_x_scroll().child(up_next_cards)),
+                div()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(
+                        div()
+                            .text_lg()
+                            .text_color(rgb(Theme::TEXT_PRIMARY))
+                            .child("Up Next"),
+                    )
+                    .child(
+                        div()
+                            .id("home-up-next-scroll")
+                            .w_full()
+                            .overflow_x_scroll()
+                            .child(up_next_cards),
+                    ),
             );
         } else if self.home_up_next_loading {
             sections = sections.child(
-                div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child("Finding next episodes from your watched series…"),
+                div()
+                    .text_xs()
+                    .text_color(rgb(Theme::TEXT_MUTED))
+                    .child("Finding next episodes from your watched series…"),
             );
         }
         sections
@@ -12358,11 +12692,7 @@ mod tests {
             Ok(false)
         }
 
-        fn set_watched(
-            &self,
-            _item: &WatchedItem,
-            _watched: bool,
-        ) -> Result<(), RepositoryError> {
+        fn set_watched(&self, _item: &WatchedItem, _watched: bool) -> Result<(), RepositoryError> {
             Ok(())
         }
     }
@@ -12517,11 +12847,20 @@ mod tests {
             is_completed: false,
             updated_at_ms: 1,
         };
-        assert_eq!(progress_artwork_path(&progress).as_deref(), Some("/still.jpg"));
+        assert_eq!(
+            progress_artwork_path(&progress).as_deref(),
+            Some("/still.jpg")
+        );
         progress.still_path = None;
-        assert_eq!(progress_artwork_path(&progress).as_deref(), Some("/poster.jpg"));
+        assert_eq!(
+            progress_artwork_path(&progress).as_deref(),
+            Some("/poster.jpg")
+        );
         progress.poster_path = None;
-        assert_eq!(progress_artwork_path(&progress).as_deref(), Some("/backdrop.jpg"));
+        assert_eq!(
+            progress_artwork_path(&progress).as_deref(),
+            Some("/backdrop.jpg")
+        );
         progress.backdrop_path = None;
         assert_eq!(progress_artwork_path(&progress), None);
     }

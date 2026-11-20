@@ -164,7 +164,6 @@ pub trait ProfileRepository: Send + Sync {
     fn create_profile(&self, name: &str) -> Result<Profile, RepositoryError>;
 }
 
-
 /// A local playback checkpoint. Series progress is keyed by parent series and
 /// season/episode; movies use neither season nor episode.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -214,8 +213,7 @@ pub fn playback_is_complete(position_ms: u64, duration_ms: u64, is_ended: bool) 
     if is_ended {
         return true;
     }
-    duration_ms > 0
-        && (position_ms as f64 / duration_ms as f64) >= WATCHED_COMPLETION_FRACTION
+    duration_ms > 0 && (position_ms as f64 / duration_ms as f64) >= WATCHED_COMPLETION_FRACTION
 }
 
 pub trait PlaybackProgressRepository: Send + Sync {
@@ -228,10 +226,7 @@ pub trait PlaybackProgressRepository: Send + Sync {
         episode_number: Option<u32>,
     ) -> Result<Option<PlaybackProgress>, RepositoryError>;
 
-    fn save_playback_progress(
-        &self,
-        progress: &PlaybackProgress,
-    ) -> Result<(), RepositoryError>;
+    fn save_playback_progress(&self, progress: &PlaybackProgress) -> Result<(), RepositoryError>;
 
     fn list_continue_watching(
         &self,
@@ -251,7 +246,6 @@ pub trait PlaybackProgressRepository: Send + Sync {
 
     fn set_watched(&self, item: &WatchedItem, watched: bool) -> Result<(), RepositoryError>;
 }
-
 
 #[cfg(test)]
 mod tests {

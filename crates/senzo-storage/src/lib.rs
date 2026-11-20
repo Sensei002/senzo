@@ -371,7 +371,6 @@ impl ProfileRepository for SqliteDatabase {
     }
 }
 
-
 impl PlaybackProgressRepository for SqliteDatabase {
     fn get_playback_progress(
         &self,
@@ -381,7 +380,13 @@ impl PlaybackProgressRepository for SqliteDatabase {
         season_number: Option<u32>,
         episode_number: Option<u32>,
     ) -> Result<Option<PlaybackProgress>, RepositoryError> {
-        validate_watch_identity(profile_id, media_id, media_kind, season_number, episode_number)?;
+        validate_watch_identity(
+            profile_id,
+            media_id,
+            media_kind,
+            season_number,
+            episode_number,
+        )?;
         let connection = self.lock()?;
         connection
             .query_row(
@@ -404,10 +409,7 @@ impl PlaybackProgressRepository for SqliteDatabase {
             .map_err(|error| RepositoryError::Unavailable(error.to_string()))
     }
 
-    fn save_playback_progress(
-        &self,
-        progress: &PlaybackProgress,
-    ) -> Result<(), RepositoryError> {
+    fn save_playback_progress(&self, progress: &PlaybackProgress) -> Result<(), RepositoryError> {
         validate_playback_progress(progress)?;
         let mut connection = self
             .connection
@@ -560,7 +562,10 @@ impl PlaybackProgressRepository for SqliteDatabase {
             )
             .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
         let rows = statement
-            .query_map((profile_id, limit.clamp(1, 100) as i64), playback_progress_from_row)
+            .query_map(
+                (profile_id, limit.clamp(1, 100) as i64),
+                playback_progress_from_row,
+            )
             .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|error| RepositoryError::Unavailable(error.to_string()))
@@ -725,9 +730,10 @@ fn validate_playback_progress(progress: &PlaybackProgress) -> Result<(), Reposit
     if progress.title.trim().is_empty()
         || progress.title.chars().count() > 512
         || progress.title.chars().any(char::is_control)
-        || progress.episode_title.as_ref().is_some_and(|title| {
-            title.chars().count() > 512 || title.chars().any(char::is_control)
-        })
+        || progress
+            .episode_title
+            .as_ref()
+            .is_some_and(|title| title.chars().count() > 512 || title.chars().any(char::is_control))
         || progress.updated_at_ms < 0
         || i64::try_from(progress.position_ms).is_err()
         || i64::try_from(progress.duration_ms).is_err()
@@ -742,7 +748,9 @@ fn validate_playback_progress(progress: &PlaybackProgress) -> Result<(), Reposit
 
 fn valid_artwork_path(path: Option<&str>) -> bool {
     let Some(path) = path else { return true };
-    let Some(relative) = path.strip_prefix('/') else { return false };
+    let Some(relative) = path.strip_prefix('/') else {
+        return false;
+    };
     !relative.is_empty()
         && path.len() <= 512
         && !path.chars().any(char::is_control)
@@ -750,9 +758,9 @@ fn valid_artwork_path(path: Option<&str>) -> bool {
             !segment.is_empty()
                 && segment != "."
                 && segment != ".."
-                && segment.bytes().all(|byte| {
-                    byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-')
-                })
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
         })
 }
 
@@ -768,7 +776,9 @@ fn stored_episode_number(value: Option<u32>) -> i64 {
     value.map_or(-1, i64::from)
 }
 
-fn playback_progress_from_row(row: &rusqlite::Row<'_>) -> Result<PlaybackProgress, rusqlite::Error> {
+fn playback_progress_from_row(
+    row: &rusqlite::Row<'_>,
+) -> Result<PlaybackProgress, rusqlite::Error> {
     let kind: String = row.get(2)?;
     let media_kind = match kind.as_str() {
         "movie" => MediaKind::Movie,
@@ -797,12 +807,10 @@ fn playback_progress_from_row(row: &rusqlite::Row<'_>) -> Result<PlaybackProgres
     })
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use senzo_domain::{ProfileRepository, SettingKey, SettingsRepository};
-
 
     #[test]
     fn playback_progress_is_profile_scoped_and_survives_repository_reads() {
@@ -825,12 +833,22 @@ mod tests {
         };
         database.save_playback_progress(&movie).unwrap();
         assert_eq!(
-            database.get_playback_progress("default", "550", MediaKind::Movie, None, None).unwrap(),
+            database
+                .get_playback_progress("default", "550", MediaKind::Movie, None, None)
+                .unwrap(),
             Some(movie.clone())
         );
         let guest = database.create_profile("Guest").unwrap();
-        assert!(database.get_playback_progress(&guest.id, "550", MediaKind::Movie, None, None).unwrap().is_none());
-        assert_eq!(database.list_continue_watching("default", 20).unwrap(), vec![movie]);
+        assert!(
+            database
+                .get_playback_progress(&guest.id, "550", MediaKind::Movie, None, None)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            database.list_continue_watching("default", 20).unwrap(),
+            vec![movie]
+        );
     }
 
     #[test]
@@ -852,14 +870,28 @@ mod tests {
             is_completed: completed,
             updated_at_ms: updated,
         };
-        database.save_playback_progress(&make(1, 1, 2_000_000, false, 100)).unwrap();
-        database.save_playback_progress(&make(1, 2, 900_000, false, 200)).unwrap();
+        database
+            .save_playback_progress(&make(1, 1, 2_000_000, false, 100))
+            .unwrap();
+        database
+            .save_playback_progress(&make(1, 2, 900_000, false, 200))
+            .unwrap();
         let entries = database.list_continue_watching("default", 20).unwrap();
         assert_eq!(entries.len(), 1);
-        assert_eq!((entries[0].season_number, entries[0].episode_number), (Some(1), Some(2)));
+        assert_eq!(
+            (entries[0].season_number, entries[0].episode_number),
+            (Some(1), Some(2))
+        );
 
-        database.save_playback_progress(&make(1, 2, 2_500_000, true, 300)).unwrap();
-        assert!(database.list_continue_watching("default", 20).unwrap().is_empty());
+        database
+            .save_playback_progress(&make(1, 2, 2_500_000, true, 300))
+            .unwrap();
+        assert!(
+            database
+                .list_continue_watching("default", 20)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -892,36 +924,59 @@ mod tests {
         };
         database.set_watched(&watched, true).unwrap();
         assert!(database.is_watched(&watched).unwrap());
-        assert!(database.get_playback_progress("default", "1399", MediaKind::Series, Some(1), Some(1)).unwrap().unwrap().is_completed);
+        assert!(
+            database
+                .get_playback_progress("default", "1399", MediaKind::Series, Some(1), Some(1))
+                .unwrap()
+                .unwrap()
+                .is_completed
+        );
         database.set_watched(&watched, false).unwrap();
         assert!(!database.is_watched(&watched).unwrap());
-        assert!(!database.get_playback_progress("default", "1399", MediaKind::Series, Some(1), Some(1)).unwrap().unwrap().is_completed);
+        assert!(
+            !database
+                .get_playback_progress("default", "1399", MediaKind::Series, Some(1), Some(1))
+                .unwrap()
+                .unwrap()
+                .is_completed
+        );
     }
 
     #[test]
     fn recent_completed_series_are_deduplicated_and_newer_progress_suppresses_up_next() {
         let database = SqliteDatabase::in_memory().unwrap();
-        let make = |media_id: &str, season, episode, completed, position, updated| PlaybackProgress {
-            profile_id: "default".to_owned(),
-            media_id: media_id.to_owned(),
-            media_kind: MediaKind::Series,
-            title: format!("Series {media_id}"),
-            season_number: Some(season),
-            episode_number: Some(episode),
-            episode_title: None,
-            poster_path: None,
-            backdrop_path: None,
-            still_path: None,
-            position_ms: position,
-            duration_ms: 2_700_000,
-            is_completed: completed,
-            updated_at_ms: updated,
-        };
-        database.save_playback_progress(&make("100", 1, 1, true, 2_500_000, 100)).unwrap();
-        database.save_playback_progress(&make("100", 1, 2, true, 2_500_000, 200)).unwrap();
-        database.save_playback_progress(&make("200", 2, 5, true, 2_500_000, 300)).unwrap();
-        database.save_playback_progress(&make("200", 2, 6, false, 50_000, 400)).unwrap();
-        let entries = database.list_recent_completed_series("default", 20).unwrap();
+        let make =
+            |media_id: &str, season, episode, completed, position, updated| PlaybackProgress {
+                profile_id: "default".to_owned(),
+                media_id: media_id.to_owned(),
+                media_kind: MediaKind::Series,
+                title: format!("Series {media_id}"),
+                season_number: Some(season),
+                episode_number: Some(episode),
+                episode_title: None,
+                poster_path: None,
+                backdrop_path: None,
+                still_path: None,
+                position_ms: position,
+                duration_ms: 2_700_000,
+                is_completed: completed,
+                updated_at_ms: updated,
+            };
+        database
+            .save_playback_progress(&make("100", 1, 1, true, 2_500_000, 100))
+            .unwrap();
+        database
+            .save_playback_progress(&make("100", 1, 2, true, 2_500_000, 200))
+            .unwrap();
+        database
+            .save_playback_progress(&make("200", 2, 5, true, 2_500_000, 300))
+            .unwrap();
+        database
+            .save_playback_progress(&make("200", 2, 6, false, 50_000, 400))
+            .unwrap();
+        let entries = database
+            .list_recent_completed_series("default", 20)
+            .unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].media_id, "100");
         assert_eq!(entries[0].episode_number, Some(2));
@@ -946,10 +1001,16 @@ mod tests {
             is_completed: false,
             updated_at_ms: 100,
         };
-        assert!(matches!(database.save_playback_progress(&progress), Err(RepositoryError::InvalidPlaybackProgress)));
+        assert!(matches!(
+            database.save_playback_progress(&progress),
+            Err(RepositoryError::InvalidPlaybackProgress)
+        ));
         progress.poster_path = None;
         progress.episode_number = None;
-        assert!(matches!(database.save_playback_progress(&progress), Err(RepositoryError::InvalidPlaybackProgress)));
+        assert!(matches!(
+            database.save_playback_progress(&progress),
+            Err(RepositoryError::InvalidPlaybackProgress)
+        ));
     }
 
     #[test]
