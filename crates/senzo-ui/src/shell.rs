@@ -15365,7 +15365,9 @@ impl Drop for SenzoShell {
 
 impl Render for SenzoShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        #[cfg(target_os = "windows")]
+        // GPUI test windows are synthetic and have no real Win32 HWND.
+        // Only acquire the host handle in a normal Windows desktop build.
+        #[cfg(all(target_os = "windows", not(test)))]
         if self.native_window_hwnd.is_none() {
             self.native_window_hwnd = window
                 .window_handle()
