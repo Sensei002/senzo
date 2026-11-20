@@ -13851,6 +13851,22 @@ mod tests {
     use senzo_catalog::{HomeCollectionFolder, HomeCollectionPosterShape};
     use senzo_domain::{RepositoryError, SettingKey};
 
+    struct TestCredentialStore;
+
+    impl senzo_platform::CredentialStore for TestCredentialStore {
+        fn get(&self, _account: &str) -> Result<Option<String>, senzo_platform::CredentialError> {
+            Ok(None)
+        }
+
+        fn set(&self, _account: &str, _secret: &str) -> Result<(), senzo_platform::CredentialError> {
+            Ok(())
+        }
+
+        fn delete(&self, _account: &str) -> Result<(), senzo_platform::CredentialError> {
+            Ok(())
+        }
+    }
+
     struct TestSettingsRepository;
 
     struct TestPlaybackProgressRepository;
@@ -14714,7 +14730,7 @@ mod tests {
                     cloud_service: Arc::new(
                         senzo_sync::CloudService::new(
                             "https://senzo-api.vercel.app",
-                            Arc::new(senzo_platform::KeyringCredentialStore::new("SENZO UI Test")),
+                            Arc::new(TestCredentialStore),
                         ).expect("test cloud service URL should be valid")
                     ),
                 },
