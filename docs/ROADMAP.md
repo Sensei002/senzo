@@ -279,16 +279,24 @@ See docs/PHASE_5_IMPLEMENTATION.md.
 
 ## Phase 12 — Library, profiles, accounts and sync
 
-- [ ] Implement local library, favorites, collections and list management.
-- [ ] Implement collection/folder creation, editing, deletion and ordering; publish the validated local projection consumed by Phase 4 Home rows.
-- [ ] Implement profiles, profile switching, PIN and profile-scoped settings.
-- [ ] Implement authentication and session lifecycle where required by Nuvio parity.
-- [ ] Implement cloud library and settings/provider sync.
-- [ ] Implement sync reconciliation, paging, conflict handling and retry.
-- [ ] Implement local/offline behavior and account sign-out cleanup.
-- [ ] Implement watched-state and progress sync with supported providers.
+<badge color="success">Implementation complete · Windows regression gate enabled</badge>
 
-**Gate:** Local data remains safe across profile changes, sync failures and application restarts.
+- [x] Implement local library, favorites, collections and list management.
+- [x] Implement collection creation, editing, deletion, membership and ordering; publish the validated local projection consumed by Phase 4 Home rows.
+- [x] Implement profiles, active-profile switching, startup/switch PIN protection and profile-scoped settings/provider state.
+- [x] Implement optional email/password authentication, refresh and sign-out lifecycle through the SENZO API.
+- [x] Implement authenticated cloud Library, collection, profile-preference, watched-state and playback-progress synchronization.
+- [x] Implement cursor-based append-only sync pages, transactional local reconciliation, timestamp conflict handling, idempotent push and retry/backoff.
+- [x] Implement local/offline behavior: mutations remain in SQLite until accepted; sign-out clears the profile's local cloud session without deleting local Library or watch history.
+- [x] Implement watched-state and playback-progress sync across signed-in SENZO devices.
+
+**Automated gate:** Windows CI runs the Phase 12 profile-scope, Library/collection, PIN lockout, profile settings, outbox retry, remote-page reconciliation, cloud-client validation and Home projection regression tests, in addition to all workspace checks and the native Windows build/smoke test.
+
+**Cloud activation required:** The account/sync API and Supabase SQL migration are committed in [Sensei API](https://github.com/Sensei002/senzo-api). Cloud sign-in/sync remain disabled until the project owner applies `supabase/migrations/0001_senzo_sync.sql` to their Supabase project and configures `SUPABASE_URL` and `SUPABASE_ANON_KEY` in the Vercel project. No service-role key is embedded in SENZO or exposed to the desktop. The local/offline Library works without this setup.
+
+**Credential boundary:** Add-on URLs/configuration tokens, plugin secrets and media-server passwords remain in the local OS credential store and are not uploaded as sync payloads. Profile-scoped provider state is isolated locally; only non-secret profile preferences and supported Library/watch entities are cloud-synced.
+
+**Implementation report:** [docs/PHASE_12_IMPLEMENTATION.md](PHASE_12_IMPLEMENTATION.md).
 
 ## Phase 13 — Downloads and P2P transport
 
