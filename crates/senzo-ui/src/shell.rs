@@ -28,13 +28,13 @@ use senzo_catalog::{
     HomeSettings, home_collection_folder_key, visible_home_collections,
 };
 use senzo_debrid::{DebridManager, DebridProviderId, ResolvedDebridSource};
-use senzo_downloads::{DownloadManager, DownloadRequest, DownloadStatus, TorrentPlaybackSession};
 use senzo_domain::{
     AppPage, LibraryCollection, LibraryItem, LibraryRepository, MediaKind, PlaybackProgress,
     PlaybackProgressRepository, Profile, ProfileRepository, ProfileScope,
     ProfileSecurityRepository, ProfileSettingsRepository, SettingKey, SettingsRepository,
     SyncOutboxRepository, WatchedItem, playback_is_complete, should_store_playback_progress,
 };
+use senzo_downloads::{DownloadManager, DownloadRequest, DownloadStatus, TorrentPlaybackSession};
 use senzo_integrations::{MediaServerManager, MediaServerProvider};
 #[cfg(test)]
 use senzo_metadata::PersonCredit;
@@ -5610,7 +5610,12 @@ impl SenzoShell {
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.start_torrent_playback(selected_source.clone(), window, cx);
                             }))
-                            .child(div().text_xs().text_color(rgb(Theme::ACCENT)).child("PLAY WITH P2P")),
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(Theme::ACCENT))
+                                    .child("PLAY WITH P2P"),
+                            ),
                     );
                 }
                 if source.is_torrent()
@@ -5742,22 +5747,25 @@ impl SenzoShell {
                         position, duration, snapshot.volume_percent, snapshot.speed
                     )),
             );
-            if let Some(progress) = self.active_torrent_session.as_ref()
+            if let Some(progress) = self
+                .active_torrent_session
+                .as_ref()
                 .and_then(TorrentPlaybackSession::progress_snapshot)
             {
-                panel = panel.child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(Theme::TEXT_MUTED))
-                        .child(format!(
-                            "P2P: {:.1}/{:.1} MiB · uploaded {:.1} MiB · {}{}",
-                            progress.downloaded_bytes as f64 / 1_048_576.0,
-                            progress.total_bytes as f64 / 1_048_576.0,
-                            progress.uploaded_bytes as f64 / 1_048_576.0,
-                            progress.state,
-                            if progress.finished { " · complete" } else { "" },
-                        )),
-                );
+                panel = panel.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
+                    format!(
+                        "P2P: {:.1}/{:.1} MiB · uploaded {:.1} MiB · {}{}",
+                        progress.downloaded_bytes as f64 / 1_048_576.0,
+                        progress.total_bytes as f64 / 1_048_576.0,
+                        progress.uploaded_bytes as f64 / 1_048_576.0,
+                        progress.state,
+                        if progress.finished {
+                            " · complete"
+                        } else {
+                            ""
+                        },
+                    ),
+                ));
             }
             let controls = [
                 ("pause", if snapshot.paused { "PLAY" } else { "PAUSE" }),
@@ -13597,13 +13605,16 @@ impl SenzoShell {
             } else {
                 format!("{:.1} MiB", item.downloaded_bytes as f64 / 1_048_576.0)
             };
-            let total = item.total_bytes.map(|bytes| {
-                if bytes >= 1_073_741_824 {
-                    format!("{:.2} GiB", bytes as f64 / 1_073_741_824.0)
-                } else {
-                    format!("{:.1} MiB", bytes as f64 / 1_048_576.0)
-                }
-            }).unwrap_or_else(|| "size unknown".to_owned());
+            let total = item
+                .total_bytes
+                .map(|bytes| {
+                    if bytes >= 1_073_741_824 {
+                        format!("{:.2} GiB", bytes as f64 / 1_073_741_824.0)
+                    } else {
+                        format!("{:.1} MiB", bytes as f64 / 1_048_576.0)
+                    }
+                })
+                .unwrap_or_else(|| "size unknown".to_owned());
             let mut card = div()
                 .w_full()
                 .rounded_md()
@@ -13614,71 +13625,176 @@ impl SenzoShell {
                 .flex()
                 .flex_col()
                 .gap_2()
-                .child(div().flex().items_center().justify_between()
-                    .child(div().flex_1().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(item.title.clone()))
-                    .child(div().text_xs().text_color(rgb(if item.status == DownloadStatus::Failed { Theme::DANGER } else { Theme::ACCENT })).child(status)))
-                .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED))
-                    .child(format!("{downloaded} of {total} · {}", item.file_name)));
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_sm()
+                                .text_color(rgb(Theme::TEXT_PRIMARY))
+                                .child(item.title.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(if item.status == DownloadStatus::Failed {
+                                    Theme::DANGER
+                                } else {
+                                    Theme::ACCENT
+                                }))
+                                .child(status),
+                        ),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(Theme::TEXT_MUTED))
+                        .child(format!("{downloaded} of {total} · {}", item.file_name)),
+                );
             if item.total_bytes.is_some_and(|bytes| bytes > 0) {
                 let progress_width = (240.0 * item.progress_fraction()).max(2.0);
-                card = card.child(div().w_full().h(px(5.0)).rounded_md().bg(rgb(Theme::SURFACE_RAISED))
-                    .child(div().w(px(progress_width)).h(px(5.0)).rounded_md().bg(rgb(Theme::ACCENT))));
+                card = card.child(
+                    div()
+                        .w_full()
+                        .h(px(5.0))
+                        .rounded_md()
+                        .bg(rgb(Theme::SURFACE_RAISED))
+                        .child(
+                            div()
+                                .w(px(progress_width))
+                                .h(px(5.0))
+                                .rounded_md()
+                                .bg(rgb(Theme::ACCENT)),
+                        ),
+                );
             }
             if let Some(error) = item.error.as_deref() {
-                card = card.child(div().text_xs().text_color(rgb(Theme::DANGER)).child(error.to_owned()));
+                card = card.child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(Theme::DANGER))
+                        .child(error.to_owned()),
+                );
             }
             if let Some(url) = item.local_file_url() {
                 let play_url = url.clone();
-                card = card.child(div().id(format!("download-play-{}", item.id)).cursor_pointer()
-                    .rounded_md().bg(rgb(Theme::ACCENT_DARK)).px_3().py_2()
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.play_source(play_url.clone(), std::collections::BTreeMap::new(), cx);
-                    }))
-                    .child(div().text_xs().text_color(rgb(Theme::ACCENT)).child("PLAY OFFLINE")));
+                card = card.child(
+                    div()
+                        .id(format!("download-play-{}", item.id))
+                        .cursor_pointer()
+                        .rounded_md()
+                        .bg(rgb(Theme::ACCENT_DARK))
+                        .px_3()
+                        .py_2()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.play_source(
+                                play_url.clone(),
+                                std::collections::BTreeMap::new(),
+                                cx,
+                            );
+                        }))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(Theme::ACCENT))
+                                .child("PLAY OFFLINE"),
+                        ),
+                );
             }
             if item.status == DownloadStatus::Downloading {
                 let id = item.id.clone();
-                card = card.child(div().id(format!("download-pause-{}", item.id)).cursor_pointer()
-                    .rounded_md().bg(rgb(Theme::SURFACE_RAISED)).px_3().py_2()
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.notification = Some(match this.download_manager.pause(&id) {
-                            Ok(()) => "Download paused. The partial file is retained for resume.".to_owned(),
-                            Err(error) => format!("Could not pause download: {error}"),
-                        });
-                        cx.notify();
-                    }))
-                    .child(div().text_xs().text_color(rgb(Theme::TEXT_PRIMARY)).child("PAUSE")));
+                card = card.child(
+                    div()
+                        .id(format!("download-pause-{}", item.id))
+                        .cursor_pointer()
+                        .rounded_md()
+                        .bg(rgb(Theme::SURFACE_RAISED))
+                        .px_3()
+                        .py_2()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.notification = Some(match this.download_manager.pause(&id) {
+                                Ok(()) => {
+                                    "Download paused. The partial file is retained for resume."
+                                        .to_owned()
+                                }
+                                Err(error) => format!("Could not pause download: {error}"),
+                            });
+                            cx.notify();
+                        }))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(Theme::TEXT_PRIMARY))
+                                .child("PAUSE"),
+                        ),
+                );
             }
-            if matches!(item.status, DownloadStatus::Queued | DownloadStatus::Paused | DownloadStatus::Failed) {
+            if matches!(
+                item.status,
+                DownloadStatus::Queued | DownloadStatus::Paused | DownloadStatus::Failed
+            ) {
                 let id = item.id.clone();
-                card = card.child(div().id(format!("download-resume-{}", item.id)).cursor_pointer()
-                    .rounded_md().bg(rgb(Theme::ACCENT_DARK)).px_3().py_2()
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.notification = Some(match this.download_manager.resume(&id) {
-                            Ok(()) => "Download resumed.".to_owned(),
-                            Err(error) => format!("Could not resume download: {error}"),
-                        });
-                        cx.notify();
-                    }))
-                    .child(div().text_xs().text_color(rgb(Theme::ACCENT)).child("RESUME")));
+                card = card.child(
+                    div()
+                        .id(format!("download-resume-{}", item.id))
+                        .cursor_pointer()
+                        .rounded_md()
+                        .bg(rgb(Theme::ACCENT_DARK))
+                        .px_3()
+                        .py_2()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.notification = Some(match this.download_manager.resume(&id) {
+                                Ok(()) => "Download resumed.".to_owned(),
+                                Err(error) => format!("Could not resume download: {error}"),
+                            });
+                            cx.notify();
+                        }))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(Theme::ACCENT))
+                                .child("RESUME"),
+                        ),
+                );
             }
             let id = item.id.clone();
             let completed = item.status == DownloadStatus::Completed;
-            card = card.child(div().id(format!("download-remove-{}", item.id)).cursor_pointer()
-                .rounded_md().bg(rgb(Theme::SURFACE_RAISED)).px_3().py_2()
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    let result = if completed {
-                        this.download_manager.remove_completed(&id)
-                    } else {
-                        this.download_manager.cancel(&id)
-                    };
-                    this.notification = Some(match result {
-                        Ok(()) => if completed { "Downloaded file removed.".to_owned() } else { "Download cancelled.".to_owned() },
-                        Err(error) => format!("Could not remove download: {error}"),
-                    });
-                    cx.notify();
-                }))
-                .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(if completed { "REMOVE FILE" } else { "CANCEL" })));
+            card = card.child(
+                div()
+                    .id(format!("download-remove-{}", item.id))
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(Theme::SURFACE_RAISED))
+                    .px_3()
+                    .py_2()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let result = if completed {
+                            this.download_manager.remove_completed(&id)
+                        } else {
+                            this.download_manager.cancel(&id)
+                        };
+                        this.notification = Some(match result {
+                            Ok(()) => {
+                                if completed {
+                                    "Downloaded file removed.".to_owned()
+                                } else {
+                                    "Download cancelled.".to_owned()
+                                }
+                            }
+                            Err(error) => format!("Could not remove download: {error}"),
+                        });
+                        cx.notify();
+                    }))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(Theme::TEXT_MUTED))
+                            .child(if completed { "REMOVE FILE" } else { "CANCEL" }),
+                    ),
+            );
             list = list.child(card);
         }
         div().w_full().flex().flex_col().gap_4()
@@ -14053,7 +14169,10 @@ impl SenzoShell {
                 return;
             }
         };
-        match self.settings.set(&key, if enabled { "true" } else { "false" }) {
+        match self
+            .settings
+            .set(&key, if enabled { "true" } else { "false" })
+        {
             Ok(()) => {
                 self.notification = Some(if enabled {
                     "P2P transport enabled for this profile. Uploading remains disabled.".to_owned()
@@ -14107,18 +14226,21 @@ impl SenzoShell {
                 if cancel.is_cancelled() {
                     break;
                 }
-                let keep_running = this.update(cx, |this, cx| {
-                    if this.navigation.current() != AppPage::Downloads {
-                        return false;
-                    }
-                    cx.notify();
-                    true
-                }).unwrap_or(false);
+                let keep_running = this
+                    .update(cx, |this, cx| {
+                        if this.navigation.current() != AppPage::Downloads {
+                            return false;
+                        }
+                        cx.notify();
+                        true
+                    })
+                    .unwrap_or(false);
                 if !keep_running {
                     break;
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
     fn stop_active_torrent_session(&mut self) {
@@ -14149,8 +14271,14 @@ impl SenzoShell {
             );
             return;
         }
-        let SourceTarget::Torrent { info_hash, magnet_uri, file_index } = source.target else {
-            self.playback_error = Some("The selected source is not a supported torrent.".to_owned());
+        let SourceTarget::Torrent {
+            info_hash,
+            magnet_uri,
+            file_index,
+        } = source.target
+        else {
+            self.playback_error =
+                Some("The selected source is not a supported torrent.".to_owned());
             cx.notify();
             return;
         };
@@ -14165,17 +14293,20 @@ impl SenzoShell {
         self.torrent_start_cancel = cancel.clone();
         let runtime = self.tokio.clone();
         let task = runtime.spawn(async move {
-            let trackers = magnet_uri.as_deref()
+            let trackers = magnet_uri
+                .as_deref()
                 .and_then(|magnet| url::Url::parse(magnet).ok())
                 .map(|magnet| {
-                    magnet.query_pairs()
+                    magnet
+                        .query_pairs()
                         .filter_map(|(key, value)| (key == "tr").then(|| value.into_owned()))
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
-            let (mut session, files) = TorrentPlaybackSession::inspect_with_trackers(&info_hash, &trackers)
-                .await
-                .map_err(|error| format!("Could not inspect torrent metadata: {error:#}"))?;
+            let (mut session, files) =
+                TorrentPlaybackSession::inspect_with_trackers(&info_hash, &trackers)
+                    .await
+                    .map_err(|error| format!("Could not inspect torrent metadata: {error:#}"))?;
             let selected = file_index
                 .and_then(|index| files.iter().find(|file| file.index == index as usize))
                 .or_else(|| files.first());
@@ -14189,13 +14320,16 @@ impl SenzoShell {
                 Ok(url) => url,
                 Err(error) => {
                     let _ = session.shutdown().await;
-                    return Err(format!("Could not start the selected torrent file: {error:#}"));
+                    return Err(format!(
+                        "Could not start the selected torrent file: {error:#}"
+                    ));
                 }
             };
             Ok::<_, String>((session, stream_url, selected_name))
         });
         cx.spawn(async move |this, cx| {
-            let result = task.await
+            let result = task
+                .await
                 .map_err(|error| format!("Torrent worker failed: {error}"))
                 .and_then(|result| result);
             let _ = this.update(cx, |this, cx| {
@@ -14213,17 +14347,21 @@ impl SenzoShell {
                     Ok((session, stream_url, file_name)) => {
                         this.play_source(stream_url, std::collections::BTreeMap::new(), cx);
                         this.active_torrent_session = Some(session);
-                        this.notification = Some(format!("P2P stream ready: {file_name}. Uploading is disabled."));
+                        this.notification = Some(format!(
+                            "P2P stream ready: {file_name}. Uploading is disabled."
+                        ));
                     }
                     Err(error) => {
                         this.playback_open = false;
                         this.playback_error = Some(error);
-                        this.notification = Some("Torrent playback could not be started.".to_owned());
+                        this.notification =
+                            Some("Torrent playback could not be started.".to_owned());
                     }
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
         cx.notify();
     }
 

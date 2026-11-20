@@ -9,11 +9,11 @@ use anyhow::{Context, ensure};
 use senzo_addons::{AddonManager, AddonSecretStore};
 use senzo_artwork::{ArtworkConfig, ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_debrid::{DebridCredentialStore, DebridManager};
-use senzo_downloads::{DownloadManager, TorrentSessionDirectory};
 use senzo_domain::{
     LibraryRepository, ProfileRepository, ProfileScope, ProfileSecurityRepository,
     ProfileSettingsRepository, SettingKey, SettingsRepository, SyncOutboxRepository,
 };
+use senzo_downloads::{DownloadManager, TorrentSessionDirectory};
 use senzo_integrations::{MediaServerCredentialStore, MediaServerManager};
 use senzo_metadata::{
     DEFAULT_API_BASE_URL, DiscoverRequest, DiscoverSort, MediaType, MetadataClient,

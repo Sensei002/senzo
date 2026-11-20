@@ -79,7 +79,10 @@ impl TorrentSessionDirectory {
                 Err(error) if error.kind() == ErrorKind::PermissionDenied => continue,
                 Err(error) => {
                     return Err(error).with_context(|| {
-                        format!("failed to inspect torrent session lock {}", lock_path.display())
+                        format!(
+                            "failed to inspect torrent session lock {}",
+                            lock_path.display()
+                        )
                     });
                 }
             };
@@ -104,7 +107,8 @@ impl TorrentSessionDirectory {
                     }
                 }
                 Err(error)
-                    if error.kind() == ErrorKind::WouldBlock || is_windows_lock_violation(&error) =>
+                    if error.kind() == ErrorKind::WouldBlock
+                        || is_windows_lock_violation(&error) =>
                 {
                     // Another SENZO process still owns this active session. Windows
                     // reports LockFileEx contention as ERROR_LOCK_VIOLATION (33)
@@ -113,7 +117,10 @@ impl TorrentSessionDirectory {
                 Err(error) if error.kind() == ErrorKind::PermissionDenied => continue,
                 Err(error) => {
                     return Err(error).with_context(|| {
-                        format!("failed to acquire torrent session recovery lock {}", lock_path.display())
+                        format!(
+                            "failed to acquire torrent session recovery lock {}",
+                            lock_path.display()
+                        )
                     });
                 }
             }
@@ -144,10 +151,15 @@ impl TorrentSessionDirectory {
                         .read(true)
                         .write(true)
                         .open(&lock_path)
-                        .with_context(|| format!("failed to create torrent session lock {}", lock_path.display()))?;
-                    lock_file
-                        .try_lock_exclusive()
-                        .with_context(|| format!("failed to lock torrent session {}", path.display()))?;
+                        .with_context(|| {
+                            format!(
+                                "failed to create torrent session lock {}",
+                                lock_path.display()
+                            )
+                        })?;
+                    lock_file.try_lock_exclusive().with_context(|| {
+                        format!("failed to lock torrent session {}", path.display())
+                    })?;
                     return Ok(Self {
                         root,
                         path: Some(path),
@@ -296,8 +308,14 @@ mod tests {
             TorrentSessionDirectory::recover_abandoned_sessions_at(temp.path()).unwrap(),
             1
         );
-        assert!(active_path.is_dir(), "another running process still owns this session");
-        assert!(!abandoned.exists(), "unlocked crash residue should be removed");
+        assert!(
+            active_path.is_dir(),
+            "another running process still owns this session"
+        );
+        assert!(
+            !abandoned.exists(),
+            "unlocked crash residue should be removed"
+        );
         drop(active);
         assert!(!active_path.exists());
     }
