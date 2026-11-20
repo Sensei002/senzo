@@ -12,6 +12,7 @@ senzo-debrid = { path = "../senzo-debrid" }
 senzo-addons = { path = "../senzo-addons" }
 senzo-plugins = { path = "../senzo-plugins" }
 senzo-integrations = { path = "../senzo-integrations" }
+senzo-domain = { path = "../senzo-domain" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
