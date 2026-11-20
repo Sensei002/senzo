@@ -34,40 +34,7 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --disable-pip-version-check pillow
-          @'
-          from pathlib import Path
-          from PIL import Image
-
-          source = Path("assets/branding/senzo-logo.png")
-          if not source.is_file():
-              raise SystemExit("Canonical SENZO logo is missing.")
-
-          logo = Image.open(source).convert("RGBA")
-          if logo.width < 1 or logo.height < 1:
-              raise SystemExit("Canonical SENZO logo is empty.")
-
-          # Preserve the uploaded artwork exactly for all full-logo placements.
-          logo.save("app/ui/assets/images/logo.png")
-          logo.save("app/ui/assets/images/senzo-logo.png")
-
-          # Derive square application icons by containing (never cropping or
-          # redrawing) the canonical artwork on SENZO's solid black background.
-          canvas_size = 512
-          canvas = Image.new("RGBA", (canvas_size, canvas_size), (10, 10, 10, 255))
-          contained = logo.copy()
-          contained.thumbnail((440, 440), Image.Resampling.LANCZOS)
-          x = (canvas_size - contained.width) // 2
-          y = (canvas_size - contained.height) // 2
-          canvas.alpha_composite(contained, (x, y))
-
-          canvas.save("app/ui/assets/images/app_icon.png", optimize=True)
-          canvas.save(
-              "app/assets/app.ico",
-              format="ICO",
-              sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
-          )
-          '@ | Set-Content -Path "$env:RUNNER_TEMP\make_senzo_icons.py" -Encoding utf8
-          python "$env:RUNNER_TEMP\make_senzo_icons.py"
+          python scripts/create_senzo_brand_assets.py
 
       - name: Commit SENZO branding assets
         shell: bash
