@@ -33,7 +33,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\stage_windows_msvc_r
 if errorlevel 1 exit /b %errorlevel%
 
 echo Creating the installer...
-"%ISCC_EXE%" "/DAppVersion=%APP_VERSION%" "/DBuildRoot=%CD%\target\release" "/DArtifactsDir=%CD%\artifacts" setup\StremioNative.iss
+"%ISCC_EXE%" "/DAppVersion=%APP_VERSION%" "/DBuildRoot=%CD%\target\release" "/DArtifactsDir=%CD%\artifacts" setup\SENZONative.iss
 if errorlevel 1 exit /b %errorlevel%
 
 set "INSTALLER=%CD%\artifacts\SENZO-Setup-v%APP_VERSION%-x64.exe"
@@ -46,15 +46,15 @@ if not exist "%INSTALLER%" (
 )
 
 if not exist "%UPDATER_PACKAGE_DIR%" mkdir "%UPDATER_PACKAGE_DIR%"
-if exist "%UPDATER_PACKAGE_DIR%\senzo-installer.exe" del /q "%UPDATER_PACKAGE_DIR%\stremio-installer.exe"
-copy /y "%INSTALLER%" "%UPDATER_PACKAGE_DIR%\stremio-installer.exe" >nul
+if exist "%UPDATER_PACKAGE_DIR%\senzo-installer.exe" del /q "%UPDATER_PACKAGE_DIR%\senzo-installer.exe"
+copy /y "%INSTALLER%" "%UPDATER_PACKAGE_DIR%\senzo-installer.exe" >nul
 if errorlevel 1 exit /b %errorlevel%
 
 if exist "%UPDATER_ARCHIVE%" del /q "%UPDATER_ARCHIVE%"
-tar -a -c -f "%UPDATER_ARCHIVE%" -C "%UPDATER_PACKAGE_DIR%" stremio-installer.exe
+tar -a -c -f "%UPDATER_ARCHIVE%" -C "%UPDATER_PACKAGE_DIR%" senzo-installer.exe
 if errorlevel 1 exit /b %errorlevel%
 
-del /q "%UPDATER_PACKAGE_DIR%\stremio-installer.exe"
+del /q "%UPDATER_PACKAGE_DIR%\senzo-installer.exe"
 rmdir "%UPDATER_PACKAGE_DIR%"
 
 echo Installer and updater archive created in %CD%\artifacts.
