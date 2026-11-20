@@ -9,7 +9,10 @@ use anyhow::{Context, ensure};
 use senzo_addons::{AddonManager, AddonSecretStore};
 use senzo_artwork::{ArtworkConfig, ArtworkService, ArtworkSize, ArtworkUrlResolver};
 use senzo_debrid::{DebridCredentialStore, DebridManager};
-use senzo_domain::{ProfileRepository, SettingsRepository};
+use senzo_domain::{
+    LibraryRepository, ProfileRepository, ProfileScope, ProfileSecurityRepository,
+    ProfileSettingsRepository, SettingKey, SettingsRepository, SyncOutboxRepository,
+};
 use senzo_integrations::{MediaServerCredentialStore, MediaServerManager};
 use senzo_metadata::{
     DEFAULT_API_BASE_URL, DiscoverRequest, DiscoverSort, MediaType, MetadataClient,
@@ -23,7 +26,7 @@ use senzo_sources::{
     AddonSourceAdapter, MediaServerSourceAdapter, PluginSourceAdapter, SourceAdapter,
     SourceAggregator,
 };
-use senzo_storage::SqliteDatabase;
+use senzo_storage::{ProfileScopedSettingsRepository, SqliteDatabase};
 use tokio::runtime::{Builder, Runtime};
 use tokio_util::sync::CancellationToken;
 
@@ -96,6 +99,11 @@ impl MediaServerCredentialStore for PlatformMediaServerSecrets {
 struct AppServices {
     _settings: Arc<dyn SettingsRepository>,
     _profiles: Arc<dyn ProfileRepository>,
+    _library: Arc<dyn LibraryRepository>,
+    _profile_security: Arc<dyn ProfileSecurityRepository>,
+    _profile_settings: Arc<dyn ProfileSettingsRepository>,
+    _sync_outbox: Arc<dyn SyncOutboxRepository>,
+    _profile_scope: ProfileScope,
     _playback_progress: Arc<dyn senzo_domain::PlaybackProgressRepository>,
     _metadata: MetadataClient,
     _artwork: ArtworkService,
@@ -142,6 +150,18 @@ fn run() -> anyhow::Result<()> {
     )
     .context("initialize the bounded native artwork cache")?;
 
+    let profile_scope = ProfileScope::new("default");
+    let known_profiles = database.list_profiles().context("load local profiles")?;
+    let active_profile_key = SettingKey::new("profiles.active")?;
+    let stored_profile_id = database.get(&active_profile_key)
+        .context("read the last active profile")?
+        .filter(|id| known_profiles.iter().any(|profile| profile.id == *id))
+        .unwrap_or_else(|| "default".to_owned());
+    profile_scope.set(stored_profile_id);
+    let scoped_settings: Arc<dyn SettingsRepository> = Arc::new(
+        ProfileScopedSettingsRepository::new(database.clone(), profile_scope.clone())
+    );
+
     let credentials: Arc<dyn CredentialStore> =
         Arc::new(KeyringCredentialStore::new("SENZO Desktop"));
     let addon_manager = AddonManager::new(
@@ -162,19 +182,24 @@ fn run() -> anyhow::Result<()> {
     )
     .context("initialize the Jellyfin and Emby provider manager")?;
     let source_adapters: Vec<Arc<dyn SourceAdapter>> = vec![
-        Arc::new(AddonSourceAdapter::new(addon_manager.clone(), "default")),
-        Arc::new(PluginSourceAdapter::new(plugin_manager.clone(), "default")),
-        Arc::new(MediaServerSourceAdapter::new(
+        Arc::new(AddonSourceAdapter::new_scoped(addon_manager.clone(), profile_scope.clone())),
+        Arc::new(PluginSourceAdapter::new_scoped(plugin_manager.clone(), profile_scope.clone())),
+        Arc::new(MediaServerSourceAdapter::new_scoped(
             media_server_manager.clone(),
-            "default",
+            profile_scope.clone(),
         )),
     ];
     let source_aggregator =
         SourceAggregator::new(source_adapters).with_debrid(debrid_manager.clone());
 
     let services = AppServices {
-        _settings: database.clone(),
+        _settings: scoped_settings.clone(),
         _profiles: database.clone(),
+        _library: database.clone(),
+        _profile_security: database.clone(),
+        _profile_settings: database.clone(),
+        _sync_outbox: database.clone(),
+        _profile_scope: profile_scope.clone(),
         _playback_progress: database.clone(),
         _metadata: metadata.clone(),
         _artwork: artwork.clone(),
@@ -229,7 +254,13 @@ fn run() -> anyhow::Result<()> {
             tokio: runtime.handle().clone(),
             metadata,
             artwork,
-            settings: database.clone(),
+            settings: scoped_settings,
+            profiles: database.clone(),
+            library: database.clone(),
+            profile_security: database.clone(),
+            profile_settings: database.clone(),
+            sync_outbox: database.clone(),
+            profile_scope,
             playback_progress: database.clone(),
             addon_manager,
             plugin_manager,
