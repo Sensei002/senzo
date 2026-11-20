@@ -300,16 +300,22 @@ See docs/PHASE_5_IMPLEMENTATION.md.
 
 ## Phase 13 — Downloads and P2P transport
 
-- [ ] Implement download queue, progress, retry, cancel and local playback.
-- [ ] Implement P2P consent and settings.
-- [ ] Port Nuvio P2P engine behavior behind a Rust transport boundary.
-- [ ] Evaluate/reuse Rust torrent transport only after protocol and behavior comparison.
-- [ ] Implement selected-file streaming and HTTP Range support.
-- [ ] Implement cache and engine statistics.
-- [ ] Implement orderly cancellation, cleanup and crash recovery.
-- [ ] Verify seek, buffering and shutdown with real sources.
+<badge color="success">Windows implementation complete · live-source acceptance pending</badge>
 
-**Gate:** Downloads and P2P do not corrupt playback or leave active temporary sessions.
+- [x] Implement profile-scoped download queue, progress, bounded retry, pause/resume, cancel, completed-file removal and local playback.
+- [x] Implement explicit per-profile P2P consent and Settings controls; P2P remains disabled by default.
+- [x] Port the selected-file P2P streaming path behind the Rust `senzo-downloads` transport boundary.
+- [x] Evaluate and integrate the pinned Rust `librqbit 9.1.0` engine after protocol/byte-range comparison.
+- [x] Implement torrent video-file enumeration, selected-file streaming, loopback HTTP byte ranges and MPV seeking.
+- [x] Implement temporary session storage, engine progress/statistics and transfer progress.
+- [x] Implement cancellation, ordered MPV/engine shutdown, interrupted-download resume and abandoned-session recovery.
+- [ ] Verify seek, sustained buffering and shutdown against a real, legally accessible torrent source on a Windows desktop.
+
+**Automated gate:** The Windows workflow exercises HTTP Range resume against a local fixture, download queue recovery and profile isolation, local-file playback URL validation, torrent helper validation, full workspace Clippy/tests, release build and application startup/shutdown. The live torrent swarm check is not claimed as passed; Linux CI remains deferred.
+
+**Security boundary:** P2P is off by default and requires a profile-level opt-in after a privacy notice. Uploading/seeding is disabled in this build; the torrent endpoint binds to loopback only. Source URLs and HTTP authorization headers are held in the OS credential vault, not the persisted queue.
+
+**Implementation report:** [docs/PHASE_13_IMPLEMENTATION.md](PHASE_13_IMPLEMENTATION.md).
 
 ## Phase 14 — Subtitles, audio and advanced playback preferences
 

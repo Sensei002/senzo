@@ -60,6 +60,10 @@ jobs:
           cargo test -p senzo-storage phase12_ --locked
           cargo test -p senzo-sync --locked
           cargo test -p senzo-ui phase12_ --locked
+      - name: Verify Phase 13 downloads and P2P transport
+        run: |
+          cargo test -p senzo-downloads --locked
+          cargo test -p senzo-player local_files_must_exist_before_they_can_be_played --locked
       - name: Build native Windows application
         run: cargo build --release --locked -p senzo-app
       - name: Smoke-test native window startup and shutdown
