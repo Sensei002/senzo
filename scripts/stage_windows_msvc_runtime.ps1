@@ -82,7 +82,7 @@ function Find-Dumpbin {
 }
 
 $resolvedBuildRoot = [System.IO.Path]::GetFullPath($BuildRoot)
-$application = Join-Path $resolvedBuildRoot "stremio-native.exe"
+$application = Join-Path $resolvedBuildRoot "senzo.exe"
 $mpv = Join-Path $resolvedBuildRoot "libmpv-2.dll"
 foreach ($required in @($application, $mpv)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
