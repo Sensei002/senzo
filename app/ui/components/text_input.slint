@@ -81,9 +81,10 @@ export component NativeTextField inherits Rectangle {
     height: 3.5 * root.unit;
     border-radius: Theme.border-radius;
     border-width: field.has-focus ? Theme.focus-outline-size : 0px;
-    border-color: root.focus-color;
-    background: root.surface-color;
-    opacity: root.enabled ? 1 : 0.5;
+    border-color: field.has-focus ? Theme.primary-accent : root.focus-color;
+    background: field.has-focus ? Theme.primary-accent.with-alpha(0.055) : root.surface-color;
+    opacity: root.enabled ? 1 : 0.48;
+    animate border-width, border-color, background, opacity { duration: Theme.motion-control; easing: ease-out; }
 
     field := StremioTextInput {
         width: parent.width;
@@ -117,7 +118,8 @@ export component SearchBar inherits Rectangle {
     height: 3 * root.unit;
     border-radius: root.height / 2;
     border-width: Theme.focus-outline-size;
-    border-color: root.has-focus ? Theme.primary-foreground : transparent;
+    border-color: root.has-focus ? Theme.primary-accent : transparent;
+    animate border-color { duration: Theme.motion-control; easing: ease-out; }
     background: Theme.overlay-color;
 
     TouchArea {
