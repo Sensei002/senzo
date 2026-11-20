@@ -10,8 +10,8 @@ use std::{
 use async_trait::async_trait;
 use senzo_addons::{AddonManager, AddonStream};
 use senzo_debrid::{DebridFileHint, DebridManager, DebridProviderId, ResolvedDebridSource};
-use senzo_integrations::MediaServerManager;
 use senzo_domain::ProfileScope;
+use senzo_integrations::MediaServerManager;
 use senzo_plugins::{PluginManager, PluginStream, ScraperInput, StreamTarget as PluginTarget};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -329,11 +329,18 @@ impl AddonSourceAdapter {
     }
 
     pub fn new_scoped(manager: AddonManager, profile_scope: ProfileScope) -> Self {
-        Self { manager, profile_id: "default".to_owned(), profile_scope: Some(profile_scope) }
+        Self {
+            manager,
+            profile_id: "default".to_owned(),
+            profile_scope: Some(profile_scope),
+        }
     }
 
     fn active_profile_id(&self) -> String {
-        self.profile_scope.as_ref().map(ProfileScope::current).unwrap_or_else(|| self.profile_id.clone())
+        self.profile_scope
+            .as_ref()
+            .map(ProfileScope::current)
+            .unwrap_or_else(|| self.profile_id.clone())
     }
 }
 
@@ -418,11 +425,18 @@ impl PluginSourceAdapter {
     }
 
     pub fn new_scoped(manager: PluginManager, profile_scope: ProfileScope) -> Self {
-        Self { manager, profile_id: "default".to_owned(), profile_scope: Some(profile_scope) }
+        Self {
+            manager,
+            profile_id: "default".to_owned(),
+            profile_scope: Some(profile_scope),
+        }
     }
 
     fn active_profile_id(&self) -> String {
-        self.profile_scope.as_ref().map(ProfileScope::current).unwrap_or_else(|| self.profile_id.clone())
+        self.profile_scope
+            .as_ref()
+            .map(ProfileScope::current)
+            .unwrap_or_else(|| self.profile_id.clone())
     }
 }
 
@@ -508,11 +522,18 @@ impl MediaServerSourceAdapter {
     }
 
     pub fn new_scoped(manager: MediaServerManager, profile_scope: ProfileScope) -> Self {
-        Self { manager, profile_id: "default".to_owned(), profile_scope: Some(profile_scope) }
+        Self {
+            manager,
+            profile_id: "default".to_owned(),
+            profile_scope: Some(profile_scope),
+        }
     }
 
     fn active_profile_id(&self) -> String {
-        self.profile_scope.as_ref().map(ProfileScope::current).unwrap_or_else(|| self.profile_id.clone())
+        self.profile_scope
+            .as_ref()
+            .map(ProfileScope::current)
+            .unwrap_or_else(|| self.profile_id.clone())
     }
 }
 

@@ -108,10 +108,16 @@ struct PulledMutation {
 }
 
 impl CloudService {
-    pub fn new(base_url: &str, credential_store: Arc<dyn CredentialStore>) -> Result<Self, CloudError> {
+    pub fn new(
+        base_url: &str,
+        credential_store: Arc<dyn CredentialStore>,
+    ) -> Result<Self, CloudError> {
         let base_url = Url::parse(base_url).map_err(|_| CloudError::InvalidBaseUrl)?;
         let local_http = base_url.scheme() == "http"
-            && matches!(base_url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+            && matches!(
+                base_url.host_str(),
+                Some("localhost" | "127.0.0.1" | "[::1]")
+            );
         if (base_url.scheme() != "https" && !local_http)
             || base_url.host_str().is_none()
             || !base_url.username().is_empty()
@@ -128,7 +134,11 @@ impl CloudService {
             .user_agent(concat!("SENZO/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|error| CloudError::Transport(error.without_url().to_string()))?;
-        Ok(Self { base_url, client, credential_store })
+        Ok(Self {
+            base_url,
+            client,
+            credential_store,
+        })
     }
 
     fn endpoint(&self, path: &str) -> String {
@@ -136,7 +146,10 @@ impl CloudService {
     }
 
     fn session_key(profile_id: &str) -> Result<String, CloudError> {
-        if profile_id.trim().is_empty() || profile_id.len() > 128 || profile_id.chars().any(char::is_control) {
+        if profile_id.trim().is_empty()
+            || profile_id.len() > 128
+            || profile_id.chars().any(char::is_control)
+        {
             return Err(CloudError::InvalidResponse);
         }
         Ok(format!("cloud-session:{profile_id}"))
@@ -152,22 +165,35 @@ impl CloudService {
         if let Some(token) = access_token {
             request = request.bearer_auth(token);
         }
-        let response = request.send().await
+        let response = request
+            .send()
+            .await
             .map_err(|error| CloudError::Transport(error.without_url().to_string()))?;
         let status = response.status();
-        let body = response.json::<Value>().await.map_err(|_| CloudError::InvalidResponse)?;
+        let body = response
+            .json::<Value>()
+            .await
+            .map_err(|_| CloudError::InvalidResponse)?;
         Ok((status, body))
     }
 
     fn decode_session(payload: SessionPayload) -> Result<CloudSession, CloudError> {
         let user = payload.user.ok_or(CloudError::InvalidResponse)?;
-        let access_token = payload.access_token.filter(|value| !value.is_empty() && value.len() <= 8192)
+        let access_token = payload
+            .access_token
+            .filter(|value| !value.is_empty() && value.len() <= 8192)
             .ok_or(CloudError::InvalidResponse)?;
-        let refresh_token = payload.refresh_token.filter(|value| !value.is_empty() && value.len() <= 4096)
+        let refresh_token = payload
+            .refresh_token
+            .filter(|value| !value.is_empty() && value.len() <= 4096)
             .ok_or(CloudError::InvalidResponse)?;
-        let user_id = user.id.filter(|value| !value.is_empty() && value.len() <= 128)
+        let user_id = user
+            .id
+            .filter(|value| !value.is_empty() && value.len() <= 128)
             .ok_or(CloudError::InvalidResponse)?;
-        let expires_in = payload.expires_in.filter(|value| (60..=31_536_000).contains(value))
+        let expires_in = payload
+            .expires_in
+            .filter(|value| (60..=31_536_000).contains(value))
             .ok_or(CloudError::InvalidResponse)?;
         Ok(CloudSession {
             access_token,
@@ -180,7 +206,8 @@ impl CloudService {
 
     fn store_session(&self, profile_id: &str, session: &CloudSession) -> Result<(), CloudError> {
         let encoded = serde_json::to_string(session).map_err(|_| CloudError::InvalidResponse)?;
-        self.credential_store.set(&Self::session_key(profile_id)?, &encoded)?;
+        self.credential_store
+            .set(&Self::session_key(profile_id)?, &encoded)?;
         Ok(())
     }
 
@@ -188,8 +215,12 @@ impl CloudService {
         let Some(raw) = self.credential_store.get(&Self::session_key(profile_id)?)? else {
             return Ok(None);
         };
-        let session: CloudSession = serde_json::from_str(&raw).map_err(|_| CloudError::InvalidResponse)?;
-        if session.access_token.is_empty() || session.refresh_token.is_empty() || session.user_id.is_empty() {
+        let session: CloudSession =
+            serde_json::from_str(&raw).map_err(|_| CloudError::InvalidResponse)?;
+        if session.access_token.is_empty()
+            || session.refresh_token.is_empty()
+            || session.user_id.is_empty()
+        {
             return Err(CloudError::InvalidResponse);
         }
         Ok(Some(session))
@@ -203,37 +234,66 @@ impl CloudService {
         display_name: Option<&str>,
     ) -> Result<SignupResult, CloudError> {
         validate_email_password(email, password)?;
-        let (status, body) = self.post_json(
-            "/api/account/signup",
-            &json!({"email":email,"password":password,"display_name":display_name}),
-            None,
-        ).await?;
-        if status == StatusCode::SERVICE_UNAVAILABLE { return Err(CloudError::NotConfigured); }
-        if !status.is_success() { return Err(map_http(status)); }
-        let envelope: SessionEnvelope = serde_json::from_value(body).map_err(|_| CloudError::InvalidResponse)?;
+        let (status, body) = self
+            .post_json(
+                "/api/account/signup",
+                &json!({"email":email,"password":password,"display_name":display_name}),
+                None,
+            )
+            .await?;
+        if status == StatusCode::SERVICE_UNAVAILABLE {
+            return Err(CloudError::NotConfigured);
+        }
+        if !status.is_success() {
+            return Err(map_http(status));
+        }
+        let envelope: SessionEnvelope =
+            serde_json::from_value(body).map_err(|_| CloudError::InvalidResponse)?;
         if envelope.confirmation_required.unwrap_or(false) {
-            return Ok(SignupResult { confirmation_required: true, message: envelope.message });
+            return Ok(SignupResult {
+                confirmation_required: true,
+                message: envelope.message,
+            });
         }
         let session = Self::decode_session(envelope.session.ok_or(CloudError::InvalidResponse)?)?;
         self.store_session(profile_id, &session)?;
-        Ok(SignupResult { confirmation_required: false, message: None })
+        Ok(SignupResult {
+            confirmation_required: false,
+            message: None,
+        })
     }
 
-    pub async fn login(&self, profile_id: &str, email: &str, password: &str) -> Result<CloudSession, CloudError> {
+    pub async fn login(
+        &self,
+        profile_id: &str,
+        email: &str,
+        password: &str,
+    ) -> Result<CloudSession, CloudError> {
         validate_email_password(email, password)?;
-        let (status, body) = self.post_json(
-            "/api/account/login", &json!({"email":email,"password":password}), None,
-        ).await?;
-        if status == StatusCode::SERVICE_UNAVAILABLE { return Err(CloudError::NotConfigured); }
-        if !status.is_success() { return Err(map_http(status)); }
-        let envelope: SessionEnvelope = serde_json::from_value(body).map_err(|_| CloudError::InvalidResponse)?;
+        let (status, body) = self
+            .post_json(
+                "/api/account/login",
+                &json!({"email":email,"password":password}),
+                None,
+            )
+            .await?;
+        if status == StatusCode::SERVICE_UNAVAILABLE {
+            return Err(CloudError::NotConfigured);
+        }
+        if !status.is_success() {
+            return Err(map_http(status));
+        }
+        let envelope: SessionEnvelope =
+            serde_json::from_value(body).map_err(|_| CloudError::InvalidResponse)?;
         let session = Self::decode_session(envelope.session.ok_or(CloudError::InvalidResponse)?)?;
         self.store_session(profile_id, &session)?;
         Ok(session)
     }
 
     pub async fn session(&self, profile_id: &str) -> Result<Option<CloudSession>, CloudError> {
-        let Some(session) = self.stored_session(profile_id)? else { return Ok(None) };
+        let Some(session) = self.stored_session(profile_id)? else {
+            return Ok(None);
+        };
         if session.expires_at_ms > now_ms().saturating_add(SESSION_REFRESH_MARGIN_MS) {
             return Ok(Some(session));
         }
@@ -242,22 +302,35 @@ impl CloudService {
             Err(CloudError::Unauthorized) => {
                 // A revoked/invalid refresh token is terminal. A network or server
                 // error is not: retain the refresh token so the user can retry online.
-                let _ = self.credential_store.delete(&Self::session_key(profile_id)?);
+                let _ = self
+                    .credential_store
+                    .delete(&Self::session_key(profile_id)?);
                 Err(CloudError::Unauthorized)
             }
             Err(error) => Err(error),
         }
     }
 
-    pub async fn refresh(&self, profile_id: &str, refresh_token: &str) -> Result<CloudSession, CloudError> {
+    pub async fn refresh(
+        &self,
+        profile_id: &str,
+        refresh_token: &str,
+    ) -> Result<CloudSession, CloudError> {
         if refresh_token.is_empty() || refresh_token.len() > 4096 {
             return Err(CloudError::InvalidResponse);
         }
-        let (status, body) = self.post_json(
-            "/api/account/refresh", &json!({"refresh_token":refresh_token}), None,
-        ).await?;
-        if !status.is_success() { return Err(map_http(status)); }
-        let envelope: SessionEnvelope = serde_json::from_value(body).map_err(|_| CloudError::InvalidResponse)?;
+        let (status, body) = self
+            .post_json(
+                "/api/account/refresh",
+                &json!({"refresh_token":refresh_token}),
+                None,
+            )
+            .await?;
+        if !status.is_success() {
+            return Err(map_http(status));
+        }
+        let envelope: SessionEnvelope =
+            serde_json::from_value(body).map_err(|_| CloudError::InvalidResponse)?;
         let session = Self::decode_session(envelope.session.ok_or(CloudError::InvalidResponse)?)?;
         self.store_session(profile_id, &session)?;
         Ok(session)
@@ -267,9 +340,22 @@ impl CloudService {
         let key = Self::session_key(profile_id)?;
         let session = self.stored_session(profile_id)?;
         let remote = if let Some(session) = session {
-            self.post_json("/api/account/logout", &json!({}), Some(&session.access_token)).await
-                .and_then(|(status, _)| if status.is_success() { Ok(()) } else { Err(map_http(status)) })
-        } else { Ok(()) };
+            self.post_json(
+                "/api/account/logout",
+                &json!({}),
+                Some(&session.access_token),
+            )
+            .await
+            .and_then(|(status, _)| {
+                if status.is_success() {
+                    Ok(())
+                } else {
+                    Err(map_http(status))
+                }
+            })
+        } else {
+            Ok(())
+        };
         self.credential_store.delete(&key)?;
         remote
     }
@@ -279,37 +365,50 @@ impl CloudService {
         profile_id: &str,
         repository: &dyn SyncOutboxRepository,
     ) -> Result<SyncReport, CloudError> {
-        let session = self.session(profile_id).await?.ok_or(CloudError::Unauthorized)?;
+        let session = self
+            .session(profile_id)
+            .await?
+            .ok_or(CloudError::Unauthorized)?;
         let mut report = SyncReport::default();
 
         for _ in 0..100 {
-            let batch = repository.list_pending_sync_mutations(profile_id, now_ms(), SYNC_BATCH_SIZE)?;
-            if batch.is_empty() { break; }
-            let outgoing = batch.iter().map(|item| {
-                // The API validates a bounded serialized payload, parses it server-side,
-                // and passes the decoded JSON value to the authenticated database RPC.
-                let _: Value = serde_json::from_str(&item.payload_json)
-                    .map_err(|_| CloudError::InvalidResponse)?;
-                Ok(json!({
-                    "id":item.id,
-                    "entity_type":item.entity_type,
-                    "entity_id":item.entity_id,
-                    "operation":item.operation,
-                    "payload_json":item.payload_json,
-                    "changed_at_ms":item.changed_at_ms
-                }))
-            }).collect::<Result<Vec<_>, CloudError>>()?;
-            let (status, _) = self.post_json(
-                "/api/sync",
-                &json!({"operation":"push","profile_id":profile_id,"mutations":outgoing}),
-                Some(&session.access_token),
-            ).await?;
+            let batch =
+                repository.list_pending_sync_mutations(profile_id, now_ms(), SYNC_BATCH_SIZE)?;
+            if batch.is_empty() {
+                break;
+            }
+            let outgoing = batch
+                .iter()
+                .map(|item| {
+                    // The API validates a bounded serialized payload, parses it server-side,
+                    // and passes the decoded JSON value to the authenticated database RPC.
+                    let _: Value = serde_json::from_str(&item.payload_json)
+                        .map_err(|_| CloudError::InvalidResponse)?;
+                    Ok(json!({
+                        "id":item.id,
+                        "entity_type":item.entity_type,
+                        "entity_id":item.entity_id,
+                        "operation":item.operation,
+                        "payload_json":item.payload_json,
+                        "changed_at_ms":item.changed_at_ms
+                    }))
+                })
+                .collect::<Result<Vec<_>, CloudError>>()?;
+            let (status, _) = self
+                .post_json(
+                    "/api/sync",
+                    &json!({"operation":"push","profile_id":profile_id,"mutations":outgoing}),
+                    Some(&session.access_token),
+                )
+                .await?;
             if !status.is_success() {
                 for item in &batch {
                     let exponent = item.attempt_count.min(7);
                     let delay = 30_000_i64.saturating_mul(1_i64 << exponent).min(3_600_000);
                     let _ = repository.record_sync_mutation_failure(
-                        profile_id, &item.id, &format!("cloud push returned HTTP {}", status.as_u16()),
+                        profile_id,
+                        &item.id,
+                        &format!("cloud push returned HTTP {}", status.as_u16()),
                         now_ms().saturating_add(delay),
                     );
                 }
@@ -320,36 +419,55 @@ impl CloudService {
             report.pushed += batch.len();
         }
 
-        let current = repository.get_sync_checkpoint(profile_id, SYNC_PROVIDER)?
+        let current = repository
+            .get_sync_checkpoint(profile_id, SYNC_PROVIDER)?
             .unwrap_or_else(|| "0".to_owned());
-        let mut cursor = current.parse::<i64>().map_err(|_| CloudError::InvalidResponse)?;
+        let mut cursor = current
+            .parse::<i64>()
+            .map_err(|_| CloudError::InvalidResponse)?;
         for _ in 0..SYNC_MAX_PULL_PAGES {
             let (status, body) = self.post_json(
                 "/api/sync",
                 &json!({"operation":"pull","profile_id":profile_id,"cursor":cursor,"limit":SYNC_BATCH_SIZE}),
                 Some(&session.access_token),
             ).await?;
-            if !status.is_success() { return Err(map_http(status)); }
-            let page: PullEnvelope = serde_json::from_value(body).map_err(|_| CloudError::InvalidResponse)?;
-            let mutations = page.mutations.into_iter().map(|item| {
-                let payload_json = serde_json::to_string(&item.payload).map_err(|_| CloudError::InvalidResponse)?;
-                Ok(RemoteSyncMutation {
-                    cursor: item.cursor,
-                    entity_type: item.entity_type,
-                    entity_id: item.entity_id,
-                    operation: item.operation,
-                    payload_json,
-                    changed_at_ms: item.changed_at_ms,
+            if !status.is_success() {
+                return Err(map_http(status));
+            }
+            let page: PullEnvelope =
+                serde_json::from_value(body).map_err(|_| CloudError::InvalidResponse)?;
+            let mutations = page
+                .mutations
+                .into_iter()
+                .map(|item| {
+                    let payload_json = serde_json::to_string(&item.payload)
+                        .map_err(|_| CloudError::InvalidResponse)?;
+                    Ok(RemoteSyncMutation {
+                        cursor: item.cursor,
+                        entity_type: item.entity_type,
+                        entity_id: item.entity_id,
+                        operation: item.operation,
+                        payload_json,
+                        changed_at_ms: item.changed_at_ms,
+                    })
                 })
-            }).collect::<Result<Vec<_>, CloudError>>()?;
-            if page.next_cursor < cursor { return Err(CloudError::InvalidResponse); }
+                .collect::<Result<Vec<_>, CloudError>>()?;
+            if page.next_cursor < cursor {
+                return Err(CloudError::InvalidResponse);
+            }
             repository.apply_remote_sync_page(
-                profile_id, SYNC_PROVIDER, &page.next_cursor.to_string(), &mutations, now_ms(),
+                profile_id,
+                SYNC_PROVIDER,
+                &page.next_cursor.to_string(),
+                &mutations,
+                now_ms(),
             )?;
             report.pulled += mutations.len();
             cursor = page.next_cursor;
             report.has_more = page.has_more;
-            if !page.has_more || mutations.is_empty() { break; }
+            if !page.has_more || mutations.is_empty() {
+                break;
+            }
         }
         report.next_cursor = cursor.to_string();
         Ok(report)
@@ -357,7 +475,9 @@ impl CloudService {
 }
 
 fn validate_email_password(email: &str, password: &str) -> Result<(), CloudError> {
-    if email.len() > 254 || !email.contains('@') || email.chars().any(char::is_control)
+    if email.len() > 254
+        || !email.contains('@')
+        || email.chars().any(char::is_control)
         || !(8..=128).contains(&password.len())
     {
         return Err(CloudError::InvalidResponse);
@@ -374,7 +494,8 @@ fn map_http(status: StatusCode) -> CloudError {
 }
 
 fn now_ms() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis().min(i64::MAX as u128) as i64)
         .unwrap_or_default()
 }
@@ -394,9 +515,15 @@ mod tests {
 
     struct TestCredentials;
     impl CredentialStore for TestCredentials {
-        fn get(&self, _: &str) -> Result<Option<String>, CredentialError> { Ok(None) }
-        fn set(&self, _: &str, _: &str) -> Result<(), CredentialError> { Ok(()) }
-        fn delete(&self, _: &str) -> Result<(), CredentialError> { Ok(()) }
+        fn get(&self, _: &str) -> Result<Option<String>, CredentialError> {
+            Ok(None)
+        }
+        fn set(&self, _: &str, _: &str) -> Result<(), CredentialError> {
+            Ok(())
+        }
+        fn delete(&self, _: &str) -> Result<(), CredentialError> {
+            Ok(())
+        }
     }
 
     #[test]

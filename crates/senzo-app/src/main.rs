@@ -155,20 +155,21 @@ fn run() -> anyhow::Result<()> {
     let profile_scope = ProfileScope::new("default");
     let known_profiles = database.list_profiles().context("load local profiles")?;
     let active_profile_key = SettingKey::new("profiles.active")?;
-    let stored_profile_id = database.get(&active_profile_key)
+    let stored_profile_id = database
+        .get(&active_profile_key)
         .context("read the last active profile")?
         .filter(|id| known_profiles.iter().any(|profile| profile.id == *id))
         .unwrap_or_else(|| "default".to_owned());
     profile_scope.set(stored_profile_id);
     let scoped_settings: Arc<dyn SettingsRepository> = Arc::new(
-        ProfileScopedSettingsRepository::new(database.clone(), profile_scope.clone())
+        ProfileScopedSettingsRepository::new(database.clone(), profile_scope.clone()),
     );
 
     let credentials: Arc<dyn CredentialStore> =
         Arc::new(KeyringCredentialStore::new("SENZO Desktop"));
     let cloud_service = Arc::new(
         CloudService::new(DEFAULT_API_BASE_URL, credentials.clone())
-            .context("initialize optional cloud account service")?
+            .context("initialize optional cloud account service")?,
     );
     let addon_manager = AddonManager::new(
         database.clone(),
@@ -188,8 +189,14 @@ fn run() -> anyhow::Result<()> {
     )
     .context("initialize the Jellyfin and Emby provider manager")?;
     let source_adapters: Vec<Arc<dyn SourceAdapter>> = vec![
-        Arc::new(AddonSourceAdapter::new_scoped(addon_manager.clone(), profile_scope.clone())),
-        Arc::new(PluginSourceAdapter::new_scoped(plugin_manager.clone(), profile_scope.clone())),
+        Arc::new(AddonSourceAdapter::new_scoped(
+            addon_manager.clone(),
+            profile_scope.clone(),
+        )),
+        Arc::new(PluginSourceAdapter::new_scoped(
+            plugin_manager.clone(),
+            profile_scope.clone(),
+        )),
         Arc::new(MediaServerSourceAdapter::new_scoped(
             media_server_manager.clone(),
             profile_scope.clone(),

@@ -904,13 +904,25 @@ pub(crate) struct SenzoShell {
 
 fn cloud_error_message(error: &CloudError) -> String {
     match error {
-        CloudError::NotConfigured => "Cloud account and sync are not configured on the API deployment.".to_owned(),
-        CloudError::Unauthorized => "Sign in again: this cloud session is no longer valid.".to_owned(),
-        CloudError::Http(status) => format!("The cloud service rejected the request (HTTP {status})."),
-        CloudError::Transport(_) => "Could not reach the cloud service. Local changes remain safely queued.".to_owned(),
-        CloudError::Credential(_) => "The operating system could not access secure credential storage.".to_owned(),
+        CloudError::NotConfigured => {
+            "Cloud account and sync are not configured on the API deployment.".to_owned()
+        }
+        CloudError::Unauthorized => {
+            "Sign in again: this cloud session is no longer valid.".to_owned()
+        }
+        CloudError::Http(status) => {
+            format!("The cloud service rejected the request (HTTP {status}).")
+        }
+        CloudError::Transport(_) => {
+            "Could not reach the cloud service. Local changes remain safely queued.".to_owned()
+        }
+        CloudError::Credential(_) => {
+            "The operating system could not access secure credential storage.".to_owned()
+        }
         CloudError::InvalidBaseUrl => "The cloud API URL is invalid.".to_owned(),
-        CloudError::InvalidResponse => "The cloud service returned an unexpected response.".to_owned(),
+        CloudError::InvalidResponse => {
+            "The cloud service returned an unexpected response.".to_owned()
+        }
         CloudError::Repository(error) => format!("Local sync storage failed: {error}"),
     }
 }
@@ -927,11 +939,15 @@ fn merge_library_home_collections(
             .into_iter()
             .flatten()
             .map(|item| HomeCollectionFolder {
-                id: format!("{}-{}", match item.media_kind {
-                    MediaKind::Movie => "movie",
-                    MediaKind::Series => "series",
-                    MediaKind::Episode => "episode",
-                }, item.media_id),
+                id: format!(
+                    "{}-{}",
+                    match item.media_kind {
+                        MediaKind::Movie => "movie",
+                        MediaKind::Series => "series",
+                        MediaKind::Episode => "episode",
+                    },
+                    item.media_id
+                ),
                 title: item.title.clone(),
                 poster_shape: HomeCollectionPosterShape::Poster,
                 cover_emoji: None,
@@ -1189,29 +1205,35 @@ impl SenzoShell {
             tracing::warn!(error = %error, "could not load local profiles");
             Vec::new()
         });
-        let active_profile_name = profiles.iter()
+        let active_profile_name = profiles
+            .iter()
             .find(|profile| profile.id == active_profile_id)
             .map(|profile| profile.name.clone())
             .unwrap_or_else(|| "Default".to_owned());
-        let profile_locked = profile_security_repository.has_profile_pin(&active_profile_id).unwrap_or(false);
+        let profile_locked = profile_security_repository
+            .has_profile_pin(&active_profile_id)
+            .unwrap_or(false);
         let profile_name_input = cx.new(|cx| {
-            InputState::new(window, cx).default_value(active_profile_name).placeholder("Profile name")
+            InputState::new(window, cx)
+                .default_value(active_profile_name)
+                .placeholder("Profile name")
         });
         let profile_pin_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Profile PIN (4-12 digits)").masked(true)
+            InputState::new(window, cx)
+                .placeholder("Profile PIN (4-12 digits)")
+                .masked(true)
         });
-        let cloud_email_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Email address")
-        });
+        let cloud_email_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Email address"));
         let cloud_password_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Password").masked(true)
+            InputState::new(window, cx)
+                .placeholder("Password")
+                .masked(true)
         });
-        let library_search_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Search your library")
-        });
-        let library_collection_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("New collection name")
-        });
+        let library_search_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search your library"));
+        let library_collection_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("New collection name"));
         let search_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search movies, TV shows, and people")
         });
@@ -1333,17 +1355,26 @@ impl SenzoShell {
                 HomeCollectionsSettings::default()
             })
             .collections;
-        let library_items = library_repository.list_library_items(&active_profile_id).unwrap_or_else(|error| {
-            tracing::warn!(error = %error, "could not load local library");
-            Vec::new()
-        });
-        let library_collections = library_repository.list_library_collections(&active_profile_id).unwrap_or_else(|error| {
-            tracing::warn!(error = %error, "could not load library collections");
-            Vec::new()
-        });
+        let library_items = library_repository
+            .list_library_items(&active_profile_id)
+            .unwrap_or_else(|error| {
+                tracing::warn!(error = %error, "could not load local library");
+                Vec::new()
+            });
+        let library_collections = library_repository
+            .list_library_collections(&active_profile_id)
+            .unwrap_or_else(|error| {
+                tracing::warn!(error = %error, "could not load library collections");
+                Vec::new()
+            });
         let library_favorites_only = SettingKey::new("library.favorites_only")
             .ok()
-            .and_then(|key| profile_settings_repository.get_profile_setting(&active_profile_id, &key).ok().flatten())
+            .and_then(|key| {
+                profile_settings_repository
+                    .get_profile_setting(&active_profile_id, &key)
+                    .ok()
+                    .flatten()
+            })
             .map(|value| value == "true")
             .unwrap_or(false);
         let library_collection_items = library_collections.iter().map(|collection| {
@@ -1400,7 +1431,11 @@ impl SenzoShell {
             profile_security_repository,
             profile_settings_repository,
             sync_outbox_repository,
-            cloud_signed_in: cloud_service.stored_session(&active_profile_id).ok().flatten().is_some(),
+            cloud_signed_in: cloud_service
+                .stored_session(&active_profile_id)
+                .ok()
+                .flatten()
+                .is_some(),
             cloud_service,
             cloud_email_input,
             cloud_password_input,
@@ -3388,7 +3423,8 @@ impl SenzoShell {
         let repository = self.playback_progress_repository.clone();
         let runtime = self.tokio.clone();
         let profile_id = self.active_profile_id.clone();
-        let task = runtime.spawn_blocking(move || repository.list_continue_watching(&profile_id, 20));
+        let task =
+            runtime.spawn_blocking(move || repository.list_continue_watching(&profile_id, 20));
         cx.spawn(async move |this, cx| match task.await {
             Ok(Ok(entries)) => {
                 let _ = this.update(cx, |this, cx| {
@@ -4607,18 +4643,44 @@ impl SenzoShell {
             );
         }
         page = page.child(hero.child(info));
-        let detail_kind = if d.media_type == MediaType::Movie { MediaKind::Movie } else { MediaKind::Series };
-        let is_saved = self.library_items.iter().any(|item| {
-            item.media_id == d.id.to_string() && item.media_kind == detail_kind
-        });
+        let detail_kind = if d.media_type == MediaType::Movie {
+            MediaKind::Movie
+        } else {
+            MediaKind::Series
+        };
+        let is_saved = self
+            .library_items
+            .iter()
+            .any(|item| item.media_id == d.id.to_string() && item.media_kind == detail_kind);
         page = page.child(
-            div().w_full().flex().items_center().gap_2()
-                .child(div().id("detail-save-library").cursor_pointer().rounded_md()
-                    .bg(rgb(if is_saved { Theme::SURFACE_RAISED } else { Theme::ACCENT_DARK }))
-                    .px_3().py_2()
+            div().w_full().flex().items_center().gap_2().child(
+                div()
+                    .id("detail-save-library")
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(if is_saved {
+                        Theme::SURFACE_RAISED
+                    } else {
+                        Theme::ACCENT_DARK
+                    }))
+                    .px_3()
+                    .py_2()
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_current_detail_library(cx)))
-                    .child(div().text_sm().text_color(rgb(if is_saved { Theme::TEXT_PRIMARY } else { Theme::ACCENT }))
-                        .child(if is_saved { "Remove from Library" } else { "Save to Library" })))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(if is_saved {
+                                Theme::TEXT_PRIMARY
+                            } else {
+                                Theme::ACCENT
+                            }))
+                            .child(if is_saved {
+                                "Remove from Library"
+                            } else {
+                                "Save to Library"
+                            }),
+                    ),
+            ),
         );
         page = page.child(
             div()
@@ -8784,7 +8846,11 @@ impl SenzoShell {
         let profile_id = self.active_profile_id.clone();
         cx.spawn(async move |this, cx| {
             let result = runtime
-                .spawn(async move { manager.execute_scraper(&profile_id, &scraper_id, input).await })
+                .spawn(async move {
+                    manager
+                        .execute_scraper(&profile_id, &scraper_id, input)
+                        .await
+                })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.plugin_busy = false;
@@ -11999,7 +12065,10 @@ impl SenzoShell {
     }
 
     fn disconnect_debrid_provider(&mut self, provider: DebridProviderId, cx: &mut Context<Self>) {
-        match self.debrid_manager.disconnect(&self.active_profile_id, provider) {
+        match self
+            .debrid_manager
+            .disconnect(&self.active_profile_id, provider)
+        {
             Ok(()) => {
                 self.source_settings_notice = Some(format!("{} disconnected.", provider.name()))
             }
@@ -12071,7 +12140,10 @@ impl SenzoShell {
     }
 
     fn remove_media_server(&mut self, connection_id: String, cx: &mut Context<Self>) {
-        match self.media_server_manager.remove(&self.active_profile_id, &connection_id) {
+        match self
+            .media_server_manager
+            .remove(&self.active_profile_id, &connection_id)
+        {
             Ok(()) => {
                 self.source_settings_notice = Some(
                     "Media-server connection removed and its saved credential deleted.".to_owned(),
@@ -12207,7 +12279,10 @@ impl SenzoShell {
             .child(server_provider).child(server_name).child(server_address).child(server_username).child(server_password)
             .child(self.addon_control("source-connect-media-server", if self.source_settings_busy { "Connecting…" } else { "Connect media server" }, 119,
                 cx.listener(|this, _, _, cx| this.connect_media_server(cx))));
-        if let Ok(connections) = self.media_server_manager.list_connections(&self.active_profile_id) {
+        if let Ok(connections) = self
+            .media_server_manager
+            .list_connections(&self.active_profile_id)
+        {
             if connections.is_empty() {
                 panel = panel.child(status_panel(StatusTone::Empty, "NO MEDIA SERVERS", "No Jellyfin or Emby connections", "Connected libraries will be available as independent sources in movie and episode Details."));
             } else {
@@ -12278,13 +12353,15 @@ impl SenzoShell {
     }
 
     fn reload_library_state(&mut self) {
-        self.library_items = self.library_repository
+        self.library_items = self
+            .library_repository
             .list_library_items(&self.active_profile_id)
             .unwrap_or_else(|error| {
                 self.library_error = Some(format!("Could not load library: {error}"));
                 Vec::new()
             });
-        self.library_collections = self.library_repository
+        self.library_collections = self
+            .library_repository
             .list_library_collections(&self.active_profile_id)
             .unwrap_or_else(|error| {
                 self.library_error = Some(format!("Could not load collections: {error}"));
@@ -12301,7 +12378,12 @@ impl SenzoShell {
         }).collect();
         self.library_favorites_only = SettingKey::new("library.favorites_only")
             .ok()
-            .and_then(|key| self.profile_settings_repository.get_profile_setting(&self.active_profile_id, &key).ok().flatten())
+            .and_then(|key| {
+                self.profile_settings_repository
+                    .get_profile_setting(&self.active_profile_id, &key)
+                    .ok()
+                    .flatten()
+            })
             .map(|value| value == "true")
             .unwrap_or(false);
         self.configured_home_collections = HomeCollectionsSettings::load(self.settings.as_ref())
@@ -12337,7 +12419,10 @@ impl SenzoShell {
 
     fn rename_active_profile(&mut self, cx: &mut Context<Self>) {
         let name = self.profile_name_input.read(cx).value().trim().to_owned();
-        match self.profiles_repository.update_profile(&self.active_profile_id, &name) {
+        match self
+            .profiles_repository
+            .update_profile(&self.active_profile_id, &name)
+        {
             Ok(profile) => {
                 self.profiles = self.profiles_repository.list_profiles().unwrap_or_default();
                 self.profile_notice = Some(format!("Renamed profile to '{}'.", profile.name));
@@ -12353,7 +12438,8 @@ impl SenzoShell {
 
     fn delete_profile(&mut self, profile_id: String, cx: &mut Context<Self>) {
         if profile_id == self.active_profile_id {
-            self.profile_error = Some("Switch to another profile before deleting this one.".to_owned());
+            self.profile_error =
+                Some("Switch to another profile before deleting this one.".to_owned());
             cx.notify();
             return;
         }
@@ -12373,9 +12459,15 @@ impl SenzoShell {
 
     fn set_active_profile_pin(&mut self, cx: &mut Context<Self>) {
         let pin = self.profile_pin_input.read(cx).value().to_string();
-        match self.profile_security_repository.set_profile_pin(&self.active_profile_id, &pin) {
+        match self
+            .profile_security_repository
+            .set_profile_pin(&self.active_profile_id, &pin)
+        {
             Ok(()) => {
-                self.profile_notice = Some("Profile PIN saved. Unlock is required before switching to this profile.".to_owned());
+                self.profile_notice = Some(
+                    "Profile PIN saved. Unlock is required before switching to this profile."
+                        .to_owned(),
+                );
                 self.profile_error = None;
             }
             Err(error) => self.profile_error = Some(format!("Could not save PIN: {error}")),
@@ -12384,7 +12476,10 @@ impl SenzoShell {
     }
 
     fn clear_active_profile_pin(&mut self, cx: &mut Context<Self>) {
-        match self.profile_security_repository.clear_profile_pin(&self.active_profile_id) {
+        match self
+            .profile_security_repository
+            .clear_profile_pin(&self.active_profile_id)
+        {
             Ok(()) => {
                 self.profile_notice = Some("Profile PIN removed.".to_owned());
                 self.profile_error = None;
@@ -12397,7 +12492,9 @@ impl SenzoShell {
     fn unlock_startup_profile(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let pin = self.profile_pin_input.read(cx).value().to_string();
         match self.profile_security_repository.verify_profile_pin(
-            &self.active_profile_id, &pin, current_epoch_millis(),
+            &self.active_profile_id,
+            &pin,
+            current_epoch_millis(),
         ) {
             Ok(true) => {
                 self.profile_locked = false;
@@ -12417,31 +12514,86 @@ impl SenzoShell {
     }
 
     fn render_startup_profile_lock(&self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
-        let name = self.profiles.iter().find(|profile| profile.id == self.active_profile_id)
-            .map(|profile| profile.name.clone()).unwrap_or_else(|| "Profile".to_owned());
-        let mut view = div().id("profile-startup-lock").size_full().flex()
-            .items_center().justify_center().bg(rgb(Theme::BACKGROUND))
-            .child(div().w(px(420.0)).rounded_xl().border_1().border_color(rgb(Theme::BORDER))
-                .bg(rgb(Theme::SURFACE)).p_6().flex().flex_col().gap_4()
-                .child(div().text_xl().text_color(rgb(Theme::TEXT_PRIMARY)).child("Unlock profile"))
-                .child(div().text_sm().text_color(rgb(Theme::TEXT_SECONDARY))
-                    .child(format!("Enter the PIN for {name} to continue.")))
-                .child(Input::new(&self.profile_pin_input))
-                .child(div().id("profile-startup-unlock").cursor_pointer().rounded_md()
-                    .bg(rgb(Theme::ACCENT_DARK)).px_4().py_3()
-                    .on_click(cx.listener(|this, _, window, cx| this.unlock_startup_profile(window, cx)))
-                    .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child("Unlock"))));
+        let name = self
+            .profiles
+            .iter()
+            .find(|profile| profile.id == self.active_profile_id)
+            .map(|profile| profile.name.clone())
+            .unwrap_or_else(|| "Profile".to_owned());
+        let mut view = div()
+            .id("profile-startup-lock")
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(rgb(Theme::BACKGROUND))
+            .child(
+                div()
+                    .w(px(420.0))
+                    .rounded_xl()
+                    .border_1()
+                    .border_color(rgb(Theme::BORDER))
+                    .bg(rgb(Theme::SURFACE))
+                    .p_6()
+                    .flex()
+                    .flex_col()
+                    .gap_4()
+                    .child(
+                        div()
+                            .text_xl()
+                            .text_color(rgb(Theme::TEXT_PRIMARY))
+                            .child("Unlock profile"),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_SECONDARY))
+                            .child(format!("Enter the PIN for {name} to continue.")),
+                    )
+                    .child(Input::new(&self.profile_pin_input))
+                    .child(
+                        div()
+                            .id("profile-startup-unlock")
+                            .cursor_pointer()
+                            .rounded_md()
+                            .bg(rgb(Theme::ACCENT_DARK))
+                            .px_4()
+                            .py_3()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.unlock_startup_profile(window, cx)
+                            }))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(Theme::ACCENT))
+                                    .child("Unlock"),
+                            ),
+                    ),
+            );
         if let Some(error) = &self.profile_error {
-            view = view.child(status_panel(StatusTone::Error,"PROFILE","Unlock failed",error));
+            view = view.child(status_panel(
+                StatusTone::Error,
+                "PROFILE",
+                "Unlock failed",
+                error,
+            ));
         }
         view
     }
 
-    fn request_profile_switch(&mut self, profile_id: String, window: &mut Window, cx: &mut Context<Self>) {
+    fn request_profile_switch(
+        &mut self,
+        profile_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if profile_id == self.active_profile_id {
             return;
         }
-        match self.profile_security_repository.has_profile_pin(&profile_id) {
+        match self
+            .profile_security_repository
+            .has_profile_pin(&profile_id)
+        {
             Ok(true) => {
                 self.profile_switch_target = Some(profile_id);
                 self.profile_pin_input.update(cx, |input, cx| {
@@ -12450,13 +12602,17 @@ impl SenzoShell {
                 self.profile_error = None;
             }
             Ok(false) => self.switch_active_profile(profile_id, window, cx),
-            Err(error) => self.profile_error = Some(format!("Could not check profile security: {error}")),
+            Err(error) => {
+                self.profile_error = Some(format!("Could not check profile security: {error}"))
+            }
         }
         cx.notify();
     }
 
     fn confirm_profile_switch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(profile_id) = self.profile_switch_target.clone() else { return };
+        let Some(profile_id) = self.profile_switch_target.clone() else {
+            return;
+        };
         let pin = self.profile_pin_input.read(cx).value().to_string();
         match self.profile_security_repository.verify_profile_pin(
             &profile_id,
@@ -12470,7 +12626,12 @@ impl SenzoShell {
         cx.notify();
     }
 
-    fn switch_active_profile(&mut self, profile_id: String, window: &mut Window, cx: &mut Context<Self>) {
+    fn switch_active_profile(
+        &mut self,
+        profile_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if !self.profiles.iter().any(|profile| profile.id == profile_id) {
             self.profile_error = Some("That profile is no longer available.".to_owned());
             return;
@@ -12493,13 +12654,23 @@ impl SenzoShell {
         }
         self.profile_scope.set(profile_id.clone());
         self.active_profile_id = profile_id.clone();
-        self.cloud_signed_in = self.cloud_service.stored_session(&profile_id).ok().flatten().is_some();
+        self.cloud_signed_in = self
+            .cloud_service
+            .stored_session(&profile_id)
+            .ok()
+            .flatten()
+            .is_some();
         self.profile_locked = false;
         self.cloud_status = None;
         self.cloud_error = None;
         self.profile_switch_target = None;
         self.profile_error = None;
-        if let Some(name) = self.profiles.iter().find(|profile| profile.id == profile_id).map(|profile| profile.name.clone()) {
+        if let Some(name) = self
+            .profiles
+            .iter()
+            .find(|profile| profile.id == profile_id)
+            .map(|profile| profile.name.clone())
+        {
             self.profile_name_input.update(cx, |input, cx| {
                 input.set_value(name, window, cx);
             });
@@ -12507,7 +12678,9 @@ impl SenzoShell {
         self.profile_pin_input.update(cx, |input, cx| {
             input.set_value(String::new(), window, cx);
         });
-        self.profile_notice = self.profiles.iter()
+        self.profile_notice = self
+            .profiles
+            .iter()
             .find(|profile| profile.id == profile_id)
             .map(|profile| format!("Switched to '{}'.", profile.name));
         self.home_settings = HomeSettings::load(self.settings.as_ref()).unwrap_or_default();
@@ -12517,7 +12690,8 @@ impl SenzoShell {
             .map(|value| value == "true")
             .unwrap_or(true);
         self.reload_library_state();
-        self.home_continue_watching = self.playback_progress_repository
+        self.home_continue_watching = self
+            .playback_progress_repository
             .list_continue_watching(&self.active_profile_id, 20)
             .unwrap_or_default();
         self.home_continue_watching_artwork.clear();
@@ -12550,12 +12724,21 @@ impl SenzoShell {
     }
 
     fn toggle_current_detail_library(&mut self, cx: &mut Context<Self>) {
-        let Some(details) = self.details.as_ref() else { return };
+        let Some(details) = self.details.as_ref() else {
+            return;
+        };
         let media_id = details.id.to_string();
-        let media_kind = if details.media_type == MediaType::Movie { MediaKind::Movie } else { MediaKind::Series };
-        let saved = self.library_repository.get_library_item(
-            &self.active_profile_id, &media_id, media_kind,
-        ).ok().flatten().is_some();
+        let media_kind = if details.media_type == MediaType::Movie {
+            MediaKind::Movie
+        } else {
+            MediaKind::Series
+        };
+        let saved = self
+            .library_repository
+            .get_library_item(&self.active_profile_id, &media_id, media_kind)
+            .ok()
+            .flatten()
+            .is_some();
         if saved {
             self.remove_library_item(media_id, media_kind, cx);
         } else {
@@ -12564,7 +12747,9 @@ impl SenzoShell {
     }
 
     fn save_current_details_to_library(&mut self, cx: &mut Context<Self>) {
-        let Some(details) = self.details.as_ref() else { return };
+        let Some(details) = self.details.as_ref() else {
+            return;
+        };
         if details.loading || details.error.is_some() {
             return;
         }
@@ -12574,9 +12759,11 @@ impl SenzoShell {
             _ => return,
         };
         let media_id = details.id.to_string();
-        let existing = self.library_repository.get_library_item(
-            &self.active_profile_id, &media_id, media_kind,
-        ).ok().flatten();
+        let existing = self
+            .library_repository
+            .get_library_item(&self.active_profile_id, &media_id, media_kind)
+            .ok()
+            .flatten();
         let now = current_epoch_millis();
         let item = LibraryItem {
             profile_id: self.active_profile_id.clone(),
@@ -12584,12 +12771,17 @@ impl SenzoShell {
             media_kind,
             title: details.title.clone(),
             overview: details.overview.clone(),
-            release_year: details.release_date.as_deref()
+            release_year: details
+                .release_date
+                .as_deref()
                 .and_then(|date| date.get(0..4))
                 .and_then(|year| year.parse::<u16>().ok()),
             poster_path: details.poster_path.clone(),
             backdrop_path: details.backdrop_path.clone(),
-            added_at_ms: existing.as_ref().map(|saved| saved.added_at_ms).unwrap_or(now),
+            added_at_ms: existing
+                .as_ref()
+                .map(|saved| saved.added_at_ms)
+                .unwrap_or(now),
             updated_at_ms: now,
             is_favorite: existing.as_ref().is_some_and(|saved| saved.is_favorite),
         };
@@ -12604,15 +12796,28 @@ impl SenzoShell {
         cx.notify();
     }
 
-    fn remove_library_item(&mut self, media_id: String, media_kind: MediaKind, cx: &mut Context<Self>) {
+    fn remove_library_item(
+        &mut self,
+        media_id: String,
+        media_kind: MediaKind,
+        cx: &mut Context<Self>,
+    ) {
         let now = current_epoch_millis();
         match self.library_repository.remove_library_item(
-            &self.active_profile_id, &media_id, media_kind, now,
+            &self.active_profile_id,
+            &media_id,
+            media_kind,
+            now,
         ) {
             Ok(()) => {
                 for collection in self.library_collections.clone() {
                     let _ = self.library_repository.set_collection_item(
-                        &self.active_profile_id, &collection.id, &media_id, media_kind, false, now,
+                        &self.active_profile_id,
+                        &collection.id,
+                        &media_id,
+                        media_kind,
+                        false,
+                        now,
                     );
                 }
                 self.reload_library_state();
@@ -12624,10 +12829,20 @@ impl SenzoShell {
         cx.notify();
     }
 
-    fn toggle_library_favorite(&mut self, media_id: String, media_kind: MediaKind, cx: &mut Context<Self>) {
-        let Some(mut item) = self.library_repository.get_library_item(
-            &self.active_profile_id, &media_id, media_kind,
-        ).ok().flatten() else { return };
+    fn toggle_library_favorite(
+        &mut self,
+        media_id: String,
+        media_kind: MediaKind,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mut item) = self
+            .library_repository
+            .get_library_item(&self.active_profile_id, &media_id, media_kind)
+            .ok()
+            .flatten()
+        else {
+            return;
+        };
         item.is_favorite = !item.is_favorite;
         item.updated_at_ms = current_epoch_millis();
         if let Err(error) = self.library_repository.save_library_item(&item) {
@@ -12640,23 +12855,42 @@ impl SenzoShell {
     }
 
     fn create_library_collection(&mut self, cx: &mut Context<Self>) {
-        let name = self.library_collection_input.read(cx).value().trim().to_owned();
+        let name = self
+            .library_collection_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_owned();
         match self.library_repository.create_library_collection(
-            &self.active_profile_id, &name, None, current_epoch_millis(),
+            &self.active_profile_id,
+            &name,
+            None,
+            current_epoch_millis(),
         ) {
             Ok(collection) => {
                 self.reload_library_state();
                 self.notification = Some(format!("Created collection '{}'.", collection.title));
                 self.library_error = None;
             }
-            Err(error) => self.library_error = Some(format!("Could not create collection: {error}")),
+            Err(error) => {
+                self.library_error = Some(format!("Could not create collection: {error}"))
+            }
         }
         cx.notify();
     }
 
-    fn rename_library_collection(&mut self, collection_id: String, title: String, cx: &mut Context<Self>) {
+    fn rename_library_collection(
+        &mut self,
+        collection_id: String,
+        title: String,
+        cx: &mut Context<Self>,
+    ) {
         if let Err(error) = self.library_repository.update_library_collection(
-            &self.active_profile_id, &collection_id, &title, None, current_epoch_millis(),
+            &self.active_profile_id,
+            &collection_id,
+            &title,
+            None,
+            current_epoch_millis(),
         ) {
             self.library_error = Some(format!("Could not rename collection: {error}"));
         } else {
@@ -12668,7 +12902,9 @@ impl SenzoShell {
 
     fn delete_library_collection(&mut self, collection_id: String, cx: &mut Context<Self>) {
         if let Err(error) = self.library_repository.delete_library_collection(
-            &self.active_profile_id, &collection_id, current_epoch_millis(),
+            &self.active_profile_id,
+            &collection_id,
+            current_epoch_millis(),
         ) {
             self.library_error = Some(format!("Could not delete collection: {error}"));
         } else {
@@ -12685,11 +12921,21 @@ impl SenzoShell {
         media_kind: MediaKind,
         cx: &mut Context<Self>,
     ) {
-        let included = self.library_collection_items.get(&collection_id)
-            .is_some_and(|items| items.iter().any(|item| item.media_id == media_id && item.media_kind == media_kind));
+        let included = self
+            .library_collection_items
+            .get(&collection_id)
+            .is_some_and(|items| {
+                items
+                    .iter()
+                    .any(|item| item.media_id == media_id && item.media_kind == media_kind)
+            });
         if let Err(error) = self.library_repository.set_collection_item(
-            &self.active_profile_id, &collection_id, &media_id, media_kind,
-            !included, current_epoch_millis(),
+            &self.active_profile_id,
+            &collection_id,
+            &media_id,
+            media_kind,
+            !included,
+            current_epoch_millis(),
         ) {
             self.library_error = Some(format!("Could not update collection: {error}"));
         } else {
@@ -12700,14 +12946,20 @@ impl SenzoShell {
     }
 
     fn reorder_library_collection(&mut self, collection_id: String, cx: &mut Context<Self>) {
-        let Some(items) = self.library_collection_items.get(&collection_id) else { return };
-        let mut ordered = items.iter()
+        let Some(items) = self.library_collection_items.get(&collection_id) else {
+            return;
+        };
+        let mut ordered = items
+            .iter()
             .map(|item| (item.media_id.clone(), item.media_kind))
             .collect::<Vec<_>>();
         if ordered.len() > 1 {
             ordered.rotate_left(1);
             if let Err(error) = self.library_repository.reorder_collection_items(
-                &self.active_profile_id, &collection_id, &ordered, current_epoch_millis(),
+                &self.active_profile_id,
+                &collection_id,
+                &ordered,
+                current_epoch_millis(),
             ) {
                 self.library_error = Some(format!("Could not reorder collection: {error}"));
             } else {
@@ -12721,19 +12973,25 @@ impl SenzoShell {
         let next = !self.library_favorites_only;
         let key = SettingKey::new("library.favorites_only").expect("valid library setting key");
         match self.profile_settings_repository.set_profile_setting(
-            &self.active_profile_id, &key, if next { "true" } else { "false" },
+            &self.active_profile_id,
+            &key,
+            if next { "true" } else { "false" },
         ) {
             Ok(()) => {
                 self.library_favorites_only = next;
                 self.library_error = None;
             }
-            Err(error) => self.library_error = Some(format!("Could not save library filter: {error}")),
+            Err(error) => {
+                self.library_error = Some(format!("Could not save library filter: {error}"))
+            }
         }
         cx.notify();
     }
 
     fn cloud_sign_in(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.cloud_busy { return; }
+        if self.cloud_busy {
+            return;
+        }
         let email = self.cloud_email_input.read(cx).value().to_string();
         let password = self.cloud_password_input.read(cx).value().to_string();
         let profile_id = self.active_profile_id.clone();
@@ -12765,14 +13023,19 @@ impl SenzoShell {
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 
     fn cloud_sign_up(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.cloud_busy { return; }
+        if self.cloud_busy {
+            return;
+        }
         let email = self.cloud_email_input.read(cx).value().to_string();
         let password = self.cloud_password_input.read(cx).value().to_string();
-        let display_name = self.profiles.iter()
+        let display_name = self
+            .profiles
+            .iter()
             .find(|profile| profile.id == self.active_profile_id)
             .map(|profile| profile.name.clone());
         let profile_id = self.active_profile_id.clone();
@@ -12785,7 +13048,9 @@ impl SenzoShell {
         self.cloud_status = Some("Creating account…".to_owned());
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = service.signup(&profile_id, &email, &password, display_name.as_deref()).await;
+            let result = service
+                .signup(&profile_id, &email, &password, display_name.as_deref())
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.cloud_busy = false;
                 match result {
@@ -12797,7 +13062,10 @@ impl SenzoShell {
                     }
                     Ok(_) => {
                         this.cloud_signed_in = true;
-                        this.cloud_status = Some("Account created and signed in. Session stored in the OS keyring.".to_owned());
+                        this.cloud_status = Some(
+                            "Account created and signed in. Session stored in the OS keyring."
+                                .to_owned(),
+                        );
                         this.cloud_error = None;
                     }
                     Err(error) => {
@@ -12807,11 +13075,14 @@ impl SenzoShell {
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 
     fn cloud_sync_now(&mut self, cx: &mut Context<Self>) {
-        if self.cloud_busy { return; }
+        if self.cloud_busy {
+            return;
+        }
         let profile_id = self.active_profile_id.clone();
         let service = self.cloud_service.clone();
         let repository = self.sync_outbox_repository.clone();
@@ -12831,7 +13102,8 @@ impl SenzoShell {
                         ));
                         this.cloud_error = None;
                         this.reload_library_state();
-                        this.home_continue_watching = this.playback_progress_repository
+                        this.home_continue_watching = this
+                            .playback_progress_repository
                             .list_continue_watching(&this.active_profile_id, 20)
                             .unwrap_or_default();
                         this.home_up_next_requested = false;
@@ -12850,11 +13122,14 @@ impl SenzoShell {
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 
     fn cloud_sign_out(&mut self, cx: &mut Context<Self>) {
-        if self.cloud_busy { return; }
+        if self.cloud_busy {
+            return;
+        }
         let profile_id = self.active_profile_id.clone();
         let service = self.cloud_service.clone();
         self.cloud_busy = true;
@@ -12881,44 +13156,142 @@ impl SenzoShell {
     }
 
     fn render_cloud_account_settings(&self, cx: &mut Context<Self>) -> gpui::Div {
-        let pending = self.sync_outbox_repository
+        let pending = self
+            .sync_outbox_repository
             .list_pending_sync_mutations(&self.active_profile_id, current_epoch_millis(), 500)
-            .map(|items| items.len()).unwrap_or(0);
-        let mut section = div().w_full().rounded_md().border_1().border_color(rgb(Theme::BORDER))
-            .bg(rgb(Theme::SURFACE)).p_3().flex().flex_col().gap_3()
-            .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child("Cloud account and sync"))
-            .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!(
-                "This profile · {pending} pending local change(s)"
-            )));
+            .map(|items| items.len())
+            .unwrap_or(0);
+        let mut section = div()
+            .w_full()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(Theme::BORDER))
+            .bg(rgb(Theme::SURFACE))
+            .p_3()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                    .child("Cloud account and sync"),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(Theme::TEXT_SECONDARY))
+                    .child(format!("This profile · {pending} pending local change(s)")),
+            );
         if !self.cloud_signed_in {
-            section = section
-                .child(Input::new(&self.cloud_email_input))
-                .child(Input::new(&self.cloud_password_input))
-                .child(div().flex().gap_2()
-                    .child(div().id("cloud-sign-in").cursor_pointer().rounded_md().bg(rgb(Theme::ACCENT_DARK))
-                        .px_3().py_2().on_click(cx.listener(|this, _, window, cx| this.cloud_sign_in(window, cx)))
-                        .child(div().text_xs().text_color(rgb(Theme::ACCENT)).child("Sign in")))
-                    .child(div().id("cloud-sign-up").cursor_pointer().rounded_md().bg(rgb(Theme::SURFACE_RAISED))
-                        .px_3().py_2().on_click(cx.listener(|this, _, window, cx| this.cloud_sign_up(window, cx)))
-                        .child(div().text_xs().text_color(rgb(Theme::TEXT_PRIMARY)).child("Create account"))));
+            section =
+                section
+                    .child(Input::new(&self.cloud_email_input))
+                    .child(Input::new(&self.cloud_password_input))
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .id("cloud-sign-in")
+                                    .cursor_pointer()
+                                    .rounded_md()
+                                    .bg(rgb(Theme::ACCENT_DARK))
+                                    .px_3()
+                                    .py_2()
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.cloud_sign_in(window, cx)
+                                    }))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgb(Theme::ACCENT))
+                                            .child("Sign in"),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .id("cloud-sign-up")
+                                    .cursor_pointer()
+                                    .rounded_md()
+                                    .bg(rgb(Theme::SURFACE_RAISED))
+                                    .px_3()
+                                    .py_2()
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.cloud_sign_up(window, cx)
+                                    }))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgb(Theme::TEXT_PRIMARY))
+                                            .child("Create account"),
+                                    ),
+                            ),
+                    );
         } else {
-            section = section.child(div().flex().gap_2()
-                .child(div().id("cloud-sync-now").cursor_pointer().rounded_md()
-                    .bg(rgb(Theme::ACCENT_DARK)).px_3().py_2()
-                    .on_click(cx.listener(|this, _, _, cx| this.cloud_sync_now(cx)))
-                    .child(div().text_xs().text_color(rgb(Theme::ACCENT)).child(if self.cloud_busy { "Working…" } else { "Sync now" })))
-                .child(div().id("cloud-sign-out").cursor_pointer().rounded_md().bg(rgb(Theme::SURFACE_RAISED))
-                    .px_3().py_2().on_click(cx.listener(|this, _, _, cx| this.cloud_sign_out(cx)))
-                    .child(div().text_xs().text_color(rgb(Theme::TEXT_PRIMARY)).child("Sign out"))));
+            section = section.child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .child(
+                        div()
+                            .id("cloud-sync-now")
+                            .cursor_pointer()
+                            .rounded_md()
+                            .bg(rgb(Theme::ACCENT_DARK))
+                            .px_3()
+                            .py_2()
+                            .on_click(cx.listener(|this, _, _, cx| this.cloud_sync_now(cx)))
+                            .child(div().text_xs().text_color(rgb(Theme::ACCENT)).child(
+                                if self.cloud_busy {
+                                    "Working…"
+                                } else {
+                                    "Sync now"
+                                },
+                            )),
+                    )
+                    .child(
+                        div()
+                            .id("cloud-sign-out")
+                            .cursor_pointer()
+                            .rounded_md()
+                            .bg(rgb(Theme::SURFACE_RAISED))
+                            .px_3()
+                            .py_2()
+                            .on_click(cx.listener(|this, _, _, cx| this.cloud_sign_out(cx)))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(Theme::TEXT_PRIMARY))
+                                    .child("Sign out"),
+                            ),
+                    ),
+            );
         }
         if self.cloud_busy {
-            section = section.child(status_panel(StatusTone::Info, "CLOUD", "Request in progress", "Your account or sync request is being processed."));
+            section = section.child(status_panel(
+                StatusTone::Info,
+                "CLOUD",
+                "Request in progress",
+                "Your account or sync request is being processed.",
+            ));
         }
         if let Some(status) = &self.cloud_status {
-            section = section.child(status_panel(StatusTone::Info, "CLOUD", "Account status", status));
+            section = section.child(status_panel(
+                StatusTone::Info,
+                "CLOUD",
+                "Account status",
+                status,
+            ));
         }
         if let Some(error) = &self.cloud_error {
-            section = section.child(status_panel(StatusTone::Error, "CLOUD", "Cloud operation failed", error));
+            section = section.child(status_panel(
+                StatusTone::Error,
+                "CLOUD",
+                "Cloud operation failed",
+                error,
+            ));
         }
         section.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
             "Cloud access requires Supabase to be enabled on the SENZO API. Local data stays available when signed out or offline."
@@ -12926,46 +13299,121 @@ impl SenzoShell {
     }
 
     fn render_profiles_settings(&self, cx: &mut Context<Self>) -> gpui::Div {
-        let active_profile = self.profiles.iter().find(|profile| profile.id == self.active_profile_id);
+        let active_profile = self
+            .profiles
+            .iter()
+            .find(|profile| profile.id == self.active_profile_id);
         let pin_prompt = self.profile_switch_target.as_ref().map(|target| {
-            let target_name = self.profiles.iter().find(|profile| &profile.id == target)
-                .map(|profile| profile.name.clone()).unwrap_or_else(|| "selected profile".to_owned());
-            div().w_full().flex().flex_col().gap_2()
-                .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(format!("Unlock {target_name}")))
+            let target_name = self
+                .profiles
+                .iter()
+                .find(|profile| &profile.id == target)
+                .map(|profile| profile.name.clone())
+                .unwrap_or_else(|| "selected profile".to_owned());
+            div()
+                .w_full()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(Theme::TEXT_PRIMARY))
+                        .child(format!("Unlock {target_name}")),
+                )
                 .child(Input::new(&self.profile_pin_input))
-                .child(div().id("profile-unlock").cursor_pointer().rounded_md()
-                    .bg(rgb(Theme::ACCENT_DARK)).px_3().py_2()
-                    .on_click(cx.listener(|this, _, window, cx| this.confirm_profile_switch(window, cx)))
-                    .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child("Unlock and switch")))
+                .child(
+                    div()
+                        .id("profile-unlock")
+                        .cursor_pointer()
+                        .rounded_md()
+                        .bg(rgb(Theme::ACCENT_DARK))
+                        .px_3()
+                        .py_2()
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.confirm_profile_switch(window, cx)
+                        }))
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(rgb(Theme::ACCENT))
+                                .child("Unlock and switch"),
+                        ),
+                )
         });
         let mut profile_rows = div().w_full().flex().flex_col().gap_2();
         for profile in &self.profiles {
             let id = profile.id.clone();
             let active = profile.id == self.active_profile_id;
-            let label = if active { format!("{} · ACTIVE", profile.name) } else { profile.name.clone() };
+            let label = if active {
+                format!("{} · ACTIVE", profile.name)
+            } else {
+                profile.name.clone()
+            };
             profile_rows = profile_rows.child(
-                div().id(format!("profile-row-{}", profile.id)).w_full().rounded_md()
-                    .border_1().border_color(rgb(Theme::BORDER)).bg(rgb(Theme::SURFACE)).p_3()
-                    .flex().items_center().gap_3()
-                    .child(div().flex_1().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(label))
-                    .when(!active, |element| element.child(
-                        div().id(format!("profile-use-{}", id)).cursor_pointer().rounded_md()
-                            .bg(rgb(Theme::ACCENT_DARK)).px_3().py_2()
-                            .on_click(cx.listener(move |this, _, window, cx| this.request_profile_switch(id.clone(), window, cx)))
-                            .child(div().text_xs().text_color(rgb(Theme::ACCENT)).child("Use profile"))
-                    ))
+                div()
+                    .id(format!("profile-row-{}", profile.id))
+                    .w_full()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(Theme::BORDER))
+                    .bg(rgb(Theme::SURFACE))
+                    .p_3()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_sm()
+                            .text_color(rgb(Theme::TEXT_PRIMARY))
+                            .child(label),
+                    )
+                    .when(!active, |element| {
+                        element.child(
+                            div()
+                                .id(format!("profile-use-{}", id))
+                                .cursor_pointer()
+                                .rounded_md()
+                                .bg(rgb(Theme::ACCENT_DARK))
+                                .px_3()
+                                .py_2()
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.request_profile_switch(id.clone(), window, cx)
+                                }))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(Theme::ACCENT))
+                                        .child("Use profile"),
+                                ),
+                        )
+                    })
                     .when(!active, |element| {
                         let delete_id = profile.id.clone();
                         element.child(
-                            div().id(format!("profile-delete-{}", delete_id)).cursor_pointer().rounded_md()
-                                .bg(rgb(Theme::SURFACE_RAISED)).px_3().py_2()
-                                .on_click(cx.listener(move |this, _, _, cx| this.delete_profile(delete_id.clone(), cx)))
-                                .child(div().text_xs().text_color(rgb(Theme::DANGER)).child("Delete"))
+                            div()
+                                .id(format!("profile-delete-{}", delete_id))
+                                .cursor_pointer()
+                                .rounded_md()
+                                .bg(rgb(Theme::SURFACE_RAISED))
+                                .px_3()
+                                .py_2()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.delete_profile(delete_id.clone(), cx)
+                                }))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(Theme::DANGER))
+                                        .child("Delete"),
+                                ),
                         )
-                    })
+                    }),
             );
         }
-        let pending_sync = self.sync_outbox_repository
+        let pending_sync = self
+            .sync_outbox_repository
             .list_pending_sync_mutations(&self.active_profile_id, current_epoch_millis(), 500)
             .map(|items| items.len())
             .unwrap_or(0);
@@ -12992,18 +13440,35 @@ impl SenzoShell {
                         .child(div().text_xs().text_color(rgb(Theme::TEXT_PRIMARY)).child("Clear PIN")))))
             .child(status_panel(StatusTone::Info,"LOCAL PROFILE","Private on this device",&format!("This profile has {pending_sync} pending sync change(s). Library data and retry state are stored locally until a cloud sync service is configured.")))
             .child(self.render_cloud_account_settings(cx));
-        if let Some(prompt) = pin_prompt { section = section.child(prompt); }
+        if let Some(prompt) = pin_prompt {
+            section = section.child(prompt);
+        }
         if let Some(error) = &self.profile_error {
-            section = section.child(status_panel(StatusTone::Error,"PROFILE", "Profile action failed", error));
+            section = section.child(status_panel(
+                StatusTone::Error,
+                "PROFILE",
+                "Profile action failed",
+                error,
+            ));
         }
         if let Some(notice) = &self.profile_notice {
-            section = section.child(status_panel(StatusTone::Info,"PROFILE", "Profile updated", notice));
+            section = section.child(status_panel(
+                StatusTone::Info,
+                "PROFILE",
+                "Profile updated",
+                notice,
+            ));
         }
         section
     }
 
     fn render_library(&self, cx: &mut Context<Self>) -> gpui::Div {
-        let query = self.library_search_input.read(cx).value().trim().to_ascii_lowercase();
+        let query = self
+            .library_search_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_ascii_lowercase();
         let mut page = div().w_full().flex().flex_col().gap_5()
             .child(page_intro("YOUR SPACE","Library","Save movies and series, organize them into private collections, and keep them available offline."))
             .child(Input::new(&self.library_search_input))
@@ -13020,53 +13485,178 @@ impl SenzoShell {
         let mut collections = div().w_full().flex().flex_col().gap_3();
         for collection in &self.library_collections {
             let collection_id = collection.id.clone();
-            let items = self.library_collection_items.get(&collection.id).cloned().unwrap_or_default();
+            let items = self
+                .library_collection_items
+                .get(&collection.id)
+                .cloned()
+                .unwrap_or_default();
             let collection_empty = items.is_empty();
             let rename_collection_id = collection.id.clone();
             let delete_collection_id = collection.id.clone();
-            let mut section = div().w_full().rounded_md().border_1().border_color(rgb(Theme::BORDER))
-                .bg(rgb(Theme::SURFACE)).p_3().flex().flex_col().gap_2()
-                .child(div().flex().items_center().gap_2()
-                    .child(div().flex_1().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(collection.title.clone()))
-                    .child(div().id(format!("collection-rename-{}", collection.id)).cursor_pointer().rounded_md().px_2().py_1()
-                        .bg(rgb(Theme::SURFACE_RAISED))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            let title = this.library_collection_input.read(cx).value().trim().to_owned();
-                            this.rename_library_collection(rename_collection_id.clone(), title, cx);
-                        }))
-                        .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child("Rename")))
-                    .child(div().id(format!("collection-reorder-{}", collection.id)).cursor_pointer().rounded_md().px_2().py_1()
-                        .bg(rgb(Theme::SURFACE_RAISED))
-                        .on_click(cx.listener(move |this, _, _, cx| this.reorder_library_collection(collection_id.clone(), cx)))
-                        .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child("Rotate order")))
-                    .child(div().id(format!("collection-delete-{}", collection.id)).cursor_pointer().rounded_md().px_2().py_1()
-                        .bg(rgb(Theme::SURFACE_RAISED))
-                        .on_click(cx.listener(move |this, _, _, cx| this.delete_library_collection(delete_collection_id.clone(), cx)))
-                        .child(div().text_xs().text_color(rgb(Theme::DANGER)).child("Delete"))));
-            for item in items.into_iter().filter(|item| query.is_empty() || item.title.to_ascii_lowercase().contains(&query)) {
+            let mut section = div()
+                .w_full()
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(Theme::BORDER))
+                .bg(rgb(Theme::SURFACE))
+                .p_3()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_sm()
+                                .text_color(rgb(Theme::TEXT_PRIMARY))
+                                .child(collection.title.clone()),
+                        )
+                        .child(
+                            div()
+                                .id(format!("collection-rename-{}", collection.id))
+                                .cursor_pointer()
+                                .rounded_md()
+                                .px_2()
+                                .py_1()
+                                .bg(rgb(Theme::SURFACE_RAISED))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    let title = this
+                                        .library_collection_input
+                                        .read(cx)
+                                        .value()
+                                        .trim()
+                                        .to_owned();
+                                    this.rename_library_collection(
+                                        rename_collection_id.clone(),
+                                        title,
+                                        cx,
+                                    );
+                                }))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(Theme::TEXT_SECONDARY))
+                                        .child("Rename"),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .id(format!("collection-reorder-{}", collection.id))
+                                .cursor_pointer()
+                                .rounded_md()
+                                .px_2()
+                                .py_1()
+                                .bg(rgb(Theme::SURFACE_RAISED))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.reorder_library_collection(collection_id.clone(), cx)
+                                }))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(Theme::TEXT_SECONDARY))
+                                        .child("Rotate order"),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .id(format!("collection-delete-{}", collection.id))
+                                .cursor_pointer()
+                                .rounded_md()
+                                .px_2()
+                                .py_1()
+                                .bg(rgb(Theme::SURFACE_RAISED))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.delete_library_collection(delete_collection_id.clone(), cx)
+                                }))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(Theme::DANGER))
+                                        .child("Delete"),
+                                ),
+                        ),
+                );
+            for item in items
+                .into_iter()
+                .filter(|item| query.is_empty() || item.title.to_ascii_lowercase().contains(&query))
+            {
                 let item_title = item.title.clone();
                 let media_id = item.media_id.clone();
                 let media_kind = item.media_kind;
                 let remove_collection_id = collection.id.clone();
-                section = section.child(div().flex().items_center().gap_2()
-                    .child(div().flex_1().text_sm().text_color(rgb(Theme::TEXT_SECONDARY)).child(item_title))
-                    .child(div().id(format!("collection-remove-{}-{}", collection.id, item.media_id)).cursor_pointer().rounded_md().bg(rgb(Theme::SURFACE_RAISED)).px_2().py_1()
-                        .on_click(cx.listener(move |this, _, _, cx| this.toggle_collection_membership(remove_collection_id.clone(), media_id.clone(), media_kind, cx)))
-                        .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child("Remove"))));
+                section = section.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_sm()
+                                .text_color(rgb(Theme::TEXT_SECONDARY))
+                                .child(item_title),
+                        )
+                        .child(
+                            div()
+                                .id(format!(
+                                    "collection-remove-{}-{}",
+                                    collection.id, item.media_id
+                                ))
+                                .cursor_pointer()
+                                .rounded_md()
+                                .bg(rgb(Theme::SURFACE_RAISED))
+                                .px_2()
+                                .py_1()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.toggle_collection_membership(
+                                        remove_collection_id.clone(),
+                                        media_id.clone(),
+                                        media_kind,
+                                        cx,
+                                    )
+                                }))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(Theme::TEXT_MUTED))
+                                        .child("Remove"),
+                                ),
+                        ),
+                );
             }
             if collection_empty {
-                section = section.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child("No titles in this collection yet."));
+                section = section.child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(Theme::TEXT_MUTED))
+                        .child("No titles in this collection yet."),
+                );
             }
             collections = collections.child(section);
         }
-        if !self.library_collections.is_empty() { page = page.child(collections); }
+        if !self.library_collections.is_empty() {
+            page = page.child(collections);
+        }
 
-        let filtered = self.library_items.iter().filter(|item| {
-            (query.is_empty() || item.title.to_ascii_lowercase().contains(&query))
-                && (!self.library_favorites_only || item.is_favorite)
-        }).collect::<Vec<_>>();
+        let filtered = self
+            .library_items
+            .iter()
+            .filter(|item| {
+                (query.is_empty() || item.title.to_ascii_lowercase().contains(&query))
+                    && (!self.library_favorites_only || item.is_favorite)
+            })
+            .collect::<Vec<_>>();
         if filtered.is_empty() {
-            page = page.child(status_panel(StatusTone::Empty,"SAVED TITLES","Your library is empty","Open any movie or series and use Save to Library to add it here."));
+            page = page.child(status_panel(
+                StatusTone::Empty,
+                "SAVED TITLES",
+                "Your library is empty",
+                "Open any movie or series and use Save to Library to add it here.",
+            ));
         } else {
             let mut saved = div().w_full().flex().flex_col().gap_2();
             for item in filtered {
@@ -13074,34 +13664,140 @@ impl SenzoShell {
                 let kind = item.media_kind;
                 let favorite_id = item.media_id.clone();
                 let remove_id = item.media_id.clone();
-                let mut actions = div().flex().items_center().gap_2()
-                    .child(div().id(format!("library-favorite-{}", item.media_id)).cursor_pointer().rounded_md().bg(rgb(Theme::SURFACE_RAISED)).px_2().py_1()
-                        .on_click(cx.listener(move |this, _, _, cx| this.toggle_library_favorite(favorite_id.clone(), kind, cx)))
-                        .child(div().text_xs().text_color(rgb(if item.is_favorite { Theme::ACCENT } else { Theme::TEXT_SECONDARY })).child(if item.is_favorite { "★ Favorite" } else { "☆ Favorite" })))
-                    .child(div().id(format!("library-remove-{}", item.media_id)).cursor_pointer().rounded_md().bg(rgb(Theme::SURFACE_RAISED)).px_2().py_1()
-                        .on_click(cx.listener(move |this, _, _, cx| this.remove_library_item(remove_id.clone(), kind, cx)))
-                        .child(div().text_xs().text_color(rgb(Theme::DANGER)).child("Remove")));
+                let mut actions = div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .id(format!("library-favorite-{}", item.media_id))
+                            .cursor_pointer()
+                            .rounded_md()
+                            .bg(rgb(Theme::SURFACE_RAISED))
+                            .px_2()
+                            .py_1()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.toggle_library_favorite(favorite_id.clone(), kind, cx)
+                            }))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(if item.is_favorite {
+                                        Theme::ACCENT
+                                    } else {
+                                        Theme::TEXT_SECONDARY
+                                    }))
+                                    .child(if item.is_favorite {
+                                        "★ Favorite"
+                                    } else {
+                                        "☆ Favorite"
+                                    }),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id(format!("library-remove-{}", item.media_id))
+                            .cursor_pointer()
+                            .rounded_md()
+                            .bg(rgb(Theme::SURFACE_RAISED))
+                            .px_2()
+                            .py_1()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.remove_library_item(remove_id.clone(), kind, cx)
+                            }))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(Theme::DANGER))
+                                    .child("Remove"),
+                            ),
+                    );
                 for collection in &self.library_collections {
                     let collection_id = collection.id.clone();
-                    let member = self.library_collection_items.get(&collection.id)
-                        .is_some_and(|items| items.iter().any(|saved| saved.media_id == media_id && saved.media_kind == kind));
-                    let title = if member { format!("✓ {}", collection.title) } else { format!("+ {}", collection.title) };
+                    let member = self
+                        .library_collection_items
+                        .get(&collection.id)
+                        .is_some_and(|items| {
+                            items
+                                .iter()
+                                .any(|saved| saved.media_id == media_id && saved.media_kind == kind)
+                        });
+                    let title = if member {
+                        format!("✓ {}", collection.title)
+                    } else {
+                        format!("+ {}", collection.title)
+                    };
                     let member_media_id = media_id.clone();
-                    actions = actions.child(div().id(format!("library-collection-{}-{}", collection.id, item.media_id)).cursor_pointer().rounded_md().bg(rgb(Theme::SURFACE)).px_2().py_1()
-                        .on_click(cx.listener(move |this, _, _, cx| this.toggle_collection_membership(collection_id.clone(), member_media_id.clone(), kind, cx)))
-                        .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child(title)));
+                    actions = actions.child(
+                        div()
+                            .id(format!(
+                                "library-collection-{}-{}",
+                                collection.id, item.media_id
+                            ))
+                            .cursor_pointer()
+                            .rounded_md()
+                            .bg(rgb(Theme::SURFACE))
+                            .px_2()
+                            .py_1()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.toggle_collection_membership(
+                                    collection_id.clone(),
+                                    member_media_id.clone(),
+                                    kind,
+                                    cx,
+                                )
+                            }))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(Theme::TEXT_SECONDARY))
+                                    .child(title),
+                            ),
+                    );
                 }
-                saved = saved.child(div().w_full().rounded_md().border_1().border_color(rgb(Theme::BORDER))
-                    .bg(rgb(Theme::SURFACE)).p_3().flex().flex_col().gap_2()
-                    .child(div().flex().items_center().gap_3()
-                        .child(div().flex_1().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(item.title.clone()))
-                        .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(if kind == MediaKind::Movie { "MOVIE" } else { "TV SERIES" })))
-                    .child(actions));
+                saved = saved.child(
+                    div()
+                        .w_full()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(rgb(Theme::BORDER))
+                        .bg(rgb(Theme::SURFACE))
+                        .p_3()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_3()
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .text_sm()
+                                        .text_color(rgb(Theme::TEXT_PRIMARY))
+                                        .child(item.title.clone()),
+                                )
+                                .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
+                                    if kind == MediaKind::Movie {
+                                        "MOVIE"
+                                    } else {
+                                        "TV SERIES"
+                                    },
+                                )),
+                        )
+                        .child(actions),
+                );
             }
             page = page.child(saved);
         }
         if let Some(error) = &self.library_error {
-            page = page.child(status_panel(StatusTone::Error,"LIBRARY","Library action failed",error));
+            page = page.child(status_panel(
+                StatusTone::Error,
+                "LIBRARY",
+                "Library action failed",
+                error,
+            ));
         }
         page
     }
@@ -13918,7 +14614,11 @@ mod tests {
             Ok(None)
         }
 
-        fn set(&self, _account: &str, _secret: &str) -> Result<(), senzo_platform::CredentialError> {
+        fn set(
+            &self,
+            _account: &str,
+            _secret: &str,
+        ) -> Result<(), senzo_platform::CredentialError> {
             Ok(())
         }
 
@@ -14660,7 +15360,10 @@ mod tests {
         assert_eq!(projected[0].title, "Weekend picks");
         assert_eq!(projected[0].folders.len(), 1);
         assert_eq!(projected[0].folders[0].title, "Fight Club");
-        assert_eq!(projected[0].folders[0].cover_artwork_path.as_deref(), Some("/poster.jpg"));
+        assert_eq!(
+            projected[0].folders[0].cover_artwork_path.as_deref(),
+            Some("/poster.jpg")
+        );
     }
 
     #[test]
@@ -14764,7 +15467,8 @@ mod tests {
         )
         .expect("test artwork cache should initialize");
         let phase12_database = Arc::new(
-            senzo_storage::SqliteDatabase::in_memory().expect("Phase 12 test database should initialize")
+            senzo_storage::SqliteDatabase::in_memory()
+                .expect("Phase 12 test database should initialize"),
         );
         let phase12_profile_scope = ProfileScope::new("default");
 
@@ -14791,7 +15495,8 @@ mod tests {
                         senzo_sync::CloudService::new(
                             "https://senzo-api.vercel.app",
                             Arc::new(TestCredentialStore),
-                        ).expect("test cloud service URL should be valid")
+                        )
+                        .expect("test cloud service URL should be valid"),
                     ),
                 },
                 true,

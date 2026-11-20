@@ -6564,6 +6564,7 @@ dependencies = [
  "senzo-plugins",
  "senzo-sources",
  "senzo-storage",
+ "senzo-sync",
  "senzo-ui",
  "tokio",
  "tokio-util",
@@ -6712,6 +6713,7 @@ dependencies = [
  "async-trait",
  "senzo-addons",
  "senzo-debrid",
+ "senzo-domain",
  "senzo-integrations",
  "senzo-plugins",
  "serde",
@@ -6726,11 +6728,30 @@ dependencies = [
 name = "senzo-storage"
 version = "0.1.0"
 dependencies = [
+ "pbkdf2",
+ "ring",
  "rusqlite",
  "senzo-addons",
  "senzo-domain",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
  "thiserror 2.0.21",
  "uuid",
+]
+
+[[package]]
+name = "senzo-sync"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "senzo-domain",
+ "senzo-platform",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "url",
 ]
 
 [[package]]
@@ -6749,9 +6770,12 @@ dependencies = [
  "senzo-integrations",
  "senzo-metadata",
  "senzo-network",
+ "senzo-platform",
  "senzo-player",
  "senzo-plugins",
  "senzo-sources",
+ "senzo-storage",
+ "senzo-sync",
  "serde_json",
  "tokio",
  "tokio-util",
