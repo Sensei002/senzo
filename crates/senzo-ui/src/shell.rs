@@ -8245,7 +8245,13 @@ impl SenzoShell {
         let title = if movie { "Movies" } else { "TV Shows" };
         let mut page = div()
             .id(if movie { "discover-page-movies" } else { "discover-page-tv" })
-            .debug_selector(|| if movie { "discover-page-movies" } else { "discover-page-tv" })
+            .debug_selector(|| {
+                if movie {
+                    "discover-page-movies".to_owned()
+                } else {
+                    "discover-page-tv".to_owned()
+                }
+            })
             .w_full()
             .flex()
             .flex_col()
@@ -16595,6 +16601,15 @@ mod tests {
                 shell.read_with(window_cx, |shell, _| shell.navigation.current()),
                 expected
             );
+            if expected == AppPage::Movies {
+                window_cx
+                    .debug_bounds("discover-page-movies")
+                    .expect("Movies route should render its discovery catalogue");
+            } else if expected == AppPage::TvShows {
+                window_cx
+                    .debug_bounds("discover-page-tv")
+                    .expect("TV Shows route should render its discovery catalogue");
+            }
         }
 
         window_cx.simulate_keystrokes("down enter");

@@ -373,11 +373,19 @@ mod tests {
 
     #[test]
     fn redact_text_handles_json_authorization_and_inline_secrets() {
-        let input = r#"Authorization: Bearer private-token \"api_key\":\"inline-secret\" password=example"#;
+        let input = r#"Authorization: Bearer private-token "api_key":"inline-secret" password=example"#;
         let redacted = redact_text(input);
         assert!(!redacted.contains("private-token"));
         assert!(!redacted.contains("inline-secret"));
         assert!(!redacted.contains("password=example"));
+        assert!(redacted.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn text_url_query_credentials_are_redacted_without_hiding_safe_parameters() {
+        let redacted = redact_text("request=https://example.test/api?token=private&language=en");
+        assert!(!redacted.contains("private"));
+        assert!(redacted.contains("language=en"));
         assert!(redacted.contains("[REDACTED]"));
     }
 
