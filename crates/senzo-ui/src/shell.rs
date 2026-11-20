@@ -12376,13 +12376,13 @@ impl SenzoShell {
         self.home_cancellation.cancel();
         self.home_catalogue_generation = self.home_catalogue_generation.saturating_add(1);
         self.home_cancellation = CancellationToken::new();
-        self.profile_scope.set(profile_id.clone());
-        self.active_profile_id = profile_id.clone();
         let active_key = SettingKey::new("profiles.active").expect("valid active-profile key");
         if let Err(error) = self.settings.set(&active_key, &profile_id) {
             self.profile_error = Some(format!("Could not save active profile: {error}"));
             return;
         }
+        self.profile_scope.set(profile_id.clone());
+        self.active_profile_id = profile_id.clone();
         self.profile_switch_target = None;
         self.profile_error = None;
         if let Some(name) = self.profiles.iter().find(|profile| profile.id == profile_id).map(|profile| profile.name.clone()) {
@@ -12628,7 +12628,7 @@ impl SenzoShell {
                 .child(Input::new(&self.profile_pin_input))
                 .child(div().id("profile-unlock").cursor_pointer().rounded_md()
                     .bg(rgb(Theme::ACCENT_DARK)).px_3().py_2()
-                    .on_click(cx.listener(|this, _, _, cx| this.confirm_profile_switch(window, cx)))
+                    .on_click(cx.listener(|this, _, window, cx| this.confirm_profile_switch(window, cx)))
                     .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child("Unlock and switch")))
         });
         let mut profile_rows = div().w_full().flex().flex_col().gap_2();
@@ -12644,7 +12644,7 @@ impl SenzoShell {
                     .when(!active, |element| element.child(
                         div().id(format!("profile-use-{}", id)).cursor_pointer().rounded_md()
                             .bg(rgb(Theme::ACCENT_DARK)).px_3().py_2()
-                            .on_click(cx.listener(move |this, _, _, cx| this.request_profile_switch(id.clone(), window, cx)))
+                            .on_click(cx.listener(move |this, _, window, cx| this.request_profile_switch(id.clone(), window, cx)))
                             .child(div().text_xs().text_color(rgb(Theme::ACCENT)).child("Use profile"))
                     ))
                     .when(!active, |element| {
