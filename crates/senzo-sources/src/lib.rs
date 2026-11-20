@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use senzo_addons::{AddonManager, AddonStream};
 use senzo_debrid::{DebridFileHint, DebridManager, DebridProviderId, ResolvedDebridSource};
 use senzo_integrations::MediaServerManager;
+use senzo_domain::ProfileScope;
 use senzo_plugins::{PluginManager, PluginStream, ScraperInput, StreamTarget as PluginTarget};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -315,6 +316,7 @@ pub trait SourceAdapter: Send + Sync {
 pub struct AddonSourceAdapter {
     manager: AddonManager,
     profile_id: String,
+    profile_scope: Option<ProfileScope>,
 }
 
 impl AddonSourceAdapter {
@@ -322,7 +324,16 @@ impl AddonSourceAdapter {
         Self {
             manager,
             profile_id: profile_id.into(),
+            profile_scope: None,
         }
+    }
+
+    pub fn new_scoped(manager: AddonManager, profile_scope: ProfileScope) -> Self {
+        Self { manager, profile_id: "default".to_owned(), profile_scope: Some(profile_scope) }
+    }
+
+    fn active_profile_id(&self) -> String {
+        self.profile_scope.as_ref().map(ProfileScope::current).unwrap_or_else(|| self.profile_id.clone())
     }
 }
 
@@ -336,9 +347,10 @@ impl SourceAdapter for AddonSourceAdapter {
     }
 
     async fn discover(&self, request: &SourceRequest) -> Result<AdapterOutput, SourceError> {
+        let active_profile_id = self.active_profile_id();
         let addons = self
             .manager
-            .list_addons(&self.profile_id)
+            .list_addons(&active_profile_id)
             .map_err(|error| SourceError::Provider(error.to_string()))?;
         let mut jobs = JoinSet::new();
         for addon in addons.into_iter().filter(|addon| addon.enabled) {
@@ -354,7 +366,7 @@ impl SourceAdapter for AddonSourceAdapter {
                 continue;
             }
             let manager = self.manager.clone();
-            let profile = self.profile_id.clone();
+            let profile = active_profile_id.clone();
             let request = request.clone();
             jobs.spawn(async move {
                 let result = manager
@@ -393,6 +405,7 @@ impl SourceAdapter for AddonSourceAdapter {
 pub struct PluginSourceAdapter {
     manager: PluginManager,
     profile_id: String,
+    profile_scope: Option<ProfileScope>,
 }
 
 impl PluginSourceAdapter {
@@ -400,7 +413,16 @@ impl PluginSourceAdapter {
         Self {
             manager,
             profile_id: profile_id.into(),
+            profile_scope: None,
         }
+    }
+
+    pub fn new_scoped(manager: PluginManager, profile_scope: ProfileScope) -> Self {
+        Self { manager, profile_id: "default".to_owned(), profile_scope: Some(profile_scope) }
+    }
+
+    fn active_profile_id(&self) -> String {
+        self.profile_scope.as_ref().map(ProfileScope::current).unwrap_or_else(|| self.profile_id.clone())
     }
 }
 
@@ -414,9 +436,10 @@ impl SourceAdapter for PluginSourceAdapter {
     }
 
     async fn discover(&self, request: &SourceRequest) -> Result<AdapterOutput, SourceError> {
+        let active_profile_id = self.active_profile_id();
         let state = self
             .manager
-            .list_state(&self.profile_id)
+            .list_state(&active_profile_id)
             .map_err(|error| SourceError::Provider(error.to_string()))?;
         if !state.plugins_enabled {
             return Ok(AdapterOutput {
@@ -431,7 +454,7 @@ impl SourceAdapter for PluginSourceAdapter {
             .filter(|s| s.enabled && s.supports_type(&input.media_type) && s.network_access_granted)
         {
             let manager = self.manager.clone();
-            let profile = self.profile_id.clone();
+            let profile = active_profile_id.clone();
             let input = input.clone();
             jobs.spawn(async move {
                 let id = scraper.id.clone();
@@ -472,6 +495,7 @@ impl SourceAdapter for PluginSourceAdapter {
 pub struct MediaServerSourceAdapter {
     manager: MediaServerManager,
     profile_id: String,
+    profile_scope: Option<ProfileScope>,
 }
 
 impl MediaServerSourceAdapter {
@@ -479,7 +503,16 @@ impl MediaServerSourceAdapter {
         Self {
             manager,
             profile_id: profile_id.into(),
+            profile_scope: None,
         }
+    }
+
+    pub fn new_scoped(manager: MediaServerManager, profile_scope: ProfileScope) -> Self {
+        Self { manager, profile_id: "default".to_owned(), profile_scope: Some(profile_scope) }
+    }
+
+    fn active_profile_id(&self) -> String {
+        self.profile_scope.as_ref().map(ProfileScope::current).unwrap_or_else(|| self.profile_id.clone())
     }
 }
 
@@ -493,10 +526,11 @@ impl SourceAdapter for MediaServerSourceAdapter {
     }
 
     async fn discover(&self, request: &SourceRequest) -> Result<AdapterOutput, SourceError> {
+        let active_profile_id = self.active_profile_id();
         let matches = self
             .manager
             .find_and_resolve(
-                &self.profile_id,
+                &active_profile_id,
                 &request.media_type,
                 &request.title,
                 request.year,
