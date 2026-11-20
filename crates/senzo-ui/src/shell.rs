@@ -12792,7 +12792,7 @@ impl SenzoShell {
                         }
                     }
                     Err(error) => {
-                        if matches!(error, CloudError::Unauthorized) {
+                        if matches!(&error, CloudError::Unauthorized) {
                             this.cloud_signed_in = false;
                         }
                         this.cloud_error = Some(cloud_error_message(&error));
