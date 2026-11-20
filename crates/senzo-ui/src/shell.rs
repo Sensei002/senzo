@@ -113,6 +113,14 @@ struct PlaybackSourceCandidate {
     binge_group: Option<String>,
 }
 
+fn next_episode_autoplay_ready(
+    has_source_candidate: bool,
+    selected_episode: Option<(u64, u32, u32)>,
+    target_episode: Option<(u64, u32, u32)>,
+) -> bool {
+    has_source_candidate && target_episode.is_some() && selected_episode == target_episode
+}
+
 fn select_next_episode_source_candidate(
     result: &SourceDiscoveryResult,
     preferred_binge_group: Option<&str>,
@@ -2979,13 +2987,16 @@ impl SenzoShell {
         let Some((show_id, season, episode_number)) = self.autoplay_next_target else {
             return;
         };
-        let episode_ready = self.details.as_ref().is_some_and(|details| {
-            details.id == show_id
-                && details.selected_episode.as_ref().is_some_and(|episode| {
-                    episode.season_number == season && episode.episode_number == episode_number
-                })
+        let selected_episode = self.details.as_ref().and_then(|details| {
+            details.selected_episode.as_ref().map(|episode| {
+                (details.id, episode.season_number, episode.episode_number)
+            })
         });
-        if !episode_ready {
+        if !next_episode_autoplay_ready(
+            self.pending_episode_autoplay_source.is_some(),
+            selected_episode,
+            Some((show_id, season, episode_number)),
+        ) {
             return;
         }
         let Some(source) = self.pending_episode_autoplay_source.take() else {
@@ -13107,6 +13118,7 @@ mod tests {
     }
 
     fn phase11_source_result(sources: Vec<Source>) -> SourceDiscoveryResult {
+        let total_sources = sources.len();
         SourceDiscoveryResult {
             groups: vec![senzo_sources::SourceGroup {
                 provider_id: "providers".to_owned(),
@@ -13116,7 +13128,7 @@ mod tests {
                 error: None,
             }],
             diagnostics: Vec::new(),
-            total_sources: sources.len(),
+            total_sources,
             used_stale_cache: false,
             recommended_source_id: None,
         }
