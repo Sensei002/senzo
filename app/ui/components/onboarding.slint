@@ -49,6 +49,8 @@ export component OnboardingModal inherits Rectangle {
     callback toggle-pause-on-minimize(bool);
 
     visible: root.open;
+    opacity: root.open ? 1 : 0;
+    animate opacity { duration: Theme.motion-fade-in; easing: ease-out; }
     background: Theme.scrim;
     z: 2500;
 
@@ -66,6 +68,7 @@ export component OnboardingModal inherits Rectangle {
         background: Theme.modal-color;
         border-width: 1px;
         border-color: Theme.card-border;
+        animate border-color { duration: Theme.motion-control; easing: ease-out; }
         drop-shadow-blur: Theme.outer-glow-blur;
         drop-shadow-color: Theme.outer-glow-color;
         TouchArea { } // Prevent click-through
@@ -120,9 +123,9 @@ export component OnboardingModal inherits Rectangle {
                 height: 64px;
 
                 Image {
-                    width: 64px;
-                    height: 64px;
-                    source: @image-url("../assets/images/app_icon.png");
+                    width: 150px;
+                    height: 56px;
+                    source: @image-url("../assets/images/senzo-logo.png");
                     image-fit: contain;
                 }
             }
@@ -169,7 +172,8 @@ export component OnboardingModal inherits Rectangle {
                             width: parent.width - 12px;
                             height: 36px;
                             border-radius: 8px;
-                            background: root.selected-language-idx == idx ? Theme.primary-accent : (self.has-hover ? Theme.overlay-hover : transparent);
+                            background: root.selected-language-idx == idx ? Theme.primary-accent.with-alpha(0.20) : (self.has-hover ? Theme.overlay-hover : transparent);
+                            animate background { duration: Theme.motion-control; easing: ease-out; }
                             clicked => {
                                 root.selected-language-idx = idx;
                                 root.language-changed(idx);
