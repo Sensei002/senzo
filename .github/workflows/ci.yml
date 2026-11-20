@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       run_live_api_acceptance:
-        description: "Run live hosted API and TMDB artwork acceptance on Windows and Linux"
+        description: "Run live hosted API and TMDB artwork acceptance on Windows"
         required: true
         default: false
         type: boolean
@@ -23,7 +23,7 @@ permissions:
 
 concurrency:
   # Phase 8 provider acceptance has its own queue, separate from the Phase 7 close-out run.
-  group: senzo-desktop-phase8-source-aggregation-${{ github.workflow }}-${{ github.ref }}
+  group: senzo-desktop-windows-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -77,91 +77,9 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  linux:
-    name: Linux native desktop
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    steps:
-      - name: Install GPUI and credential-store build dependencies
-        timeout-minutes: 25
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends \
-            build-essential pkg-config libdbus-1-dev \
-            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev \
-            libxcb-shape0-dev libxcb-xfixes0-dev libxcb-randr0-dev libxcb-xinput-dev \
-            libegl1-mesa-dev libgles2-mesa-dev libglib2.0-dev libfontconfig-dev \
-            libgl1-mesa-dri xvfb xauth \
-            libmpv2 ffmpeg pulseaudio pulseaudio-utils python3-pil curl
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install Rust 1.95
-        uses: dtolnay/rust-toolchain@1.95.0
-        with:
-          components: rustfmt, clippy
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-      - name: Resolve workspace lockfile
-        run: cargo generate-lockfile
-      - name: Format Rust sources
-        run: cargo fmt --all
-      - name: Verify formatting
-        run: cargo fmt --all -- --check
-      - name: Run Clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Run tests
-        run: cargo test --workspace --all-targets --locked
-      - name: Build native Linux application
-        run: cargo build --release --locked -p senzo-app
-      - name: Build SENZO's libmpv integration harness
-        run: cargo build --release --locked -p senzo-player --example headless_acceptance
-      - name: Exercise playback, controls, video frames and audible PCM
-        run: >-
-          xvfb-run -a
-          -s "-screen 0 1280x720x24 +extension GLX +render -noreset"
-          env LIBGL_ALWAYS_SOFTWARE=1
-          bash scripts/mpv-headless-acceptance.sh
-          target/release/examples/headless_acceptance
-        timeout-minutes: 5
-      - name: Upload audiovisual diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: senzo-mpv-headless-diagnostics-${{ github.sha }}
-          path: /tmp/senzo-mpv-headless/
-          if-no-files-found: warn
-          retention-days: 14
-      - name: Smoke-test native window startup and shutdown
-        run: xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 cargo run --release --locked -p senzo-app -- --smoke-test
-        timeout-minutes: 3
-      - name: Set up Node.js for live native integration
-        if: >-
-          (github.event_name == 'workflow_dispatch' && inputs.run_live_api_acceptance) ||
-          (github.event_name == 'push' && contains(github.event.head_commit.message, '[live-api-acceptance]'))
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Exercise native metadata client and artwork against hosted API
-        if: >-
-          (github.event_name == 'workflow_dispatch' && inputs.run_live_api_acceptance) ||
-          (github.event_name == 'push' && contains(github.event.head_commit.message, '[live-api-acceptance]'))
-        env:
-          SENZO_API_BASE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.api_base_url != '' && inputs.api_base_url || 'https://senzo-api-git-development-stream-anything.vercel.app' }}
-          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-        run: node scripts/native-metadata-smoke.mjs
-      - name: Upload Linux foundation binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: senzo-linux-x64-development-${{ github.sha }}
-          path: target/release/senzo
-          if-no-files-found: error
-          retention-days: 14
-
   automation-scripts:
     name: Validate repository automation scripts
-    runs-on: ubuntu-24.04
+    runs-on: windows-2022
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -169,6 +87,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Install Python 3
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
       - name: Validate live acceptance scripts and URL safety
         run: |
           node --check scripts/live-api-acceptance.mjs
@@ -179,18 +101,14 @@ jobs:
           python3 -m py_compile scripts/mpv-range-server.py scripts/validate-mpv-headless.py
 
   live-api-acceptance:
-    name: Live hosted API acceptance (${{ matrix.os }})
+    name: Live hosted API acceptance (Windows)
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.run_live_api_acceptance) ||
       (github.event_name == 'push' && contains(github.event.head_commit.message, '[live-api-acceptance]'))
     env:
       SENZO_API_BASE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.api_base_url != '' && inputs.api_base_url || 'https://senzo-api-git-development-stream-anything.vercel.app' }}
       VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-2022, ubuntu-24.04]
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-2022
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -202,14 +120,12 @@ jobs:
         run: node scripts/live-api-acceptance.mjs
 
   live-addon-acceptance:
-    name: Live Stremio add-on acceptance (${{ matrix.os }})
+    name: Live Stremio add-on acceptance (Windows)
     timeout-minutes: 20
     if: github.event_name == 'push' && contains(github.event.head_commit.message, '[live-addon-acceptance]')
     strategy:
       fail-fast: false
-      matrix:
-        os: [windows-2022, ubuntu-24.04]
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-2022
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -225,8 +141,8 @@ jobs:
   lockfile:
     name: Commit resolved Cargo.lock
     if: github.event_name == 'push' && github.ref == 'refs/heads/development'
-    needs: [windows, linux]
-    runs-on: ubuntu-24.04
+    needs: [windows]
+    runs-on: windows-2022
     steps:
       - name: Checkout latest development
         uses: actions/checkout@v4
