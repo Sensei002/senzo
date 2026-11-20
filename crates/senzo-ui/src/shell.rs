@@ -14657,6 +14657,12 @@ mod tests {
                     debrid_manager: test_debrid_manager(),
                     media_server_manager: test_media_server_manager(),
                     source_aggregator: test_source_aggregator(),
+                    cloud_service: Arc::new(
+                        senzo_sync::CloudService::new(
+                            "https://senzo-api.vercel.app",
+                            Arc::new(senzo_platform::KeyringCredentialStore::new("SENZO UI Test")),
+                        ).expect("test cloud service URL should be valid")
+                    ),
                 },
                 true,
                 window,

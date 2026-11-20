@@ -1046,7 +1046,7 @@ impl SyncOutboxRepository for SqliteDatabase {
                         transaction.execute(
                             "UPDATE library_collections SET is_deleted=1,deleted_at_ms=?3,updated_at_ms=MAX(updated_at_ms,?3)
                              WHERE profile_id=?1 AND id=?2",
-                            (profile_id,mutation.entity_id,mutation.changed_at_ms)
+                            (profile_id,mutation.entity_id.as_str(),mutation.changed_at_ms)
                         ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
                     }
                 }

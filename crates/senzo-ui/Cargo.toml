@@ -33,4 +33,3 @@ senzo-network = { path = "../senzo-network" }
 
 senzo-storage = { path = "../senzo-storage" }
 senzo-platform = { path = "../senzo-platform" }
-senzo-platform = { path = "../senzo-platform" }
