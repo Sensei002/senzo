@@ -47,6 +47,7 @@ use senzo_sources::{
     Source, SourceAggregator, SourceDiscoveryResult, SourceRequest, SourceSort, SourceTarget,
     sort_sources,
 };
+use senzo_sync::{CloudError, CloudService};
 use serde_json::Value;
 use tokio::{runtime::Handle, sync::mpsc, task::JoinSet};
 use tokio_util::sync::CancellationToken;
@@ -713,6 +714,7 @@ pub struct ShellServices {
     pub profile_security: Arc<dyn ProfileSecurityRepository>,
     pub profile_settings: Arc<dyn ProfileSettingsRepository>,
     pub sync_outbox: Arc<dyn SyncOutboxRepository>,
+    pub cloud_service: Arc<CloudService>,
     pub profile_scope: ProfileScope,
     pub playback_progress: Arc<dyn PlaybackProgressRepository>,
     pub addon_manager: AddonManager,
@@ -733,6 +735,13 @@ pub(crate) struct SenzoShell {
     profile_security_repository: Arc<dyn ProfileSecurityRepository>,
     profile_settings_repository: Arc<dyn ProfileSettingsRepository>,
     sync_outbox_repository: Arc<dyn SyncOutboxRepository>,
+    cloud_service: Arc<CloudService>,
+    cloud_signed_in: bool,
+    cloud_email_input: Entity<InputState>,
+    cloud_password_input: Entity<InputState>,
+    cloud_status: Option<String>,
+    cloud_error: Option<String>,
+    cloud_busy: bool,
     profile_scope: ProfileScope,
     active_profile_id: String,
     profiles: Vec<Profile>,
@@ -890,6 +899,19 @@ pub(crate) struct SenzoShell {
     runtime_status: String,
     smoke_test: bool,
     smoke_test_scheduled: bool,
+}
+
+fn cloud_error_message(error: &CloudError) -> String {
+    match error {
+        CloudError::NotConfigured => "Cloud account and sync are not configured on the API deployment.".to_owned(),
+        CloudError::Unauthorized => "Sign in again: this cloud session is no longer valid.".to_owned(),
+        CloudError::Http(status) => format!("The cloud service rejected the request (HTTP {status})."),
+        CloudError::Transport(_) => "Could not reach the cloud service. Local changes remain safely queued.".to_owned(),
+        CloudError::Credential(_) => "The operating system could not access secure credential storage.".to_owned(),
+        CloudError::InvalidBaseUrl => "The cloud API URL is invalid.".to_owned(),
+        CloudError::InvalidResponse => "The cloud service returned an unexpected response.".to_owned(),
+        CloudError::Repository(error) => format!("Local sync storage failed: {error}"),
+    }
 }
 
 fn merge_library_home_collections(
@@ -1146,6 +1168,7 @@ impl SenzoShell {
             profile_security: profile_security_repository,
             profile_settings: profile_settings_repository,
             sync_outbox: sync_outbox_repository,
+            cloud_service,
             profile_scope,
             playback_progress,
             addon_manager,
@@ -1173,7 +1196,13 @@ impl SenzoShell {
             InputState::new(window, cx).default_value(active_profile_name).placeholder("Profile name")
         });
         let profile_pin_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Profile PIN (4-12 digits)")
+            InputState::new(window, cx).placeholder("Profile PIN (4-12 digits)").masked(true)
+        });
+        let cloud_email_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Email address")
+        });
+        let cloud_password_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Password").masked(true)
         });
         let library_search_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search your library")
@@ -1369,6 +1398,13 @@ impl SenzoShell {
             profile_security_repository,
             profile_settings_repository,
             sync_outbox_repository,
+            cloud_signed_in: cloud_service.stored_session(&active_profile_id).ok().flatten().is_some(),
+            cloud_service,
+            cloud_email_input,
+            cloud_password_input,
+            cloud_status: None,
+            cloud_error: None,
+            cloud_busy: false,
             profile_scope,
             active_profile_id,
             profiles,
@@ -12644,6 +12680,199 @@ impl SenzoShell {
         cx.notify();
     }
 
+    fn cloud_sign_in(&mut self, cx: &mut Context<Self>) {
+        if self.cloud_busy { return; }
+        let email = self.cloud_email_input.read(cx).value().to_string();
+        let password = self.cloud_password_input.read(cx).value().to_string();
+        let profile_id = self.active_profile_id.clone();
+        let service = self.cloud_service.clone();
+        self.cloud_password_input.update(cx, |input, window, cx| {
+            input.set_value(String::new(), window, cx);
+        });
+        self.cloud_busy = true;
+        self.cloud_error = None;
+        self.cloud_status = Some("Signing in securely…".to_owned());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = service.login(&profile_id, &email, &password).await;
+            let _ = this.update(cx, |this, cx| {
+                this.cloud_busy = false;
+                match result {
+                    Ok(session) => {
+                        this.cloud_signed_in = true;
+                        this.cloud_status = Some(format!(
+                            "Signed in as {}. Session stored in the OS keyring.",
+                            session.email.as_deref().unwrap_or(&session.user_id)
+                        ));
+                        this.cloud_error = None;
+                    }
+                    Err(error) => {
+                        this.cloud_error = Some(cloud_error_message(&error));
+                        this.cloud_status = None;
+                    }
+                }
+                cx.notify();
+            });
+        }).detach();
+    }
+
+    fn cloud_sign_up(&mut self, cx: &mut Context<Self>) {
+        if self.cloud_busy { return; }
+        let email = self.cloud_email_input.read(cx).value().to_string();
+        let password = self.cloud_password_input.read(cx).value().to_string();
+        let display_name = self.profiles.iter()
+            .find(|profile| profile.id == self.active_profile_id)
+            .map(|profile| profile.name.clone());
+        let profile_id = self.active_profile_id.clone();
+        let service = self.cloud_service.clone();
+        self.cloud_password_input.update(cx, |input, window, cx| {
+            input.set_value(String::new(), window, cx);
+        });
+        self.cloud_busy = true;
+        self.cloud_error = None;
+        self.cloud_status = Some("Creating account…".to_owned());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = service.signup(&profile_id, &email, &password, display_name.as_deref()).await;
+            let _ = this.update(cx, |this, cx| {
+                this.cloud_busy = false;
+                match result {
+                    Ok(result) if result.confirmation_required => {
+                        this.cloud_status = Some(result.message.unwrap_or_else(|| {
+                            "Check your email to confirm the account, then sign in.".to_owned()
+                        }));
+                        this.cloud_error = None;
+                    }
+                    Ok(_) => {
+                        this.cloud_signed_in = true;
+                        this.cloud_status = Some("Account created and signed in. Session stored in the OS keyring.".to_owned());
+                        this.cloud_error = None;
+                    }
+                    Err(error) => {
+                        this.cloud_error = Some(cloud_error_message(&error));
+                        this.cloud_status = None;
+                    }
+                }
+                cx.notify();
+            });
+        }).detach();
+    }
+
+    fn cloud_sync_now(&mut self, cx: &mut Context<Self>) {
+        if self.cloud_busy { return; }
+        let profile_id = self.active_profile_id.clone();
+        let service = self.cloud_service.clone();
+        let repository = self.sync_outbox_repository.clone();
+        self.cloud_busy = true;
+        self.cloud_error = None;
+        self.cloud_status = Some("Synchronizing this profile…".to_owned());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = service.sync_profile(&profile_id, repository.as_ref()).await;
+            let _ = this.update(cx, |this, cx| {
+                this.cloud_busy = false;
+                match result {
+                    Ok(report) => {
+                        this.cloud_status = Some(format!(
+                            "Sync complete · {} uploaded · {} downloaded · cursor {}",
+                            report.pushed, report.pulled, report.next_cursor
+                        ));
+                        this.cloud_error = None;
+                        this.reload_library_state();
+                        this.home_continue_watching = this.playback_progress_repository
+                            .list_continue_watching(&this.active_profile_id, 20)
+                            .unwrap_or_default();
+                        this.home_up_next_requested = false;
+                        this.home_up_next.clear();
+                        if this.navigation.current() == AppPage::Home {
+                            this.refresh_home_catalogue(cx);
+                        }
+                    }
+                    Err(error) => {
+                        if matches!(error, CloudError::Unauthorized) {
+                            this.cloud_signed_in = false;
+                        }
+                        this.cloud_error = Some(cloud_error_message(&error));
+                        this.cloud_status = None;
+                    }
+                }
+                cx.notify();
+            });
+        }).detach();
+    }
+
+    fn cloud_sign_out(&mut self, cx: &mut Context<Self>) {
+        if self.cloud_busy { return; }
+        let profile_id = self.active_profile_id.clone();
+        let service = self.cloud_service.clone();
+        self.cloud_busy = true;
+        self.cloud_error = None;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = service.logout(&profile_id).await;
+            let _ = this.update(cx, |this, cx| {
+                this.cloud_busy = false;
+                this.cloud_signed_in = false;
+                match result {
+                    Ok(()) => {
+                        this.cloud_status = Some("Signed out. Local library and watch history remain available offline.".to_owned());
+                        this.cloud_error = None;
+                    }
+                    Err(error) => {
+                        this.cloud_error = Some(cloud_error_message(&error));
+                        this.cloud_status = Some("Local cloud credentials were cleared. The remote service may not have received revocation.".to_owned());
+                    }
+                }
+                cx.notify();
+            });
+        }).detach();
+    }
+
+    fn render_cloud_account_settings(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let pending = self.sync_outbox_repository
+            .list_pending_sync_mutations(&self.active_profile_id, current_epoch_millis(), 500)
+            .map(|items| items.len()).unwrap_or(0);
+        let mut section = div().w_full().rounded_md().border_1().border_color(rgb(Theme::BORDER))
+            .bg(rgb(Theme::SURFACE)).p_3().flex().flex_col().gap_3()
+            .child(div().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child("Cloud account and sync"))
+            .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child(format!(
+                "This profile · {pending} pending local change(s)"
+            )));
+        if !self.cloud_signed_in {
+            section = section
+                .child(Input::new(&self.cloud_email_input))
+                .child(Input::new(&self.cloud_password_input))
+                .child(div().flex().gap_2()
+                    .child(div().id("cloud-sign-in").cursor_pointer().rounded_md().bg(rgb(Theme::ACCENT_DARK))
+                        .px_3().py_2().on_click(cx.listener(|this, _, _, cx| this.cloud_sign_in(cx)))
+                        .child(div().text_xs().text_color(rgb(Theme::ACCENT)).child("Sign in")))
+                    .child(div().id("cloud-sign-up").cursor_pointer().rounded_md().bg(rgb(Theme::SURFACE_RAISED))
+                        .px_3().py_2().on_click(cx.listener(|this, _, _, cx| this.cloud_sign_up(cx)))
+                        .child(div().text_xs().text_color(rgb(Theme::TEXT_PRIMARY)).child("Create account"))));
+        } else {
+            section = section.child(div().flex().gap_2()
+                .child(div().id("cloud-sync-now").cursor_pointer().rounded_md()
+                    .bg(rgb(Theme::ACCENT_DARK)).px_3().py_2()
+                    .on_click(cx.listener(|this, _, _, cx| this.cloud_sync_now(cx)))
+                    .child(div().text_xs().text_color(rgb(Theme::ACCENT)).child(if self.cloud_busy { "Working…" } else { "Sync now" })))
+                .child(div().id("cloud-sign-out").cursor_pointer().rounded_md().bg(rgb(Theme::SURFACE_RAISED))
+                    .px_3().py_2().on_click(cx.listener(|this, _, _, cx| this.cloud_sign_out(cx)))
+                    .child(div().text_xs().text_color(rgb(Theme::TEXT_PRIMARY)).child("Sign out"))));
+        }
+        if self.cloud_busy {
+            section = section.child(status_panel(StatusTone::Info, "CLOUD", "Request in progress", "Your account or sync request is being processed."));
+        }
+        if let Some(status) = &self.cloud_status {
+            section = section.child(status_panel(StatusTone::Info, "CLOUD", "Account status", status));
+        }
+        if let Some(error) = &self.cloud_error {
+            section = section.child(status_panel(StatusTone::Error, "CLOUD", "Cloud operation failed", error));
+        }
+        section.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
+            "Cloud access requires Supabase to be enabled on the SENZO API. Local data stays available when signed out or offline."
+        ))
+    }
+
     fn render_profiles_settings(&self, cx: &mut Context<Self>) -> gpui::Div {
         let active_profile = self.profiles.iter().find(|profile| profile.id == self.active_profile_id);
         let pin_prompt = self.profile_switch_target.as_ref().map(|target| {
@@ -12709,7 +12938,8 @@ impl SenzoShell {
                     .child(div().id("profile-clear-pin").cursor_pointer().rounded_md().bg(rgb(Theme::SURFACE_RAISED)).px_3().py_2()
                         .on_click(cx.listener(|this, _, _, cx| this.clear_active_profile_pin(cx)))
                         .child(div().text_xs().text_color(rgb(Theme::TEXT_PRIMARY)).child("Clear PIN")))))
-            .child(status_panel(StatusTone::Info,"LOCAL PROFILE","Private on this device",&format!("This profile has {pending_sync} pending sync change(s). Library data and retry state are stored locally until a cloud sync service is configured.")));
+            .child(status_panel(StatusTone::Info,"LOCAL PROFILE","Private on this device",&format!("This profile has {pending_sync} pending sync change(s). Library data and retry state are stored locally until a cloud sync service is configured.")))
+            .child(self.render_cloud_account_settings(cx));
         if let Some(prompt) = pin_prompt { section = section.child(prompt); }
         if let Some(error) = &self.profile_error {
             section = section.child(status_panel(StatusTone::Error,"PROFILE", "Profile action failed", error));

@@ -18,6 +18,7 @@ senzo-addons = { path = "../senzo-addons" }
 senzo-metadata = { path = "../senzo-metadata" }
 tracing.workspace = true
 senzo-domain = { path = "../senzo-domain" }
+senzo-sync = { path = "../senzo-sync" }
 senzo-catalog = { path = "../senzo-catalog" }
 senzo-plugins = { path = "../senzo-plugins" }
 senzo-sources = { path = "../senzo-sources" }
@@ -31,3 +32,5 @@ gpui = { workspace = true, features = ["test-support"] }
 senzo-network = { path = "../senzo-network" }
 
 senzo-storage = { path = "../senzo-storage" }
+senzo-platform = { path = "../senzo-platform" }
+senzo-platform = { path = "../senzo-platform" }

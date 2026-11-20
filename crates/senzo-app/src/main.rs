@@ -27,6 +27,7 @@ use senzo_sources::{
     SourceAggregator,
 };
 use senzo_storage::{ProfileScopedSettingsRepository, SqliteDatabase};
+use senzo_sync::CloudService;
 use tokio::runtime::{Builder, Runtime};
 use tokio_util::sync::CancellationToken;
 
@@ -103,6 +104,7 @@ struct AppServices {
     _profile_security: Arc<dyn ProfileSecurityRepository>,
     _profile_settings: Arc<dyn ProfileSettingsRepository>,
     _sync_outbox: Arc<dyn SyncOutboxRepository>,
+    _cloud_service: Arc<CloudService>,
     _profile_scope: ProfileScope,
     _playback_progress: Arc<dyn senzo_domain::PlaybackProgressRepository>,
     _metadata: MetadataClient,
@@ -164,6 +166,10 @@ fn run() -> anyhow::Result<()> {
 
     let credentials: Arc<dyn CredentialStore> =
         Arc::new(KeyringCredentialStore::new("SENZO Desktop"));
+    let cloud_service = Arc::new(
+        CloudService::new(DEFAULT_API_BASE_URL, credentials.clone())
+            .context("initialize optional cloud account service")?
+    );
     let addon_manager = AddonManager::new(
         database.clone(),
         Arc::new(PlatformAddonSecrets(credentials.clone())),
@@ -199,6 +205,7 @@ fn run() -> anyhow::Result<()> {
         _profile_security: database.clone(),
         _profile_settings: database.clone(),
         _sync_outbox: database.clone(),
+        _cloud_service: cloud_service.clone(),
         _profile_scope: profile_scope.clone(),
         _playback_progress: database.clone(),
         _metadata: metadata.clone(),
@@ -260,6 +267,7 @@ fn run() -> anyhow::Result<()> {
             profile_security: database.clone(),
             profile_settings: database.clone(),
             sync_outbox: database.clone(),
+            cloud_service,
             profile_scope,
             playback_progress: database.clone(),
             addon_manager,
