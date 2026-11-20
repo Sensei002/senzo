@@ -1069,7 +1069,10 @@ mod tests {
         };
         database.save_playback_progress(&replay).unwrap();
         assert!(!database.is_watched(&watched).unwrap());
-        assert_eq!(database.list_continue_watching("default", 20).unwrap(), vec![replay]);
+        assert_eq!(
+            database.list_continue_watching("default", 20).unwrap(),
+            vec![replay]
+        );
     }
 
     #[test]
@@ -1092,7 +1095,12 @@ mod tests {
             updated_at_ms: 100,
         };
         database.save_playback_progress(&progress).unwrap();
-        assert!(database.list_continue_watching("default", 20).unwrap().is_empty());
+        assert!(
+            database
+                .list_continue_watching("default", 20)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1107,10 +1115,15 @@ mod tests {
             marked_at_ms: 200,
         };
         database.set_watched(&watched, true).unwrap();
-        let completed = database.list_recent_completed_series("default", 20).unwrap();
+        let completed = database
+            .list_recent_completed_series("default", 20)
+            .unwrap();
         assert_eq!(completed.len(), 1);
         assert_eq!(completed[0].media_id, "1399");
-        assert_eq!((completed[0].season_number, completed[0].episode_number), (Some(1), Some(4)));
+        assert_eq!(
+            (completed[0].season_number, completed[0].episode_number),
+            (Some(1), Some(4))
+        );
         assert!(completed[0].is_completed);
         assert_eq!(completed[0].updated_at_ms, 200);
 
@@ -1131,12 +1144,18 @@ mod tests {
             updated_at_ms: 300,
         };
         database.save_playback_progress(&later_progress).unwrap();
-        assert!(database.list_recent_completed_series("default", 20).unwrap().is_empty());
+        assert!(
+            database
+                .list_recent_completed_series("default", 20)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
     fn phase11_progress_and_watched_state_survive_database_reopen() {
-        let path = std::env::temp_dir().join(format!("senzo-phase11-{}.sqlite", uuid::Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("senzo-phase11-{}.sqlite", uuid::Uuid::new_v4()));
         let progress = PlaybackProgress {
             profile_id: "default".to_owned(),
             media_id: "1399".to_owned(),
@@ -1169,7 +1188,9 @@ mod tests {
         {
             let database = SqliteDatabase::open(&path).unwrap();
             assert_eq!(
-                database.get_playback_progress("default", "1399", MediaKind::Series, Some(2), Some(3)).unwrap(),
+                database
+                    .get_playback_progress("default", "1399", MediaKind::Series, Some(2), Some(3))
+                    .unwrap(),
                 Some(progress)
             );
             let watched = WatchedItem {
@@ -1182,7 +1203,10 @@ mod tests {
             };
             assert!(database.is_watched(&watched).unwrap());
             assert!(
-                database.list_recent_completed_series("default", 20).unwrap().is_empty(),
+                database
+                    .list_recent_completed_series("default", 20)
+                    .unwrap()
+                    .is_empty(),
                 "newer in-progress episode must suppress the Up Next projection"
             );
         }

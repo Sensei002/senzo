@@ -137,9 +137,9 @@ fn select_next_episode_source_candidate(
         })
         .min_by_key(|(index, source, _)| {
             (
-                if preferred_binge_group.is_some_and(|group| {
-                    source.binge_group.as_deref() == Some(group)
-                }) {
+                if preferred_binge_group
+                    .is_some_and(|group| source.binge_group.as_deref() == Some(group))
+                {
                     0
                 } else {
                     1
@@ -2988,9 +2988,10 @@ impl SenzoShell {
             return;
         };
         let selected_episode = self.details.as_ref().and_then(|details| {
-            details.selected_episode.as_ref().map(|episode| {
-                (details.id, episode.season_number, episode.episode_number)
-            })
+            details
+                .selected_episode
+                .as_ref()
+                .map(|episode| (details.id, episode.season_number, episode.episode_number))
         });
         if !next_episode_autoplay_ready(
             self.pending_episode_autoplay_source.is_some(),
@@ -3167,9 +3168,7 @@ impl SenzoShell {
         if !should_store_playback_progress(position_ms, duration_ms) && !completed {
             return;
         }
-        if !force
-            && !completed
-            && position_ms.abs_diff(context.last_persisted_position_ms) < 5_000
+        if !force && !completed && position_ms.abs_diff(context.last_persisted_position_ms) < 5_000
         {
             return;
         }
@@ -3191,7 +3190,10 @@ impl SenzoShell {
         };
         // Checkpoints are small SQLite transactions. Persist before returning so closing
         // the player or advancing episodes cannot race the final write.
-        if let Err(error) = self.playback_progress_repository.save_playback_progress(&progress) {
+        if let Err(error) = self
+            .playback_progress_repository
+            .save_playback_progress(&progress)
+        {
             tracing::warn!(error = %error, "could not persist playback progress");
             return;
         }
@@ -3205,9 +3207,7 @@ impl SenzoShell {
         let refresh_up_next = completed;
         let repository = self.playback_progress_repository.clone();
         let runtime = self.tokio.clone();
-        let task = runtime.spawn_blocking(move || {
-            repository.list_continue_watching("default", 20)
-        });
+        let task = runtime.spawn_blocking(move || repository.list_continue_watching("default", 20));
         cx.spawn(async move |this, cx| match task.await {
             Ok(Ok(entries)) => {
                 let _ = this.update(cx, |this, cx| {
@@ -3788,7 +3788,10 @@ impl SenzoShell {
             is_completed: completed,
             updated_at_ms: current_epoch_millis(),
         };
-        match self.playback_progress_repository.save_playback_progress(&progress) {
+        match self
+            .playback_progress_repository
+            .save_playback_progress(&progress)
+        {
             Ok(()) => {
                 if let Some(current) = self.playback_context.as_mut().filter(|current| {
                     current.media_id == context.media_id
@@ -3798,7 +3801,9 @@ impl SenzoShell {
                     current.last_persisted_position_ms = position_ms;
                 }
             }
-            Err(error) => tracing::warn!(error = %error, "could not flush playback progress before stopping"),
+            Err(error) => {
+                tracing::warn!(error = %error, "could not flush playback progress before stopping")
+            }
         }
     }
 
@@ -13088,10 +13093,26 @@ mod tests {
         let target = Some((1399, 2, 4));
         assert!(!next_episode_autoplay_ready(false, None, target));
         assert!(!next_episode_autoplay_ready(true, None, target));
-        assert!(!next_episode_autoplay_ready(false, Some((1399, 2, 4)), target));
-        assert!(!next_episode_autoplay_ready(true, Some((1399, 1, 4)), target));
-        assert!(!next_episode_autoplay_ready(true, Some((1399, 2, 3)), target));
-        assert!(next_episode_autoplay_ready(true, Some((1399, 2, 4)), target));
+        assert!(!next_episode_autoplay_ready(
+            false,
+            Some((1399, 2, 4)),
+            target
+        ));
+        assert!(!next_episode_autoplay_ready(
+            true,
+            Some((1399, 1, 4)),
+            target
+        ));
+        assert!(!next_episode_autoplay_ready(
+            true,
+            Some((1399, 2, 3)),
+            target
+        ));
+        assert!(next_episode_autoplay_ready(
+            true,
+            Some((1399, 2, 4)),
+            target
+        ));
     }
 
     fn phase11_source(provider_id: &str, url: &str, binge_group: Option<&str>) -> Source {
@@ -13179,7 +13200,10 @@ mod tests {
         let selected_without_provider =
             select_next_episode_source_candidate(&result, Some("missing-pack"), None)
                 .expect("first valid direct source");
-        assert_eq!(selected_without_provider.url, "https://cdn.example/first.mkv");
+        assert_eq!(
+            selected_without_provider.url,
+            "https://cdn.example/first.mkv"
+        );
     }
 
     #[test]
