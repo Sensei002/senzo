@@ -10099,6 +10099,7 @@ dependencies = [
  "debrid",
  "dirs",
  "discord-rich-presence",
+ "enginefs",
  "fluent-bundle",
  "futures",
  "hex",
