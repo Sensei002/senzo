@@ -507,6 +507,7 @@ impl PlaybackProgressRepository for SqliteDatabase {
                  FROM ranked
                  WHERE recency_rank = 1 AND is_completed = 0 AND position_ms >= 1000
                    AND (duration_ms = 0 OR duration_ms >= 121000)
+                   AND (duration_ms = 0 OR CAST(position_ms AS REAL) < CAST(duration_ms AS REAL) * 0.9)
                  ORDER BY updated_at_ms DESC, media_id ASC
                  LIMIT ?2",
             )
@@ -530,27 +531,62 @@ impl PlaybackProgressRepository for SqliteDatabase {
         let connection = self.lock()?;
         let mut statement = connection
             .prepare(
-                "WITH ranked AS (
-                    SELECT p.profile_id, p.media_id, p.media_kind, p.title, p.season_number,
-                           p.episode_number, p.episode_title, p.poster_path, p.backdrop_path,
-                           p.still_path, p.position_ms, p.duration_ms, p.is_completed,
-                           p.updated_at_ms,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY p.media_id
-                               ORDER BY p.updated_at_ms DESC, p.season_number DESC, p.episode_number DESC
-                           ) AS recency_rank
+                "WITH completed AS (
+                    SELECT w.profile_id, w.media_id, w.media_kind,
+                           COALESCE(p.title, w.media_id) AS title,
+                           w.season_number, w.episode_number, p.episode_title,
+                           p.poster_path, p.backdrop_path, p.still_path,
+                           COALESCE(p.position_ms, 0) AS position_ms,
+                           COALESCE(p.duration_ms, 0) AS duration_ms,
+                           1 AS is_completed,
+                           MAX(w.marked_at_ms, COALESCE(p.updated_at_ms, 0)) AS updated_at_ms
+                    FROM watched_items w
+                    LEFT JOIN playback_progress p
+                      ON p.profile_id = w.profile_id
+                     AND p.media_kind = w.media_kind
+                     AND p.media_id = w.media_id
+                     AND p.season_number = w.season_number
+                     AND p.episode_number = w.episode_number
+                    WHERE w.profile_id = ?1 AND w.media_kind = 'series'
+                    UNION ALL
+                    SELECT p.profile_id, p.media_id, p.media_kind, p.title,
+                           p.season_number, p.episode_number, p.episode_title,
+                           p.poster_path, p.backdrop_path, p.still_path,
+                           p.position_ms, p.duration_ms, p.is_completed, p.updated_at_ms
                     FROM playback_progress p
                     WHERE p.profile_id = ?1 AND p.media_kind = 'series'
                       AND p.is_completed = 1
                       AND NOT EXISTS (
-                          SELECT 1 FROM playback_progress active
-                          WHERE active.profile_id = p.profile_id
-                            AND active.media_kind = p.media_kind
-                            AND active.media_id = p.media_id
-                            AND active.is_completed = 0
-                            AND active.position_ms >= 1000
-                            AND active.updated_at_ms > p.updated_at_ms
+                          SELECT 1 FROM watched_items w
+                          WHERE w.profile_id = p.profile_id
+                            AND w.media_kind = p.media_kind
+                            AND w.media_id = p.media_id
+                            AND w.season_number = p.season_number
+                            AND w.episode_number = p.episode_number
                       )
+                 ),
+                 eligible AS (
+                    SELECT c.*
+                    FROM completed c
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM playback_progress active
+                        WHERE active.profile_id = c.profile_id
+                          AND active.media_kind = 'series'
+                          AND active.media_id = c.media_id
+                          AND active.is_completed = 0
+                          AND active.position_ms >= 1000
+                          AND active.updated_at_ms > c.updated_at_ms
+                    )
+                 ),
+                 ranked AS (
+                    SELECT profile_id, media_id, media_kind, title, season_number, episode_number,
+                           episode_title, poster_path, backdrop_path, still_path, position_ms,
+                           duration_ms, is_completed, updated_at_ms,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY media_id
+                               ORDER BY updated_at_ms DESC, season_number DESC, episode_number DESC
+                           ) AS recency_rank
+                    FROM eligible
                  )
                  SELECT profile_id, media_id, media_kind, title, season_number, episode_number,
                         episode_title, poster_path, backdrop_path, still_path, position_ms,
@@ -634,7 +670,8 @@ impl PlaybackProgressRepository for SqliteDatabase {
                 .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
             transaction
                 .execute(
-                    "UPDATE playback_progress SET is_completed = 1
+                    "UPDATE playback_progress SET is_completed = 1,
+                        updated_at_ms = MAX(updated_at_ms, ?6)
                      WHERE profile_id = ?1 AND media_kind = ?2 AND media_id = ?3
                        AND season_number = ?4 AND episode_number = ?5",
                     (
@@ -643,6 +680,7 @@ impl PlaybackProgressRepository for SqliteDatabase {
                         &item.media_id,
                         stored_episode_number(item.season_number),
                         stored_episode_number(item.episode_number),
+                        item.marked_at_ms,
                     ),
                 )
                 .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
@@ -663,7 +701,8 @@ impl PlaybackProgressRepository for SqliteDatabase {
                 .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
             transaction
                 .execute(
-                    "UPDATE playback_progress SET is_completed = 0
+                    "UPDATE playback_progress SET is_completed = 0,
+                        updated_at_ms = MAX(updated_at_ms, ?6)
                      WHERE profile_id = ?1 AND media_kind = ?2 AND media_id = ?3
                        AND season_number = ?4 AND episode_number = ?5",
                     (
@@ -672,6 +711,7 @@ impl PlaybackProgressRepository for SqliteDatabase {
                         &item.media_id,
                         stored_episode_number(item.season_number),
                         stored_episode_number(item.episode_number),
+                        item.marked_at_ms,
                     ),
                 )
                 .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
@@ -980,6 +1020,117 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].media_id, "100");
         assert_eq!(entries[0].episode_number, Some(2));
+    }
+
+    #[test]
+    fn phase11_continue_watching_hides_progress_at_the_completion_threshold() {
+        let database = SqliteDatabase::in_memory().unwrap();
+        let progress = PlaybackProgress {
+            profile_id: "default".to_owned(),
+            media_id: "1399".to_owned(),
+            media_kind: MediaKind::Series,
+            title: "Game of Thrones".to_owned(),
+            season_number: Some(1),
+            episode_number: Some(1),
+            episode_title: Some("Winter Is Coming".to_owned()),
+            poster_path: None,
+            backdrop_path: None,
+            still_path: None,
+            position_ms: 2_430_000,
+            duration_ms: 2_700_000,
+            is_completed: false,
+            updated_at_ms: 100,
+        };
+        database.save_playback_progress(&progress).unwrap();
+        assert!(database.list_continue_watching("default", 20).unwrap().is_empty());
+    }
+
+    #[test]
+    fn phase11_manually_watched_episode_without_progress_advances_up_next() {
+        let database = SqliteDatabase::in_memory().unwrap();
+        let watched = WatchedItem {
+            profile_id: "default".to_owned(),
+            media_id: "1399".to_owned(),
+            media_kind: MediaKind::Series,
+            season_number: Some(1),
+            episode_number: Some(4),
+            marked_at_ms: 200,
+        };
+        database.set_watched(&watched, true).unwrap();
+        let completed = database.list_recent_completed_series("default", 20).unwrap();
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].media_id, "1399");
+        assert_eq!((completed[0].season_number, completed[0].episode_number), (Some(1), Some(4)));
+        assert!(completed[0].is_completed);
+        assert_eq!(completed[0].updated_at_ms, 200);
+
+        let later_progress = PlaybackProgress {
+            profile_id: "default".to_owned(),
+            media_id: "1399".to_owned(),
+            media_kind: MediaKind::Series,
+            title: "Game of Thrones".to_owned(),
+            season_number: Some(1),
+            episode_number: Some(5),
+            episode_title: Some("The Wolf and the Lion".to_owned()),
+            poster_path: None,
+            backdrop_path: None,
+            still_path: None,
+            position_ms: 50_000,
+            duration_ms: 2_700_000,
+            is_completed: false,
+            updated_at_ms: 300,
+        };
+        database.save_playback_progress(&later_progress).unwrap();
+        assert!(database.list_recent_completed_series("default", 20).unwrap().is_empty());
+    }
+
+    #[test]
+    fn phase11_progress_and_watched_state_survive_database_reopen() {
+        let path = std::env::temp_dir().join(format!("senzo-phase11-{}.sqlite", uuid::Uuid::new_v4()));
+        let progress = PlaybackProgress {
+            profile_id: "default".to_owned(),
+            media_id: "1399".to_owned(),
+            media_kind: MediaKind::Series,
+            title: "Game of Thrones".to_owned(),
+            season_number: Some(2),
+            episode_number: Some(3),
+            episode_title: Some("What Is Dead May Never Die".to_owned()),
+            poster_path: Some("/poster.jpg".to_owned()),
+            backdrop_path: None,
+            still_path: Some("/still.jpg".to_owned()),
+            position_ms: 640_000,
+            duration_ms: 2_700_000,
+            is_completed: false,
+            updated_at_ms: 500,
+        };
+        {
+            let database = SqliteDatabase::open(&path).unwrap();
+            database.save_playback_progress(&progress).unwrap();
+            let watched = WatchedItem {
+                profile_id: "default".to_owned(),
+                media_id: "1399".to_owned(),
+                media_kind: MediaKind::Series,
+                season_number: Some(2),
+                episode_number: Some(2),
+                marked_at_ms: 400,
+            };
+            database.set_watched(&watched, true).unwrap();
+        }
+        {
+            let database = SqliteDatabase::open(&path).unwrap();
+            assert_eq!(
+                database.get_playback_progress("default", "1399", MediaKind::Series, Some(2), Some(3)).unwrap(),
+                Some(progress)
+            );
+            assert_eq!(
+                database.list_recent_completed_series("default", 20).unwrap()
+                    .first().and_then(|entry| entry.episode_number),
+                Some(2)
+            );
+        }
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
     }
 
     #[test]
