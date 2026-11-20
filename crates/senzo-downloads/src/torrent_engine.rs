@@ -124,18 +124,19 @@ impl TorrentPlaybackSession {
         let output_folder = temp.path().to_string_lossy().into_owned();
         let mut runtime = TorrentRuntime::new()?;
 
-        let mut options = SessionOptions::default();
-        options.disable_upload = true;
-        options.listen = None;
-        options.persistence = None;
-        options.fastresume = false;
-        options.disable_local_service_discovery = true;
+        let mut options = SessionOptions {
+            disable_upload: true,
+            listen: None,
+            persistence: None,
+            fastresume: false,
+            disable_local_service_discovery: true,
+            peer_limit: Some(50),
+            runtime_worker_threads: Some(2),
+            ..SessionOptions::default()
+        };
         if let Some(dht) = options.dht.as_mut() {
             dht.persistence = None;
         }
-
-        options.peer_limit = Some(50);
-        options.runtime_worker_threads = Some(2);
 
         let session_runtime = runtime.handle().clone();
         let listing_magnet_uri = magnet_uri.clone();
@@ -365,26 +366,24 @@ impl TorrentPlaybackSession {
         if let Some(cancel) = self.progress_cancel.take() {
             cancel.cancel();
         }
-        if let Some(mut task) = self.progress_task.take() {
-            if tokio::time::timeout(Duration::from_secs(2), &mut task)
+        if let Some(mut task) = self.progress_task.take()
+            && tokio::time::timeout(Duration::from_secs(2), &mut task)
                 .await
                 .is_err()
-            {
-                task.abort();
-                let _ = task.await;
-            }
+        {
+            task.abort();
+            let _ = task.await;
         }
         if let Some(cancel) = self.stream_cancel.take() {
             cancel.cancel();
         }
-        if let Some(mut task) = self.stream_task.take() {
-            if tokio::time::timeout(Duration::from_secs(5), &mut task)
+        if let Some(mut task) = self.stream_task.take()
+            && tokio::time::timeout(Duration::from_secs(5), &mut task)
                 .await
                 .is_err()
-            {
-                task.abort();
-                let _ = task.await;
-            }
+        {
+            task.abort();
+            let _ = task.await;
         }
         let mut cleanup_errors = Vec::new();
         let api = self.api.take();
@@ -393,11 +392,10 @@ impl TorrentPlaybackSession {
         if let Some(runtime) = self.runtime.as_ref() {
             let shutdown_task = runtime.handle().spawn(async move {
                 let mut errors = Vec::new();
-                if let (Some(api), Some(id)) = (api, torrent_id) {
-                    if let Err(error) = api.api_torrent_action_delete(TorrentIdOrHash::Id(id)).await
-                    {
-                        errors.push(format!("torrent stop failed: {error:#}"));
-                    }
+                if let (Some(api), Some(id)) = (api, torrent_id)
+                    && let Err(error) = api.api_torrent_action_delete(TorrentIdOrHash::Id(id)).await
+                {
+                    errors.push(format!("torrent stop failed: {error:#}"));
                 }
                 if let Some(session) = session {
                     session.stop().await;
@@ -414,10 +412,10 @@ impl TorrentPlaybackSession {
             session.cancellation_token().cancel();
         }
         self.runtime.take();
-        if let Some(temp) = self.temp.take() {
-            if let Err(error) = temp.close() {
-                cleanup_errors.push(format!("temporary session cleanup failed: {error:#}"));
-            }
+        if let Some(temp) = self.temp.take()
+            && let Err(error) = temp.close()
+        {
+            cleanup_errors.push(format!("temporary session cleanup failed: {error:#}"));
         }
         if cleanup_errors.is_empty() {
             Ok(())

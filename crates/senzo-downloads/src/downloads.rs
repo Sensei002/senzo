@@ -190,7 +190,7 @@ impl DownloadManager {
                 .filter(|item| item.profile_id == profile_id)
                 .cloned()
                 .collect::<Vec<_>>();
-            items.sort_by(|left, right| right.created_at_ms.cmp(&left.created_at_ms));
+            items.sort_by_key(|item| std::cmp::Reverse(item.created_at_ms));
             items
         }).unwrap_or_default()
     }
@@ -287,10 +287,10 @@ impl DownloadManager {
         };
         let part = self.inner.download_dir.join(format!("{}.part", item.file_name));
         let _ = fs::remove_file(part);
-        if item.status == DownloadStatus::Completed {
-            if let Some(path) = item.local_path.as_deref() {
-                let _ = fs::remove_file(path);
-            }
+        if item.status == DownloadStatus::Completed
+            && let Some(path) = item.local_path.as_deref()
+        {
+            let _ = fs::remove_file(path);
         }
         self.inner.credentials.delete(&secret_key(id))
             .map_err(|error| DownloadError::Credentials(error.to_string()))?;
@@ -540,8 +540,8 @@ async fn run_download(inner: Arc<Inner>, id: String, cancel: CancellationToken) 
         if append {
             let valid_range = response.headers().get(header::CONTENT_RANGE)
                 .and_then(|value| value.to_str().ok())
-                .and_then(|value| parse_content_range(value));
-            if !valid_range.is_some_and(|(start, _)| start == baseline) {
+                .and_then(parse_content_range);
+            if valid_range.is_none_or(|(start, _)| start != baseline) {
                 drop(response);
                 let _ = tokio::fs::remove_file(&partial).await;
                 continue;
@@ -625,12 +625,12 @@ async fn run_download(inner: Arc<Inner>, id: String, cancel: CancellationToken) 
 }
 
 fn update_progress(inner: &Inner, id: &str, downloaded: u64, total: Option<u64>, last_persist: &mut Instant) {
-    if let Ok(mut state) = inner.state.lock() {
-        if let Some(item) = state.items.iter_mut().find(|item| item.id == id) {
-            item.downloaded_bytes = downloaded;
-            item.total_bytes = total;
-            item.updated_at_ms = now_ms();
-        }
+    if let Ok(mut state) = inner.state.lock()
+        && let Some(item) = state.items.iter_mut().find(|item| item.id == id)
+    {
+        item.downloaded_bytes = downloaded;
+        item.total_bytes = total;
+        item.updated_at_ms = now_ms();
     }
     if last_persist.elapsed() >= PROGRESS_PERSIST_INTERVAL {
         let _ = persist_queue(inner);
@@ -655,21 +655,21 @@ fn set_status(
     downloaded: u64,
     total: Option<u64>,
 ) {
-    if let Ok(mut state) = inner.state.lock() {
-        if let Some(item) = state.items.iter_mut().find(|item| item.id == id) {
-            item.status = status;
-            item.error = error;
-            if status == DownloadStatus::Completed {
-                item.local_path = local_path;
-            }
-            if downloaded > 0 || status == DownloadStatus::Completed {
-                item.downloaded_bytes = downloaded;
-            }
-            if total.is_some() {
-                item.total_bytes = total;
-            }
-            item.updated_at_ms = now_ms();
+    if let Ok(mut state) = inner.state.lock()
+        && let Some(item) = state.items.iter_mut().find(|item| item.id == id)
+    {
+        item.status = status;
+        item.error = error;
+        if status == DownloadStatus::Completed {
+            item.local_path = local_path;
         }
+        if downloaded > 0 || status == DownloadStatus::Completed {
+            item.downloaded_bytes = downloaded;
+        }
+        if total.is_some() {
+            item.total_bytes = total;
+        }
+        item.updated_at_ms = now_ms();
     }
     let _ = persist_queue(inner);
 }
