@@ -1108,7 +1108,7 @@ impl SyncOutboxRepository for SqliteDatabase {
                         .map_err(|_|RepositoryError::InvalidPlaybackProgress)?;
                     progress.profile_id=profile_id.to_owned();
                     validate_playback_progress(&progress)?;
-                    transaction.execute(
+                    let changed = transaction.execute(
                         "INSERT INTO playback_progress(profile_id,media_kind,media_id,season_number,episode_number,title,episode_title,poster_path,backdrop_path,still_path,position_ms,duration_ms,is_completed,updated_at_ms)
                          VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
                          ON CONFLICT(profile_id,media_kind,media_id,season_number,episode_number) DO UPDATE SET
@@ -1123,7 +1123,8 @@ impl SyncOutboxRepository for SqliteDatabase {
                          i64::try_from(progress.duration_ms).map_err(|_|RepositoryError::InvalidPlaybackProgress)?,
                          if progress.is_completed {1_i64}else{0_i64},progress.updated_at_ms)
                     ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
-                    if progress.is_completed {
+                    // A newer replay checkpoint must also clear an older watched marker.
+                    if changed > 0 && progress.is_completed {
                         transaction.execute(
                             "INSERT INTO watched_items(profile_id,media_kind,media_id,season_number,episode_number,marked_at_ms)
                              VALUES(?1,?2,?3,?4,?5,?6)
@@ -1131,6 +1132,14 @@ impl SyncOutboxRepository for SqliteDatabase {
                              DO UPDATE SET marked_at_ms=MAX(watched_items.marked_at_ms,excluded.marked_at_ms)",
                             (&progress.profile_id,media_kind_storage_value(progress.media_kind),&progress.media_id,
                              stored_episode_number(progress.season_number),stored_episode_number(progress.episode_number),progress.updated_at_ms)
+                        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+                    } else if changed > 0 {
+                        transaction.execute(
+                            "DELETE FROM watched_items
+                             WHERE profile_id=?1 AND media_kind=?2 AND media_id=?3
+                               AND season_number=?4 AND episode_number=?5",
+                            (&progress.profile_id,media_kind_storage_value(progress.media_kind),&progress.media_id,
+                             stored_episode_number(progress.season_number),stored_episode_number(progress.episode_number))
                         ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
                     }
                 }
@@ -2280,6 +2289,119 @@ mod tests {
         assert_eq!(database.get_sync_checkpoint("default", "supabase").unwrap().as_deref(), Some("cursor-42"));
         database.mark_sync_mutations_applied("default", &[retry[0].id.clone()]).unwrap();
         assert!(database.list_pending_sync_mutations("default", 2_000, 20).unwrap().is_empty());
+    }
+
+    #[test]
+    fn phase12_remote_sync_pages_reconcile_library_settings_and_watched_state_atomically() {
+        let database = SqliteDatabase::in_memory().unwrap();
+        let item = test_library_item("another-device", "550", "Fight Club", 100);
+        let collection = LibraryCollection {
+            id: "weekend-list".to_owned(),
+            profile_id: "another-device".to_owned(),
+            title: "Weekend".to_owned(),
+            description: Some("Remote collection".to_owned()),
+            sort_order: 0,
+            created_at_ms: 110,
+            updated_at_ms: 110,
+        };
+        let watched = WatchedItem {
+            profile_id: "another-device".to_owned(),
+            media_id: "1399".to_owned(),
+            media_kind: MediaKind::Series,
+            season_number: Some(1),
+            episode_number: Some(2),
+            marked_at_ms: 120,
+        };
+        let mutations = vec![
+            senzo_domain::RemoteSyncMutation {
+                cursor: 1,
+                entity_type: "library_item".to_owned(),
+                entity_id: "movie:550".to_owned(),
+                operation: "upsert".to_owned(),
+                payload_json: serde_json::to_string(&item).unwrap(),
+                changed_at_ms: 100,
+            },
+            senzo_domain::RemoteSyncMutation {
+                cursor: 2,
+                entity_type: "library_collection".to_owned(),
+                entity_id: collection.id.clone(),
+                operation: "upsert".to_owned(),
+                payload_json: serde_json::to_string(&collection).unwrap(),
+                changed_at_ms: 110,
+            },
+            senzo_domain::RemoteSyncMutation {
+                cursor: 3,
+                entity_type: "watched_item".to_owned(),
+                entity_id: "series:1399:1:2".to_owned(),
+                operation: "upsert".to_owned(),
+                payload_json: serde_json::to_string(&watched).unwrap(),
+                changed_at_ms: 120,
+            },
+            senzo_domain::RemoteSyncMutation {
+                cursor: 4,
+                entity_type: "profile_setting".to_owned(),
+                entity_id: "library.favorites_only".to_owned(),
+                operation: "upsert".to_owned(),
+                payload_json: serde_json::json!({"key":"library.favorites_only","value":"true"}).to_string(),
+                changed_at_ms: 130,
+            },
+        ];
+        database.apply_remote_sync_page("default","supabase","4",&mutations,140).unwrap();
+
+        let library = database.list_library_items("default").unwrap();
+        assert_eq!(library.len(), 1);
+        assert_eq!(library[0].media_id, "550");
+        assert_eq!(database.list_library_collections("default").unwrap()[0].title, "Weekend");
+        assert!(database.is_watched(&WatchedItem { profile_id:"default".to_owned(), ..watched.clone() }).unwrap());
+        let key = SettingKey::new("library.favorites_only").unwrap();
+        assert_eq!(database.get_profile_setting("default",&key).unwrap().as_deref(),Some("true"));
+        assert_eq!(database.get_sync_checkpoint("default","supabase").unwrap().as_deref(),Some("4"));
+
+        // A newer incomplete replay arriving from another device removes the watched marker.
+        let replay = PlaybackProgress {
+            profile_id: "another-device".to_owned(),
+            media_id: "1399".to_owned(),
+            media_kind: MediaKind::Series,
+            title: "Game of Thrones".to_owned(),
+            season_number: Some(1),
+            episode_number: Some(2),
+            episode_title: Some("The Kingsroad".to_owned()),
+            poster_path: None,
+            backdrop_path: None,
+            still_path: None,
+            position_ms: 50_000,
+            duration_ms: 2_700_000,
+            is_completed: false,
+            updated_at_ms: 200,
+        };
+        let second_page = [senzo_domain::RemoteSyncMutation {
+            cursor: 5,
+            entity_type: "playback_progress".to_owned(),
+            entity_id: "series:1399:1:2".to_owned(),
+            operation: "upsert".to_owned(),
+            payload_json: serde_json::to_string(&replay).unwrap(),
+            changed_at_ms: 200,
+        }];
+        database.apply_remote_sync_page("default","supabase","5",&second_page,210).unwrap();
+        assert!(!database.is_watched(&WatchedItem { profile_id:"default".to_owned(), ..watched }).unwrap());
+        assert_eq!(database.get_sync_checkpoint("default","supabase").unwrap().as_deref(),Some("5"));
+    }
+
+    #[test]
+    fn phase12_remote_sync_page_rejects_bad_cursor_without_partial_writes() {
+        let database = SqliteDatabase::in_memory().unwrap();
+        let item = test_library_item("other", "550", "Fight Club", 100);
+        let mutation = senzo_domain::RemoteSyncMutation {
+            cursor: 3,
+            entity_type: "library_item".to_owned(),
+            entity_id: "movie:550".to_owned(),
+            operation: "upsert".to_owned(),
+            payload_json: serde_json::to_string(&item).unwrap(),
+            changed_at_ms: 100,
+        };
+        assert!(database.apply_remote_sync_page("default","supabase","2",&[mutation],120).is_err());
+        assert!(database.list_library_items("default").unwrap().is_empty());
+        assert_eq!(database.get_sync_checkpoint("default","supabase").unwrap(),None);
     }
 
     #[test]
