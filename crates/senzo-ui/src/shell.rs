@@ -3244,6 +3244,7 @@ impl SenzoShell {
         headers: std::collections::BTreeMap<String, String>,
         cx: &mut Context<Self>,
     ) {
+        self.stop_active_torrent_session();
         let mut sources = self
             .details
             .as_ref()
@@ -4052,16 +4053,45 @@ impl SenzoShell {
         let restore_fullscreen = self.playback_fullscreen;
         self.playback_picture_in_picture = false;
         self.playback_fullscreen = false;
+        self.torrent_start_cancel.cancel();
+        let torrent_session = self.active_torrent_session.take();
         if let Some(player) = self.mpv_player.clone() {
             let runtime = self.tokio.clone();
-            drop(runtime.spawn_blocking(move || {
-                if restore_pip {
-                    let _ = player.set_picture_in_picture(false);
+            if let Some(session) = torrent_session {
+                let (stopped_tx, stopped_rx) = tokio::sync::oneshot::channel();
+                drop(runtime.spawn_blocking(move || {
+                    if restore_pip {
+                        let _ = player.set_picture_in_picture(false);
+                    }
+                    if restore_fullscreen {
+                        let _ = player.set_fullscreen(false);
+                    }
+                    let _ = player.stop(Duration::from_secs(6));
+                    let _ = stopped_tx.send(());
+                }));
+                drop(runtime.spawn(async move {
+                    let _ = stopped_rx.await;
+                    if let Err(error) = session.shutdown().await {
+                        tracing::warn!(error = %error, "could not cleanly shut down torrent after MPV stopped");
+                    }
+                }));
+            } else {
+                drop(runtime.spawn_blocking(move || {
+                    if restore_pip {
+                        let _ = player.set_picture_in_picture(false);
+                    }
+                    if restore_fullscreen {
+                        let _ = player.set_fullscreen(false);
+                    }
+                    let _ = player.stop(Duration::from_secs(6));
+                }));
+            }
+        } else if let Some(session) = torrent_session {
+            let runtime = self.tokio.clone();
+            drop(runtime.spawn(async move {
+                if let Err(error) = session.shutdown().await {
+                    tracing::warn!(error = %error, "could not cleanly shut down torrent session");
                 }
-                if restore_fullscreen {
-                    let _ = player.set_fullscreen(false);
-                }
-                let _ = player.stop(Duration::from_secs(6));
             }));
         }
     }
@@ -5712,6 +5742,23 @@ impl SenzoShell {
                         position, duration, snapshot.volume_percent, snapshot.speed
                     )),
             );
+            if let Some(progress) = self.active_torrent_session.as_ref()
+                .and_then(TorrentPlaybackSession::progress_snapshot)
+            {
+                panel = panel.child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(Theme::TEXT_MUTED))
+                        .child(format!(
+                            "P2P: {:.1}/{:.1} MiB · uploaded {:.1} MiB · {}{}",
+                            progress.downloaded_bytes as f64 / 1_048_576.0,
+                            progress.total_bytes as f64 / 1_048_576.0,
+                            progress.uploaded_bytes as f64 / 1_048_576.0,
+                            progress.state,
+                            if progress.finished { " · complete" } else { "" },
+                        )),
+                );
+            }
             let controls = [
                 ("pause", if snapshot.paused { "PLAY" } else { "PAUSE" }),
                 ("back", "−10s"),
