@@ -25,10 +25,13 @@ export component ButtonSurface inherits Rectangle {
     callback context-requested(length, length);
 
     in property <length> focus-outline-size: Theme.focus-outline-size;
-    opacity: root.enabled ? 1 : 0.5;
+    opacity: root.enabled ? (root.pressed ? 0.92 : 1) : 0.42;
     border-width: root.has-focus ? root.focus-outline-size : 0px;
-    border-color: Theme.surface-light;
+    border-color: root.has-focus ? Theme.primary-accent : Theme.surface-light.with-alpha(0.18);
     background: transparent;
+    animate opacity { duration: Theme.motion-fast; easing: ease-out; }
+    animate border-width { duration: Theme.motion-fast; easing: ease-out; }
+    animate border-color { duration: Theme.motion-fast; easing: ease-out; }
     accessible-role: button;
     accessible-label: root.accessible-name;
     accessible-enabled: root.enabled;
@@ -126,8 +129,8 @@ export component PillButton inherits ButtonSurface {
     in property <brush> accent-color: Theme.primary-accent;
     in property <brush> surface-color: Theme.overlay-color;
     in property <brush> hover-color: root.primary ? root.accent-color : Theme.overlay-hover;
-    in property <brush> foreground-color: Theme.primary-foreground;
-    in property <brush> hover-foreground-color: root.foreground-color;
+    in property <brush> foreground-color: root.primary ? Theme.secondary-foreground : Theme.primary-foreground;
+    in property <brush> hover-foreground-color: root.primary ? Theme.secondary-foreground : root.foreground-color;
     in property <brush> outline-color: root.primary ? root.accent-color : Theme.surface-light;
     in property <brush> hover-outline-color: root.outline-color;
     in property <bool> show-hover-outline: true;
@@ -145,11 +148,13 @@ export component PillButton inherits ButtonSurface {
         : (root.primary ? root.accent-color : root.surface-color);
     accessible-name: root.label;
     opacity: root.enabled
-        ? ((root.has-hover || root.has-focus) ? 1 : root.idle-opacity)
-        : 0.5;
+        ? (root.pressed ? 0.92 : ((root.has-hover || root.has-focus) ? 1 : root.idle-opacity))
+        : 0.42;
 
-    animate background { duration: Theme.motion-fast; }
-    animate border-color { duration: Theme.motion-fast; }
+    animate background { duration: Theme.motion-control; easing: ease-out; }
+    animate border-color { duration: Theme.motion-control; easing: ease-out; }
+    animate border-width { duration: Theme.motion-fast; easing: ease-out; }
+    animate opacity { duration: Theme.motion-fast; easing: ease-out; }
 
     HorizontalLayout {
         alignment: center;
