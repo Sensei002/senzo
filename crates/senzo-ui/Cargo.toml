@@ -25,6 +25,7 @@ senzo-sources = { path = "../senzo-sources" }
 senzo-debrid = { path = "../senzo-debrid" }
 senzo-integrations = { path = "../senzo-integrations" }
 senzo-player = { path = "../senzo-player" }
+senzo-downloads = { path = "../senzo-downloads" }
 serde_json.workspace = true
 
 [dev-dependencies]

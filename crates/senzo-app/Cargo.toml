@@ -30,3 +30,4 @@ senzo-debrid = { path = "../senzo-debrid" }
 senzo-integrations = { path = "../senzo-integrations" }
 senzo-player = { path = "../senzo-player" }
 senzo-sync = { path = "../senzo-sync" }
+senzo-downloads = { path = "../senzo-downloads" }

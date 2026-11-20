@@ -92,17 +92,19 @@ pub enum AppPage {
     TvShows,
     Search,
     Library,
+    Downloads,
     Addons,
     Settings,
 }
 
 impl AppPage {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Home,
         Self::Movies,
         Self::TvShows,
         Self::Search,
         Self::Library,
+        Self::Downloads,
         Self::Addons,
         Self::Settings,
     ];
@@ -114,6 +116,7 @@ impl AppPage {
             Self::TvShows => "TV Shows",
             Self::Search => "Search",
             Self::Library => "Library",
+            Self::Downloads => "Downloads",
             Self::Addons => "Add-ons",
             Self::Settings => "Settings",
         }
@@ -126,6 +129,7 @@ impl AppPage {
             Self::TvShows => "TV",
             Self::Search => "SR",
             Self::Library => "LB",
+            Self::Downloads => "DL",
             Self::Addons => "AD",
             Self::Settings => "ST",
         }
@@ -138,6 +142,7 @@ impl AppPage {
             Self::TvShows => "Browse series, seasons and episodes.",
             Self::Search => "Find movies and television across your providers.",
             Self::Library => "Your saved titles and personal collections.",
+            Self::Downloads => "Manage downloads and files saved on this device.",
             Self::Addons => "Manage the providers you choose to install.",
             Self::Settings => "Make SENZO feel right for you.",
         }
@@ -150,6 +155,7 @@ impl AppPage {
             Self::TvShows => "tv-shows",
             Self::Search => "search",
             Self::Library => "library",
+            Self::Downloads => "downloads",
             Self::Addons => "addons",
             Self::Settings => "settings",
         }
