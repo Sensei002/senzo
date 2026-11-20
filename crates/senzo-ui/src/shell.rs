@@ -746,6 +746,7 @@ pub(crate) struct SenzoShell {
     library_items: Vec<LibraryItem>,
     library_collections: Vec<LibraryCollection>,
     library_collection_items: HashMap<String, Vec<LibraryItem>>,
+    library_favorites_only: bool,
     library_error: Option<String>,
     home_continue_watching: Vec<PlaybackProgress>,
     home_continue_watching_artwork: HashMap<String, Arc<RenderImage>>,
@@ -1305,6 +1306,11 @@ impl SenzoShell {
             tracing::warn!(error = %error, "could not load library collections");
             Vec::new()
         });
+        let library_favorites_only = SettingKey::new("library.favorites_only")
+            .ok()
+            .and_then(|key| profile_settings_repository.get_profile_setting(&active_profile_id, &key).ok().flatten())
+            .map(|value| value == "true")
+            .unwrap_or(false);
         let library_collection_items = library_collections.iter().map(|collection| {
             let items = library_repository.list_collection_items(&active_profile_id, &collection.id)
                 .unwrap_or_else(|error| {
@@ -1372,6 +1378,7 @@ impl SenzoShell {
             library_items,
             library_collections,
             library_collection_items,
+            library_favorites_only,
             library_error: None,
             home_continue_watching,
             home_continue_watching_artwork: HashMap::new(),
@@ -12208,6 +12215,11 @@ impl SenzoShell {
                 });
             (collection.id.clone(), items)
         }).collect();
+        self.library_favorites_only = SettingKey::new("library.favorites_only")
+            .ok()
+            .and_then(|key| self.profile_settings_repository.get_profile_setting(&self.active_profile_id, &key).ok().flatten())
+            .map(|value| value == "true")
+            .unwrap_or(false);
         self.configured_home_collections = HomeCollectionsSettings::load(self.settings.as_ref())
             .unwrap_or_default()
             .collections;
@@ -12359,10 +12371,6 @@ impl SenzoShell {
         self.profile_notice = self.profiles.iter()
             .find(|profile| profile.id == profile_id)
             .map(|profile| format!("Switched to '{}'.", profile.name));
-        self.profile_name_input.update(cx, |input, window, cx| {
-            let active_name = input.value().to_string();
-            input.set_value(active_name, window, cx);
-        });
         self.home_settings = HomeSettings::load(self.settings.as_ref()).unwrap_or_default();
         self.playback_autoplay_next = SettingKey::new("playback.autoplay_next")
             .ok()
@@ -12556,6 +12564,21 @@ impl SenzoShell {
         cx.notify();
     }
 
+    fn toggle_library_favorites_filter(&mut self, cx: &mut Context<Self>) {
+        let next = !self.library_favorites_only;
+        let key = SettingKey::new("library.favorites_only").expect("valid library setting key");
+        match self.profile_settings_repository.set_profile_setting(
+            &self.active_profile_id, &key, if next { "true" } else { "false" },
+        ) {
+            Ok(()) => {
+                self.library_favorites_only = next;
+                self.library_error = None;
+            }
+            Err(error) => self.library_error = Some(format!("Could not save library filter: {error}")),
+        }
+        cx.notify();
+    }
+
     fn render_profiles_settings(&self, cx: &mut Context<Self>) -> gpui::Div {
         let active_profile = self.profiles.iter().find(|profile| profile.id == self.active_profile_id);
         let pin_prompt = self.profile_switch_target.as_ref().map(|target| {
@@ -12596,6 +12619,10 @@ impl SenzoShell {
                     })
             );
         }
+        let pending_sync = self.sync_outbox_repository
+            .list_pending_sync_mutations(&self.active_profile_id, current_epoch_millis(), 500)
+            .map(|items| items.len())
+            .unwrap_or(0);
         let mut section = div().w_full().flex().flex_col().gap_3()
             .child(page_intro("YOUR SPACE", "Profiles", "Keep watch history, library, add-ons, settings and PIN protection separate for each person."))
             .child(profile_rows)
@@ -12617,7 +12644,7 @@ impl SenzoShell {
                     .child(div().id("profile-clear-pin").cursor_pointer().rounded_md().bg(rgb(Theme::SURFACE_RAISED)).px_3().py_2()
                         .on_click(cx.listener(|this, _, _, cx| this.clear_active_profile_pin(cx)))
                         .child(div().text_xs().text_color(rgb(Theme::TEXT_PRIMARY)).child("Clear PIN")))))
-            .child(status_panel(StatusTone::Info,"LOCAL PROFILE","Private on this device","Profiles, PIN hashes, settings, library and sync queue are stored locally. Cloud account sync is available only when a sync backend is configured."));
+            .child(status_panel(StatusTone::Info,"LOCAL PROFILE","Private on this device",&format!("This profile has {pending_sync} pending sync change(s). Library data and retry state are stored locally until a cloud sync service is configured.")));
         if let Some(prompt) = pin_prompt { section = section.child(prompt); }
         if let Some(error) = &self.profile_error {
             section = section.child(status_panel(StatusTone::Error,"PROFILE", "Profile action failed", error));
@@ -12633,6 +12660,10 @@ impl SenzoShell {
         let mut page = div().w_full().flex().flex_col().gap_5()
             .child(page_intro("YOUR SPACE","Library","Save movies and series, organize them into private collections, and keep them available offline."))
             .child(Input::new(&self.library_search_input))
+            .child(div().id("library-favorites-filter").cursor_pointer().rounded_md()
+                .bg(rgb(if self.library_favorites_only { Theme::ACCENT_DARK } else { Theme::SURFACE }))
+                .px_3().py_2().on_click(cx.listener(|this, _, _, cx| this.toggle_library_favorites_filter(cx)))
+                .child(div().text_xs().text_color(rgb(Theme::ACCENT)).child(if self.library_favorites_only { "Showing favorites" } else { "Show favorites only" })))
             .child(div().w_full().flex().gap_2()
                 .child(Input::new(&self.library_collection_input))
                 .child(div().id("library-create-collection").cursor_pointer().rounded_md()
@@ -12643,6 +12674,8 @@ impl SenzoShell {
         for collection in &self.library_collections {
             let collection_id = collection.id.clone();
             let items = self.library_collection_items.get(&collection.id).cloned().unwrap_or_default();
+            let collection_empty = items.is_empty();
+            let delete_collection_id = collection.id.clone();
             let mut section = div().w_full().rounded_md().border_1().border_color(rgb(Theme::BORDER))
                 .bg(rgb(Theme::SURFACE)).p_3().flex().flex_col().gap_2()
                 .child(div().flex().items_center().gap_2()
@@ -12653,7 +12686,7 @@ impl SenzoShell {
                         .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child("Rotate order")))
                     .child(div().id(format!("collection-delete-{}", collection.id)).cursor_pointer().rounded_md().px_2().py_1()
                         .bg(rgb(Theme::SURFACE_RAISED))
-                        .on_click(cx.listener(move |this, _, _, cx| this.delete_library_collection(collection.id.clone(), cx)))
+                        .on_click(cx.listener(move |this, _, _, cx| this.delete_library_collection(delete_collection_id.clone(), cx)))
                         .child(div().text_xs().text_color(rgb(Theme::DANGER)).child("Delete"))));
             for item in items.into_iter().filter(|item| query.is_empty() || item.title.to_ascii_lowercase().contains(&query)) {
                 let item_title = item.title.clone();
@@ -12666,14 +12699,17 @@ impl SenzoShell {
                         .on_click(cx.listener(move |this, _, _, cx| this.toggle_collection_membership(remove_collection_id.clone(), media_id.clone(), media_kind, cx)))
                         .child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child("Remove"))));
             }
-            if items.is_empty() {
+            if collection_empty {
                 section = section.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child("No titles in this collection yet."));
             }
             collections = collections.child(section);
         }
         if !self.library_collections.is_empty() { page = page.child(collections); }
 
-        let filtered = self.library_items.iter().filter(|item| query.is_empty() || item.title.to_ascii_lowercase().contains(&query)).collect::<Vec<_>>();
+        let filtered = self.library_items.iter().filter(|item| {
+            (query.is_empty() || item.title.to_ascii_lowercase().contains(&query))
+                && (!self.library_favorites_only || item.is_favorite)
+        }).collect::<Vec<_>>();
         if filtered.is_empty() {
             page = page.child(status_panel(StatusTone::Empty,"SAVED TITLES","Your library is empty","Open any movie or series and use Save to Library to add it here."));
         } else {
