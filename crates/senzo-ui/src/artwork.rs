@@ -75,6 +75,7 @@ pub(crate) fn poster_card(
 
     div()
         .w(px(148.0))
+        .flex_shrink_0()
         .flex()
         .flex_col()
         .gap_2()
