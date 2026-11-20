@@ -149,6 +149,13 @@ pub struct PlaybackSnapshot {
     pub speed: f64,
     pub video_codec: Option<String>,
     pub audio_codec: Option<String>,
+    pub audio_output_driver: Option<String>,
+    pub audio_device_setting: Option<String>,
+    pub audio_input_channels: Option<String>,
+    pub audio_output_channels: Option<String>,
+    pub audio_output_sample_rate: Option<i64>,
+    pub audio_output_sample_format: Option<String>,
+    pub audio_track_id: Option<i64>,
     pub video_width: Option<i64>,
     pub video_height: Option<i64>,
     pub buffering: bool,
@@ -170,6 +177,13 @@ impl Default for PlaybackSnapshot {
             speed: 1.0,
             video_codec: None,
             audio_codec: None,
+            audio_output_driver: None,
+            audio_device_setting: None,
+            audio_input_channels: None,
+            audio_output_channels: None,
+            audio_output_sample_rate: None,
+            audio_output_sample_format: None,
+            audio_track_id: None,
             video_width: None,
             video_height: None,
             buffering: false,
@@ -862,6 +876,13 @@ fn update_snapshot(
     next.speed = api.double(ctx, "speed").unwrap_or(1.0).clamp(0.25, 4.0);
     next.video_codec = api.string(ctx, "video-codec");
     next.audio_codec = api.string(ctx, "audio-codec");
+    next.audio_output_driver = api.string(ctx, "current-ao");
+    next.audio_device_setting = api.string(ctx, "audio-device");
+    next.audio_input_channels = api.string(ctx, "audio-params/hr-channels");
+    next.audio_output_channels = api.string(ctx, "audio-out-params/hr-channels");
+    next.audio_output_sample_rate = api.int(ctx, "audio-out-params/samplerate");
+    next.audio_output_sample_format = api.string(ctx, "audio-out-params/format");
+    next.audio_track_id = api.int(ctx, "aid");
     next.video_width = api.int(ctx, "width");
     next.video_height = api.int(ctx, "height");
     next.buffered_percent = api
@@ -873,11 +894,33 @@ fn update_snapshot(
             && next.buffered_percent < 100.0);
     next.tracks = tracks(api, ctx);
     next.chapters = chapters(api, ctx);
-    if let Ok(mut current) = snapshot.write()
-        && *current != next
-    {
-        *current = next.clone();
-        emit(listeners, PlayerEvent::Snapshot(Box::new(next)));
+    if let Ok(mut current) = snapshot.write() {
+        let audio_route_changed = current.audio_output_driver != next.audio_output_driver
+            || current.audio_device_setting != next.audio_device_setting
+            || current.audio_input_channels != next.audio_input_channels
+            || current.audio_output_channels != next.audio_output_channels
+            || current.audio_output_sample_rate != next.audio_output_sample_rate
+            || current.audio_output_sample_format != next.audio_output_sample_format
+            || current.audio_track_id != next.audio_track_id;
+        if audio_route_changed {
+            tracing::info!(
+                output_driver = next.audio_output_driver.as_deref().unwrap_or("not active"),
+                device_setting = next.audio_device_setting.as_deref().unwrap_or("not reported"),
+                input_channels = next.audio_input_channels.as_deref().unwrap_or("not reported"),
+                output_channels = next.audio_output_channels.as_deref().unwrap_or("not reported"),
+                output_sample_rate = ?next.audio_output_sample_rate,
+                output_sample_format = next.audio_output_sample_format.as_deref().unwrap_or("not reported"),
+                audio_track_id = ?next.audio_track_id,
+                codec = next.audio_codec.as_deref().unwrap_or("not reported"),
+                muted = next.muted,
+                volume_percent = next.volume_percent,
+                "MPV audio output route changed"
+            );
+        }
+        if *current != next {
+            *current = next.clone();
+            emit(listeners, PlayerEvent::Snapshot(Box::new(next)));
+        }
     }
 }
 fn chapters(api: &Api, ctx: *mut c_void) -> Vec<PlaybackChapter> {
@@ -987,6 +1030,10 @@ fn options(config: &MpvConfig) -> Vec<(String, String)> {
             config.audio_output.clone().unwrap_or_else(|| "auto".into()),
         ),
         ("hwdec".into(), "auto-safe".into()),
+        // A stereo-first output avoids sending 5.1 AC-3 to a typical two-channel
+        // Windows endpoint. The AC-3/AAC/DTS decoder is asked to downmix too.
+        ("audio-channels".into(), "stereo".into()),
+        ("ad-lavc-downmix".into(), "yes".into()),
         ("osc".into(), "no".into()),
         ("osd-level".into(), "0".into()),
         ("input-default-bindings".into(), "yes".into()),
