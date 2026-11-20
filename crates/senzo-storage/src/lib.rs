@@ -418,7 +418,7 @@ impl PlaybackProgressRepository for SqliteDatabase {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
-        transaction
+        let progress_write = transaction
             .execute(
                 "INSERT INTO playback_progress (
                     profile_id, media_kind, media_id, season_number, episode_number, title,
@@ -457,7 +457,7 @@ impl PlaybackProgressRepository for SqliteDatabase {
                 ),
             )
             .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
-        if progress.is_completed {
+        if progress.is_completed && progress_write > 0 {
             transaction
                 .execute(
                     "INSERT INTO watched_items
@@ -472,6 +472,21 @@ impl PlaybackProgressRepository for SqliteDatabase {
                         stored_episode_number(progress.season_number),
                         stored_episode_number(progress.episode_number),
                         progress.updated_at_ms,
+                    ),
+                )
+                .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        } else if progress_write > 0 {
+            transaction
+                .execute(
+                    "DELETE FROM watched_items
+                     WHERE profile_id = ?1 AND media_kind = ?2 AND media_id = ?3
+                       AND season_number = ?4 AND episode_number = ?5",
+                    (
+                        &progress.profile_id,
+                        media_kind_storage_value(progress.media_kind),
+                        &progress.media_id,
+                        stored_episode_number(progress.season_number),
+                        stored_episode_number(progress.episode_number),
                     ),
                 )
                 .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
@@ -1020,6 +1035,41 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].media_id, "100");
         assert_eq!(entries[0].episode_number, Some(2));
+    }
+
+    #[test]
+    fn phase11_replaying_a_watched_episode_clears_its_watched_marker() {
+        let database = SqliteDatabase::in_memory().unwrap();
+        let watched = WatchedItem {
+            profile_id: "default".to_owned(),
+            media_id: "1399".to_owned(),
+            media_kind: MediaKind::Series,
+            season_number: Some(1),
+            episode_number: Some(2),
+            marked_at_ms: 200,
+        };
+        database.set_watched(&watched, true).unwrap();
+        assert!(database.is_watched(&watched).unwrap());
+
+        let replay = PlaybackProgress {
+            profile_id: "default".to_owned(),
+            media_id: "1399".to_owned(),
+            media_kind: MediaKind::Series,
+            title: "Game of Thrones".to_owned(),
+            season_number: Some(1),
+            episode_number: Some(2),
+            episode_title: Some("The Kingsroad".to_owned()),
+            poster_path: None,
+            backdrop_path: None,
+            still_path: None,
+            position_ms: 45_000,
+            duration_ms: 2_700_000,
+            is_completed: false,
+            updated_at_ms: 300,
+        };
+        database.save_playback_progress(&replay).unwrap();
+        assert!(!database.is_watched(&watched).unwrap());
+        assert_eq!(database.list_continue_watching("default", 20).unwrap(), vec![replay]);
     }
 
     #[test]

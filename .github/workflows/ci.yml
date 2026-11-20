@@ -49,6 +49,11 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Run tests
         run: cargo test --workspace --all-targets --locked
+      - name: Verify Phase 11 TV playback continuity and persistence
+        run: |
+          cargo test -p senzo-sources stremio_behavior_hints_and_file_index_survive_source_normalization --locked
+          cargo test -p senzo-storage phase11_ --locked
+          cargo test -p senzo-ui phase11_ --locked
       - name: Build native Windows application
         run: cargo build --release --locked -p senzo-app
       - name: Smoke-test native window startup and shutdown

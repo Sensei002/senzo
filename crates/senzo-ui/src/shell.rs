@@ -11155,6 +11155,14 @@ impl SenzoShell {
                 jobs.spawn(async move {
                     let show_id = progress.media_id.parse::<u64>().ok()?;
                     let tv = metadata.tv(show_id, &token).await.ok()?;
+                    let mut progress = progress;
+                    progress.title = tv.name.clone();
+                    if progress.poster_path.is_none() {
+                        progress.poster_path = tv.poster_path.clone();
+                    }
+                    if progress.backdrop_path.is_none() {
+                        progress.backdrop_path = tv.backdrop_path.clone();
+                    }
                     let mut season_numbers = tv
                         .seasons
                         .iter()
@@ -13061,6 +13069,104 @@ mod tests {
         );
         progress.backdrop_path = None;
         assert_eq!(progress_artwork_path(&progress), None);
+    }
+
+    #[test]
+    fn phase11_autoplay_waits_for_both_source_and_matching_episode_metadata() {
+        let target = Some((1399, 2, 4));
+        assert!(!next_episode_autoplay_ready(false, None, target));
+        assert!(!next_episode_autoplay_ready(true, None, target));
+        assert!(!next_episode_autoplay_ready(false, Some((1399, 2, 4)), target));
+        assert!(!next_episode_autoplay_ready(true, Some((1399, 1, 4)), target));
+        assert!(!next_episode_autoplay_ready(true, Some((1399, 2, 3)), target));
+        assert!(next_episode_autoplay_ready(true, Some((1399, 2, 4)), target));
+    }
+
+    fn phase11_source(provider_id: &str, url: &str, binge_group: Option<&str>) -> Source {
+        Source {
+            id: format!("{provider_id}:{url}"),
+            provider_id: provider_id.to_owned(),
+            provider_name: provider_id.to_owned(),
+            title: url.to_owned(),
+            description: None,
+            filename_hint: None,
+            binge_group: binge_group.map(str::to_owned),
+            target: SourceTarget::Http(url.to_owned()),
+            quality: None,
+            size_bytes: None,
+            language: None,
+            codec: None,
+            stream_type: None,
+            seeders: None,
+            peers: None,
+            headers: BTreeMap::new(),
+            subtitles: Vec::new(),
+            badges: Vec::new(),
+            cache_state: senzo_sources::CacheState::Unknown,
+        }
+    }
+
+    fn phase11_source_result(sources: Vec<Source>) -> SourceDiscoveryResult {
+        SourceDiscoveryResult {
+            groups: vec![senzo_sources::SourceGroup {
+                provider_id: "providers".to_owned(),
+                provider_name: "Providers".to_owned(),
+                sources,
+                loading: false,
+                error: None,
+            }],
+            diagnostics: Vec::new(),
+            total_sources: sources.len(),
+            used_stale_cache: false,
+            recommended_source_id: None,
+        }
+    }
+
+    #[test]
+    fn phase11_next_episode_prefers_matching_stremio_binge_group_over_provider() {
+        let provider_match = phase11_source(
+            "same-provider",
+            "https://cdn.example/provider-match.mkv",
+            Some("different-pack"),
+        );
+        let binge_match = phase11_source(
+            "other-provider",
+            "https://cdn.example/binge-match.mkv",
+            Some("season-pack-7"),
+        );
+        let result = phase11_source_result(vec![provider_match, binge_match]);
+        let selected = select_next_episode_source_candidate(
+            &result,
+            Some("season-pack-7"),
+            Some("same-provider"),
+        )
+        .expect("direct source with the matching binge group");
+        assert_eq!(selected.url, "https://cdn.example/binge-match.mkv");
+        assert_eq!(selected.provider_id, "other-provider");
+        assert_eq!(selected.binge_group.as_deref(), Some("season-pack-7"));
+    }
+
+    #[test]
+    fn phase11_next_episode_falls_back_to_provider_then_discovery_order() {
+        let first = phase11_source("first-provider", "https://cdn.example/first.mkv", None);
+        let preferred = phase11_source(
+            "preferred-provider",
+            "https://cdn.example/preferred.mkv",
+            None,
+        );
+        let result = phase11_source_result(vec![first, preferred]);
+        let selected = select_next_episode_source_candidate(
+            &result,
+            Some("missing-pack"),
+            Some("preferred-provider"),
+        )
+        .expect("provider fallback source");
+        assert_eq!(selected.url, "https://cdn.example/preferred.mkv");
+
+        let selected_without_provider =
+            select_next_episode_source_candidate(&result, Some("missing-pack"), None)
+                .expect("first valid direct source");
+        assert_eq!(selected_without_provider.url, "https://cdn.example/first.mkv");
     }
 
     #[test]

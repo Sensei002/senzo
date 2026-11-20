@@ -259,17 +259,23 @@ See docs/PHASE_5_IMPLEMENTATION.md.
 
 ## Phase 11 — TV playback, progress and episode continuity
 
-- [ ] Implement episode-specific source discovery and playback.
-- [ ] Implement next/previous episode navigation.
-- [ ] Implement autoplay-next behavior and preferences.
-- [ ] Implement watched-state tracking and completion rules.
-- [ ] Implement resume prompts and playback position persistence.
-- [ ] Implement continue-watching enrichment and next-up ordering.
-- [ ] Project real watched/resume progress into Home Continue Watching and release-aware shelves (consumes the Phase 4 Home collection/shelf contracts).
-- [ ] Implement intro/recap/credits skip integrations where supported.
-- [ ] Implement binge-group/source reuse where supported.
+<badge color="success">Windows development acceptance complete</badge>
 
-**Gate:** A series can be watched across episodes with correct progress and resume state.
+- [x] Implement episode-specific source discovery and playback.
+- [x] Implement next/previous episode navigation, including adjacent-season transitions and unreleased-episode guards.
+- [x] Implement autoplay-next behavior and locally persisted preferences.
+- [x] Implement watched-state tracking, explicit watched markers and the 90% completion rule.
+- [x] Implement resume prompts and durable playback-position persistence.
+- [x] Implement Continue Watching enrichment and next-up ordering.
+- [x] Project real watched/resume progress into Home Continue Watching and release-aware Up Next shelves (consumes the Phase 4 Home collection/shelf contracts).
+- [x] Implement intro/recap/credits chapter skipping where the selected MPV source exposes named chapters.
+- [x] Preserve Stremio `behaviorHints.bingeGroup` and prefer the same group for next-episode playback before provider and discovery-order fallbacks.
+
+**Automated gate — passed:** Windows CI runs source-normalization, storage and UI Phase 11 regression tests in addition to the full workspace checks, native release build and application startup/shutdown smoke test. Tests cover metadata/source arrival ordering, exact episode identity before autoplay, binge-group priority and fallback ordering, completion-threshold filtering, manually watched episodes without existing progress, replay clearing a watched marker, database reopen persistence, and transactional watched/progress behavior.
+
+**Implementation report:** [docs/PHASE_11_IMPLEMENTATION.md](PHASE_11_IMPLEMENTATION.md).
+
+**Explicit boundaries:** Intro/recap/credits skipping uses MPV chapter metadata when supplied by a source; no remote IntroDB/SkipIntro service is queried by the desktop player. Binge-group continuity auto-selects matching direct HTTP sources; torrent/P2P transport remains Phase 13 and unsupported source kinds continue to require their appropriate manual/provider flow. Profile/cloud watched-state synchronization remains Phase 12. Physical Windows monitor/speaker and final human visual acceptance remain Phase 18 release checks.
 
 ## Phase 12 — Library, profiles, accounts and sync
 
@@ -369,4 +375,4 @@ See docs/PHASE_5_IMPLEMENTATION.md.
 **Gate:** Nuvio desktop parity inventory is closed or every remaining difference is explicitly documented and accepted.
 
 
-**Current sequencing (November 19, 2026):** Phases 0–10 are implemented on development. Phase 11 is next and owns TV playback progress/Continue Watching; Phase 11 owns TV progress/Continue Watching; Phase 12 owns Library, profiles and sync; Phase 13 owns download/P2P transport; Phase 18 owns final cross-platform packaging, physical-device playback/visual acceptance and release. Stremio add-ons remain user-installed, Nuvio scrapers remain a separate sandboxed runtime, and source aggregation remains separate from playback transport.
+**Current sequencing (November 20, 2026):** Phases 0–11 are implemented on development. Phase 12 owns Library, profiles and sync; Phase 13 owns download/P2P transport; Phase 18 owns final cross-platform packaging, physical-device playback/visual acceptance and release. Stremio add-ons remain user-installed, Nuvio scrapers remain a separate sandboxed runtime, and source aggregation remains separate from playback transport.
