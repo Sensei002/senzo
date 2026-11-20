@@ -82,7 +82,7 @@ The installer script also stages the app-local MSVC runtime and the MPV license 
 
 ## Multi-OS release packages
 
-The release workflow is designed to publish one GitHub Release for a version tag such as `v1.0.7`, after all platform jobs succeed:
+The release workflow is designed to publish one GitHub Release for a version tag such as `v1.0.6`, after all platform jobs succeed:
 
 - **Windows x64:** SENZO installer (`.exe`) and automatic-updater archive (`.zip`), including the native MPV runtime and app-local MSVC runtime.
 - **Linux x64:** standalone executable and Debian/Ubuntu package (`.deb`).
@@ -92,7 +92,7 @@ The release workflow is designed to publish one GitHub Release for a version tag
 
 Windows and Linux builds run independently. Arch and Fedora packages are created from the validated Linux binary in their own packaging environments. The publishing job waits for all required artifacts before creating the GitHub Release.
 
-The current release target is **x86-64 Windows and Linux**. The referenced workflow does not include macOS, and SENZO does not publish a macOS build yet. Releases are triggered by pushing a version tag matching `v*`; a manual workflow run can validate build artifacts without publishing a release.
+The current release target is **x86-64 Windows and Linux**. The referenced workflow does not include macOS, and SENZO does not publish a macOS build yet. Releases are triggered by pushing a version tag matching `v*`; the tag version must match `app/Cargo.toml` and the corresponding `CHANGELOG.md` section. The current application version is `1.0.6`, so its matching tag is `v1.0.6`. A manual workflow run can validate build artifacts without publishing a release.
 
 ## Upstream and licensing
 
