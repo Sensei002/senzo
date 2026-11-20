@@ -628,6 +628,8 @@ struct DetailsPage {
     episode_loading: bool,
     episode_error: Option<String>,
     episode_cancellation: CancellationToken,
+    poster_path: Option<String>,
+    backdrop_path: Option<String>,
     poster: Option<Arc<RenderImage>>,
     backdrop: Option<Arc<RenderImage>>,
     loading: bool,
@@ -2377,6 +2379,8 @@ impl SenzoShell {
             episode_loading: false,
             episode_error: None,
             episode_cancellation: CancellationToken::new(),
+            poster_path: None,
+            backdrop_path: None,
             poster: None,
             backdrop: None,
             loading: true,
@@ -2668,7 +2672,7 @@ impl SenzoShell {
                 _ => return Err("Unsupported media type".to_owned()),
             };
 
-            if let Some(path) = loaded.poster_path.take() {
+            if let Some(path) = loaded.poster_path.clone() {
                 loaded.poster = load_gpui_artwork(
                     artwork.clone(),
                     path,
@@ -2677,7 +2681,7 @@ impl SenzoShell {
                 )
                 .await;
             }
-            if let Some(path) = loaded.backdrop_path.take() {
+            if let Some(path) = loaded.backdrop_path.clone() {
                 loaded.backdrop = load_gpui_artwork(
                     artwork.clone(),
                     path,
@@ -2753,6 +2757,8 @@ impl SenzoShell {
                         details.trailers = loaded.trailers;
                         details.related = loaded.related;
                         details.seasons = loaded.seasons;
+                        details.poster_path = loaded.poster_path;
+                        details.backdrop_path = loaded.backdrop_path;
                         details.poster = loaded.poster;
                         details.backdrop = loaded.backdrop;
                         details.loading = false;
