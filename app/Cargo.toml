@@ -8,6 +8,7 @@ license = "GPL-3.0-only"
 [dependencies]
 stremio-core.workspace = true
 stream-server.workspace = true
+enginefs.workspace = true
 core-env = { path = "../core-env" }
 playback-mpv = { path = "../playback-mpv" }
 server-connector = { path = "../server-connector" }
