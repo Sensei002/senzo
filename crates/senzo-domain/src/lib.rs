@@ -3,6 +3,27 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+/// Shared active-profile identifier. Managers and providers keep a clone of this
+/// handle so switching profiles changes every profile-scoped lookup atomically.
+#[derive(Clone)]
+pub struct ProfileScope(std::sync::Arc<std::sync::RwLock<String>>);
+
+impl ProfileScope {
+    pub fn new(profile_id: impl Into<String>) -> Self {
+        Self(std::sync::Arc::new(std::sync::RwLock::new(profile_id.into())))
+    }
+
+    pub fn current(&self) -> String {
+        self.0.read().map(|value| value.clone()).unwrap_or_else(|_| "default".to_owned())
+    }
+
+    pub fn set(&self, profile_id: impl Into<String>) {
+        if let Ok(mut current) = self.0.write() {
+            *current = profile_id.into();
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SettingKey(String);
 
