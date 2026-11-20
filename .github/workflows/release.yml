@@ -39,6 +39,16 @@ jobs:
           go install github.com/rhysd/actionlint/cmd/actionlint@latest
           "$HOME/go/bin/actionlint" -color .github/workflows/ci.yml .github/workflows/release.yml
 
+      - name: Ensure a release tag matches the Cargo package version
+        if: github.ref_type == 'tag'
+        run: |
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("app/Cargo.toml", "rb"))["package"]["version"])')"
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [[ "$tag_version" != "$version" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match app/Cargo.toml version $version." >&2
+            exit 1
+          fi
+
       - name: Validate release-note generator
         run: |
           python3 -m py_compile scripts/generate_release_notes.py
