@@ -122,6 +122,8 @@ struct PlaybackContext {
     season_number: Option<u32>,
     episode_number: Option<u32>,
     episode_title: Option<String>,
+    poster_path: Option<String>,
+    backdrop_path: Option<String>,
     still_path: Option<String>,
     last_persisted_position_ms: u64,
 }
@@ -158,6 +160,14 @@ fn playback_progress_artwork_key(progress: &PlaybackProgress) -> String {
         progress.season_number.unwrap_or(0),
         progress.episode_number.unwrap_or(0)
     )
+}
+
+fn progress_artwork_path(progress: &PlaybackProgress) -> Option<String> {
+    progress
+        .still_path
+        .clone()
+        .or_else(|| progress.poster_path.clone())
+        .or_else(|| progress.backdrop_path.clone())
 }
 
 fn current_epoch_millis() -> i64 {
@@ -2940,6 +2950,8 @@ impl SenzoShell {
                 season_number: None,
                 episode_number: None,
                 episode_title: None,
+                poster_path: details.poster_path.clone(),
+                backdrop_path: details.backdrop_path.clone(),
                 still_path: None,
                 last_persisted_position_ms: 0,
             }),
@@ -2950,6 +2962,8 @@ impl SenzoShell {
                 season_number: Some(episode.season_number),
                 episode_number: Some(episode.episode_number),
                 episode_title: Some(episode.name.clone()),
+                poster_path: details.poster_path.clone(),
+                backdrop_path: details.backdrop_path.clone(),
                 still_path: episode.still_path.clone(),
                 last_persisted_position_ms: 0,
             }),
@@ -3008,8 +3022,8 @@ impl SenzoShell {
             season_number: context.season_number,
             episode_number: context.episode_number,
             episode_title: context.episode_title.clone(),
-            poster_path: None,
-            backdrop_path: None,
+            poster_path: context.poster_path.clone(),
+            backdrop_path: context.backdrop_path.clone(),
             still_path: context.still_path.clone(),
             position_ms,
             duration_ms,
@@ -10619,7 +10633,7 @@ impl SenzoShell {
         }
         let requests = self.home_continue_watching.iter()
             .filter_map(|progress| {
-                let path = progress.still_path.clone()?;
+                let path = progress_artwork_path(progress)?;
                 let key = playback_progress_artwork_key(progress);
                 (!self.home_continue_watching_artwork.contains_key(&key))
                     .then_some((key, path))
@@ -12477,6 +12491,33 @@ mod tests {
         fn set(&self, _key: &SettingKey, _value: &str) -> Result<(), RepositoryError> {
             Ok(())
         }
+    }
+
+    #[test]
+    fn continue_watching_artwork_prefers_episode_still_then_poster_then_backdrop() {
+        let mut progress = PlaybackProgress {
+            profile_id: "default".to_owned(),
+            media_id: "42".to_owned(),
+            media_kind: MediaKind::Series,
+            title: "Example Series".to_owned(),
+            season_number: Some(1),
+            episode_number: Some(2),
+            episode_title: Some("Episode Two".to_owned()),
+            poster_path: Some("/poster.jpg".to_owned()),
+            backdrop_path: Some("/backdrop.jpg".to_owned()),
+            still_path: Some("/still.jpg".to_owned()),
+            position_ms: 60_000,
+            duration_ms: 2_700_000,
+            is_completed: false,
+            updated_at_ms: 1,
+        };
+        assert_eq!(progress_artwork_path(&progress).as_deref(), Some("/still.jpg"));
+        progress.still_path = None;
+        assert_eq!(progress_artwork_path(&progress).as_deref(), Some("/poster.jpg"));
+        progress.poster_path = None;
+        assert_eq!(progress_artwork_path(&progress).as_deref(), Some("/backdrop.jpg"));
+        progress.backdrop_path = None;
+        assert_eq!(progress_artwork_path(&progress), None);
     }
 
     #[test]
