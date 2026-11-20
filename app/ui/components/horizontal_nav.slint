@@ -13,11 +13,11 @@ export component HorizontalNavButton inherits ButtonSurface {
     height: 3.5 * root.unit;
     border-radius: 0.75 * root.unit;
     opacity: root.has-hover || root.has-focus || root.active ? 1 : 0.85;
-    background: root.has-hover || root.has-focus || root.active
-        ? Theme.overlay-color
-        : transparent;
+    background: root.active
+        ? Theme.primary-accent.with-alpha(0.14)
+        : (root.has-hover || root.has-focus ? Theme.overlay-hover : transparent);
 
-    animate background, opacity { duration: Theme.motion-fast; }
+    animate background, opacity { duration: Theme.motion-control; easing: ease-out; }
 
     Image {
         x: (parent.width - self.width) / 2;
@@ -74,7 +74,7 @@ export component HorizontalNavBar inherits Rectangle {
             width: 2.5 * root.unit;
             height: 2.5 * root.unit;
             source: root.logo-source;
-            opacity: 0.9;
+            opacity: 1;
             image-fit: contain;
         }
     }
