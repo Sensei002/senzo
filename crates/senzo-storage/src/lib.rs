@@ -1172,10 +1172,18 @@ mod tests {
                 database.get_playback_progress("default", "1399", MediaKind::Series, Some(2), Some(3)).unwrap(),
                 Some(progress)
             );
-            assert_eq!(
-                database.list_recent_completed_series("default", 20).unwrap()
-                    .first().and_then(|entry| entry.episode_number),
-                Some(2)
+            let watched = WatchedItem {
+                profile_id: "default".to_owned(),
+                media_id: "1399".to_owned(),
+                media_kind: MediaKind::Series,
+                season_number: Some(2),
+                episode_number: Some(2),
+                marked_at_ms: 400,
+            };
+            assert!(database.is_watched(&watched).unwrap());
+            assert!(
+                database.list_recent_completed_series("default", 20).unwrap().is_empty(),
+                "newer in-progress episode must suppress the Up Next projection"
             );
         }
         let _ = std::fs::remove_file(&path);
