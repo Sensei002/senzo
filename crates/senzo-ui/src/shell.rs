@@ -5895,10 +5895,14 @@ impl SenzoShell {
             {
                 panel = panel.child(div().text_xs().text_color(rgb(Theme::TEXT_MUTED)).child(
                     format!(
-                        "P2P: {:.1}/{:.1} MiB · uploaded {:.1} MiB · {}{}",
+                        "P2P: {:.1}/{:.1} MiB · {} peers ({} seeds, {} seen) · ↓ {:.2} MiB/s · ↑ {:.2} MiB/s · {}{}",
                         progress.downloaded_bytes as f64 / 1_048_576.0,
                         progress.total_bytes as f64 / 1_048_576.0,
-                        progress.uploaded_bytes as f64 / 1_048_576.0,
+                        progress.connected_peers,
+                        progress.seeders,
+                        progress.seen_peers,
+                        progress.download_speed_bytes_per_second as f64 / 1_048_576.0,
+                        progress.upload_speed_bytes_per_second as f64 / 1_048_576.0,
                         progress.state,
                         if progress.finished {
                             " · complete"
@@ -14583,6 +14587,13 @@ impl SenzoShell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.playback_loading {
+            self.notification = Some(
+                "A playback source is already being prepared. Wait for it to finish or cancel playback before starting another.".to_owned(),
+            );
+            cx.notify();
+            return;
+        }
         if !self.p2p_is_enabled() {
             self.notification = Some(
                 "P2P is disabled. Review the peer-network privacy notice and enable it in Settings first.".to_owned(),
@@ -14613,7 +14624,12 @@ impl SenzoShell {
         self.torrent_start_cancel.cancel();
         let cancel = CancellationToken::new();
         self.torrent_start_cancel = cancel.clone();
+        let worker_cancel = cancel.clone();
         let runtime = self.tokio.clone();
+        tracing::info!(
+            info_hash = %info_hash,
+            "Starting P2P playback source"
+        );
         let task = runtime.spawn(async move {
             let trackers = magnet_uri
                 .as_deref()
@@ -14626,9 +14642,17 @@ impl SenzoShell {
                 })
                 .unwrap_or_default();
             let (mut session, files) =
-                TorrentPlaybackSession::inspect_with_trackers(&info_hash, &trackers)
-                    .await
-                    .map_err(|error| format!("Could not inspect torrent metadata: {error:#}"))?;
+                TorrentPlaybackSession::inspect_with_trackers_cancellable(
+                    &info_hash,
+                    &trackers,
+                    &worker_cancel,
+                )
+                .await
+                .map_err(|error| format!("Could not inspect torrent metadata: {error:#}"))?;
+            if worker_cancel.is_cancelled() {
+                let _ = session.shutdown().await;
+                return Err("Torrent startup was cancelled.".to_owned());
+            }
             let selected = file_index
                 .and_then(|index| files.iter().find(|file| file.index == index as usize))
                 .or_else(|| files.first());
@@ -14638,7 +14662,10 @@ impl SenzoShell {
             };
             let selected_index = selected.index;
             let selected_name = selected.name.clone();
-            let stream_url = match session.start_file(selected_index).await {
+            let stream_url = match session
+                .start_file_cancellable(selected_index, &worker_cancel)
+                .await
+            {
                 Ok(url) => url,
                 Err(error) => {
                     let _ = session.shutdown().await;
