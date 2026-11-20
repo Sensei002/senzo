@@ -11,7 +11,7 @@ use gpui::{
     App, Bounds, ClipboardItem, ColorExt, Context, Entity, FocusHandle, Image, ImageFormat,
     KeyBinding, Menu, MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent, NavigationDirection,
     Pixels, QuitMode, Render, RenderImage, ScrollHandle, SharedString, Subscription,
-    TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div, img, point, prelude::*, px,
+    TitlebarOptions, Window, WindowBounds, WindowOptions, actions, canvas, div, img, point, prelude::*, px,
     rgb, size,
 };
 use gpui_component::scroll::ScrollableElement;
@@ -44,6 +44,8 @@ use senzo_metadata::{
     MetadataError, Person, SearchType, SeasonDetails, SeasonSummary, VideoItem,
 };
 use senzo_player::{MpvConfig, MpvPlayer, PlaybackSnapshot, PlaybackStatus, ResizeMode, TrackKind};
+use senzo_platform::NativeVideoSurface;
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use senzo_plugins::{PluginManager, PluginState, PluginStream, ScraperInput};
 use senzo_sources::{
     Source, SourceAggregator, SourceDiscoveryResult, SourceRequest, SourceSort, SourceTarget,
@@ -795,6 +797,8 @@ pub(crate) struct SenzoShell {
     active_torrent_session: Option<TorrentPlaybackSession>,
     torrent_start_cancel: CancellationToken,
     mpv_player: Option<MpvPlayer>,
+    native_video_surface: Option<Arc<NativeVideoSurface>>,
+    native_window_hwnd: Option<isize>,
     playback_start_cancel: CancellationToken,
     playback_refresh_cancel: CancellationToken,
     playback_controls_timer: CancellationToken,
@@ -1506,6 +1510,8 @@ impl SenzoShell {
             active_torrent_session: None,
             torrent_start_cancel: CancellationToken::new(),
             mpv_player: None,
+            native_video_surface: None,
+            native_window_hwnd: None,
             playback_start_cancel: CancellationToken::new(),
             playback_refresh_cancel: CancellationToken::new(),
             playback_controls_timer: CancellationToken::new(),
@@ -3784,6 +3790,20 @@ impl SenzoShell {
         cx.notify();
     }
 
+    #[cfg(target_os = "windows")]
+    fn ensure_native_video_surface(&mut self) -> Result<u64, String> {
+        if let Some(surface) = self.native_video_surface.as_ref() {
+            return Ok(surface.hwnd() as u64);
+        }
+        let parent = self.native_window_hwnd.ok_or_else(|| {
+            "SENZO could not obtain its native main-window handle for embedded video".to_owned()
+        })?;
+        let surface = NativeVideoSurface::create(parent)?;
+        let hwnd = surface.hwnd() as u64;
+        self.native_video_surface = Some(Arc::new(surface));
+        tracing::info!(parent_hwnd = parent, child_hwnd = hwnd, "Created embedded MPV video surface");
+        Ok(hwnd)
+    }
     fn start_playback_url(
         &mut self,
         url: String,
@@ -3803,13 +3823,29 @@ impl SenzoShell {
         self.playback_start_cancel = start_cancel.clone();
         self.playback_refresh_cancel.cancel();
 
+        #[cfg(target_os = "windows")]
+        let window_id = match self.ensure_native_video_surface() {
+            Ok(handle) => Some(handle),
+            Err(error) => {
+                self.playback_loading = false;
+                self.playback_error = Some(error);
+                cx.notify();
+                return;
+            }
+        };
+        #[cfg(not(target_os = "windows"))]
+        let window_id = None;
+
         let existing = self.mpv_player.clone();
         let runtime = self.tokio.clone();
         cx.notify();
         let task = runtime.spawn_blocking(move || {
             let player = match existing {
                 Some(player) => player,
-                None => MpvPlayer::spawn(MpvConfig::default())?,
+                None => MpvPlayer::spawn(MpvConfig {
+                    window_id,
+                    ..MpvConfig::default()
+                })?,
             };
             let loaded = player.load(&url, &headers);
             if loaded.is_ok()
@@ -4083,6 +4119,9 @@ impl SenzoShell {
         self.playback_refresh_cancel.cancel();
         self.playback_controls_timer.cancel();
         self.playback_open = false;
+        if let Some(surface) = self.native_video_surface.as_ref() {
+            surface.hide();
+        }
         self.playback_controls_visible = false;
         self.playback_panel = None;
         let restore_pip = self.playback_picture_in_picture;
@@ -6129,6 +6168,45 @@ impl SenzoShell {
             .filter(|value| !value.trim().is_empty())
             .unwrap_or(source_title);
 
+        let native_video_surface = self.native_video_surface.clone();
+        let video_host = if let Some(surface) = native_video_surface {
+            div()
+                .id("player-video-host")
+                .w_full()
+                .h(px(420.0))
+                .bg(rgb(0x050607))
+                .child(
+                    canvas(
+                        move |bounds, window, _cx| {
+                            let scale = window.scale_factor();
+                            let x = (f32::from(bounds.origin.x) * scale).round() as i32;
+                            let y = (f32::from(bounds.origin.y) * scale).round() as i32;
+                            let width = (f32::from(bounds.size.width) * scale).round() as i32;
+                            let height = (f32::from(bounds.size.height) * scale).round() as i32;
+                            if let Err(error) = surface.set_bounds(x, y, width, height) {
+                                tracing::warn!(%error, "Could not position embedded MPV surface");
+                            }
+                        },
+                        |_bounds, _state, _window, _cx| {},
+                    )
+                    .size_full(),
+                )
+        } else {
+            div()
+                .id("player-video-host-placeholder")
+                .w_full()
+                .h(px(420.0))
+                .bg(rgb(0x050607))
+                .items_center()
+                .justify_center()
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(Theme::TEXT_MUTED))
+                        .child("Waiting for the embedded video surface"),
+                )
+        };
+
         let mut root = div()
             .id("immersive-player-screen")
             .key_context("SENZO_PLAYER")
@@ -6459,6 +6537,7 @@ impl SenzoShell {
                     .flex_col()
                     .items_center()
                     .gap_3()
+                    .child(video_host)
                     .child(
                         div()
                             .text_xs()
@@ -6489,7 +6568,7 @@ impl SenzoShell {
                         div()
                             .text_sm()
                             .text_color(rgb(Theme::TEXT_MUTED))
-                            .child("MPV renders the picture in its own native window. SENZO keeps playback controls in this GPUI player."),
+                            .child("Video is rendered inside SENZO. Playback controls stay in the native GPUI player."),
                     )
                     .child(
                         div()
@@ -15285,6 +15364,21 @@ impl Drop for SenzoShell {
 
 impl Render for SenzoShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        #[cfg(target_os = "windows")]
+        if self.native_window_hwnd.is_none() {
+            self.native_window_hwnd = window
+                .window_handle()
+                .ok()
+                .and_then(|handle| match handle.as_raw() {
+                    RawWindowHandle::Win32(handle) => Some(handle.hwnd.get()),
+                    _ => None,
+                });
+        }
+        if !self.playback_open
+            && let Some(surface) = self.native_video_surface.as_ref()
+        {
+            surface.hide();
+        }
         if self.profile_locked {
             return self.render_startup_profile_lock(cx);
         }
