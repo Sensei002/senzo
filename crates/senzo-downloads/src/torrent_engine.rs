@@ -344,8 +344,8 @@ impl TorrentPlaybackSession {
             )
             .with_state(state);
         let shutdown = cancel.clone();
-        let (address_tx, address_rx) = tokio::sync::oneshot::channel();
-        let mut task = runtime_handle.spawn(async move {
+        let (address_tx, mut address_rx) = tokio::sync::oneshot::channel();
+        let task = runtime_handle.spawn(async move {
             let listener = TcpListener::bind("127.0.0.1:0")
                 .await
                 .context("could not bind the loopback torrent stream endpoint")?;
