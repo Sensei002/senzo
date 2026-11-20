@@ -5,8 +5,8 @@ PLAYER_BIN="$1"
 OUT="/tmp/senzo-mpv-headless"
 MEDIA="$OUT/media"
 mkdir -p "$MEDIA"
-rm -rf "$OUT/frames" "$OUT/screen-frames"
-mkdir -p "$OUT/frames" "$OUT/screen-frames"
+rm -rf "$OUT/frames"
+mkdir -p "$OUT/frames"
 rm -f "$OUT/audio.wav" "$OUT/screen.mkv"
 HTTP_PID=""
 AUDIO_PID=""
@@ -52,7 +52,7 @@ done
 curl --fail --silent --head http://127.0.0.1:18765/first.mp4 >/dev/null
 curl --fail --silent --range 0-1023 --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18765/first.mp4 | grep -qx 206
 
-echo "Recording the X11 display for diagnostics while SENZO drives libmpv"
+echo "Capturing the X11 display while SENZO drives libmpv"
 ffmpeg -hide_banner -loglevel warning -y \
   -f x11grab -framerate 8 -video_size 1280x720 -i "$DISPLAY" \
   -t 16 -an -c:v ffv1 "$OUT/screen.mkv" >"$OUT/screen-capture.log" 2>&1 &
@@ -60,7 +60,6 @@ SCREEN_PID=$!
 
 echo "Running the real SENZO libmpv playback/control integration"
 export SENZO_MPV_LOG_FILE="$OUT/mpv.log"
-export SENZO_MPV_SCREENSHOT_DIR="$OUT/frames"
 PULSE_SINK=senzo_headless_sink timeout 100 "$PLAYER_BIN" \
   "http://127.0.0.1:18765/first.mp4" \
   "http://127.0.0.1:18765/second.mp4"
@@ -75,6 +74,6 @@ kill "$HTTP_PID" 2>/dev/null || true
 HTTP_PID=""
 
 ffmpeg -hide_banner -loglevel error -y -i "$OUT/screen.mkv" \
-  -vf fps=2 -frames:v 24 "$OUT/screen-frames/frame-%02d.png"
+  -vf fps=1 -frames:v 12 "$OUT/frames/frame-%02d.png"
 python3 scripts/validate-mpv-headless.py "$OUT/frames" "$OUT/audio.wav"
 echo "PASS: SENZO headless audiovisual acceptance completed"

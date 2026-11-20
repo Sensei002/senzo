@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify moving MPV video frames and non-silent PCM from the headless run."""
+"""Verify changing video frames and non-silent PCM from SENZO's headless MPV run."""
 from __future__ import annotations
 
 import array
@@ -34,7 +34,7 @@ def validate_screen(directory: Path) -> None:
             active.append(image)
 
     if len(active) < 3:
-        fail(f"expected at least 3 decoded video frames containing visible pixels; found {len(active)}")
+        fail(f"expected at least 3 frames containing visible video; found {len(active)}")
 
     motion_scores = [
         ImageStat.Stat(ImageChops.difference(before, after).convert("L")).mean[0]
@@ -48,7 +48,7 @@ def validate_screen(directory: Path) -> None:
         )
 
     print(
-        "PASS: MPV decoded video screenshots contain moving frames "
+        "PASS: moving video was captured from the virtual display "
         f"({len(paths)} frames, {len(active)} with visible content, "
         f"maximum frame difference={maximum_motion:.2f})"
     )

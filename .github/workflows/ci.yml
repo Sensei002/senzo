@@ -83,7 +83,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Install GPUI and credential-store build dependencies
-        timeout-minutes: 15
+        timeout-minutes: 25
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
@@ -93,7 +93,7 @@ jobs:
             libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev \
             libxcb-shape0-dev libxcb-xfixes0-dev libxcb-randr0-dev libxcb-xinput-dev \
             libegl1-mesa-dev libgles2-mesa-dev libglib2.0-dev libfontconfig-dev \
-            libgl1-mesa-dri mesa-vulkan-drivers xvfb xauth \
+            libgl1-mesa-dri xvfb xauth \
             libmpv2 ffmpeg pulseaudio pulseaudio-utils python3-pil curl
       - name: Checkout
         uses: actions/checkout@v4
