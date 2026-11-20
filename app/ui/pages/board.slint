@@ -1,0 +1,216 @@
+import { ListView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { MediaCardItem } from "../components/media_card.slint";
+import { MediaCatalogRow } from "../components/media_carousel.slint";
+import { MetaRowPlaceholder } from "../components/meta_row.slint";
+import { EmptyState } from "../components/feedback.slint";
+import { PillButton } from "../components/button.slint";
+
+export struct BoardSection {
+    title: string,
+    r-type: string,
+    catalog-id: string,
+    addon-base: string,
+    catalog-index: int,
+    loading: bool,
+    error-message: string,
+    items: [MediaCardItem],
+    is-continue-watching: bool,
+    poster-shape: string,
+}
+
+component StreamingServerWarning inherits Rectangle {
+    in property <length> unit: Theme.root-font-size;
+
+    callback dismiss;
+    callback reload;
+    callback open-settings;
+
+    height: 5 * root.unit;
+    border-radius: Theme.border-radius;
+    background: Theme.warning;
+    border-width: 0px;
+
+    HorizontalLayout {
+        padding-left: root.unit;
+        padding-right: root.unit;
+        spacing: root.unit;
+        alignment: center;
+
+        Text {
+            horizontal-stretch: 1;
+            text: @tr("SETTINGS_SERVER_UNAVAILABLE" => "Streaming server is not available.");
+            color: Theme.primary-foreground;
+            font-size: 0.95 * root.unit;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        PillButton {
+            width: 7 * root.unit;
+            height: 3 * root.unit;
+            unit: root.unit;
+            label: @tr("Install");
+            surface-color: Theme.background.with-alpha(0.28);
+            hover-color: Theme.background.with-alpha(0.45);
+            clicked => { root.dismiss(); }
+        }
+        PillButton {
+            width: 7 * root.unit;
+            height: 3 * root.unit;
+            unit: root.unit;
+            label: @tr("Later");
+            surface-color: Theme.background.with-alpha(0.28);
+            hover-color: Theme.background.with-alpha(0.45);
+            clicked => { root.reload(); }
+        }
+        PillButton {
+            width: 13 * root.unit;
+            height: 3 * root.unit;
+            unit: root.unit;
+            label: @tr("Don't show again");
+            surface-color: Theme.background.with-alpha(0.28);
+            hover-color: Theme.background.with-alpha(0.45);
+            clicked => { root.open-settings(); }
+        }
+    }
+}
+
+export component BoardPage inherits Rectangle {
+    in property <[MediaCardItem]> continue-watching: [];
+    in property <[BoardSection]> sections: [];
+    in property <bool> loading: false;
+    in property <bool> show-server-warning: false;
+
+    in property <bool> enable-hover-preview: false;
+    in property <duration> hover-preview-delay: 1200ms;
+
+    callback hover-preview-requested(string, string, length, length, length, length);
+    callback hover-preview-dismissed();
+    callback item-selected(string, string, string);
+    callback play-clicked(string);
+    callback remove-continue-watching(string);
+    callback see-all-continue-watching;
+    callback see-all-clicked(int);
+    callback catalog-visible(int);
+    callback poster-requested(string);
+    callback dismiss-server-warning;
+    callback reload-server;
+    callback open-server-settings;
+
+    in property <length> unit: Theme.root-font-size;
+    property <length> card-width: 12 * root.unit;
+    property <length> card-height: (root.card-width - 2 * root.unit) * Theme.poster-shape-ratio + 6 * root.unit;
+
+    background: transparent;
+
+    if (root.loading && root.sections.length == 0) : ListView {
+        x: root.unit;
+        width: max(0px, root.width - 2 * root.unit);
+        horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+
+        for _catalog in [0, 1, 2] : MetaRowPlaceholder {
+            width: parent.width;
+            unit: root.unit;
+            item-width: max(9 * root.unit, root.card-width - 2 * root.unit);
+        }
+    }
+
+    if (!root.loading && root.sections.length == 0) : EmptyState {
+        x: root.unit;
+        width: max(0px, root.width - 2 * root.unit);
+        height: 20 * root.unit;
+        unit: root.unit;
+        icon-source: @image-url("../assets/images/icons/home-outline.svg");
+        title: @tr("Nothing to watch yet");
+        message: @tr("Your recommendations and continue-watching items will appear here.");
+    }
+
+    // Board rows are virtualized vertically. This prevents every poster in
+    // every off-screen catalogue from becoming part of the active image set.
+    if (root.sections.length > 0) : ListView {
+        x: root.unit;
+        width: max(0px, root.width - 2 * root.unit);
+        horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+
+        for section in root.sections : Rectangle {
+            property <string> p-shape: section.poster-shape != "" ? section.poster-shape : "poster";
+            property <length> section-card-height: p-shape == "landscape"
+                ? (root.card-width - 2 * root.unit) * Theme.landscape-shape-ratio + 6 * root.unit
+                : (p-shape == "square"
+                    ? (root.card-width - 2 * root.unit) + 6 * root.unit
+                    : root.card-height);
+
+            width: parent.width;
+            height: 3 * root.unit + section-card-height + 2 * root.unit;
+            background: transparent;
+
+            init => {
+                if (section.catalog-index >= 0) {
+                    root.catalog-visible(section.catalog-index);
+                }
+            }
+
+            MediaCatalogRow {
+                width: parent.width;
+                height: parent.height;
+                unit: root.unit;
+                poster-shape: p-shape;
+                title: section.is-continue-watching
+                    ? @tr("BOARD_CONTINUE_WATCHING" => "Continue watching")
+                    : section.title;
+                loading: section.loading;
+                message: section.error-message;
+                show-see-all: true;
+                card-width: root.card-width;
+                card-height: section-card-height;
+                items: section.items;
+                show-close-button: section.is-continue-watching;
+                show-play-button: section.is-continue-watching;
+                library-context-menu: section.is-continue-watching;
+                continue-watching-context-menu: section.is-continue-watching;
+                show-watched-context-action: false;
+                enable-hover-preview: root.enable-hover-preview;
+                hover-preview-delay: root.hover-preview-delay;
+                hover-preview-requested(id, media-type, x, y, width, height) => {
+                    root.hover-preview-requested(id, media-type, x, y, width, height);
+                }
+                hover-preview-dismissed => { root.hover-preview-dismissed(); }
+                see-all-requested => {
+                    if (section.is-continue-watching) {
+                        root.see-all-continue-watching();
+                    } else {
+                        root.see-all-clicked(section.catalog-index);
+                    }
+                }
+                item-selected(id, media-type, video-id) => {
+                    root.item-selected(id, media-type, video-id);
+                }
+                play-clicked(id) => {
+                    root.play-clicked(id);
+                }
+                remove-clicked(id) => {
+                    if (section.is-continue-watching) {
+                        root.remove-continue-watching(id);
+                    }
+                }
+                dismiss-clicked(id) => {
+                    if (section.is-continue-watching) {
+                        root.remove-continue-watching(id);
+                    }
+                }
+                poster-requested(url) => { root.poster-requested(url); }
+            }
+        }
+    }
+
+    if (root.show-server-warning) : StreamingServerWarning {
+        x: root.unit;
+        y: parent.height - self.height - root.unit;
+        width: max(0px, parent.width - 2 * root.unit);
+        unit: root.unit;
+        dismiss => { root.dismiss-server-warning(); }
+        reload => { root.reload-server(); }
+        open-settings => { root.open-server-settings(); }
+    }
+}

@@ -1,0 +1,923 @@
+import { ListView, ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { IconAction, PillButton } from "../components/button.slint";
+import { EmptyState, SkeletonBlock } from "../components/feedback.slint";
+import { AddonCardPlaceholder } from "../components/loading_placeholders.slint";
+import { SelectField } from "../components/select.slint";
+import { NativeTextField, SearchBar } from "../components/text_input.slint";
+import { ModalDialog } from "../components/overlays.slint";
+import { SharePrompt } from "../components/share_prompt.slint";
+
+export struct AddonItem {
+    id: string,
+    name: string,
+    version: string,
+    description: string,
+    logo-url: string,
+    logo: image,
+    is_installed: bool,
+    transport-url: string,
+    configuration-url: string,
+    types-label: string,
+    configurable: bool,
+    configuration-required: bool,
+    supports-movie: bool,
+    supports-series: bool,
+    supports-anime: bool,
+    supports-tv: bool,
+    background-url: string,
+    background-image: image,
+    adult: bool,
+    p2p: bool,
+}
+
+component AddonCard inherits Rectangle {
+    in property <length> unit: 16px;
+    in property <AddonItem> addon;
+    in property <bool> draggable: false;
+    in property <bool> drag-active: false;
+    callback install;
+    callback uninstall;
+    callback details;
+    callback configure;
+    callback share;
+    callback drag-started(length);
+    callback drag-moved(length);
+    callback drag-finished;
+
+    property <length> card-padding: 1.5 * root.unit;
+    property <length> logo-size: 8 * root.unit;
+    property <length> actions-width: 17 * root.unit;
+    property <length> drag-gutter: root.draggable ? 2 * root.unit : 0px;
+
+    height: 11 * root.unit;
+    border-radius: 0.75 * root.unit;
+    border-width: 0.15 * root.unit;
+    border-color: root.drag-active ? Theme.accent
+        : (card-area.has-hover ? Theme.overlay : transparent);
+    background: Theme.overlay;
+    opacity: root.drag-active ? 0.78 : 1;
+
+    card-area := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.details(); }
+    }
+
+    Rectangle {
+        x: root.card-padding + root.drag-gutter;
+        y: root.card-padding;
+        width: root.logo-size;
+        height: root.logo-size;
+        background: transparent;
+
+        if (root.addon.logo.width > 0) : Image {
+            x: 0.5 * root.unit;
+            y: 0.5 * root.unit;
+            width: parent.width - root.unit;
+            height: parent.height - root.unit;
+            source: root.addon.logo;
+            image-fit: contain;
+        }
+
+        if (root.addon.logo.width == 0) : Image {
+            x: root.unit;
+            y: root.unit;
+            width: parent.width - 2 * root.unit;
+            height: parent.height - 2 * root.unit;
+            source: @image-url("../assets/images/icons/addons.svg");
+            colorize: Theme.text-primary;
+            opacity: 0.35;
+            image-fit: contain;
+        }
+    }
+
+    // The official card reserves a fixed 17rem action column at the far
+    // right. Explicit anchors avoid the content-sized Slint layout that used
+    // to leave the buttons stranded near the middle of wide windows.
+    VerticalLayout {
+        x: root.card-padding + root.drag-gutter + root.logo-size + 1.5 * root.unit;
+        y: root.card-padding;
+        width: max(0px, root.width - self.x - root.actions-width - 3 * root.unit);
+        height: root.height - 2 * root.card-padding;
+        spacing: 0.5 * root.unit;
+        alignment: center;
+
+        HorizontalLayout {
+            height: 2.25 * root.unit;
+            spacing: 0.5 * root.unit;
+            alignment: start;
+            Text {
+                text: root.addon.name;
+                color: Theme.text-primary;
+                font-size: 1.6 * root.unit;
+                font-weight: 500;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            Text {
+                text: root.addon.version;
+                color: Theme.text-primary;
+                opacity: 0.6;
+                font-size: root.unit;
+                vertical-alignment: center;
+            }
+        }
+
+        Text {
+            text: root.addon.types-label;
+            color: Theme.text-primary;
+            opacity: 0.4;
+            font-size: root.unit;
+        }
+
+        Text {
+            text: root.addon.description;
+            color: Theme.text-primary;
+            opacity: 0.7;
+            font-size: root.unit;
+            wrap: word-wrap;
+            overflow: elide;
+        }
+    }
+
+    // The web app reserves an exact 17rem action column. Absolute positions
+    // here keep the 3.5rem controls and 1.5rem share icon stable at every card
+    // width instead of allowing the layout engine to content-size them.
+    Rectangle {
+        x: root.width - root.card-padding - root.actions-width;
+        y: root.card-padding;
+        width: root.actions-width;
+        height: root.height - 2 * root.card-padding;
+        background: transparent;
+
+        Rectangle {
+            x: 0px;
+            y: 0px;
+            width: root.actions-width;
+            height: 3.5 * root.unit;
+            background: transparent;
+
+            if (root.addon.configurable && !root.addon.configuration-required) : IconAction {
+                x: 0px;
+                y: 0px;
+                width: 3.5 * root.unit;
+                height: 3.5 * root.unit;
+                unit: root.unit;
+                label: @tr("ADDON_CONFIGURE" => "Configure");
+                icon-size: 1.7 * root.unit;
+                icon-source: @image-url("../assets/images/icons/settings.svg");
+                surface-color: Theme.success;
+                clicked => { root.configure(); }
+            }
+
+            PillButton {
+                x: root.addon.configurable && !root.addon.configuration-required
+                    ? 4.5 * root.unit : 0px;
+                y: 0px;
+                width: root.addon.configurable && !root.addon.configuration-required
+                    ? root.actions-width - 4.5 * root.unit : root.actions-width;
+                height: 3.5 * root.unit;
+                unit: root.unit;
+                label: root.addon.is-installed ? @tr("ADDON_UNINSTALL" => "Uninstall") :
+                    (root.addon.configuration-required ? @tr("ADDON_CONFIGURE" => "Configure") : @tr("ADDON_INSTALL" => "Install"));
+                outlined: root.addon.is-installed;
+                primary: !root.addon.is-installed;
+                accent-color: Theme.success;
+                surface-color: transparent;
+                hover-color: Theme.overlay;
+                outline-color: root.addon.is-installed ? Theme.text-primary : Theme.success;
+                hover-outline-color: root.addon.is-installed ? Theme.text-primary : Theme.success;
+                idle-opacity: root.addon.is-installed ? 0.35 : 1;
+                clicked => {
+                    if (root.addon.is-installed) { root.uninstall(); }
+                    else if (root.addon.configuration-required) { root.configure(); }
+                    else { root.install(); }
+                }
+            }
+        }
+
+        PillButton {
+            x: 0px;
+            y: 4.5 * root.unit;
+            width: root.actions-width;
+            height: 3.5 * root.unit;
+            unit: root.unit;
+            label: @tr("Share addon");
+            show-icon: true;
+            use-svg-icon: true;
+            icon-source: @image-url("../assets/images/icons/share.svg");
+            icon-size: 1.5 * root.unit;
+            label-font-size: 1.1 * root.unit;
+            surface-color: transparent;
+            idle-opacity: 0.9;
+            clicked => { root.share(); }
+        }
+    }
+
+    if (root.draggable) : drag-handle := TouchArea {
+        x: 0.25 * root.unit;
+        y: (root.height - 4 * root.unit) / 2;
+        width: 2 * root.unit;
+        height: 4 * root.unit;
+        mouse-cursor: self.pressed ? MouseCursor.grabbing : MouseCursor.grab;
+        accessible-role: button;
+        accessible-label: @tr("Reorder addon");
+
+        Image {
+            x: 0.35 * root.unit;
+            y: 1.2 * root.unit;
+            width: 1.3 * root.unit;
+            height: 1.6 * root.unit;
+            source: @image-url("../assets/images/icons/drag-handle.svg");
+            colorize: Theme.text-primary;
+            opacity: root.drag-active || parent.has-hover ? 0.9 : 0.4;
+            image-fit: contain;
+        }
+
+        pointer-event(event) => {
+            let pointer-y = self.absolute-position.y + self.mouse-y;
+            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                root.drag-started(pointer-y);
+            } else if (event.kind == PointerEventKind.move && self.pressed) {
+                root.drag-moved(pointer-y);
+            } else if (event.kind == PointerEventKind.cancel
+                    || (event.button == PointerEventButton.left
+                        && event.kind == PointerEventKind.up)) {
+                root.drag-finished();
+            }
+        }
+    }
+}
+
+export component AddonsPage inherits Rectangle {
+    width: 1280px;
+    height: 720px;
+    in property <[AddonItem]> addons: [];
+    in property <[AddonItem]> community-addons: [];
+    in property <bool> community-available: false;
+    in property <bool> community-loading: false;
+    in property <bool> community-has-next-page: false;
+    in-out property <string> community-sort: "Rising";
+    in-out property <string> community-category: "All categories";
+    in-out property <bool> community-sort-open: false;
+    in-out property <bool> community-category-open: false;
+    in-out property <bool> community-adult-unlocked: false;
+    in-out property <string> community-owner-pin: "";
+    in-out property <int> community-page: 1;
+    in property <bool> loading: false;
+    in property <bool> has-next-page: false;
+    callback install-addon(string);
+    callback uninstall-addon(string);
+    callback reorder-addon(int, int);
+    callback open-addon-details(string);
+    callback close-addon-details;
+    callback configure-addon(string);
+    callback share-addon(string);
+    callback share-social(string, string);
+    callback search-changed(string);
+    callback load-next-page;
+    callback community-filters-changed(string, string, string, string);
+    callback community-load-next(string, string, string, string, int);
+    callback community-unlock-adult(string, string, string, string, string);
+    callback community-open-directory;
+
+    in-out property <bool> details-open: false;
+    in property <AddonItem> details-addon;
+    in property <bool> details-loading: false;
+    in property <string> details-error: "";
+    in property <bool> details-configurable: false;
+    in property <bool> details-configuration-required: false;
+
+    in property <length> unit: Theme.root-font-size;
+    in-out property <string> active-filter: "Installed";
+    in-out property <string> active-type: "All";
+    in-out property <bool> filter-open: false;
+    in-out property <bool> type-open: false;
+    in-out property <bool> add-modal-open: false;
+    property <string> manifest-url: "";
+    in-out property <string> search-query: "";
+    in-out property <length> scroll-y: 0px;
+    private property <bool> share-modal-open: false;
+    private property <string> share-url: "";
+    private property <string> share-title: "";
+    private property <bool> pagination-latched: false;
+    private property <int> drag-source-index: -1;
+    private property <int> drag-target-index: -1;
+    private property <bool> addon-reorder-enabled:
+        root.active-filter == "Installed"
+            && root.active-type == "All"
+            && root.search-query == "";
+    private property <int> pagination-content-length: root.visible-addons.length;
+    private property <[AddonItem]> visible-addons:
+        root.active-filter == "Stremio Addons"
+            ? root.community-addons : root.addons;
+    changed pagination-content-length => { root.pagination-latched = false; }
+    changed has-next-page => {
+        if (root.has-next-page) {
+            root.pagination-latched = false;
+        }
+    }
+    changed community-has-next-page => {
+        if (root.community-has-next-page) {
+            root.pagination-latched = false;
+        }
+    }
+    function request-next-page() {
+        if (root.active-filter == "Stremio Addons"
+                && root.community-has-next-page
+                && !root.pagination-latched) {
+            root.pagination-latched = true;
+            if (root.community-available) {
+                root.community-page += 1;
+                root.community-load-next(root.active-type, root.community-sort, root.community-category, root.search-query, root.community-page);
+            }
+        } else if (root.active-filter == "Community"
+                && root.has-next-page
+                && !root.pagination-latched) {
+            root.pagination-latched = true;
+            root.load-next-page();
+        }
+    }
+    function check-pagination(remaining: length) {
+        if (remaining <= 25 * root.unit) {
+            root.request-next-page();
+        } else {
+            root.pagination-latched = false;
+        }
+    }
+
+    function update-addon-drag(pointer-y: length, list-y: length, viewport-y: length) {
+        let candidate = floor(
+            (pointer-y - list-y - viewport-y) / (12.5 * root.unit)
+        );
+        if (candidate >= 0
+                && candidate < root.addons.length
+                && root.addons[candidate].is-installed) {
+            root.drag-target-index = candidate;
+        }
+    }
+
+    function finish-addon-drag() {
+        if (root.drag-source-index >= 0
+                && root.drag-target-index >= 0
+                && root.drag-source-index != root.drag-target-index) {
+            root.reorder-addon(root.drag-source-index, root.drag-target-index);
+        }
+        root.drag-source-index = -1;
+        root.drag-target-index = -1;
+    }
+
+    background: transparent;
+
+    VerticalLayout {
+        spacing: 0px;
+
+        Rectangle {
+            height: 6 * root.unit;
+            z: 50;
+
+            HorizontalLayout {
+                width: parent.width;
+                height: parent.height;
+                padding: 1.5 * root.unit;
+                spacing: root.unit;
+
+                SelectField {
+                    unit: root.unit;
+                    field-width: 12 * root.unit;
+                    value: root.active-filter;
+                    options: ["Installed", "Community", "Stremio Addons"];
+                    open: root.filter-open;
+                    toggle => {
+                        root.filter-open = !root.filter-open;
+                        root.type-open = false;
+                    }
+                    selected(value) => {
+                        root.active-filter = value;
+                        root.filter-open = false;
+                        if (value == "Stremio Addons") {
+                            root.community-page = 1;
+                            root.community-filters-changed(root.active-type, root.community-sort, root.community-category, root.search-query);
+                        }
+                    }
+                }
+
+                SelectField {
+                    unit: root.unit;
+                    field-width: 10 * root.unit;
+                    value: root.active-type;
+                    options: ["All", "Movie", "Series", "Anime", "TV Channel"];
+                    open: root.type-open;
+                    toggle => {
+                        root.type-open = !root.type-open;
+                        root.filter-open = false;
+                    }
+                    selected(value) => {
+                        root.active-type = value;
+                        root.type-open = false;
+                        if (root.active-filter == "Stremio Addons") {
+                            root.community-page = 1;
+                            root.community-filters-changed(value, root.community-sort, root.community-category, root.search-query);
+                        }
+                    }
+                }
+
+                if (root.active-filter == "Stremio Addons") : SelectField {
+                    unit: root.unit;
+                    field-width: 10 * root.unit;
+                    value: root.community-sort;
+                    options: ["Rising", "Most starred", "Newest"];
+                    open: root.community-sort-open;
+                    toggle => { root.community-sort-open = !root.community-sort-open; }
+                    selected(value) => {
+                        root.community-sort = value;
+                        root.community-page = 1;
+                        root.community-sort-open = false;
+                        root.community-filters-changed(root.active-type, value, root.community-category, root.search-query);
+                    }
+                }
+
+                if (root.active-filter == "Stremio Addons") : SelectField {
+                    unit: root.unit;
+                    field-width: 12 * root.unit;
+                    value: root.community-category;
+                    options: ["All categories", "Movies", "TV shows", "Anime", "Live TV", "Debrid support", "HTTP streams", "Metadata", "Subtitles", "Torrents", "Usenet", "NSFW"];
+                    open: root.community-category-open;
+                    toggle => { root.community-category-open = !root.community-category-open; }
+                    selected(value) => {
+                        root.community-category = value;
+                        root.community-page = 1;
+                        root.community-category-open = false;
+                        root.community-filters-changed(root.active-type, root.community-sort, value, root.search-query);
+                    }
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                PillButton {
+                    width: 10.5 * root.unit;
+                    height: 3 * root.unit;
+                    unit: root.unit;
+                    label: @tr("Add addon");
+                    show-icon: true;
+                    use-svg-icon: true;
+                    icon-source: @image-url("../assets/images/icons/add.svg");
+                    icon-size: 1.2 * root.unit;
+                    label-font-size: root.unit;
+                    primary: true;
+                    accent-color: Theme.success;
+                    hover-color: transparent;
+                    hover-outline-color: Theme.success;
+                    clicked => { root.add-modal-open = true; }
+                }
+
+                SearchBar {
+                    width: 14 * root.unit;
+                    height: 3 * root.unit;
+                    unit: root.unit;
+                    title: @tr("Search addons");
+                    text <=> root.search-query;
+                    edited => {
+                        root.search-changed(root.search-query);
+                        if (root.active-filter == "Stremio Addons") {
+                            root.community-page = 1;
+                            root.community-filters-changed(root.active-type, root.community-sort, root.community-category, root.search-query);
+                        }
+                    }
+                }
+            }
+        }
+
+
+
+        if (root.loading || (root.active-filter == "Stremio Addons" && root.community-loading)) : ScrollView {
+            vertical-stretch: 1;
+            viewport-width: root.width;
+            horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+
+            VerticalLayout {
+                width: root.width;
+                padding-left: 1.5 * root.unit;
+                padding-right: 1.5 * root.unit;
+                padding-bottom: 1.5 * root.unit;
+                spacing: 1.5 * root.unit;
+
+                for _placeholder in [0, 1, 2, 3] : AddonCardPlaceholder {
+                    horizontal-stretch: 1;
+                    unit: root.unit;
+                }
+            }
+        }
+
+        if (!root.loading
+                && !(root.active-filter == "Stremio Addons" && root.community-loading)
+                && root.visible-addons.length == 0) : EmptyState {
+            vertical-stretch: 1;
+            unit: root.unit;
+            icon-source: @image-url("../assets/images/icons/addons.svg");
+            title: @tr("No addons found");
+            message: @tr("Try another filter or install an addon by manifest URL.");
+        }
+
+        if (!root.loading
+                && !(root.active-filter == "Stremio Addons" && root.community-loading)
+                && root.visible-addons.length > 0) : addons-scroll := ListView {
+            vertical-stretch: 1;
+            viewport-y <=> root.scroll-y;
+                        horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+            changed viewport-y => {
+                root.check-pagination(self.viewport-height + self.viewport-y - self.height);
+            }
+            changed viewport-height => {
+                root.check-pagination(self.viewport-height + self.viewport-y - self.height);
+            }
+
+            for item[item-index] in root.visible-addons : Rectangle {
+                private property <bool> matches-filter:
+                    ((root.active-filter == "Installed") == item.is-installed)
+                        && (root.active-type == "All"
+                            || (root.active-type == "Movie" && item.supports-movie)
+                            || (root.active-type == "Series" && item.supports-series)
+                            || (root.active-type == "Anime" && item.supports-anime)
+                            || (root.active-type == "TV Channel" && item.supports-tv));
+                width: parent.width;
+                height: self.matches-filter ? 12.5 * root.unit : 0px;
+                clip: true;
+                background: transparent;
+
+                init => {
+                    if (item-index == root.visible-addons.length - 1) {
+                        root.request-next-page();
+                    }
+                }
+
+                AddonCard {
+                    visible: parent.matches-filter;
+                    x: 1.5 * root.unit;
+                    width: max(0px, parent.width - 3 * root.unit);
+                    height: 11 * root.unit;
+                    unit: root.unit;
+                    addon: item;
+                    draggable: root.addon-reorder-enabled && item.is-installed;
+                    drag-active: root.drag-source-index == item-index;
+                    install => { root.install-addon(item.transport-url); }
+                    uninstall => { root.uninstall-addon(item.transport-url); }
+                    details => { root.open-addon-details(item.transport-url); }
+                    configure => { root.configure-addon(item.configuration-url); }
+                    drag-started(pointer-y) => {
+                        root.drag-source-index = item-index;
+                        root.drag-target-index = item-index;
+                        root.update-addon-drag(
+                            pointer-y,
+                            addons-scroll.absolute-position.y,
+                            addons-scroll.viewport-y,
+                        );
+                    }
+                    drag-moved(pointer-y) => {
+                        root.update-addon-drag(
+                            pointer-y,
+                            addons-scroll.absolute-position.y,
+                            addons-scroll.viewport-y,
+                        );
+                    }
+                    drag-finished => { root.finish-addon-drag(); }
+                    share => {
+                        root.share-url = item.transport-url;
+                        root.share-title = item.name;
+                        root.share-modal-open = true;
+                    }
+                }
+
+                if (root.drag-source-index >= 0
+                        && root.drag-target-index == item-index
+                        && root.drag-source-index != item-index) : Rectangle {
+                    x: 1.5 * root.unit;
+                    y: root.drag-target-index < root.drag-source-index
+                        ? 0px : parent.height - 0.2 * root.unit;
+                    width: parent.width - 3 * root.unit;
+                    height: 0.2 * root.unit;
+                    border-radius: self.height / 2;
+                    background: Theme.accent;
+                }
+            }
+        }
+    }
+
+    if (root.add-modal-open) : Rectangle {
+        background: transparent;
+        z: 200;
+        TouchArea { clicked => { } }
+
+        Rectangle {
+            width: root.width < 600px ? 0.9 * root.width : 34 * root.unit;
+            height: 17 * root.unit;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: 0.75 * root.unit;
+            background: Theme.modal-background;
+
+            VerticalLayout {
+                padding: 2 * root.unit;
+                spacing: root.unit;
+                Text {
+                    text: @tr("ADD_ADDON" => "Add addon");
+                    color: Theme.text-primary;
+                    font-size: 1.6 * root.unit;
+                    font-weight: 500;
+                }
+                Text {
+                    text: @tr("Paste the HTTPS URL of an addon manifest.");
+                    color: Theme.text-primary;
+                    opacity: 0.6;
+                    font-size: root.unit;
+                }
+                NativeTextField {
+                    unit: root.unit;
+                    text <=> root.manifest-url;
+                    placeholder-text: "https://…/manifest.json";
+                    accepted => {
+                        if (root.manifest-url != "") {
+                            root.install-addon(root.manifest-url);
+                            root.add-modal-open = false;
+                        }
+                    }
+                }
+                Rectangle { vertical-stretch: 1; }
+                HorizontalLayout {
+                    height: 3.5 * root.unit;
+                    spacing: root.unit;
+                    PillButton {
+                        horizontal-stretch: 1;
+                        unit: root.unit;
+                        label: @tr("BUTTON_CANCEL" => "Cancel");
+                        outlined: true;
+                        clicked => { root.add-modal-open = false; }
+                    }
+                    PillButton {
+                        horizontal-stretch: 1;
+                        unit: root.unit;
+                        label: @tr("ADDON_INSTALL" => "Install");
+                        primary: true;
+                        accent-color: Theme.success;
+                        enabled: root.manifest-url != "";
+                        clicked => {
+                            root.install-addon(root.manifest-url);
+                            root.add-modal-open = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (root.details-open) : Rectangle {
+        background: transparent;
+        z: 220;
+
+        TouchArea { clicked => { root.close-addon-details(); } }
+
+        Rectangle {
+            width: root.width < 700px ? 0.92 * root.width : 42 * root.unit;
+            height: min(38 * root.unit, root.height - 4 * root.unit);
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: root.unit;
+            border-width: 1px;
+            border-color: Theme.card-border;
+            background: Theme.modal-background;
+            clip: true;
+
+            TouchArea { clicked => { } }
+
+            if (root.details-addon.background-image.width > 0) : Image {
+                width: parent.width;
+                height: parent.height;
+                source: root.details-addon.background-image;
+                image-fit: cover;
+                opacity: 0.08;
+            }
+
+            VerticalLayout {
+                padding: 2 * root.unit;
+                spacing: 1.25 * root.unit;
+
+                Text {
+                    text: @tr("Community addon");
+                    color: Theme.text-primary;
+                    opacity: 0.55;
+                    font-size: root.unit;
+                    font-weight: 600;
+                }
+
+                if (root.details-loading) : Rectangle {
+                    vertical-stretch: 1;
+
+                    SkeletonBlock {
+                        x: 0px;
+                        y: root.unit;
+                        width: 9 * root.unit;
+                        height: 9 * root.unit;
+                        radius: self.width / 2;
+                    }
+                    SkeletonBlock { x: 11 * root.unit; y: 1.5 * root.unit; width: 18 * root.unit; height: 1.8 * root.unit; }
+                    SkeletonBlock { x: 11 * root.unit; y: 4 * root.unit; width: 10 * root.unit; height: root.unit; }
+                    SkeletonBlock { x: 11 * root.unit; y: 6 * root.unit; width: min(24 * root.unit, parent.width - 11 * root.unit); height: root.unit; }
+                    SkeletonBlock { x: 0px; y: 12 * root.unit; width: parent.width; height: 1.2 * root.unit; }
+                    SkeletonBlock { x: 0px; y: 14 * root.unit; width: parent.width * 0.8; height: 1.2 * root.unit; }
+                }
+
+                if (!root.details-loading && root.details-error != "") : Rectangle {
+                    vertical-stretch: 1;
+                    Text {
+                        text: root.details-error;
+                        color: Theme.text-secondary;
+                        font-size: root.unit;
+                        wrap: word-wrap;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                if (!root.details-loading && root.details-error == "") : VerticalLayout {
+                    vertical-stretch: 1;
+                    spacing: 1.25 * root.unit;
+
+                    HorizontalLayout {
+                        height: 9 * root.unit;
+                        spacing: 1.5 * root.unit;
+
+                        Rectangle {
+                            width: 9 * root.unit;
+                            height: 9 * root.unit;
+                            border-radius: 0.75 * root.unit;
+                            background: Theme.overlay;
+                            Image {
+                                x: root.unit;
+                                y: root.unit;
+                                width: parent.width - 2 * root.unit;
+                                height: parent.height - 2 * root.unit;
+                                source: root.details-addon.logo;
+                                image-fit: contain;
+                            }
+                        }
+
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            spacing: 0.5 * root.unit;
+                            Text {
+                                text: root.details-addon.name;
+                                color: Theme.text-primary;
+                                font-size: 1.8 * root.unit;
+                                font-weight: 600;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: root.details-addon.version;
+                                color: Theme.text-secondary;
+                                font-size: root.unit;
+                            }
+                            Text {
+                                text: root.details-addon.transport-url;
+                                color: Theme.text-secondary;
+                                font-size: 0.85 * root.unit;
+                                overflow: elide;
+                            }
+                            HorizontalLayout {
+                                height: 2 * root.unit;
+                                spacing: 0.5 * root.unit;
+                                if (root.details-addon.adult) : Rectangle {
+                                    width: 4.5 * root.unit;
+                                    border-radius: self.height / 2;
+                                    background: Theme.danger.with-alpha(0.3);
+                                    Text { text: "18+"; color: Theme.danger; font-size: 0.85 * root.unit; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                                }
+                                if (root.details-addon.p2p) : Rectangle {
+                                    width: 4.5 * root.unit;
+                                    border-radius: self.height / 2;
+                                    background: Theme.warning.with-alpha(0.25);
+                                    Text { text: "P2P"; color: Theme.warning; font-size: 0.85 * root.unit; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        height: 4 * root.unit;
+                        border-radius: Theme.border-radius;
+                        background: Theme.warning.with-alpha(0.12);
+                        border-width: 1px;
+                        border-color: Theme.warning.with-alpha(0.45);
+                        Text {
+                            x: root.unit;
+                            y: 0.5 * root.unit;
+                            width: parent.width - 2 * root.unit;
+                            height: parent.height - root.unit;
+                            text: @tr("Community addons are created and maintained by third-party developers. Use them at your own discretion.");
+                            color: Theme.primary-foreground;
+                            opacity: 0.75;
+                            font-size: 0.9 * root.unit;
+                            wrap: word-wrap;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    ScrollView {
+                        vertical-stretch: 1;
+                        horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+                        Text {
+                            width: parent.width;
+                            text: root.details-addon.description;
+                            color: Theme.text-primary;
+                            opacity: 0.75;
+                            font-size: root.unit;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    height: 3.5 * root.unit;
+                    spacing: root.unit;
+
+                    Rectangle { horizontal-stretch: 1; }
+
+                    PillButton {
+                        width: 9 * root.unit;
+                        unit: root.unit;
+                        label: @tr("BUTTON_CANCEL" => "Cancel");
+                        outlined: true;
+                        clicked => { root.close-addon-details(); }
+                    }
+
+                    if (root.details-configurable) : PillButton {
+                        width: 12 * root.unit;
+                        unit: root.unit;
+                        label: @tr("ADDON_CONFIGURE" => "Configure");
+                        show-icon: true;
+                        use-svg-icon: true;
+                        icon-source: @image-url("../assets/images/icons/settings.svg");
+                        surface-color: transparent;
+                        idle-opacity: 0.35;
+                        clicked => { root.configure-addon(root.details-addon.configuration-url); }
+                    }
+
+                    PillButton {
+                        width: 10 * root.unit;
+                        unit: root.unit;
+                        label: @tr("Share addon");
+                        show-icon: true;
+                        use-svg-icon: true;
+                        icon-source: @image-url("../assets/images/icons/share.svg");
+                        clicked => {
+                            root.share-url = root.details-addon.transport-url;
+                            root.share-title = root.details-addon.name;
+                            root.share-modal-open = true;
+                        }
+                    }
+
+                    if (!root.details-loading && root.details-error == "" &&
+                        (root.details-addon.is-installed || !root.details-configuration-required)) : PillButton {
+                        width: 12 * root.unit;
+                        unit: root.unit;
+                        label: root.details-addon.is-installed ? @tr("ADDON_UNINSTALL" => "Uninstall") : @tr("ADDON_INSTALL" => "Install");
+                        show-icon: true;
+                        use-svg-icon: true;
+                        icon-source: root.details-addon.is-installed
+                            ? @image-url("../assets/images/icons/delete.svg")
+                            : @image-url("../assets/images/icons/add.svg");
+                        primary: !root.details-addon.is-installed;
+                        accent-color: Theme.success;
+                        surface-color: transparent;
+                        idle-opacity: root.details-addon.is-installed ? 0.35 : 1;
+                        clicked => {
+                            if (root.details-addon.is-installed) {
+                                root.uninstall-addon(root.details-addon.transport-url);
+                            } else {
+                                root.install-addon(root.details-addon.transport-url);
+                            }
+                            root.close-addon-details();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    ModalDialog {
+        open: root.share-modal-open;
+        unit: root.unit;
+        title: @tr("Share addon") + (root.share-title != "" ? " · " + root.share-title : "");
+        dialog-width: 36 * root.unit;
+        dialog-height: 17 * root.unit;
+        close-requested => { root.share-modal-open = false; }
+
+        SharePrompt {
+            width: parent.width;
+            unit: root.unit;
+            url: root.share-url;
+            share-requested(platform, url) => { root.share-social(platform, url); }
+            copy-requested(url) => { root.share-addon(url); }
+        }
+    }
+}

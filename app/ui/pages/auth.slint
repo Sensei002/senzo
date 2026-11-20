@@ -1,0 +1,634 @@
+import { Theme, IconData } from "../theme.slint";
+import { PillButton } from "../components/button.slint";
+import { Checkbox } from "../components/checkbox.slint";
+import { NativeTextField } from "../components/text_input.slint";
+
+component BrandHeader inherits Rectangle {
+    in property <length> unit: 16px;
+    in property <bool> left-aligned: false;
+
+    height: 13.9 * root.unit;
+    background: transparent;
+
+    Image {
+        x: root.left-aligned ? 0px : (parent.width - self.width) / 2;
+        y: 0px;
+        width: 17.18 * root.unit;
+        height: 5 * root.unit;
+        source: @image-url("../assets/images/logo.png");
+        image-fit: contain;
+        opacity: 0.9;
+    }
+
+    Text {
+        x: 0px;
+        y: 8 * root.unit;
+        width: parent.width;
+        height: 3.6 * root.unit;
+        text: @tr("WEBSITE_FREEDOM_TO_STREAM" => "Freedom to Stream");
+        color: #ffffff;
+        font-size: 3 * root.unit;
+        font-weight: 600;
+        horizontal-alignment: root.left-aligned ? left : center;
+    }
+
+    Text {
+        x: 0px;
+        y: 12.1 * root.unit;
+        width: parent.width;
+        height: 1.8 * root.unit;
+        text: @tr("All the video content you enjoy in one place");
+        color: #ffffff99;
+        font-size: 1.5 * root.unit;
+        font-weight: 400;
+        horizontal-alignment: root.left-aligned ? left : center;
+    }
+}
+
+component FormSection inherits VerticalLayout {
+    in-out property <string> email;
+    in-out property <string> password;
+    in-out property <string> confirm-password;
+    in-out property <bool> tos-accepted;
+    in-out property <bool> privacy-accepted;
+    in-out property <bool> marketing-accepted;
+    in property <bool> register-mode: false;
+    in property <string> error-message;
+    in property <bool> loading: false;
+    in property <length> unit: 16px;
+
+    callback submit;
+    callback forgot-password;
+    callback edited;
+
+    spacing: root.unit;
+    alignment: start;
+
+    NativeTextField {
+        unit: root.unit;
+        height: 3.2 * root.unit;
+        border-radius: 0.75 * root.unit;
+        surface-color: #ffffff14;
+        focus-color: #ffffff40;
+        text-color: #ffffff;
+        text <=> root.email;
+        placeholder-text: @tr("EMAIL" => "Email");
+        accepted => { password-input.focus-input(); }
+        edited => { root.edited(); }
+    }
+
+    password-input := NativeTextField {
+        unit: root.unit;
+        height: 3.2 * root.unit;
+        border-radius: 0.75 * root.unit;
+        surface-color: #ffffff14;
+        focus-color: #ffffff40;
+        text-color: #ffffff;
+        text <=> root.password;
+        placeholder-text: @tr("Password");
+        input-type: InputType.password;
+        accepted => {
+            if (!root.register-mode) {
+                root.submit();
+            }
+        }
+        edited => { root.edited(); }
+    }
+
+    if (root.register-mode) : confirm-input := NativeTextField {
+        unit: root.unit;
+        height: 3.2 * root.unit;
+        border-radius: 0.75 * root.unit;
+        surface-color: #ffffff14;
+        focus-color: #ffffff40;
+        text-color: #ffffff;
+        text <=> root.confirm-password;
+        placeholder-text: @tr("Confirm password");
+        input-type: InputType.password;
+        accepted => { root.submit(); }
+        edited => { root.edited(); }
+    }
+
+    if (!root.register-mode) : Rectangle {
+        height: 2.2 * root.unit;
+
+        Text {
+            x: parent.width - self.width;
+            height: parent.height;
+            text: @tr("Forgot password?");
+            color: #ffffffcc;
+            font-size: root.unit;
+            vertical-alignment: center;
+
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.forgot-password(); }
+            }
+        }
+    }
+
+    if (root.register-mode) : VerticalLayout {
+        spacing: 0px;
+
+        Checkbox {
+            unit: root.unit;
+            checked <=> root.tos-accepted;
+            text-color: #ffffffcc;
+            label: @tr("I have read and agree with the Stremio");
+            link-label: @tr("Terms and Conditions");
+            has-link: true;
+            toggled(_checked) => { root.edited(); }
+        }
+
+        Checkbox {
+            unit: root.unit;
+            checked <=> root.privacy-accepted;
+            text-color: #ffffffcc;
+            label: @tr("I have read and agree with the Stremio");
+            link-label: @tr("PRIVACY_POLICY" => "Privacy Policy");
+            has-link: true;
+            toggled(_checked) => { root.edited(); }
+        }
+
+        Checkbox {
+            unit: root.unit;
+            checked <=> root.marketing-accepted;
+            text-color: #ffffffcc;
+            label: @tr("I agree to receive marketing communications from Stremio");
+            toggled(_checked) => { root.edited(); }
+        }
+    }
+
+    if (root.error-message != "") : Text {
+        text: root.error-message;
+        color: Theme.warning;
+        font-size: root.unit;
+        horizontal-alignment: center;
+        wrap: word-wrap;
+    }
+
+    PillButton {
+        unit: root.unit;
+        height: 4 * root.unit;
+        label: root.register-mode ? @tr("Sign up") : @tr("Log in");
+        enabled: !root.loading;
+        outlined: true;
+        surface-color: transparent;
+        hover-color: #ffffff;
+        foreground-color: #ffffff;
+        hover-foreground-color: #0c0b11;
+        outline-color: #ffffff40;
+        clicked => { root.submit(); }
+    }
+}
+
+component OptionsSection inherits VerticalLayout {
+    in property <bool> register-mode: false;
+    in property <bool> loading: false;
+    in property <length> unit: 16px;
+    in property <IconData> facebook-icon;
+    in property <IconData> apple-icon;
+
+    callback toggle-mode;
+    callback facebook-login;
+    callback apple-login;
+    callback guest-login;
+
+    spacing: root.unit;
+    alignment: start;
+
+    PillButton {
+        unit: root.unit;
+        height: 4 * root.unit;
+        label: @tr("Continue with Facebook");
+        enabled: !root.loading;
+        show-icon: true;
+        icon: root.facebook-icon;
+        icon-source: @image-url("../assets/images/icons/facebook.svg");
+        surface-color: Theme.facebook;
+        hover-color: transparent;
+        outline-color: Theme.facebook;
+        hover-outline-color: Theme.facebook;
+        foreground-color: #ffffff;
+        hover-foreground-color: Theme.facebook;
+        clicked => { root.facebook-login(); }
+    }
+
+    PillButton {
+        unit: root.unit;
+        height: 4 * root.unit;
+        label: @tr("Continue with Apple");
+        enabled: !root.loading;
+        show-icon: true;
+        icon: root.apple-icon;
+        icon-source: @image-url("../assets/images/icons/macos.svg");
+        surface-color: #ffffff1f;
+        hover-color: #ffffff;
+        outline-color: #ffffff40;
+        hover-outline-color: #ffffff;
+        foreground-color: #ffffff;
+        hover-foreground-color: #000000;
+        clicked => { root.apple-login(); }
+    }
+
+    PillButton {
+        unit: root.unit;
+        height: 4 * root.unit;
+        label: root.register-mode ? @tr("Log in") : @tr("Sign up with email");
+        enabled: !root.loading;
+        outlined: true;
+        surface-color: transparent;
+        hover-color: #ffffff;
+        foreground-color: #ffffff;
+        hover-foreground-color: #0c0b11;
+        outline-color: #ffffff40;
+        clicked => { root.toggle-mode(); }
+    }
+
+    if (root.register-mode) : PillButton {
+        unit: root.unit;
+        height: 4 * root.unit;
+        label: @tr("Guest login");
+        enabled: !root.loading;
+        outlined: true;
+        surface-color: transparent;
+        hover-color: #ffffff;
+        foreground-color: #ffffff;
+        hover-foreground-color: #0c0b11;
+        outline-color: #ffffff40;
+        clicked => { root.guest-login(); }
+    }
+}
+
+export component AuthPage inherits Rectangle {
+    width: 1280px;
+    height: 720px;
+    in-out property <string> error-message: "";
+    in property <bool> loading: false;
+    in property <IconData> mail-icon;
+    in property <IconData> lock-icon;
+    in property <IconData> facebook-icon;
+    in property <IconData> apple-icon;
+
+    out property <string> email: email-text;
+    out property <string> password: password-text;
+    in-out property <bool> tos-accepted: false;
+    in-out property <bool> privacy-accepted: false;
+    in-out property <bool> marketing-accepted: false;
+    in-out property <bool> register-mode: false;
+
+    callback submit-login(string, string);
+    callback submit-register(string, string, bool, bool, bool);
+    callback facebook-login();
+    callback apple-login();
+    callback cancel-auth();
+    callback request-password-reset(string);
+    callback guest-login();
+
+    property <string> email-text: "";
+    property <string> password-text: "";
+    property <string> confirm-password-text: "";
+    property <bool> reset-open: false;
+    property <string> reset-email: "";
+    property <string> reset-error: "";
+    property <bool> is-wide: root.width > 1000px;
+    in property <length> unit: Theme.root-font-size;
+    property <length> compact-height: root.register-mode ? 74 * root.unit : 60 * root.unit;
+
+    background: Theme.background;
+
+    Image {
+        width: parent.width;
+        height: parent.height;
+        // Pre-rasterized from intro-background.svg so FemtoVG never evaluates
+        // the 6rem Gaussian blur during hover, input, or layout frames.
+        source: @image-url("../assets/images/intro-background.png");
+        image-fit: cover;
+    }
+
+    auth-scroll := Flickable {
+        width: parent.width;
+        height: parent.height;
+        viewport-width: root.width;
+        viewport-height: root.is-wide ? root.height :
+            (root.height > root.compact-height ? root.height : root.compact-height);
+
+        if (root.is-wide) : VerticalLayout {
+            width: root.width;
+            height: root.height;
+            spacing: 0px;
+            alignment: center;
+
+            BrandHeader {
+                width: root.width;
+                unit: root.unit;
+            }
+            Rectangle { height: 5 * root.unit; }
+
+            Rectangle {
+                width: root.width;
+                height: wide-content.preferred-height;
+                background: transparent;
+
+                wide-content := HorizontalLayout {
+                    x: (parent.width - self.width) / 2;
+                    width: 48 * root.unit;
+                    spacing: 4 * root.unit;
+                    alignment: start;
+
+                    FormSection {
+                        width: 22 * root.unit;
+                        unit: root.unit;
+                        email <=> root.email-text;
+                        password <=> root.password-text;
+                        confirm-password <=> root.confirm-password-text;
+                        tos-accepted <=> root.tos-accepted;
+                        privacy-accepted <=> root.privacy-accepted;
+                        marketing-accepted <=> root.marketing-accepted;
+                        register-mode: root.register-mode;
+                        error-message: root.error-message;
+                        loading: root.loading;
+                        edited => { root.error-message = ""; }
+                        forgot-password => {
+                            root.reset-email = root.email-text;
+                            root.reset-error = "";
+                            root.reset-open = true;
+                        }
+                        submit => { root.submit-current-form(); }
+                    }
+
+                    OptionsSection {
+                        width: 22 * root.unit;
+                        unit: root.unit;
+                        register-mode: root.register-mode;
+                        loading: root.loading;
+                        facebook-icon: root.facebook-icon;
+                        apple-icon: root.apple-icon;
+                        toggle-mode => { root.switch-form(); }
+                        facebook-login => { root.facebook-login(); }
+                        apple-login => { root.apple-login(); }
+                        guest-login => { root.guest-login(); }
+                    }
+                }
+            }
+        }
+
+        if (!root.is-wide) : VerticalLayout {
+            width: root.width;
+            height: auth-scroll.viewport-height;
+            padding-top: 3 * root.unit;
+            padding-bottom: 3 * root.unit;
+            padding-left: 1.5 * root.unit;
+            padding-right: 1.5 * root.unit;
+            spacing: 0px;
+            alignment: start;
+
+            BrandHeader {
+                width: root.width - 3 * root.unit;
+                unit: root.unit;
+                left-aligned: true;
+            }
+            Rectangle { height: 4 * root.unit; }
+
+            OptionsSection {
+                width: root.width <= 640px ? root.width - 3 * root.unit : 0.5 * (root.width - 3 * root.unit);
+                unit: root.unit;
+                register-mode: root.register-mode;
+                loading: root.loading;
+                facebook-icon: root.facebook-icon;
+                apple-icon: root.apple-icon;
+                toggle-mode => { root.switch-form(); }
+                facebook-login => { root.facebook-login(); }
+                apple-login => { root.apple-login(); }
+                guest-login => { root.guest-login(); }
+            }
+            Rectangle { height: 4 * root.unit; }
+
+            FormSection {
+                width: root.width <= 640px ? root.width - 3 * root.unit : 0.5 * (root.width - 3 * root.unit);
+                unit: root.unit;
+                email <=> root.email-text;
+                password <=> root.password-text;
+                confirm-password <=> root.confirm-password-text;
+                tos-accepted <=> root.tos-accepted;
+                privacy-accepted <=> root.privacy-accepted;
+                marketing-accepted <=> root.marketing-accepted;
+                register-mode: root.register-mode;
+                error-message: root.error-message;
+                loading: root.loading;
+                edited => { root.error-message = ""; }
+                forgot-password => {
+                    root.reset-email = root.email-text;
+                    root.reset-error = "";
+                    root.reset-open = true;
+                }
+                submit => { root.submit-current-form(); }
+            }
+        }
+    }
+
+    if (root.reset-open) : Rectangle {
+        background: transparent;
+
+        TouchArea { clicked => { } }
+
+        dialog := Rectangle {
+            width: root.width <= 640px ? 0.9 * root.width : 34 * root.unit;
+            height: 19 * root.unit;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: 0.75 * root.unit;
+            background: Theme.modal-background;
+
+            VerticalLayout {
+                padding-left: 2 * root.unit;
+                padding-right: 2 * root.unit;
+                spacing: 0px;
+
+                Text {
+                    height: 4.5 * root.unit;
+                    text: @tr("Password reset");
+                    color: Theme.text-primary;
+                    font-size: 1.2 * root.unit;
+                    font-weight: 500;
+                    vertical-alignment: center;
+                }
+
+                Rectangle { height: 2 * root.unit; }
+
+                NativeTextField {
+                    unit: root.unit;
+                    height: 3.2 * root.unit;
+                    border-radius: 0.75 * root.unit;
+                    surface-color: Theme.overlay;
+                    focus-color: Theme.overlay;
+                    text <=> root.reset-email;
+                    placeholder-text: @tr("EMAIL" => "Email");
+                    edited => { root.reset-error = ""; }
+                    accepted => { root.send-password-reset(); }
+                }
+
+                if (root.reset-error != "") : Text {
+                    height: 2 * root.unit;
+                    text: root.reset-error;
+                    color: Theme.warning;
+                    font-size: 1.1 * root.unit;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                Rectangle { vertical-stretch: 1; }
+
+                HorizontalLayout {
+                    height: 3.5 * root.unit;
+                    spacing: root.unit;
+
+                    PillButton {
+                        unit: root.unit;
+                        height: 3.5 * root.unit;
+                        label: @tr("BUTTON_CANCEL" => "Cancel");
+                        outlined: true;
+                        surface-color: transparent;
+                        hover-color: Theme.text-primary;
+                        foreground-color: Theme.text-primary;
+                        hover-foreground-color: Theme.background;
+                        outline-color: Theme.text-primary;
+                        clicked => { root.reset-open = false; }
+                    }
+                    PillButton {
+                        unit: root.unit;
+                        height: 3.5 * root.unit;
+                        label: @tr("BUTTON_SEND" => "Send");
+                        surface-color: Theme.accent;
+                        hover-color: transparent;
+                        outline-color: Theme.accent;
+                        hover-outline-color: Theme.accent;
+                        foreground-color: Theme.text-primary;
+                        hover-foreground-color: Theme.accent;
+                        clicked => { root.send-password-reset(); }
+                    }
+                }
+
+                Rectangle { height: 2 * root.unit; }
+            }
+
+            Text {
+                x: parent.width - 3.5 * root.unit;
+                y: 0.5 * root.unit;
+                width: 3 * root.unit;
+                height: 3 * root.unit;
+                text: "×";
+                color: Theme.text-secondary;
+                font-size: 2 * root.unit;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.reset-open = false; }
+                }
+            }
+        }
+    }
+
+    if (root.loading) : Rectangle {
+        background: transparent;
+
+        Rectangle {
+            width: 16 * root.unit;
+            height: 19 * root.unit;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: 0.75 * root.unit;
+            background: Theme.modal-background;
+
+            VerticalLayout {
+                padding: 2.5 * root.unit;
+                spacing: root.unit;
+                alignment: center;
+
+                HorizontalLayout {
+                    alignment: center;
+                    Image {
+                        width: 5 * root.unit;
+                        height: 5 * root.unit;
+                        source: @image-url("../assets/images/anonymous.png");
+                        image-fit: contain;
+                        opacity: 0.8;
+                    }
+                }
+                Text {
+                    text: @tr("AUTHENTICATING" => "Authenticating...");
+                    color: Theme.text-primary;
+                    font-size: 1.5 * root.unit;
+                    horizontal-alignment: center;
+                }
+                Rectangle { height: root.unit; }
+                PillButton {
+                    unit: root.unit;
+                    height: 4 * root.unit;
+                    label: @tr("BUTTON_CANCEL" => "Cancel");
+                    outlined: true;
+                    surface-color: transparent;
+                    hover-color: Theme.text-primary;
+                    foreground-color: Theme.text-primary;
+                    hover-foreground-color: Theme.background;
+                    outline-color: Theme.text-primary;
+                    clicked => { root.cancel-auth(); }
+                }
+            }
+        }
+    }
+
+    function switch-form() {
+        root.register-mode = !root.register-mode;
+        root.email-text = "";
+        root.password-text = "";
+        root.confirm-password-text = "";
+        root.tos-accepted = false;
+        root.privacy-accepted = false;
+        root.marketing-accepted = false;
+        root.error-message = "";
+    }
+
+    function submit-current-form() {
+        if (root.email-text == "") {
+            root.error-message = @tr("INVALID_EMAIL" => "Please enter a valid email address");
+            return;
+        }
+        if (root.password-text == "") {
+            root.error-message = @tr("INVALID_PASSWORD" => "Please enter a valid password");
+            return;
+        }
+        if (root.register-mode) {
+            if (root.confirm-password-text != root.password-text) {
+                root.error-message = @tr("PASSWORDS_NOMATCH" => "Passwords don't match");
+                return;
+            }
+            if (!root.tos-accepted) {
+                root.error-message = @tr("MUST_ACCEPT_TERMS" => "You must accept Terms");
+                return;
+            }
+            if (!root.privacy-accepted) {
+                root.error-message = @tr("MUST_ACCEPT_PRIVACY_POLICY" => "You must accept the Privacy Policy");
+                return;
+            }
+            root.submit-register(
+                root.email-text,
+                root.password-text,
+                root.tos-accepted,
+                root.privacy-accepted,
+                root.marketing-accepted
+            );
+        } else {
+            root.submit-login(root.email-text, root.password-text);
+        }
+    }
+
+    function send-password-reset() {
+        if (root.reset-email == "") {
+            root.reset-error = @tr("INVALID_EMAIL" => "Please enter a valid email address");
+            return;
+        }
+        root.request-password-reset(root.reset-email);
+    }
+}

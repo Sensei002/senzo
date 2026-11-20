@@ -1,0 +1,265 @@
+import { Theme } from "../theme.slint";
+import { ButtonSurface } from "../components/button.slint";
+import { EmptyState } from "../components/feedback.slint";
+import { CalendarGridPlaceholder } from "../components/loading_placeholders.slint";
+
+export struct CalendarMediaItem {
+    meta-id: string,
+    media-type: string,
+    video-id: string,
+    title: string,
+    poster-url: string,
+    poster: image,
+}
+
+export struct CalendarCell {
+    blank: bool,
+    day: int,
+    today: bool,
+    items: [CalendarMediaItem],
+}
+
+export struct CalendarRow {
+    cells: [CalendarCell],
+}
+
+component MonthButton inherits ButtonSurface {
+    in property <length> unit: 16px;
+    in property <string> label;
+    in property <bool> previous: false;
+    width: 6 * root.unit;
+    height: 3 * root.unit;
+    border-radius: 0.5 * root.unit;
+    background: root.has-hover ? Theme.overlay : transparent;
+    accessible-name: (root.previous ? @tr("Previous month") : @tr("Next month")) + " " + root.label;
+
+    HorizontalLayout {
+        padding-left: 0.5 * root.unit;
+        padding-right: 0.5 * root.unit;
+        spacing: 0.5 * root.unit;
+        alignment: center;
+
+        if (root.previous) : Text {
+            text: "‹";
+            color: Theme.text-primary;
+            opacity: root.has-hover ? 1 : 0.5;
+            font-size: 1.5 * root.unit;
+            vertical-alignment: center;
+        }
+        Text {
+            text: root.label;
+            color: Theme.text-primary;
+            opacity: root.has-hover ? 1 : 0.5;
+            font-size: root.unit;
+            font-weight: 500;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+        if (!root.previous) : Text {
+            text: "›";
+            color: Theme.text-primary;
+            opacity: root.has-hover ? 1 : 0.5;
+            font-size: 1.5 * root.unit;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component DayCell inherits Rectangle {
+    in property <length> unit: 16px;
+    in property <CalendarCell> cell;
+    callback item-selected(string, string, string);
+
+    border-width: 0.15 * root.unit;
+    border-color: transparent;
+    background: root.cell.blank ? transparent : Theme.overlay;
+    clip: true;
+
+    if (!root.cell.blank) : Rectangle {
+        x: 0.3 * root.unit;
+        y: 0.3 * root.unit;
+        width: root.cell.today ? 1.5 * root.unit : 2 * root.unit;
+        height: root.cell.today ? 1.5 * root.unit : 2 * root.unit;
+        border-radius: self.width / 2;
+        background: root.cell.today ? Theme.accent : transparent;
+
+        Text {
+            text: root.cell.day;
+            color: Theme.text-primary;
+            font-size: root.unit;
+            font-weight: 500;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    if (!root.cell.blank && root.cell.items.length > 0) : Rectangle {
+        x: 0.1 * root.unit;
+        y: 2.4 * root.unit;
+        width: parent.width - 0.2 * root.unit;
+        height: parent.height - 2.5 * root.unit;
+        clip: true;
+
+        HorizontalLayout {
+            spacing: 0.2 * root.unit;
+            alignment: start;
+
+            for media in root.cell.items : ButtonSurface {
+                width: self.height * 2 / 3;
+                height: parent.height;
+                border-radius: 0.375 * root.unit;
+                clip: true;
+                background: Theme.overlay;
+                accessible-name: media.title;
+                clicked => {
+                    root.item-selected(media.meta-id, media.media-type, media.video-id);
+                }
+
+                Image {
+                    source: media.poster;
+                    width: parent.width;
+                    height: parent.height;
+                    image-fit: cover;
+                    opacity: media.poster.width > 0 ? 0.9 : 0;
+                }
+            }
+        }
+    }
+}
+
+export component CalendarPage inherits Rectangle {
+    width: 1280px;
+    height: 720px;
+    in property <bool> authenticated: false;
+    in property <bool> loading: false;
+    in property <int> selected-year: 0;
+    in property <string> selected-month: "";
+    in property <string> previous-month: "";
+    in property <string> next-month: "";
+    in property <[CalendarRow]> rows: [];
+
+    callback previous;
+    callback next;
+    callback item-selected(string, string, string);
+
+    in property <length> unit: Theme.root-font-size;
+
+    background: Theme.main-gradient;
+
+    pure function translate-calendar-string(val: string) -> string {
+        return val == "Monday" ? @tr("Monday") :
+               val == "Tuesday" ? @tr("Tuesday") :
+               val == "Wednesday" ? @tr("Wednesday") :
+               val == "Thursday" ? @tr("Thursday") :
+               val == "Friday" ? @tr("Friday") :
+               val == "Saturday" ? @tr("Saturday") :
+               val == "Sunday" ? @tr("Sunday") :
+               val == "January" ? @tr("January") :
+               val == "February" ? @tr("February") :
+               val == "March" ? @tr("March") :
+               val == "April" ? @tr("April") :
+               val == "May" ? @tr("May") :
+               val == "June" ? @tr("June") :
+               val == "July" ? @tr("July") :
+               val == "August" ? @tr("August") :
+               val == "September" ? @tr("September") :
+               val == "October" ? @tr("October") :
+               val == "November" ? @tr("November") :
+               val == "December" ? @tr("December") : val;
+    }
+
+    if (!root.authenticated) : EmptyState {
+        unit: root.unit;
+        icon-source: @image-url("../assets/images/icons/calendar.svg");
+        title: @tr("NOT_LOGGED_IN_CALENDAR" => "Schedule your personal watching calendar");
+        message: @tr("Log in to see release dates for series in your Library.");
+    }
+
+    if (root.authenticated) : VerticalLayout {
+        padding-left: 1.5 * root.unit;
+        padding-right: 0.5 * root.unit;
+        padding-bottom: 1.5 * root.unit;
+        spacing: root.unit;
+
+        HorizontalLayout {
+            height: 3 * root.unit;
+            padding-left: root.unit;
+            padding-right: root.unit;
+            alignment: center;
+            spacing: root.unit;
+
+            MonthButton {
+                unit: root.unit;
+                label: translate-calendar-string(root.previous-month);
+                previous: true;
+                clicked => { root.previous(); }
+            }
+
+            VerticalLayout {
+                width: 8.5 * root.unit;
+                spacing: 0px;
+                alignment: center;
+                Text {
+                    text: root.selected-year;
+                    color: Theme.text-primary;
+                    opacity: 0.5;
+                    font-size: root.unit;
+                    font-weight: 500;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: translate-calendar-string(root.selected-month);
+                    color: Theme.text-primary;
+                    font-size: 1.5 * root.unit;
+                    font-weight: 500;
+                    horizontal-alignment: center;
+                }
+            }
+
+            MonthButton {
+                unit: root.unit;
+                label: translate-calendar-string(root.next-month);
+                clicked => { root.next(); }
+            }
+        }
+
+        HorizontalLayout {
+            height: 3 * root.unit;
+            spacing: 0px;
+            for weekday in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] : Text {
+                horizontal-stretch: 1;
+                text: translate-calendar-string(weekday);
+                color: Theme.text-primary;
+                font-size: root.unit;
+                font-weight: 500;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+
+        if (root.loading) : CalendarGridPlaceholder {
+            vertical-stretch: 1;
+            unit: root.unit;
+        }
+
+        if (!root.loading) : VerticalLayout {
+            vertical-stretch: 1;
+            spacing: 1px;
+
+            for row in root.rows : HorizontalLayout {
+                vertical-stretch: 1;
+                spacing: 1px;
+
+                for cell in row.cells : DayCell {
+                    horizontal-stretch: 1;
+                    unit: root.unit;
+                    cell: cell;
+                    item-selected(id, media-type, video-id) => {
+                        root.item-selected(id, media-type, video-id);
+                    }
+                }
+            }
+        }
+    }
+}

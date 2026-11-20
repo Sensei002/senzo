@@ -1,0 +1,775 @@
+import { ScrollView, ListView } from "std-widgets.slint";
+import { Theme, IconData } from "../theme.slint";
+import { ButtonSurface, ChevronTextButton, IconAction, PillButton } from "../components/button.slint";
+import { EmptyState, SkeletonBlock } from "../components/feedback.slint";
+import { StreamRow, Video, VideoPlaceholder } from "../components/media_rows.slint";
+import { MetaPreview, MetaPreviewPlaceholder } from "../components/meta_preview.slint";
+import { SelectField, SeasonSelectField } from "../components/select.slint";
+import { SearchBar } from "../components/text_input.slint";
+import { ToggleSwitch } from "../components/toggle.slint";
+import { ModalDialog, ContextMenuSurface, ContextMenuOption } from "../components/overlays.slint";
+import { NumberInput } from "../components/number_input.slint";
+import { SharePrompt } from "../components/share_prompt.slint";
+
+export struct StreamLink {
+    id: string,
+    name: string,
+    description: string,
+    provider: string,
+    thumbnail-url: string,
+    thumbnail: image,
+    progress: float,
+    score: int,
+    score-reasons: [string],
+    score-summary: string,
+    filtered: bool,
+}
+
+export struct EpisodeItem {
+    id: string,
+    title: string,
+    released: string,
+    thumbnail-url: string,
+    thumbnail: image,
+    season: int,
+    episode-num: int,
+    is-upcoming: bool,
+    is-watched: bool,
+    is-scheduled: bool,
+    progress: float,
+    can-play: bool,
+}
+
+export component DetailsPage inherits Rectangle {
+    width: 1280px;
+    height: 720px;
+    in property <string> item-title: "";
+    in property <image> logo;
+    in property <string> description: "";
+    in property <image> poster;
+    in property <image> background-image;
+    in property <string> release-year: "";
+    in property <string> runtime: "";
+    in property <string> rating: "";
+    in property <string> rt-rating: "";
+    in property <string> metacritic-rating: "";
+    in property <string> letterboxd-rating: "";
+    in property <string> anilist-rating: "";
+    in property <string> kitsu-rating: "";
+    in property <[string]> genres: [];
+    in property <[string]> cast: [];
+    in property <[string]> directors: [];
+    in property <string> enrichment-summary: "";
+    in property <string> enrichment-attribution-url: "";
+    callback open-attribution(string);
+    in property <[StreamLink]> streams: [];
+    in property <[string]> stream-providers: ["All"];
+    in property <int> stream-loading-count: 0;
+    in-out property <string> active-stream-provider: "All";
+    in-out property <string> ranking-mode: "Smart";
+    in-out property <bool> show-filtered: false;
+    in property <bool> loading: false;
+    in property <bool> is-in-library: false;
+    in property <bool> is-watched: false;
+    in property <bool> has-trailer: false;
+    in property <string> trailer-selection-id: "";
+    callback toggle-library;
+    callback toggle-watched;
+    callback play-trailer(string);
+    in property <bool> is-series: false;
+    in property <[int]> available-seasons: [];
+    in-out property <int> active-season: 1;
+    in-out property <bool> season-menu-open: false;
+    in-out property <bool> notifications-enabled: true;
+    in property <[string]> episode-names: [];
+    in-out property <int> active-episode-idx: 0;
+    in property <[EpisodeItem]> episodes: [];
+    in-out property <bool> in-stream-view: false;
+    in-out property <string> episode-search-query: "";
+    in property <string> username: "";
+    in property <image> avatar-image;
+    in property <bool> has-avatar-image: false;
+    in property <image> default-avatar-icon;
+    in property <image> anonymous-icon;
+    callback toggle-fullscreen;
+    callback season-changed(int);
+    callback season-step(int);
+    callback notifications-changed(bool);
+    callback episode-changed(int, string);
+    callback toggle-episode-watched(string);
+    callback episode-search-changed(string);
+    callback copy-stream-link(string);
+    callback copy-magnet-link(string);
+    callback copy-download-link(string);
+    callback toggle-season-watched(int);
+    callback manual-episode-selected(int, int);
+    callback open-addons;
+    callback share-copy(string);
+    callback share-social(string, string);
+    callback ranking-mode-changed(string);
+    callback show-filtered-changed(bool);
+    in property <string> share-url: "";
+    in-out property <bool> share-modal-open: false;
+    private property <bool> stream-context-open: false;
+    private property <length> stream-context-x: 0px;
+    private property <length> stream-context-y: 0px;
+    private property <string> stream-context-id: "";
+    in-out property <int> manual-season: root.active-season;
+    in-out property <int> manual-episode: 1;
+    in property <IconData> icon-play;
+    in property <IconData> icon-link;
+    in property <IconData> icon-magnet;
+    in property <IconData> icon-download;
+    in property <IconData> icon-eye;
+    in property <IconData> icon-eye-off;
+    in property <IconData> icon-clapperboard;
+    callback play-stream(string);
+    callback close;
+
+    in property <length> unit: Theme.root-font-size;
+    property <length> drawer-width: 30 * root.unit;
+    in-out property <bool> stream-filter-open: false;
+    in-out property <bool> ranking-filter-open: false;
+    private property <int> first-season: root.available-seasons.length > 0
+        ? root.available-seasons[0] : root.active-season;
+    private property <int> last-season: root.available-seasons.length > 0
+        ? root.available-seasons[root.available-seasons.length - 1] : root.active-season;
+    // Minimum for the season pill; it sizes to its own label beyond this.
+    private property <length> season-button-width: 10 * root.unit;
+
+    background: Theme.modal-background;
+    clip: true;
+
+    if (root.background-image.width > 0) : Image {
+        width: parent.width;
+        height: parent.height;
+        source: root.background-image;
+        image-fit: cover;
+        horizontal-alignment: right;
+        opacity: 0.3;
+    }
+
+    Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: Theme.background.with-alpha(0.18);
+    }
+
+    // Navigation must remain available while metadata or streams are loading.
+    IconAction {
+        x: root.unit;
+        y: root.unit;
+        width: 3.5 * root.unit;
+        height: 3.5 * root.unit;
+        unit: root.unit;
+        icon-source: @image-url("../assets/images/icons/chevron-back.svg");
+        accessible-name: @tr("BACK" => "Back");
+        surface-color: transparent;
+        z: 10;
+        clicked => { root.close(); }
+    }
+
+    if (root.loading) : Rectangle {
+        MetaPreviewPlaceholder {
+            x: 4 * root.unit;
+            y: 8 * root.unit;
+            width: parent.width - root.drawer-width - 8 * root.unit;
+            height: parent.height - 10 * root.unit;
+            unit: root.unit;
+        }
+
+        Rectangle {
+            x: parent.width - root.drawer-width;
+            y: 6 * root.unit;
+            width: root.drawer-width;
+            height: parent.height - 6 * root.unit;
+            border-radius: Theme.border-radius;
+            background: Theme.drawer-background;
+
+            VerticalLayout {
+                padding-top: 1.5 * root.unit;
+                padding-left: 1.5 * root.unit;
+                padding-right: 1.5 * root.unit;
+                padding-bottom: 0.75 * root.unit;
+                spacing: root.unit;
+
+                SkeletonBlock {
+                    height: 3.5 * root.unit;
+                    radius: self.height / 2;
+                }
+
+                for _video in [0, 1, 2, 3, 4] : VideoPlaceholder {
+                    horizontal-stretch: 1;
+                    unit: root.unit;
+                    has-thumbnail: false;
+                }
+            }
+        }
+    }
+
+    if (!root.loading) : Rectangle {
+        x: 0px;
+        width: parent.width - root.drawer-width;
+        height: parent.height;
+        background: transparent;
+        clip: true;
+
+        MetaPreview {
+            x: 4 * root.unit;
+            y: 5.5 * root.unit;
+            width: parent.width - 8 * root.unit;
+            height: parent.height - 7.5 * root.unit;
+            unit: root.unit;
+            name: root.item-title;
+            logo: root.logo;
+            runtime: root.runtime;
+            release-info: root.release-year;
+            imdb-label: root.rating;
+            rt-rating: root.rt-rating;
+            metacritic-rating: root.metacritic-rating;
+            letterboxd-rating: root.letterboxd-rating;
+            anilist-rating: root.anilist-rating;
+            kitsu-rating: root.kitsu-rating;
+            description: root.description;
+            genres: root.genres;
+            cast: root.cast;
+            directors: root.directors;
+            show-trailer: root.has-trailer && root.trailer-selection-id != "";
+            show-library-actions: true;
+            in-library: root.is-in-library;
+            watched: root.is-watched;
+            show-ratings: true;
+            show-share: true;
+            trailer-requested => { root.play-trailer(root.trailer-selection-id); }
+            library-requested(_in-library) => { root.toggle-library(); }
+            watched-requested(_watched) => { root.toggle-watched(); }
+            share-requested => { root.share-modal-open = true; }
+        }
+    }
+
+    if (!root.loading && root.enrichment-summary != "") : ButtonSurface {
+        x: 4 * root.unit;
+        y: parent.height - 3.5 * root.unit;
+        width: parent.width - root.drawer-width - 8 * root.unit;
+        height: 2.5 * root.unit;
+        border-radius: 1.25 * root.unit;
+        background: self.has-hover ? Theme.overlay-hover : Theme.overlay-color;
+        accessible-name: root.enrichment-summary;
+        clicked => {
+            if (root.enrichment-attribution-url != "") {
+                root.open-attribution(root.enrichment-attribution-url);
+            }
+        }
+        Text {
+            width: parent.width - 2 * root.unit;
+            x: root.unit;
+            height: parent.height;
+            text: root.enrichment-summary;
+            color: Theme.text-secondary;
+            font-size: 0.85 * root.unit;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+
+    // `.videos-list, .streams-list { flex: 0 0 30rem; align-self: stretch }` —
+    // the web panel is a fixed-width column pinned to the full height of the
+    // content row, never sized to its own content. It sits flush against the
+    // right edge, so only the left corners are rounded.
+    if (!root.loading) : Rectangle {
+        x: parent.width - root.drawer-width;
+        y: 6 * root.unit;
+        width: root.drawer-width;
+        height: parent.height - 6 * root.unit;
+        border-top-left-radius: Theme.border-radius;
+        border-bottom-left-radius: Theme.border-radius;
+        background: Theme.drawer-background;
+        clip: true;
+
+        // Base inset is the web's 1rem, shared by `.videos-container`,
+        // `.streams-container` and `.select-choices-wrapper`. Sections the web
+        // insets further (notifications, search bar, seasons bar) add their own
+        // padding on top of this.
+        VerticalLayout {
+            padding-top: 1.5 * root.unit;
+            padding-left: root.unit;
+            padding-right: root.unit;
+            padding-bottom: 0.75 * root.unit;
+            spacing: 0.75 * root.unit;
+
+            if (!root.is-series || root.in-stream-view) : HorizontalLayout {
+                height: 2.75 * root.unit;
+                spacing: 0.75 * root.unit;
+                z: 10000;
+
+                Rectangle {
+                    horizontal-stretch: 1;
+
+                    SelectField {
+                        unit: root.unit;
+                        field-width: parent.width;
+                        value: root.active-stream-provider;
+                        options: root.stream-providers;
+                        open: root.stream-filter-open;
+                        toggle => { root.stream-filter-open = !root.stream-filter-open; }
+                        selected(provider) => {
+                            root.active-stream-provider = provider;
+                            root.stream-filter-open = false;
+                        }
+                    }
+                }
+
+                Rectangle {
+                    horizontal-stretch: 1;
+
+                    SelectField {
+                        unit: root.unit;
+                        field-width: parent.width;
+                        value: root.ranking-mode;
+                        options: ["Smart", "Quality", "Smallest", "Seeders", "Original"];
+                        open: root.ranking-filter-open;
+                        toggle => { root.ranking-filter-open = !root.ranking-filter-open; }
+                        selected(mode) => {
+                            root.ranking-mode = mode;
+                            root.ranking-filter-open = false;
+                            root.ranking-mode-changed(mode);
+                        }
+                    }
+                }
+            }
+
+            if ((!root.is-series || root.in-stream-view) && root.streams.length > 0) : Rectangle {
+                height: 2.25 * root.unit;
+                background: transparent;
+
+                // Toggle rows sit at the web's 1.5rem inset: 1rem from the
+                // container plus 0.5rem here.
+                ToggleSwitch {
+                    x: 0.5 * root.unit;
+                    y: (parent.height - self.height) / 2;
+                    unit: root.unit;
+                    checked <=> root.show-filtered;
+                    toggled => { root.show-filtered-changed(root.show-filtered); }
+                }
+
+                Text {
+                    x: 4.7 * root.unit;
+                    width: parent.width - self.x - 0.5 * root.unit;
+                    height: parent.height;
+                    text: @tr("STREAM_SHOW_FILTERED" => "Show suspicious or filtered sources");
+                    color: Theme.text-secondary;
+                    font-size: 0.9 * root.unit;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+
+            if (root.is-series && !root.in-stream-view && root.is-in-library) : Rectangle {
+                height: 2.8 * root.unit;
+                background: transparent;
+
+                ToggleSwitch {
+                    x: 0.5 * root.unit;
+                    y: (parent.height - self.height) / 2;
+                    unit: root.unit;
+                    checked <=> root.notifications-enabled;
+                    toggled => { root.notifications-changed(root.notifications-enabled); }
+                }
+
+                Text {
+                    x: 4.7 * root.unit;
+                    y: 0px;
+                    width: parent.width - self.x - 0.5 * root.unit;
+                    height: parent.height;
+                    text: @tr("DETAIL_RECEIVE_NOTIF_SERIES" => "Receive notifications for new episodes");
+                    color: Theme.surface-light-90;
+                    font-size: root.unit;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+
+            if (root.is-series && !root.in-stream-view && root.available-seasons.length > 0) : Rectangle {
+                height: 4 * root.unit;
+                background: transparent;
+                z: 10000;
+
+                // The web's `.seasons-bar-container` is a `space-between` row
+                // inset a further 1rem (margin) inside its own 1rem padding, so
+                // the pill stays centred whatever width its label needs.
+                HorizontalLayout {
+                    padding-left: root.unit;
+                    padding-right: root.unit;
+                    padding-top: 0.5 * root.unit;
+                    padding-bottom: 0.5 * root.unit;
+                    alignment: space-between;
+
+                    ChevronTextButton {
+                        unit: root.unit;
+                        label: @tr("Prev");
+                        icon-source: @image-url("../assets/images/icons/chevron-back.svg");
+                        enabled: root.active-season != root.first-season;
+                        clicked => { root.season-step(-1); }
+                    }
+
+                    SeasonSelectField {
+                        unit: root.unit;
+                        field-width: root.season-button-width;
+                        value: root.active-season;
+                        options: root.available-seasons;
+                        open: root.season-menu-open;
+                        toggle => { root.season-menu-open = !root.season-menu-open; }
+                        selected(season) => {
+                            root.active-season = season;
+                            root.season-menu-open = false;
+                            root.season-changed(season);
+                        }
+                    }
+
+                    ChevronTextButton {
+                        unit: root.unit;
+                        label: @tr("Next");
+                        trailing-icon: true;
+                        icon-source: @image-url("../assets/images/icons/chevron-forward.svg");
+                        enabled: root.active-season != root.last-season;
+                        clicked => { root.season-step(1); }
+                    }
+                }
+
+                ContextMenuArea {
+                    Menu {
+                        MenuItem {
+                            title: @tr("MARK_SEASON_WATCHED" => "Mark season as watched / unwatched");
+                            activated => { root.toggle-season-watched(root.active-season); }
+                        }
+                    }
+                }
+            }
+
+            // `.search-bar { margin: 0 1.5rem 1rem 1.5rem }` — 0.5rem beyond the
+            // container's own inset.
+            if (root.is-series && !root.in-stream-view) : HorizontalLayout {
+                height: 3 * root.unit;
+                padding-left: 0.5 * root.unit;
+                padding-right: 0.5 * root.unit;
+
+                SearchBar {
+                    horizontal-stretch: 1;
+                    unit: root.unit;
+                    text <=> root.episode-search-query;
+                    title: @tr("SEARCH_VIDEOS" => "search videos");
+                    edited => { root.episode-search-changed(root.episode-search-query); }
+                }
+            }
+
+            if (root.is-series && root.in-stream-view) : HorizontalLayout {
+                height: 3.5 * root.unit;
+                spacing: root.unit;
+
+                IconAction {
+                    width: 2.5 * root.unit;
+                    height: 3.5 * root.unit;
+                    unit: root.unit;
+                    icon-size: 1.25 * root.unit;
+                    icon-source: @image-url("../assets/images/icons/chevron-back.svg");
+                    label: @tr("Back to episodes");
+                    surface-color: transparent;
+                    clicked => { root.in-stream-view = false; }
+                }
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.episode-names.length > root.active-episode-idx
+                        ? root.episode-names[root.active-episode-idx]
+                        : @tr("Episode streams");
+                    color: Theme.text-primary;
+                    font-size: 1.05 * root.unit;
+                    font-weight: 500;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+
+            if (root.is-series && !root.in-stream-view) : ListView {
+                vertical-stretch: 1;
+                for episode[index] in root.episodes : Video {
+                    width: parent.width;
+                    unit: root.unit;
+                    title: episode.title;
+                    released: episode.released;
+                    thumbnail: episode.thumbnail;
+                    episode-number: episode.episode-num;
+                    upcoming: episode.is-upcoming;
+                    watched: episode.is-watched;
+                    scheduled: episode.is-scheduled;
+                    progress: episode.progress;
+                    selected => {
+                        root.active-episode-idx = index;
+                        root.episode-changed(index, episode.id);
+                        root.in-stream-view = true;
+                    }
+                    toggle-watched => { root.toggle-episode-watched(episode.id); }
+                }
+            }
+
+            if ((!root.is-series || root.in-stream-view) && root.streams.length == 0) : VerticalLayout {
+                vertical-stretch: 1;
+                padding-top: root.unit;
+                padding-bottom: root.unit;
+                spacing: 1.25 * root.unit;
+                alignment: center;
+
+                if (root.is-series) : HorizontalLayout {
+                    height: 3.5 * root.unit;
+                    spacing: 0.75 * root.unit;
+                    alignment: center;
+
+                    NumberInput {
+                        width: 12.5 * root.unit;
+                        unit: root.unit;
+                        label: @tr("SEASON" => "Season");
+                        value <=> root.manual-season;
+                        show-buttons: true;
+                        has-explicit-minimum: true;
+                        minimum: 0;
+                    }
+                    NumberInput {
+                        width: 12.5 * root.unit;
+                        unit: root.unit;
+                        label: @tr("EPISODE" => "Episode");
+                        value <=> root.manual-episode;
+                        show-buttons: true;
+                        has-explicit-minimum: true;
+                        minimum: 1;
+                    }
+                }
+
+                if (root.is-series) : PillButton {
+                    width: 15 * root.unit;
+                    unit: root.unit;
+                    label: @tr("SIDEBAR_SHOW_STREAMS" => "Show streams");
+                    clicked => {
+                        root.manual-episode-selected(root.manual-season, root.manual-episode);
+                        root.in-stream-view = true;
+                    }
+                }
+
+                EmptyState {
+                    height: 16 * root.unit;
+                    unit: root.unit;
+                    icon-source: @image-url("../assets/images/icons/addons-outline.svg");
+                    title: @tr("NO_STREAM" => "No streams were found");
+                    message: @tr("INSTALL_MORE_ADDONS" => "For more streams, please install more addons");
+                }
+
+                PillButton {
+                    width: 16 * root.unit;
+                    unit: root.unit;
+                    label: @tr("ADDON_CATALOGUE_MORE" => "Install more addons");
+                    outlined: true;
+                    clicked => { root.open-addons(); }
+                }
+            }
+
+            if ((!root.is-series || root.in-stream-view) && root.streams.length > 0) : ListView {
+                vertical-stretch: 1;
+                horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+
+                for stream in root.streams : stream-delegate := Rectangle {
+                    private property <bool> matches-provider:
+                        root.active-stream-provider == "All"
+                            || stream.provider == root.active-stream-provider;
+                    width: parent.width;
+                    // The additional 0.1rem preserves the web row gap while
+                    // allowing ListView to virtualize off-screen streams.
+                    height: self.matches-provider ? 5.8 * root.unit : 0px;
+                    clip: true;
+                    background: transparent;
+
+                    StreamRow {
+                        visible: stream-delegate.matches-provider;
+                        x: 0px;
+                        y: 0px;
+                        width: parent.width;
+                        height: 5.6 * root.unit;
+                        unit: root.unit;
+                        name: stream.name;
+                        description: stream.description;
+                        score-label: root.ranking-mode == "Original" ? "" : (stream.score >= 0 ? "+" + stream.score : "" + stream.score);
+                        score-details: stream.score-summary;
+                        filtered: stream.filtered;
+                        thumbnail: stream.thumbnail;
+                        progress: stream.progress;
+                        play => { root.play-stream(stream.id); }
+                        context-requested(x, y) => {
+                            root.stream-context-x = x;
+                            root.stream-context-y = y;
+                            root.stream-context-id = stream.id;
+                            root.stream-context-open = true;
+                        }
+                    }
+                }
+            }
+
+            if ((!root.is-series || root.in-stream-view) && root.stream-loading-count > 0) : VerticalLayout {
+                height: 4 * root.unit;
+                spacing: 0.75 * root.unit;
+                Text {
+                    text: @tr("STREMIO_TV_STREAMS_STILL_LOADING" => "{} addon is still loading...", root.stream-loading-count);
+                    color: Theme.text-primary;
+                    font-size: root.unit;
+                    horizontal-alignment: center;
+                }
+                Rectangle {
+                    height: 0.3 * root.unit;
+                    border-radius: self.height / 2;
+                    background: Theme.accent;
+                }
+            }
+        }
+    }
+
+    // Anchored on window coordinates taken from the row's `absolute-position`,
+    // so it has to span the page to clamp correctly. It also must not be a child
+    // of the drawer's VerticalLayout: an overlay still claims a layout slot
+    // there, which is what left a blank band under the list.
+    if (!root.loading) : ContextMenuSurface {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        z: 100;
+        unit: root.unit;
+        open <=> root.stream-context-open;
+        requested-x: root.stream-context-x;
+        requested-y: root.stream-context-y;
+        menu-width: 22 * root.unit;
+        menu-height: 16 * root.unit;
+        close-requested => { root.stream-context-open = false; }
+
+        VerticalLayout {
+            padding: 0.5 * root.unit;
+            spacing: 0.25 * root.unit;
+
+            ContextMenuOption {
+                unit: root.unit;
+                label: @tr("CTX_PLAY" => "Play");
+                show-icon: true;
+                icon-source: @image-url("../assets/images/icons/play.svg");
+                clicked => {
+                    root.stream-context-open = false;
+                    root.play-stream(root.stream-context-id);
+                }
+            }
+            ContextMenuOption {
+                unit: root.unit;
+                label: @tr("CTX_COPY_STREAM_LINK" => "Copy stream link");
+                show-icon: true;
+                icon-source: @image-url("../assets/images/icons/link.svg");
+                clicked => {
+                    root.stream-context-open = false;
+                    root.copy-stream-link(root.stream-context-id);
+                }
+            }
+            ContextMenuOption {
+                unit: root.unit;
+                label: @tr("CTX_COPY_MAGNET_LINK" => "Copy magnet link");
+                show-icon: true;
+                icon-source: @image-url("../assets/images/icons/magnet-link.svg");
+                clicked => {
+                    root.stream-context-open = false;
+                    root.copy-magnet-link(root.stream-context-id);
+                }
+            }
+            ContextMenuOption {
+                unit: root.unit;
+                label: @tr("CTX_COPY_VIDEO_DOWNLOAD_LINK" => "Copy video download link");
+                show-icon: true;
+                icon-source: @image-url("../assets/images/icons/download.svg");
+                clicked => {
+                    root.stream-context-open = false;
+                    root.copy-download-link(root.stream-context-id);
+                }
+            }
+        }
+    }
+
+    if (!root.loading) : HorizontalLayout {
+        x: parent.width - 11 * root.unit;
+        y: root.unit;
+        height: 3.5 * root.unit;
+        spacing: 0.5 * root.unit;
+        alignment: start;
+        z: 50;
+
+        IconAction {
+            width: 3.5 * root.unit;
+            height: 3.5 * root.unit;
+            unit: root.unit;
+            border-radius: 0.75 * root.unit;
+            icon-size: 2 * root.unit;
+            icon-source: @image-url("../assets/images/icons/maximize.svg");
+            label: @tr("SETTINGS_SHORTCUT_FULLSCREEN" => "Toggle Fullscreen");
+            surface-color: transparent;
+            clicked => { root.toggle-fullscreen(); }
+        }
+
+        Rectangle {
+            width: 3.5 * root.unit;
+            border-radius: 0.75 * root.unit;
+            background: transparent;
+            Rectangle {
+                x: 0.55 * root.unit;
+                y: 0.55 * root.unit;
+                width: 2.4 * root.unit;
+                height: 2.4 * root.unit;
+                background: Theme.accent;
+                border-radius: self.width / 2;
+                border-width: 0.15 * root.unit;
+                border-color: Theme.accent;
+                clip: true;
+
+                if (root.username == "" || root.username == "Guest") : Image {
+                    width: parent.width;
+                    height: parent.height;
+                    source: root.anonymous-icon;
+                    image-fit: cover;
+                }
+                if (root.username != "" && root.username != "Guest" && root.has-avatar-image) : Image {
+                    width: parent.width;
+                    height: parent.height;
+                    source: root.avatar-image;
+                    image-fit: cover;
+                }
+                if (root.username != "" && root.username != "Guest" && !root.has-avatar-image) : Image {
+                    width: parent.width;
+                    height: parent.height;
+                    source: root.default-avatar-icon;
+                    image-fit: cover;
+                }
+            }
+        }
+    }
+
+    ModalDialog {
+        width: 100%;
+        height: 100%;
+        z: 2000;
+        unit: root.unit;
+        open: root.share-modal-open;
+        title: @tr("SHARE" => "Share");
+        dialog-width: 36 * root.unit;
+        dialog-height: 17 * root.unit;
+        close-requested => { root.share-modal-open = false; }
+
+        SharePrompt {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            unit: root.unit;
+            url: root.share-url;
+            copy-requested(url) => { root.share-copy(url); }
+            share-requested(platform, url) => { root.share-social(platform, url); }
+        }
+    }
+
+}

@@ -1,0 +1,2726 @@
+import { ListView, ScrollView } from "std-widgets.slint";
+import { Theme, IconData } from "../theme.slint";
+import { ButtonSurface, ChevronTextButton, IconAction, MenuButton, PillButton } from "../components/button.slint";
+import { Video } from "../components/media_rows.slint";
+import { SeasonSelectField } from "../components/select.slint";
+import { Slider } from "../components/slider.slint";
+import {
+    PopupMenuSurface,
+    DropdownMenuSurface,
+    DropdownMenuSubTrigger,
+    DropdownMenuSubSurface,
+    ContextMenuSurface,
+    ContextMenuOption,
+} from "../components/overlays.slint";
+import { EpisodeItem, StreamLink } from "details.slint";
+
+export struct CastDevice {
+    id: string,
+    name: string,
+}
+
+component PlayerIconButton inherits IconAction {
+    // Kept for the legacy control tree below. The active player chrome uses
+    // the exact SVG assets from stremio-icons through icon-source.
+    in property <IconData> icon;
+    in property <bool> disabled: false;
+    in property <string> tooltip: "";
+
+    width: 64px;
+    height: 64px;
+    unit: 16px;
+    icon-size: 35px;
+    border-radius: Theme.border-radius;
+    enabled: !root.disabled;
+    label: root.tooltip;
+    surface-color: transparent;
+    hover-color: Theme.overlay-hover;
+    active-color: Theme.overlay-pressed;
+    foreground-color: Theme.text-primary;
+    active-foreground-color: Theme.accent;
+}
+
+component TrackItem inherits ButtonSurface {
+    in property <string> label;
+    in property <string> secondary-label: "";
+    in property <bool> active;
+    in property <bool> available: true;
+    // Mirrors stremio-web's `.language-option` (3.5rem) and `.variant-option`
+    // (4rem): 1.5rem side padding, a 1.1rem label over an optional 0.9rem
+    // origin line with a 0.25rem gap, and a 0.5rem selected dot sitting inside
+    // the same padding with a 1rem gap. The web does not re-weight the label on
+    // selection — the dot alone marks it.
+    in property <length> row-height: secondary-label == "" ? 56px : 64px;
+    height: row-height;
+    border-radius: Theme.border-radius;
+    background: root.has-hover
+        ? (active ? Theme.overlay-hover : Theme.overlay)
+        : (active ? Theme.overlay-hover : transparent);
+    accessible-name: root.label;
+    enabled: root.available;
+    opacity: root.available ? 1.0 : 0.45;
+
+    animate background { duration: Theme.motion-control; }
+
+    VerticalLayout {
+        x: 24px;
+        y: 0px;
+        width: parent.width - 48px - (root.active ? 24px : 0px);
+        height: parent.height;
+        spacing: 4px;
+        alignment: center;
+
+        Text {
+            text: label;
+            color: Theme.text-primary;
+            font-size: 17.6px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        if (secondary-label != "") : Text {
+            text: secondary-label;
+            color: Theme.text-muted;
+            font-size: 14.4px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+
+    if (active) : Rectangle {
+        x: parent.width - 32px;
+        y: (parent.height - 8px) / 2;
+        width: 8px;
+        height: 8px;
+        border-radius: 4px;
+        background: Theme.secondary-accent;
+    }
+}
+
+component PlayerMenuOption inherits MenuButton {
+    unit: 14px;
+    height: 56px;
+    border-radius: Theme.border-radius;
+    show-icon: true;
+    icon-size: 22px;
+    label-font-size: 16px;
+    label-font-weight: 400;
+    horizontal-padding: 16px;
+    hover-color: Theme.overlay-color;
+    opacity: 1;
+}
+
+component PlayerMenuSubTrigger inherits DropdownMenuSubTrigger {
+    unit: 14px;
+    height: 56px;
+    border-radius: Theme.border-radius;
+    show-icon: true;
+    icon-size: 22px;
+    trailing-icon-size: 18px;
+    label-font-size: 16px;
+    label-font-weight: 400;
+    horizontal-padding: 16px;
+    selected-color: Theme.overlay-color;
+    hover-color: Theme.overlay-color;
+    opacity: 1;
+}
+
+// stremio-web's SideDrawerButton is a 7.5rem circle positioned 4rem beyond
+// the right viewport edge. The visible 3.5rem handle stays centered vertically.
+component PlayerSideDrawerButton inherits ButtonSurface {
+    in property <bool> drawer-open: false;
+
+    width: 120px;
+    height: 200px;
+    border-radius: self.height / 2;
+    focus-outline-size: 0px;
+    background: Theme.modal-background;
+    drop-shadow-blur: 10px;
+    drop-shadow-color: Theme.scrim;
+    accessible-name: root.drawer-open
+        ? @tr("Close media details")
+        : @tr("Open media details");
+
+    Image {
+        x: 8px;
+        y: (parent.height - self.height) / 2;
+        width: 40px;
+        height: 40px;
+        source: root.drawer-open
+            ? @image-url("../assets/images/icons/chevron-forward.svg")
+            : @image-url("../assets/images/icons/chevron-back.svg");
+        colorize: Theme.primary-foreground;
+        image-fit: contain;
+        opacity: root.has-hover || root.has-focus ? 1 : 0.6;
+
+        animate opacity { duration: Theme.motion-panel; easing: ease-in-out; }
+    }
+}
+
+component SubtitleStepper inherits Rectangle {
+    in property <string> label;
+    in property <string> unit: "";
+    in-out property <float> value;
+    in property <float> step: 1.0;
+    in property <float> minimum: -1000.0;
+    in property <float> maximum: 1000.0;
+    in property <bool> disabled: false;
+    callback changed(float);
+
+    height: 84px;
+    background: transparent;
+    opacity: disabled ? 0.42 : 1.0;
+
+    VerticalLayout {
+        padding-left: 20px;
+        padding-right: 20px;
+        padding-bottom: 12px;
+        spacing: 6px;
+
+        Text {
+            height: 20px;
+            text: label;
+            color: Theme.text-muted;
+            font-size: 14px;
+            font-weight: 500;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        Rectangle {
+            height: 48px;
+            border-radius: 24px;
+            background: Theme.overlay;
+            clip: true;
+
+            HorizontalLayout {
+                padding-left: 0px;
+                padding-right: 0px;
+
+                ButtonSurface {
+                    width: 48px;
+                    height: 48px;
+                    border-radius: 24px;
+                    enabled: !root.disabled;
+                    accessible-name: @tr("Decrease") + " " + root.label;
+                    background: self.has-hover ? Theme.overlay-pressed : Theme.overlay-hover;
+                    Text { text: "−"; color: Theme.text-primary; font-size: 20px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                    clicked => {
+                        root.value = max(root.minimum, root.value - root.step);
+                        root.changed(root.value);
+                    }
+                }
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: value == 0.0 && unit == "s" ? "--" : round(value * 100.0) / 100.0 + unit;
+                    color: Theme.text-primary;
+                    font-size: 15px;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                ButtonSurface {
+                    width: 48px;
+                    height: 48px;
+                    border-radius: 24px;
+                    enabled: !root.disabled;
+                    accessible-name: @tr("Increase") + " " + root.label;
+                    background: self.has-hover ? Theme.overlay-pressed : Theme.overlay-hover;
+                    Text { text: "+"; color: Theme.text-primary; font-size: 20px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                    clicked => {
+                        root.value = min(root.maximum, root.value + root.step);
+                        root.changed(root.value);
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component PlayerPage inherits Rectangle {
+    width: 1280px;
+    height: 720px;
+    in property <string> item-title: "";
+    in property <string> stream-name: "";
+    in property <string> info-hash: "";
+    in property <image> poster-image;
+    in property <image> video-frame;
+    in property <bool> has-video-frame: false;
+    in property <bool> loading: false;
+    in property <bool> buffering: false;
+    in property <float> buffering-percent: 0.0;
+    in property <string> error-message: "";
+    in-out property <string> status-message: "";
+    in property <string> last-capture-path: "";
+    in property <string> video-format: "";
+    in property <string> audio-format: "";
+    in property <string> file-format: "";
+    in property <string> hardware-decoder: "";
+    in property <float> buffered-percent: 0.0;
+    in property <string> download-speed: "";
+    in property <string> upload-speed: "";
+    in property <int> peer-count: 0;
+    in property <float> stream-progress: 0.0;
+
+    // Playback state bindings
+    in property <bool> paused: true;
+    in-out property <float> volume: 1.0;
+    in property <bool> muted: false;
+    in-out property <float> progress: 0.0; // 0.0 to 1.0 representation
+    in property <string> elapsed-time-str: "00:00";
+    in property <string> total-time-str: "00:00";
+    in property <float> duration-seconds: 0;
+    in property <float> seek-step-seconds: 10.0;
+
+    // Track data lists
+    in property <[string]> subtitles-tracks: [];
+    in property <[string]> subtitle-track-languages: [];
+    in property <[string]> subtitle-track-origins: [];
+    in property <[string]> subtitle-languages: [];
+    in property <[int]> subtitle-language-track-indices: [];
+    in property <[string]> audio-tracks: [];
+    in property <[string]> audio-track-languages: [];
+    in property <[string]> audio-track-labels: [];
+    in-out property <int> active-subtitle-idx: -1;
+    in-out property <int> active-secondary-subtitle-idx: -1;
+    in-out property <int> active-audio-idx: 0;
+    in-out property <float> subtitle-delay-seconds: 0.0;
+    in-out property <float> subtitle-size-percent: 100.0;
+    in-out property <float> subtitle-offset-percent: 100.0;
+    in-out property <float> secondary-subtitle-size-percent: 85.0;
+    in-out property <float> secondary-subtitle-offset-percent: 15.0;
+    in-out property <float> audio-delay-seconds: 0.0;
+    
+    // Episode playlist
+    in property <bool> is-series: false;
+    in property <[int]> available-seasons: [];
+    in-out property <int> active-season: 1;
+    in property <[EpisodeItem]> episodes: [];
+    in-out property <string> active-video-id: "";
+    in-out property <int> active-episode-idx: 0;
+    in property <bool> has-next-episode: false;
+    in-out property <bool> show-next-video-popup: false;
+    in property <string> next-episode-title: "";
+    in property <string> series-name: "";
+    in property <string> next-series-name: "";
+    in property <string> series-runtime: "";
+    in property <string> series-release-year: "";
+    in property <string> series-description: "";
+    in property <image> series-logo;
+    in property <bool> active-season-watched: false;
+    in property <image> next-episode-poster;
+    in-out property <int> next-video-countdown: 10;
+    in property <float> next-popup-duration-seconds: 35;
+    private property <bool> next-popup-dismissed: false;
+    callback dismiss-next-video-popup();
+    in property <[CastDevice]> cast-devices: [];
+    in property <bool> cast-devices-loading: false;
+    callback refresh-cast-devices();
+    callback cast-device-selected(string);
+
+    // Speed options
+    in-out property <float> playback-speed: 1.0;
+    in-out property <int> video-scale-mode: 0;
+    in-out property <int> active-shader-preset: 0;
+    in-out property <float> ab-loop-a: -1.0;
+    in-out property <float> ab-loop-b: -1.0;
+    in-out property <string> sleep-timer-label: "";
+    in-out property <int> hdr-mode: 0;
+    in property <bool> hdr-content: false;
+    in property <bool> hdr-passthrough-available: false;
+    in-out property <bool> pip-active: false;
+    in property <[bool]> shader-preset-available: [true, false, false, false, false, false, false, false];
+    in property <string> shader-status: "Checking GPU support…";
+    in property <[string]> shader-preset-names: [
+        "Off", "Mode A (HQ)", "Mode B (HQ)", "Mode C (HQ)",
+        "Mode A+A (HQ)", "Mode B+B (HQ)", "Mode C+A (HQ)", "FSR"
+    ];
+    in property <image> thumbnail-preview;
+    in property <bool> thumbnail-visible: false;
+    in property <float> thumbnail-hover-x: 0.0;
+    in property <bool> thumbnail-loading: false;
+    in property <bool> thumbnail-has-frame: false;
+    in property <float> thumbnail-aspect-ratio: 1.7778;
+    in property <string> thumbnail-time-label: "00:00";
+
+    in-out property <bool> show-skip-button: false;
+    in-out property <string> skip-button-label: @tr("PLAYER_SKIP_INTRO" => "Skip Intro");
+    callback skip-segment();
+
+    // Icons
+    in property <IconData> icon-play;
+    in property <IconData> icon-pause;
+    in property <IconData> icon-next;
+    in property <IconData> icon-volume-high;
+    in property <IconData> icon-volume-low;
+    in property <IconData> icon-volume-mute;
+    in property <IconData> icon-fullscreen;
+    in property <IconData> icon-subtitles;
+    in property <IconData> icon-audio;
+    in property <IconData> icon-speed;
+    in property <IconData> icon-stats;
+    in property <IconData> icon-options;
+    in property <IconData> icon-menu;
+    in property <IconData> icon-back;
+
+    // Callbacks to Rust
+    callback toggle-pause();
+    callback seek(float);
+    callback seek-relative(float);
+    callback seek-hover(float);
+    callback seek-leave();
+    callback change-volume(float);
+    callback toggle-mute();
+    callback change-subtitle(int);
+    callback change-secondary-subtitle(int);
+    callback change-audio(int);
+    callback change-subtitle-delay(float);
+    callback change-subtitle-size(float);
+    callback change-subtitle-offset(float);
+    callback change-secondary-subtitle-size(float);
+    callback change-secondary-subtitle-offset(float);
+    callback change-audio-delay(float);
+    callback change-speed(float);
+    callback change-video-scale(int);
+    callback change-shader-preset(int);
+    callback set-ab-loop-point(int);
+    callback set-sleep-timer(int);
+    callback capture-frame();
+    callback reveal-last-capture();
+    callback cycle-hdr-mode();
+    callback toggle-pip();
+    callback retry-playback();
+    callback choose-another-stream();
+    callback return-to-details();
+    callback switch-stream(string);
+    callback copy-stream-link();
+    callback copy-magnet-link();
+    callback download-subs();
+    callback download-video();
+    callback open-external-player();
+    callback play-episode(int, string);
+    callback play-saved-episode(string);
+    callback play-next-episode();
+    callback season-changed(int);
+    callback season-step(int);
+    callback mark-season-watched(int);
+    callback toggle-episode-watched(string);
+    callback toggle-fullscreen();
+    callback close();
+    callback activity();
+
+    // Internal state
+    in-out property <bool> show-subtitles-menu: false;
+    in-out property <bool> show-audio-menu: false;
+    in-out property <bool> show-speed-menu: false;
+    in-out property <bool> show-stats-menu: false;
+    in-out property <bool> show-upscaler-menu: false;
+    in-out property <bool> show-options-menu: false;
+    in-out property <bool> show-tools-menu: false;
+    in-out property <bool> show-streams-menu: false;
+    in property <[StreamLink]> available-streams: [];
+    in-out property <bool> show-cast-menu: false;
+    in-out property <bool> show-playlist-drawer: false;
+    in-out property <bool> season-menu-open: false;
+    in-out property <bool> show-context-menu: false;
+    in-out property <length> context-menu-x: root.width * 0.52;
+    in-out property <length> context-menu-y: root.height * 0.48;
+    in-out property <bool> controls-visible: true;
+    property <bool> buffer-pulse: false;
+    property <length> buffer-logo-size: min(240px, min(root.width / 3, root.height / 3));
+    property <float> buffer-visual-progress: stream-progress > 0.0
+        ? stream-progress
+        : buffering-percent;
+    private property <bool> volume-osd-visible: false;
+    private property <int> volume-osd-level: -1;
+    private property <float> volume-osd-value: 1.0;
+    private property <string> options-focused-submenu: "";
+    private property <string> pending-submenu-focus: "";
+    private property <string> restore-options-focus: "";
+    private property <string> tools-submenu-side: "left";
+    private property <string> streams-submenu-side: "left";
+    private property <length> tools-anchor-x: root.width - 304px;
+    private property <length> tools-anchor-y:
+        root.height - min(448px, root.height - 160px) - 104px;
+    private property <length> tools-anchor-width: 224px;
+    private property <length> tools-anchor-height: 56px;
+    private property <length> streams-anchor-x: root.width - 304px;
+    private property <length> streams-anchor-y:
+        root.height - min(448px, root.height - 160px) - 44px;
+    private property <length> streams-anchor-width: 224px;
+    private property <length> streams-anchor-height: 56px;
+    property <string> selected-subtitle-language: active-subtitle-idx >= 0 && active-subtitle-idx < subtitle-track-languages.length
+        ? subtitle-track-languages[active-subtitle-idx]
+        : "";
+    private property <float> safe-thumbnail-aspect: max(0.35, min(4.0, thumbnail-aspect-ratio));
+    private property <length> thumbnail-card-width: safe-thumbnail-aspect >= 1.6
+        ? 160px
+        : 100px * safe-thumbnail-aspect;
+    private property <length> thumbnail-card-height: safe-thumbnail-aspect >= 1.6
+        ? 160px / safe-thumbnail-aspect
+        : 100px;
+
+    function close-options-submenus() {
+        submenu-close-grace.stop();
+        root.pending-submenu-focus = "";
+        root.show-tools-menu = false;
+        root.show-streams-menu = false;
+    }
+
+    function close-options-hierarchy() {
+        root.restore-options-focus = "";
+        root.show-options-menu = false;
+        root.close-options-submenus();
+    }
+
+    function open-options-submenu(kind: string, focus-content: bool) {
+        submenu-close-grace.stop();
+        root.restore-options-focus = "";
+        root.show-options-menu = true;
+        root.show-tools-menu = kind == "tools";
+        root.show-streams-menu = kind == "streams";
+        root.pending-submenu-focus = focus-content ? kind : "";
+    }
+
+    function schedule-options-submenu-close() {
+        if (root.show-tools-menu || root.show-streams-menu) {
+            submenu-close-grace.restart();
+        }
+    }
+
+    function close-options-submenu-and-restore-focus(kind: string) {
+        submenu-close-grace.stop();
+        root.pending-submenu-focus = "";
+        root.restore-options-focus = kind;
+        root.show-tools-menu = false;
+        root.show-streams-menu = false;
+    }
+
+    function toggle-player-side-drawer() {
+        let open = !root.show-playlist-drawer;
+        root.show-playlist-drawer = open;
+        root.show-stats-menu = false;
+        root.show-speed-menu = false;
+        root.show-subtitles-menu = false;
+        root.show-audio-menu = false;
+        root.show-upscaler-menu = false;
+        root.show-cast-menu = false;
+        root.close-options-hierarchy();
+    }
+
+    changed show-options-menu => {
+        if (!root.show-options-menu) {
+            root.restore-options-focus = "";
+            root.close-options-submenus();
+        }
+    }
+
+    changed show-playlist-drawer => {
+        if (!root.show-playlist-drawer) {
+            root.season-menu-open = false;
+        }
+    }
+
+    changed controls-visible => {
+        if (!root.controls-visible) {
+            root.seek-leave();
+            root.show-upscaler-menu = false;
+            root.show-subtitles-menu = false;
+            root.show-audio-menu = false;
+            root.show-speed-menu = false;
+            root.show-stats-menu = false;
+            root.show-options-menu = false;
+            root.show-cast-menu = false;
+        }
+    }
+
+    changed active-video-id => {
+        root.next-popup-dismissed = false;
+        root.show-next-video-popup = false;
+    }
+
+    changed progress => {
+        let actual-remaining = max(0, root.duration-seconds * (1 - root.progress));
+        if (root.has-next-episode && root.next-popup-duration-seconds > 0
+            && actual-remaining > 0
+            && actual-remaining <= root.next-popup-duration-seconds
+            && !root.next-popup-dismissed) {
+            root.show-next-video-popup = true;
+            root.next-video-countdown = max(0, ceil(actual-remaining));
+        }
+    }
+
+    submenu-close-grace := Timer {
+        interval: 200ms;
+        running: false;
+        triggered => {
+            self.stop();
+            root.restore-options-focus = "";
+            root.close-options-submenus();
+        }
+    }
+
+    buffering-pulse-timer := Timer {
+        interval: 1s;
+        running: loading && !has-video-frame;
+        triggered => { buffer-pulse = !buffer-pulse; }
+    }
+
+    changed volume => {
+        let displayed-level = round(root.volume * 100);
+        if (displayed-level != root.volume-osd-level) {
+            root.volume-osd-level = displayed-level;
+            root.volume-osd-value = root.volume;
+            root.volume-osd-visible = true;
+            volume-osd-timer.restart();
+        }
+    }
+
+    // `restart()` only re-arms a timer that has already been started, so a
+    // `running: false` literal leaves it dead and the OSD never dismissed.
+    // Driving `running` off the visibility arms it on the first change; the
+    // `restart()` above then extends the window while it is already ticking.
+    volume-osd-timer := Timer {
+        interval: 1500ms;
+        running: root.volume-osd-visible;
+        triggered => { root.volume-osd-visible = false; }
+    }
+
+    changed status-message => {
+        if (root.status-message != "") {
+            status-message-timer.restart();
+        }
+    }
+
+    status-message-timer := Timer {
+        interval: 4s;
+        running: root.status-message != "";
+        triggered => { root.status-message = ""; }
+    }
+
+    background: #000000;
+
+    // MPV renders into a same-context RGBA texture. Keeping the frame in the
+    // Slint scene lets the renderer composite every control above the video.
+    Image {
+        source: video-frame;
+        width: 100%;
+        height: 100%;
+        // The render target normally matches the content area, while a resize
+        // can briefly expose the previous texture. `contain` prevents that
+        // transitional frame from being stretched into a square or a stale
+        // window aspect; libmpv still owns the video letterboxing inside it.
+        image-fit: contain;
+        z: 0;
+    }
+
+    // Retain the artwork only until libmpv publishes an actual decoded frame.
+    // Cache state may remain active after that point and must not mask video.
+    if (!has-video-frame && error-message == "") : Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #000000;
+        z: 2;
+        Image {
+            source: poster-image;
+            width: 100%;
+            height: 100%;
+            image-fit: cover;
+            opacity: 0.35;
+        }
+    }
+
+    if (error-message != "") : Rectangle {
+        width: 100%;
+        height: 100%;
+        background: Theme.modal-background.with-alpha(0.95);
+        z: 250;
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 14px;
+            padding-left: 48px;
+            padding-right: 48px;
+
+            Text {
+                text: @tr("Playback unavailable");
+                color: Theme.text-primary;
+                font-size: 22px;
+                font-weight: 700;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: error-message;
+                color: Theme.text-secondary;
+                font-size: 14px;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: center;
+
+                PillButton {
+                    width: 150px;
+                    unit: 16px;
+                    label: @tr("Retry manually");
+                    outlined: false;
+                    clicked => { retry-playback(); }
+                }
+                PillButton {
+                    width: 190px;
+                    unit: 16px;
+                    label: @tr("Choose another stream");
+                    outlined: true;
+                    surface-color: transparent;
+                    clicked => { choose-another-stream(); }
+                }
+                PillButton {
+                    width: 170px;
+                    unit: 16px;
+                    label: @tr("Return to details");
+                    outlined: true;
+                    surface-color: transparent;
+                    clicked => { return-to-details(); }
+                }
+            }
+        }
+    }
+
+    // Interactive Screen Area (to toggle controls visibility)
+    screen-touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        mouse-cursor: controls-visible ? default : none;
+        clicked => {
+            if (show-context-menu) {
+                show-context-menu = false;
+                controls-visible = true;
+                root.activity();
+                return;
+            }
+            if (!show-subtitles-menu && !show-audio-menu && !show-speed-menu &&
+                !show-stats-menu && !show-options-menu && !show-tools-menu
+                && !show-streams-menu && !show-playlist-drawer && !show-upscaler-menu) {
+                toggle-pause();
+            }
+            show-subtitles-menu = false;
+            show-audio-menu = false;
+            show-speed-menu = false;
+            show-stats-menu = false;
+            show-options-menu = false;
+            show-tools-menu = false;
+            show-streams-menu = false;
+            show-cast-menu = false;
+            show-upscaler-menu = false;
+            show-playlist-drawer = false;
+            season-menu-open = false;
+            
+            controls-visible = true;
+            root.activity();
+        }
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.move) {
+                controls-visible = true;
+                root.activity();
+            }
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                root.context-menu-x = self.absolute-position.x + self.mouse-x;
+                root.context-menu-y = self.absolute-position.y + self.mouse-y;
+                root.show-context-menu = true;
+            }
+        }
+    }
+
+    ContextMenuSurface {
+        unit: Theme.root-font-size;
+        open <=> root.show-context-menu;
+        requested-x: root.context-menu-x;
+        requested-y: root.context-menu-y;
+        menu-width: 20 * Theme.root-font-size;
+        menu-height: 16 * Theme.root-font-size;
+        close-requested => { root.show-context-menu = false; }
+
+        VerticalLayout {
+            padding: 0.5 * Theme.root-font-size;
+            spacing: 0.25 * Theme.root-font-size;
+
+            ContextMenuOption {
+                unit: Theme.root-font-size;
+                label: @tr("CTX_COPY_STREAM_LINK" => "Copy stream link");
+                show-icon: true;
+                icon-source: @image-url("../assets/images/icons/link.svg");
+                clicked => {
+                    root.show-context-menu = false;
+                    root.copy-stream-link();
+                }
+            }
+            ContextMenuOption {
+                unit: Theme.root-font-size;
+                label: @tr("Copy magnet link");
+                show-icon: true;
+                icon-source: @image-url("../assets/images/icons/magnet-link.svg");
+                clicked => {
+                    root.show-context-menu = false;
+                    root.copy-magnet-link();
+                }
+            }
+            ContextMenuOption {
+                unit: Theme.root-font-size;
+                label: @tr("CTX_DOWNLOAD_VIDEO" => "Download this video");
+                show-icon: true;
+                icon-source: @image-url("../assets/images/icons/download.svg");
+                clicked => {
+                    root.show-context-menu = false;
+                    root.download-video();
+                }
+            }
+            ContextMenuOption {
+                unit: Theme.root-font-size;
+                label: @tr("Playback information");
+                show-icon: true;
+                icon-source: @image-url("../assets/images/icons/about.svg");
+                clicked => {
+                    root.show-context-menu = false;
+                    root.controls-visible = true;
+                    root.show-stats-menu = true;
+                }
+            }
+        }
+    }
+
+
+
+    // Match the web player: buffering is a transparent, pulsing Stremio mark.
+    // The foreground fill follows torrent/cache progress while the faded mark
+    // remains visible behind it. Video is never covered by an opaque scrim.
+    if (!has-video-frame) : Rectangle {
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        z: 20;
+
+        buffer-mark := Rectangle {
+            width: buffer-pulse ? buffer-logo-size * 1.05 : buffer-logo-size;
+            height: buffer-pulse ? buffer-logo-size * 1.05 : buffer-logo-size;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: transparent;
+            opacity: buffer-pulse ? 1.0 : 0.4;
+
+            animate width { duration: 1s; easing: ease-in-out; }
+            animate height { duration: 1s; easing: ease-in-out; }
+            animate opacity { duration: 1s; easing: ease-in-out; }
+
+            Image {
+                width: 100%;
+                height: 100%;
+                source: @image-url("../assets/images/stremio_symbol.png");
+                image-fit: contain;
+                opacity: 0.2;
+            }
+
+            Rectangle {
+                width: parent.width * max(0.0, min(100.0, buffer-visual-progress)) / 100.0;
+                height: parent.height;
+                clip: true;
+                background: transparent;
+
+                Image {
+                    width: buffer-mark.width;
+                    height: buffer-mark.height;
+                    source: @image-url("../assets/images/stremio_symbol.png");
+                    image-fit: contain;
+                }
+            }
+        }
+    }
+
+    // Official Stremio player navigation. These items are positioned
+    // explicitly instead of being put in a nested layout so their anchors do
+    // not collapse when the video texture changes size.
+    if (controls-visible && !pip-active) : Rectangle {
+        y: 0px;
+        width: 100%;
+        height: 128px;
+        background: @linear-gradient(180deg, Theme.scrim.with-alpha(0.35) 0%, Theme.scrim.with-alpha(0) 100%);
+        z: 150;
+
+        PlayerIconButton {
+            x: 16px;
+            y: 16px;
+            width: 56px;
+            height: 56px;
+            icon-size: 32px;
+            icon-source: @image-url("../assets/images/icons/chevron-back.svg");
+            tooltip: @tr("BACK" => "Back") + " (Escape)";
+            clicked => { close(); }
+        }
+
+        HorizontalLayout {
+            x: 88px;
+            y: 0px;
+            width: max(0px, parent.width - 176px);
+            height: 88px;
+            spacing: 12px;
+            alignment: start;
+
+            Text {
+                text: item-title;
+                color: Theme.text-primary;
+                font-size: 19px;
+                font-weight: 500;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            if (active-shader-preset > 0) : Rectangle {
+                height: 22px;
+                background: Theme.accent.with-alpha(0.9);
+                border-radius: Theme.compact-radius;
+                y: (parent.height - self.height) / 2;
+
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    alignment: center;
+
+                    Text {
+                        text: active-shader-preset == 7 ? "FSR" : "4K HDR";
+                        color: Theme.surface-light;
+                        font-size: 12px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        PlayerIconButton {
+            x: parent.width - 72px;
+            y: 16px;
+            width: 56px;
+            height: 56px;
+            icon-size: 32px;
+            icon-source: @image-url("../assets/images/icons/maximize.svg");
+            tooltip: @tr("CTX_FULLSCREEN" => "Fullscreen") + " (F)";
+            clicked => { toggle-fullscreen(); }
+        }
+    }
+
+    // The web player exposes this handle for every ready metadata item, not
+    // only for series. For movies it opens the compact metadata-only drawer.
+    if (controls-visible && !pip-active && item-title != "") : PlayerSideDrawerButton {
+        x: parent.width - 56px;
+        y: (parent.height - self.height) / 2;
+        drawer-open: root.show-playlist-drawer;
+        z: 173;
+        clicked => {
+            root.toggle-player-side-drawer();
+            root.activity();
+        }
+    }
+
+    // Match the web player's side drawer: season navigation stays fixed while
+    // the selected season's rich episode rows scroll independently.
+    if (controls-visible && !pip-active && show-playlist-drawer && item-title != "") : Rectangle {
+        width: max(0px, parent.width - min(560px, parent.width * 0.42));
+        height: parent.height;
+        background: transparent;
+        z: 174;
+
+        TouchArea {
+            clicked => {
+                root.show-playlist-drawer = false;
+                root.season-menu-open = false;
+            }
+        }
+    }
+
+    // Keep the drawer instantiated while player chrome is visible so changing
+    // its x position produces the same 300 ms slide as the web SideDrawer.
+    playlist-drawer := Rectangle {
+        visible: controls-visible && !pip-active && item-title != "";
+        x: root.show-playlist-drawer ? parent.width - playlist-drawer.width : parent.width;
+        y: 0px;
+        width: min(560px, parent.width * 0.42);
+        height: parent.height;
+        background: Theme.modal-background;
+        border-top-left-radius: Theme.border-radius;
+        border-bottom-left-radius: Theme.border-radius;
+        border-top-right-radius: 0px;
+        border-bottom-right-radius: 0px;
+        border-width: 1px;
+        border-color: Theme.card-border;
+        z: 175;
+        private property <int> reveal-index: root.active-episode-idx;
+        private property <int> reveal-season: root.active-season;
+
+        animate x { duration: 300ms; easing: ease-in-out; }
+
+        init => { episode-reveal-timer.restart(); }
+        changed reveal-index => { episode-reveal-timer.restart(); }
+        changed reveal-season => {
+            episode-list.viewport-y = 0px;
+            episode-reveal-timer.restart();
+        }
+
+        episode-reveal-timer := Timer {
+            interval: 1ms;
+            running: false;
+            triggered => {
+                self.stop();
+                let row-height = 104px;
+                let selected-y = playlist-drawer.reveal-index * row-height;
+                let centered-y = max(0px, selected-y - (episode-list.visible-height - row-height) / 2);
+                let max-y = max(0px, episode-list.viewport-height - episode-list.visible-height);
+                episode-list.viewport-y = -min(centered-y, max-y);
+            }
+        }
+
+        VerticalLayout {
+            padding: 24px;
+            spacing: 16px;
+
+            // SideDrawer uses MetaPreview(compact=true) on the web client: a
+            // centered logo (or name fallback), runtime/release information,
+            // and a four-line synopsis. Desktop closes via the backdrop,
+            // Episodes button, or Escape; the explicit chevron is phone-only.
+            Rectangle {
+                height: 218px;
+                background: transparent;
+
+                if (root.series-logo.width > 0) : Image {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width;
+                    height: 96px;
+                    source: root.series-logo;
+                    image-fit: contain;
+                }
+
+                if (root.series-logo.width == 0) : Text {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width;
+                    height: 96px;
+                    text: root.series-name != "" ? root.series-name : root.item-title;
+                    color: Theme.surface-light;
+                    font-size: 27px;
+                    font-weight: 700;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                    overflow: elide;
+                }
+
+                HorizontalLayout {
+                    x: 0px;
+                    y: 104px;
+                    width: parent.width;
+                    height: 28px;
+                    spacing: 12px;
+                    alignment: center;
+
+                    Text {
+                        text: root.series-runtime;
+                        color: Theme.surface-light;
+                        font-size: 15px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: root.series-release-year;
+                        color: Theme.surface-light;
+                        font-size: 15px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Text {
+                    x: 0px;
+                    y: 142px;
+                    width: parent.width;
+                    height: 72px;
+                    text: root.series-description;
+                    color: Theme.primary-foreground;
+                    font-size: 14px;
+                    font-weight: 400;
+                    wrap: word-wrap;
+                    overflow: elide;
+                    opacity: 0.9;
+                }
+            }
+
+            // Season navigation bar
+            if (available-seasons.length > 0) : season-bar := Rectangle {
+                height: 48px;
+                background: transparent;
+                z: 10000;
+
+                ChevronTextButton {
+                    x: 0px;
+                    y: 4px;
+                    label: @tr("BUTTON_PREV" => "Prev");
+                    icon-source: @image-url("../assets/images/icons/chevron-back.svg");
+                    enabled: root.active-season != root.available-seasons[0];
+                    clicked => { root.season-step(-1); }
+                }
+
+                HorizontalLayout {
+                    x: (parent.width - self.width) / 2;
+                    y: 4px;
+                    spacing: 8px;
+                    alignment: center;
+
+                    SeasonSelectField {
+                        field-width: min(140px, parent.width - 240px);
+                        value: root.active-season;
+                        options: root.available-seasons;
+                        open: root.season-menu-open;
+                        surface-color: transparent;
+                        toggle => { root.season-menu-open = !root.season-menu-open; }
+                        selected(season) => {
+                            root.active-season = season;
+                            root.season-menu-open = false;
+                            root.season-changed(season);
+                        }
+                    }
+
+                }
+
+                ChevronTextButton {
+                    x: parent.width - self.width;
+                    y: 4px;
+                    label: @tr("BUTTON_NEXT" => "Next");
+                    trailing-icon: true;
+                    icon-source: @image-url("../assets/images/icons/chevron-forward.svg");
+                    enabled: root.active-season != root.available-seasons[root.available-seasons.length - 1];
+                    clicked => { root.season-step(1); }
+                }
+            }
+
+            if (root.is-series) : Rectangle {
+                height: 1px;
+                background: Theme.divider;
+            }
+
+            episode-list := ListView {
+                visible: root.is-series;
+                vertical-stretch: 1;
+                horizontal-scrollbar-policy: always-off;
+
+                for episode[idx] in episodes : Video {
+                    width: parent.width;
+                    unit: 16px;
+                    title: episode.title;
+                    released: episode.released;
+                    thumbnail: episode.thumbnail;
+                    episode-number: episode.episode-num;
+                    upcoming: episode.is-upcoming;
+                    watched: episode.is-watched;
+                    scheduled: episode.is-scheduled;
+                    progress: episode.id == root.active-video-id
+                        ? root.progress * 100.0
+                        : episode.progress;
+                    selected-row: episode.id == root.active-video-id;
+                    season-watched: root.active-season-watched;
+                    can-play: episode.can-play;
+                    selected => {
+                        root.active-episode-idx = idx;
+                        root.active-video-id = episode.id;
+                        root.play-episode(idx, episode.id);
+                    }
+                    toggle-watched => { root.toggle-episode-watched(episode.id); }
+                    toggle-season-watched => { root.mark-season-watched(root.active-season); }
+                    play => { root.play-saved-episode(episode.id); }
+                }
+            }
+        }
+    }
+
+    if (show-skip-button) : Rectangle {
+        x: parent.width - self.width - 48px;
+        y: parent.height - self.height - (controls-visible ? 230px : 120px);
+        width: 170px;
+        height: 48px;
+        background: touch-area.has-hover ? Theme.card-background.with-alpha(0.95) : Theme.modal-background.with-alpha(0.85);
+        border-radius: self.height / 2;
+        border-width: 1px;
+        border-color: Theme.divider;
+        z: 160;
+
+        animate y { duration: Theme.motion-panel; easing: ease-out; }
+        animate background { duration: Theme.motion-fast; }
+
+        touch-area := TouchArea {
+            clicked => { root.skip-segment(); }
+        }
+
+        HorizontalLayout {
+            alignment: center;
+            spacing: 8px;
+
+            Image {
+                source: @image-url("../assets/images/icons/chevron-forward.svg");
+                width: 18px;
+                height: 18px;
+                colorize: Theme.text-primary;
+            }
+
+            Text {
+                text: root.skip-button-label;
+                color: Theme.text-primary;
+                font-size: 14px;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    // Official web control-bar geometry: a 10rem fade, a 2.5rem seek row and
+    // a 4rem button row with 2rem page gutters. Explicit anchors keep the
+    // timeline and right-side controls full-width on every Slint renderer.
+    if (controls-visible && !pip-active) : Rectangle {
+        y: parent.height - 160px;
+        width: 100%;
+        height: 160px;
+        background: @linear-gradient(0deg, Theme.scrim.with-alpha(0.35) 0%, Theme.scrim.with-alpha(0.18) 45%, Theme.scrim.with-alpha(0) 100%);
+        z: 150;
+
+        Text {
+            x: 32px;
+            y: 48px;
+            width: 88px;
+            height: 40px;
+            text: elapsed-time-str;
+            color: Theme.primary-foreground;
+            font-size: 17px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+
+        Slider {
+            x: 120px;
+            y: 48px;
+            width: max(40px, parent.width - 240px);
+            height: 40px;
+            unit: 16px;
+            minimum: 0;
+            maximum: 1;
+            step: 0.001;
+            value: progress;
+            buffered: buffered-percent / 100;
+            track-inset: 10px;
+            track-size: 6px;
+            thumb-size: 19px;
+            hover-thumb-size: 23px;
+            track-color: Theme.primary-foreground;
+            track-opacity: 0.3;
+            buffered-color: Theme.primary-foreground.with-alpha(0.5);
+            progress-color: Theme.accent;
+            thumb-color: Theme.accent;
+            thumb-border-width: 4px;
+            thumb-border-color: Theme.primary-accent.with-alpha(0.6);
+            completed(value) => { root.seek(value); }
+            hover-position-changed(val) => { root.seek-hover(val); }
+            hover-left => { root.seek-leave(); }
+        }
+
+        if (ab-loop-a >= 0 && duration-seconds > 0) : Rectangle {
+            x: 130px + (parent.width - 260px) * min(1, ab-loop-a / duration-seconds);
+            y: 51px;
+            width: 3px;
+            height: 34px;
+            border-radius: 2px;
+            background: Theme.primary-accent;
+        }
+
+        if (ab-loop-b >= 0 && duration-seconds > 0) : Rectangle {
+            x: 130px + (parent.width - 260px) * min(1, ab-loop-b / duration-seconds);
+            y: 51px;
+            width: 3px;
+            height: 34px;
+            border-radius: 2px;
+            background: Theme.secondary-accent;
+        }
+
+        if (thumbnail-visible) : Rectangle {
+            x: max(12px, min(parent.width - self.width - 12px,
+                120px + (parent.width - 240px) * thumbnail-hover-x - self.width / 2));
+            y: 48px - self.height - 12px;
+            width: root.thumbnail-card-width;
+            height: root.thumbnail-card-height;
+            border-radius: Theme.compact-radius;
+            border-width: 1px;
+            border-color: Theme.divider;
+            background: Theme.card-background;
+            clip: true;
+            animate opacity { duration: Theme.motion-fast; }
+
+            if (thumbnail-has-frame) : Image {
+                source: thumbnail-preview;
+                width: parent.width;
+                height: parent.height;
+                image-fit: contain;
+            }
+
+            if (thumbnail-loading && !thumbnail-has-frame) : Rectangle {
+                width: parent.width;
+                height: parent.height;
+                background: Theme.skeleton-base;
+
+                Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: "…";
+                    color: Theme.text-secondary;
+                    font-size: 20px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: parent.height - self.height - 6px;
+                width: 64px;
+                height: 22px;
+                border-radius: self.height / 2;
+                background: Theme.scrim.with-alpha(0.85);
+
+                time-text := Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: root.thumbnail-time-label;
+                    color: Theme.text-primary;
+                    font-size: 11px;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Text {
+            x: parent.width - 120px;
+            y: 48px;
+            width: 88px;
+            height: 40px;
+            text: total-time-str;
+            color: Theme.primary-foreground;
+            font-size: 17px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+
+        // Playback and volume controls are independently anchored to the left.
+        HorizontalLayout {
+            x: 32px;
+            y: 88px;
+            width: (is-series ? 200px : 132px) + (root.width > 900px ? 164px : 0px);
+            height: 64px;
+            spacing: 4px;
+            alignment: start;
+
+            PlayerIconButton {
+                icon-source: paused
+                    ? @image-url("../assets/images/icons/play.svg")
+                    : @image-url("../assets/images/icons/pause.svg");
+                tooltip: paused ? @tr("PLAYER_PLAY" => "Play") + " (Space)" : @tr("PLAYER_PAUSE" => "Pause") + " (Space)";
+                clicked => { toggle-pause(); }
+            }
+
+            if (is-series) : PlayerIconButton {
+                icon-source: @image-url("../assets/images/icons/next.svg");
+                tooltip: @tr("PLAYER_NEXT_VIDEO" => "Next Video");
+                disabled: !root.has-next-episode;
+                clicked => { root.play-next-episode(); }
+            }
+
+            PlayerIconButton {
+                icon-source: (muted || volume == 0.0)
+                    ? @image-url("../assets/images/icons/volume-mute.svg")
+                    : (volume < 0.3
+                        ? @image-url("../assets/images/icons/volume-low.svg")
+                        : (volume < 0.7
+                            ? @image-url("../assets/images/icons/volume-medium.svg")
+                            : @image-url("../assets/images/icons/volume-high.svg")));
+                tooltip: muted ? @tr("PLAYER_UNMUTE" => "Unmute") + " (M)" : @tr("PLAYER_MUTE" => "Mute") + " (M)";
+                clicked => { toggle-mute(); }
+            }
+
+            if (root.width > 900px) : Slider {
+                width: 160px;
+                height: 64px;
+                unit: 16px;
+                minimum: 0;
+                maximum: 2;
+                step: 0.01;
+                value: muted ? 0.0 : volume;
+                track-inset: 8px;
+                track-size: 6px;
+                thumb-size: 16px;
+                track-color: Theme.primary-foreground;
+                track-opacity: 0.2;
+                buffered-color: transparent;
+                progress-color: Theme.primary-accent;
+                thumb-color: Theme.primary-accent;
+                changed(value) => { change-volume(value); }
+            }
+        }
+
+        // Menus and display controls are independently anchored to the right.
+        HorizontalLayout {
+            width: is-series ? 608px : 540px;
+            x: parent.width - self.width - 32px;
+            y: 88px;
+            height: 64px;
+            spacing: 4px;
+            alignment: end;
+
+            PlayerIconButton {
+                icon-source: @image-url("../assets/images/icons/cast.svg");
+                tooltip: @tr("Cast to device");
+                active: show-cast-menu;
+                clicked => {
+                    show-cast-menu = !show-cast-menu;
+                    show-stats-menu = false;
+                    show-speed-menu = false;
+                    show-subtitles-menu = false;
+                    show-audio-menu = false;
+                    show-upscaler-menu = false;
+                    show-playlist-drawer = false;
+                    show-options-menu = false;
+                    if (show-cast-menu) {
+                        root.refresh-cast-devices();
+                    }
+                }
+            }
+
+            PlayerIconButton {
+                icon-source: @image-url("../assets/images/icons/network.svg");
+                tooltip: @tr("Playback information");
+                active: show-stats-menu;
+                clicked => {
+                    show-stats-menu = !show-stats-menu;
+                    show-speed-menu = false;
+                    show-subtitles-menu = false;
+                    show-audio-menu = false;
+                    show-upscaler-menu = false;
+                    show-playlist-drawer = false;
+                    show-options-menu = false;
+                }
+            }
+
+            PlayerIconButton {
+                icon-source: @image-url("../assets/images/icons/speed.svg");
+                tooltip: @tr("PLAYER_PLAYBACK_SPEED" => "Playback Speed");
+                active: show-speed-menu;
+                clicked => {
+                    show-speed-menu = !show-speed-menu;
+                    show-stats-menu = false;
+                    show-subtitles-menu = false;
+                    show-audio-menu = false;
+                    show-upscaler-menu = false;
+                    show-playlist-drawer = false;
+                    show-options-menu = false;
+                }
+            }
+
+            PlayerIconButton {
+                icon-source: @image-url("../assets/images/icons/subtitles.svg");
+                tooltip: @tr("SUBTITLES" => "Subtitles");
+                disabled: subtitles-tracks.length == 0;
+                active: show-subtitles-menu;
+                clicked => {
+                    show-subtitles-menu = !show-subtitles-menu;
+                    show-stats-menu = false;
+                    show-speed-menu = false;
+                    show-audio-menu = false;
+                    show-upscaler-menu = false;
+                    show-playlist-drawer = false;
+                    show-options-menu = false;
+                }
+            }
+
+            PlayerIconButton {
+                icon-source: @image-url("../assets/images/icons/audio-tracks.svg");
+                tooltip: @tr("AUDIO_TRACKS" => "Audio Tracks");
+                disabled: audio-tracks.length == 0;
+                active: show-audio-menu;
+                clicked => {
+                    show-audio-menu = !show-audio-menu;
+                    show-stats-menu = false;
+                    show-speed-menu = false;
+                    show-subtitles-menu = false;
+                    show-upscaler-menu = false;
+                    show-playlist-drawer = false;
+                    show-options-menu = false;
+                }
+            }
+
+            PlayerIconButton {
+                icon-source: @image-url("../assets/images/icons/settings-upscaler.svg");
+                tooltip: active-shader-preset == 0 ? @tr("Upscaler") : shader-preset-names[active-shader-preset];
+                active: show-upscaler-menu;
+                clicked => {
+                    show-upscaler-menu = !show-upscaler-menu;
+                    show-stats-menu = false;
+                    show-speed-menu = false;
+                    show-subtitles-menu = false;
+                    show-audio-menu = false;
+                    show-playlist-drawer = false;
+                    show-options-menu = false;
+                }
+            }
+
+            if (is-series) : PlayerIconButton {
+                icon-source: @image-url("../assets/images/icons/episodes.svg");
+                tooltip: @tr("Episode list");
+                active: show-playlist-drawer;
+                clicked => {
+                    root.toggle-player-side-drawer();
+                }
+            }
+
+            PlayerIconButton {
+                icon-source: @image-url("../assets/images/icons/scale.svg");
+                tooltip: video-scale-mode == 0 ? @tr("PLAYER_SCALE_FIT" => "Fit") : (video-scale-mode == 1 ? @tr("PLAYER_SCALE_CROP" => "Crop") : @tr("PLAYER_SCALE_STRETCH" => "Stretch"));
+                clicked => {
+                    video-scale-mode = Math.mod(video-scale-mode + 1, 3);
+                    change-video-scale(video-scale-mode);
+                    show-options-menu = false;
+                    show-upscaler-menu = false;
+                }
+            }
+
+            PlayerIconButton {
+                icon-source: @image-url("../assets/images/icons/more-horizontal.svg");
+                tooltip: @tr("More playback options");
+                active: show-options-menu;
+                clicked => {
+                    show-options-menu = !show-options-menu;
+                    show-stats-menu = false;
+                    show-speed-menu = false;
+                    show-subtitles-menu = false;
+                    show-audio-menu = false;
+                    show-upscaler-menu = false;
+                    show-playlist-drawer = false;
+                }
+            }
+        }
+    }
+
+    if (status-message != "") : Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: pip-active ? 20px : 76px;
+        width: min(560px, max(220px, status-text.preferred-width + 40px));
+        height: 44px;
+        border-radius: 22px;
+        background: Theme.scrim.with-alpha(0.9);
+        border-width: 1px;
+        border-color: Theme.divider;
+        z: 310;
+
+        status-text := Text {
+            x: 20px;
+            width: parent.width - 40px;
+            height: parent.height;
+            text: root.status-message;
+            color: Theme.text-primary;
+            font-size: 13px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+
+    if (controls-visible && pip-active) : Rectangle {
+        x: 12px;
+        y: parent.height - self.height - 12px;
+        width: parent.width - 24px;
+        height: 68px;
+        border-radius: 18px;
+        background: Theme.scrim.with-alpha(0.86);
+        border-width: 1px;
+        border-color: Theme.divider;
+        z: 190;
+
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            spacing: 4px;
+            alignment: center;
+
+            PlayerIconButton {
+                icon-source: paused
+                    ? @image-url("../assets/images/icons/play.svg")
+                    : @image-url("../assets/images/icons/pause.svg");
+                tooltip: paused ? @tr("Play") : @tr("Pause");
+                clicked => { root.toggle-pause(); }
+            }
+            PlayerIconButton {
+                icon-source: @image-url("../assets/images/icons/replay.svg");
+                tooltip: @tr("Seek backward");
+                clicked => { root.seek-relative(-root.seek-step-seconds); }
+            }
+            if (is-series && has-next-episode) : PlayerIconButton {
+                icon-source: @image-url("../assets/images/icons/next.svg");
+                tooltip: @tr("Next episode");
+                clicked => { root.play-next-episode(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            PlayerIconButton {
+                icon-source: @image-url("../assets/images/icons/maximize.svg");
+                tooltip: @tr("Restore window");
+                clicked => { root.toggle-pip(); }
+            }
+            PlayerIconButton {
+                icon-source: @image-url("../assets/images/icons/close.svg");
+                tooltip: @tr("Close player");
+                clicked => { root.close(); }
+            }
+        }
+    }
+
+    if (root.volume-osd-visible) : Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 176px;
+        height: 176px;
+        border-radius: Theme.border-radius;
+        background: Theme.overlay-color;
+        z: 300;
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 16px;
+            padding: 32px;
+
+            HorizontalLayout {
+                height: 72px;
+                alignment: center;
+
+                Image {
+                    width: 72px;
+                    height: 72px;
+                    source: (muted || root.volume-osd-value == 0.0)
+                        ? @image-url("../assets/images/icons/volume-mute.svg")
+                        : (root.volume-osd-value < 0.3
+                            ? @image-url("../assets/images/icons/volume-low.svg")
+                            : (root.volume-osd-value < 0.7
+                                ? @image-url("../assets/images/icons/volume-medium.svg")
+                                : @image-url("../assets/images/icons/volume-high.svg")));
+                    colorize: Theme.primary-foreground;
+                    image-fit: contain;
+                }
+            }
+
+            Slider {
+                width: 100%;
+                height: 24px;
+                unit: 16px;
+                minimum: 0;
+                maximum: 2;
+                step: 0.01;
+                value: muted ? 0.0 : root.volume-osd-value;
+                track-inset: 0px;
+                track-size: 6px;
+                thumb-size: 16px;
+                hover-thumb-size: 16px;
+                track-color: Theme.primary-foreground;
+                track-opacity: 0.2;
+                buffered-color: transparent;
+                progress-color: Theme.primary-foreground;
+                thumb-color: Theme.primary-foreground;
+                changed(value) => {
+                    root.change-volume(value);
+                }
+            }
+        }
+    }
+
+    if (controls-visible && show-cast-menu) : cast-menu := PopupMenuSurface {
+        x: parent.width - cast-menu.width - 64px;
+        y: parent.height - cast-menu.height - 120px;
+        width: 280px;
+        height: min(300px, 72px + max(1, cast-devices.length) * 52px);
+        background: Theme.card-background;
+        border-radius: Theme.border-radius;
+        border-width: 1px;
+        border-color: Theme.divider;
+        z: 181;
+
+        VerticalLayout {
+            padding: 12px;
+            spacing: 4px;
+
+            Text {
+                height: 40px;
+                text: @tr("Choose a device");
+                color: Theme.text-primary;
+                font-size: 16px;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+
+            if (root.cast-devices-loading) : Text {
+                height: 44px;
+                text: @tr("Searching for devices…");
+                color: Theme.text-secondary;
+                font-size: 14px;
+                vertical-alignment: center;
+            }
+
+            if (!root.cast-devices-loading && root.cast-devices.length == 0) : Text {
+                height: 44px;
+                text: @tr("No devices found");
+                color: Theme.text-secondary;
+                font-size: 14px;
+                vertical-alignment: center;
+            }
+
+            for device in root.cast-devices : TrackItem {
+                height: 48px;
+                label: device.name;
+                secondary-label: @tr("Playback device");
+                clicked => {
+                    root.cast-device-selected(device.id);
+                    root.show-cast-menu = false;
+                }
+            }
+        }
+    }
+
+    if (controls-visible && show-options-menu) : options-menu := DropdownMenuSurface {
+        x: parent.width - options-menu.width - 64px;
+        y: parent.height - options-menu.height - 120px;
+        width: 256px;
+        height: min(
+            available-streams.length > 1 ? 472px : 408px,
+            max(160px, parent.height - 208px)
+        );
+        background: Theme.modal-background;
+        border-radius: Theme.border-radius;
+        border-width: 0px;
+        drop-shadow-offset-y: 22px;
+        drop-shadow-blur: 43px;
+        drop-shadow-color: Theme.background-dark-40;
+        z: 180;
+
+        key-event(event) => {
+            if (event.text == Key.Escape) {
+                root.close-options-hierarchy();
+                return accept;
+            }
+            if (event.text == Key.RightArrow && root.options-focused-submenu != "") {
+                root.open-options-submenu(root.options-focused-submenu, true);
+                return accept;
+            }
+            reject
+        }
+
+        ScrollView {
+            horizontal-scrollbar-policy: always-off;
+            viewport-width: self.width;
+
+            VerticalLayout {
+                padding: 16px;
+                spacing: 8px;
+
+                playback-tools-trigger := PlayerMenuSubTrigger {
+                icon-source: @image-url("../assets/images/icons/settings.svg");
+                label: @tr("Playback tools");
+                submenu-open: root.show-tools-menu;
+                submenu-side: root.tools-submenu-side;
+                open-requested(focus-content) => {
+                    root.tools-anchor-x = self.absolute-position.x - root.absolute-position.x;
+                    root.tools-anchor-y = self.absolute-position.y - root.absolute-position.y;
+                    root.tools-anchor-width = self.width;
+                    root.tools-anchor-height = self.height;
+                    root.open-options-submenu("tools", focus-content);
+                }
+                close-grace-requested => { root.schedule-options-submenu-close(); }
+                changed has-focus => {
+                    if (self.has-focus) {
+                        root.options-focused-submenu = "tools";
+                    } else if (root.options-focused-submenu == "tools") {
+                        root.options-focused-submenu = "";
+                    }
+                }
+                changed absolute-position => {
+                    root.tools-anchor-x = self.absolute-position.x - root.absolute-position.x;
+                    root.tools-anchor-y = self.absolute-position.y - root.absolute-position.y;
+                }
+                changed width => { root.tools-anchor-width = self.width; }
+                changed height => { root.tools-anchor-height = self.height; }
+                changed submenu-open => {
+                    if (!self.submenu-open && root.restore-options-focus == "tools") {
+                        self.focus();
+                        root.restore-options-focus = "";
+                    }
+                }
+                }
+                if (available-streams.length > 1) : PlayerMenuSubTrigger {
+                icon-source: @image-url("../assets/images/icons/list.svg");
+                label: @tr("Switch stream");
+                submenu-open: root.show-streams-menu;
+                submenu-side: root.streams-submenu-side;
+                open-requested(focus-content) => {
+                    root.streams-anchor-x = self.absolute-position.x - root.absolute-position.x;
+                    root.streams-anchor-y = self.absolute-position.y - root.absolute-position.y;
+                    root.streams-anchor-width = self.width;
+                    root.streams-anchor-height = self.height;
+                    root.open-options-submenu("streams", focus-content);
+                }
+                close-grace-requested => { root.schedule-options-submenu-close(); }
+                changed has-focus => {
+                    if (self.has-focus) {
+                        root.options-focused-submenu = "streams";
+                    } else if (root.options-focused-submenu == "streams") {
+                        root.options-focused-submenu = "";
+                    }
+                }
+                changed absolute-position => {
+                    root.streams-anchor-x = self.absolute-position.x - root.absolute-position.x;
+                    root.streams-anchor-y = self.absolute-position.y - root.absolute-position.y;
+                }
+                changed width => { root.streams-anchor-width = self.width; }
+                changed height => { root.streams-anchor-height = self.height; }
+                changed submenu-open => {
+                    if (!self.submenu-open && root.restore-options-focus == "streams") {
+                        self.focus();
+                        root.restore-options-focus = "";
+                    }
+                }
+                }
+                PlayerMenuOption {
+                icon-source: @image-url("../assets/images/icons/link.svg");
+                label: @tr("CTX_COPY_STREAM_LINK" => "Copy stream link");
+                clicked => {
+                    copy-stream-link();
+                    show-options-menu = false;
+                }
+                }
+                PlayerMenuOption {
+                icon-source: @image-url("../assets/images/icons/link.svg");
+                label: @tr("CTX_COPY_MAGNET_LINK" => "Copy magnet link");
+                clicked => {
+                    copy-magnet-link();
+                    show-options-menu = false;
+                }
+                }
+                PlayerMenuOption {
+                icon-source: @image-url("../assets/images/icons/download.svg");
+                label: @tr("CTX_DOWNLOAD_SUBS" => "Download subtitles");
+                clicked => {
+                    download-subs();
+                    show-options-menu = false;
+                }
+                }
+                PlayerMenuOption {
+                icon-source: @image-url("../assets/images/icons/download.svg");
+                label: @tr("CTX_DOWNLOAD_VIDEO" => "Download video");
+                clicked => {
+                    download-video();
+                    show-options-menu = false;
+                }
+                }
+                PlayerMenuOption {
+                icon-source: @image-url("../assets/images/icons/play-circle.svg");
+                label: @tr("PLAYER_PLAY_IN" => "Play in external player");
+                clicked => {
+                    open-external-player();
+                    show-options-menu = false;
+                }
+                }
+            }
+        }
+    }
+
+    if (controls-visible && show-options-menu && show-streams-menu) : streams-menu := DropdownMenuSubSurface {
+        viewport-width: root.width;
+        viewport-height: root.height;
+        anchor-x: root.streams-anchor-x;
+        anchor-y: root.streams-anchor-y;
+        anchor-width: root.streams-anchor-width;
+        anchor-height: root.streams-anchor-height;
+        menu-width: min(480px, root.width - 96px);
+        menu-height: min(
+            min(560px, 65px + available-streams.length * 64px),
+            root.height - 48px
+        );
+        gap: 8px;
+        collision-padding: 24px;
+        preferred-side: "left";
+        focus-content-requested: root.pending-submenu-focus == "streams";
+        background: Theme.modal-background;
+        border-radius: Theme.border-radius;
+        border-width: 0px;
+        drop-shadow-offset-y: 22px;
+        drop-shadow-blur: 43px;
+        drop-shadow-color: Theme.background-dark-40;
+        z: 183;
+
+        key-event(event) => {
+            if (event.text == Key.Escape) {
+                root.close-options-hierarchy();
+                return accept;
+            }
+            if (event.text == Key.LeftArrow) {
+                root.close-options-submenu-and-restore-focus("streams");
+                return accept;
+            }
+            reject
+        }
+        changed resolved-side => { root.streams-submenu-side = self.resolved-side; }
+        changed has-hover => {
+            if (self.has-hover) {
+                submenu-close-grace.stop();
+            } else if (!self.has-focus) {
+                root.schedule-options-submenu-close();
+            }
+        }
+        changed has-focus => {
+            if (self.has-focus) {
+                submenu-close-grace.stop();
+                root.pending-submenu-focus = "";
+            } else if (!self.has-hover) {
+                root.schedule-options-submenu-close();
+            }
+        }
+
+        VerticalLayout {
+            spacing: 0px;
+            HorizontalLayout {
+                height: 64px;
+                padding-left: 32px;
+                padding-right: 32px;
+                alignment: center;
+                Text {
+                    text: @tr("Choose another stream");
+                    color: Theme.text-primary;
+                    font-size: 16px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+            }
+            Rectangle { height: 1px; background: Theme.overlay-color; }
+            ListView {
+                vertical-stretch: 1;
+                viewport-width: self.width;
+                for stream in available-streams : TrackItem {
+                    width: streams-menu.width - 24px;
+                    x: 12px;
+                    label: stream.name;
+                    secondary-label: stream.provider
+                        + (stream.description == "" ? "" : " · " + stream.description);
+                    active: stream-name == stream.name || stream-name == stream.description;
+                    clicked => {
+                        root.close-options-hierarchy();
+                        root.switch-stream(stream.id);
+                    }
+                }
+            }
+        }
+    }
+
+    if (controls-visible && show-options-menu && show-tools-menu) : tools-menu := DropdownMenuSubSurface {
+        viewport-width: root.width;
+        viewport-height: root.height;
+        anchor-x: root.tools-anchor-x;
+        anchor-y: root.tools-anchor-y;
+        anchor-width: root.tools-anchor-width;
+        anchor-height: root.tools-anchor-height;
+        menu-width: 344px;
+        menu-height: min(560px, root.height - 48px);
+        gap: 8px;
+        collision-padding: 24px;
+        preferred-side: "left";
+        focus-content-requested: root.pending-submenu-focus == "tools";
+        background: Theme.modal-background;
+        border-radius: Theme.border-radius;
+        border-width: 0px;
+        drop-shadow-offset-y: 22px;
+        drop-shadow-blur: 43px;
+        drop-shadow-color: Theme.background-dark-40;
+        z: 182;
+
+        key-event(event) => {
+            if (event.text == Key.Escape) {
+                root.close-options-hierarchy();
+                return accept;
+            }
+            if (event.text == Key.LeftArrow) {
+                root.close-options-submenu-and-restore-focus("tools");
+                return accept;
+            }
+            reject
+        }
+        changed resolved-side => { root.tools-submenu-side = self.resolved-side; }
+        changed has-hover => {
+            if (self.has-hover) {
+                submenu-close-grace.stop();
+            } else if (!self.has-focus) {
+                root.schedule-options-submenu-close();
+            }
+        }
+        changed has-focus => {
+            if (self.has-focus) {
+                submenu-close-grace.stop();
+                root.pending-submenu-focus = "";
+            } else if (!self.has-hover) {
+                root.schedule-options-submenu-close();
+            }
+        }
+
+        VerticalLayout {
+            spacing: 0px;
+
+            HorizontalLayout {
+                height: 64px;
+                padding-left: 32px;
+                padding-right: 32px;
+                alignment: center;
+                Text {
+                    text: @tr("Playback tools");
+                    color: Theme.text-primary;
+                    font-size: 16px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+            }
+
+            Rectangle { height: 1px; background: Theme.overlay-color; }
+
+            ScrollView {
+                vertical-stretch: 1;
+                viewport-width: self.width;
+                horizontal-scrollbar-policy: always-off;
+
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 8px;
+
+                    PlayerMenuOption {
+                        icon-source: @image-url("../assets/images/icons/maximize.svg");
+                        label: pip-active ? @tr("Restore from picture-in-picture") : @tr("Picture-in-picture");
+                        clicked => { root.toggle-pip(); root.close-options-hierarchy(); }
+                    }
+                    PlayerMenuOption {
+                        icon-source: @image-url("../assets/images/icons/local-import.svg");
+                        label: @tr("Capture frame");
+                        clicked => { root.capture-frame(); root.close-options-hierarchy(); }
+                    }
+                    if (last-capture-path != "") : PlayerMenuOption {
+                        icon-source: @image-url("../assets/images/icons/library.svg");
+                        label: @tr("Reveal last capture");
+                        clicked => { root.reveal-last-capture(); root.close-options-hierarchy(); }
+                    }
+                    PlayerMenuOption {
+                        icon-source: @image-url("../assets/images/icons/hdr.svg");
+                        label: @tr("HDR") + ": "
+                            + (hdr-mode == 0 ? @tr("Auto") : (hdr-mode == 1 ? @tr("Passthrough")
+                            : (hdr-mode == 2 ? @tr("Tone map") : @tr("Disabled"))))
+                            + (hdr-content ? (hdr-passthrough-available ? " · " + @tr("display supported") : " · " + @tr("tone mapping")) : "");
+                        clicked => { root.cycle-hdr-mode(); }
+                    }
+
+                    Rectangle { height: 1px; background: Theme.overlay-color; }
+                    Text {
+                        height: 34px;
+                        text: @tr("A/B loop");
+                        color: Theme.text-secondary;
+                        font-size: 12px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                    PlayerMenuOption {
+                        label: ab-loop-a < 0 ? @tr("Set point A") : @tr("Update point A") + " · " + round(ab-loop-a * 10) / 10 + " s";
+                        clicked => { root.set-ab-loop-point(0); }
+                    }
+                    PlayerMenuOption {
+                        label: ab-loop-b < 0 ? @tr("Set point B · at least 0.25 s after A") : @tr("Update point B") + " · " + round(ab-loop-b * 10) / 10 + " s";
+                        clicked => { root.set-ab-loop-point(1); }
+                    }
+                    if (ab-loop-a >= 0 || ab-loop-b >= 0) : PlayerMenuOption {
+                        label: @tr("Clear A/B loop");
+                        clicked => { root.set-ab-loop-point(2); }
+                    }
+
+                    Rectangle { height: 1px; background: Theme.overlay-color; }
+                    Text {
+                        height: 34px;
+                        text: sleep-timer-label == "" ? @tr("Sleep timer") : @tr("Sleep timer") + " · " + sleep-timer-label;
+                        color: Theme.text-secondary;
+                        font-size: 12px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                    PlayerMenuOption { label: @tr("15 minutes"); clicked => { root.set-sleep-timer(15); } }
+                    PlayerMenuOption { label: @tr("30 minutes"); clicked => { root.set-sleep-timer(30); } }
+                    PlayerMenuOption { label: @tr("45 minutes"); clicked => { root.set-sleep-timer(45); } }
+                    PlayerMenuOption { label: @tr("60 minutes"); clicked => { root.set-sleep-timer(60); } }
+                    PlayerMenuOption { label: @tr("2 hours"); clicked => { root.set-sleep-timer(120); } }
+                    PlayerMenuOption { label: @tr("3 hours"); clicked => { root.set-sleep-timer(180); } }
+                    PlayerMenuOption { label: @tr("4 hours"); clicked => { root.set-sleep-timer(240); } }
+                    PlayerMenuOption { label: @tr("6 hours"); clicked => { root.set-sleep-timer(360); } }
+                    PlayerMenuOption { label: @tr("End of current episode"); clicked => { root.set-sleep-timer(-1); } }
+                    PlayerMenuOption { label: @tr("End of next episode"); clicked => { root.set-sleep-timer(-2); } }
+                    if (sleep-timer-label != "") : PlayerMenuOption {
+                        label: @tr("Cancel sleep timer");
+                        clicked => { root.set-sleep-timer(0); }
+                    }
+                }
+            }
+        }
+    }
+
+    if (controls-visible && show-subtitles-menu) : subtitles-menu := PopupMenuSurface {
+        x: parent.width - subtitles-menu.width - 64px;
+        y: parent.height - subtitles-menu.height - 120px;
+        width: min(1040px, parent.width - 128px);
+        height: min(400px, parent.height - 208px);
+        background: Theme.card-background;
+        border-radius: Theme.border-radius;
+        border-width: 1px;
+        border-color: Theme.divider;
+        z: 180;
+
+        HorizontalLayout {
+            spacing: 0px;
+
+            // Official Stremio menu: languages (16rem).
+            VerticalLayout {
+                width: 256px;
+                spacing: 0px;
+
+                HorizontalLayout {
+                    height: 56px;
+                    padding-left: 24px;
+                    Text {
+                        text: @tr("PLAYER_SUBTITLES_LANGUAGES" => "Subtitles Languages");
+                        color: Theme.surface-light;
+                        font-size: 16px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                }
+
+                ScrollView {
+                    vertical-stretch: 1;
+                    viewport-width: self.width;
+                    horizontal-scrollbar-policy: always-off;
+                    mouse-drag-pan-enabled: true;
+
+                    VerticalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        // `.languages-list` rows carry `margin-bottom: 0.5rem`.
+                        spacing: 8px;
+
+                        TrackItem {
+                            label: @tr("NAVIGATION_OFF" => "Off");
+                            active: active-subtitle-idx == -1;
+                            clicked => {
+                                active-subtitle-idx = -1;
+                                change-subtitle(-1);
+                            }
+                        }
+
+                        for lang[idx] in subtitle-languages : TrackItem {
+                            label: lang;
+                            active: selected-subtitle-language == lang;
+                            clicked => {
+                                active-subtitle-idx = subtitle-language-track-indices[idx];
+                                change-subtitle(active-subtitle-idx);
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle { width: 1px; background: Theme.overlay-color; }
+
+            // Official Stremio menu: variants (16rem).
+            VerticalLayout {
+                width: 256px;
+                spacing: 0px;
+
+                HorizontalLayout {
+                    height: 56px;
+                    padding-left: 24px;
+                    Text {
+                        text: @tr("PLAYER_SUBTITLES_VARIANTS" => "Subtitles Variants");
+                        color: Theme.surface-light;
+                        font-size: 16px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                }
+
+                if (active-subtitle-idx < 0) : HorizontalLayout {
+                    height: 56px;
+                    padding-left: 24px;
+                    padding-right: 24px;
+                    Text {
+                        text: @tr("PLAYER_SUBTITLES_DISABLED" => "Subtitles are disabled");
+                        color: Theme.surface-light-90;
+                        font-size: 15px;
+                        font-weight: 500;
+                        wrap: word-wrap;
+                    }
+                }
+
+                if (active-subtitle-idx >= 0) : ScrollView {
+                    vertical-stretch: 1;
+                    viewport-width: self.width;
+                    horizontal-scrollbar-policy: always-off;
+                    mouse-drag-pan-enabled: true;
+
+                    VerticalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        // No layout spacing here: every track in the model gets
+                        // a row and the ones for other languages collapse to
+                        // zero height, but a `spacing` would still be inserted
+                        // around each of them and pile up as dead space above
+                        // the visible rows. The row carries the web's
+                        // `margin-bottom: 0.5rem` in its own height instead, so
+                        // a hidden row contributes exactly nothing.
+                        spacing: 0px;
+
+                        for sub-name[idx] in subtitles-tracks : Rectangle {
+                            property <bool> matches-language:
+                                subtitle-track-languages[idx] == selected-subtitle-language;
+                            height: self.matches-language ? 72px : 0px;
+                            visible: self.matches-language;
+
+                            TrackItem {
+                                x: 0px;
+                                y: 0px;
+                                width: 100%;
+                                height: 64px;
+                                label: sub-name;
+                                secondary-label: subtitle-track-origins[idx];
+                                active: active-subtitle-idx == idx;
+                                clicked => {
+                                    active-subtitle-idx = idx;
+                                    change-subtitle(idx);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle { width: 1px; background: Theme.overlay-color; }
+
+            // Official Stremio menu: per-track settings (17rem).
+            VerticalLayout {
+                width: 256px;
+                spacing: 0px;
+
+                HorizontalLayout {
+                    height: 56px;
+                    padding-left: 24px;
+                    Text {
+                        text: @tr("PLAYER_SUBTITLES_SETTINGS" => "Subtitles Settings");
+                        color: Theme.surface-light;
+                        font-size: 16px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                }
+
+                ScrollView {
+                    vertical-stretch: 1;
+                    viewport-width: self.width;
+                    horizontal-scrollbar-policy: always-off;
+                    mouse-drag-pan-enabled: true;
+
+                    VerticalLayout {
+                        SubtitleStepper {
+                            label: @tr("DELAY" => "Delay");
+                            unit: "s";
+                            value: subtitle-delay-seconds;
+                            step: 0.25;
+                            minimum: -10.0;
+                            maximum: 10.0;
+                            disabled: active-subtitle-idx < 0;
+                            changed(value) => {
+                                subtitle-delay-seconds = value;
+                                change-subtitle-delay(value);
+                            }
+                        }
+                        SubtitleStepper {
+                            label: @tr("SIZE" => "Size");
+                            unit: "%";
+                            value: subtitle-size-percent;
+                            step: 25.0;
+                            minimum: 50.0;
+                            maximum: 200.0;
+                            disabled: active-subtitle-idx < 0;
+                            changed(value) => {
+                                subtitle-size-percent = value;
+                                change-subtitle-size(value);
+                            }
+                        }
+                        SubtitleStepper {
+                            label: @tr("PLAYER_SUBTITLES_VERTICAL_POSITION" => "Vertical Position");
+                            unit: "%";
+                            value: subtitle-offset-percent;
+                            step: 1.0;
+                            minimum: 0.0;
+                            maximum: 100.0;
+                            disabled: active-subtitle-idx < 0;
+                            changed(value) => {
+                                subtitle-offset-percent = value;
+                                change-subtitle-offset(value);
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle { width: 1px; background: Theme.overlay-color; }
+
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 0px;
+
+                HorizontalLayout {
+                    height: 56px;
+                    padding-left: 20px;
+                    Text {
+                        text: @tr("Secondary subtitles");
+                        color: Theme.surface-light;
+                        font-size: 16px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                }
+
+                ScrollView {
+                    vertical-stretch: 1;
+                    viewport-width: self.width;
+                    horizontal-scrollbar-policy: always-off;
+                    mouse-drag-pan-enabled: true;
+
+                    VerticalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        padding-bottom: 12px;
+                        spacing: 4px;
+
+                        TrackItem {
+                            label: @tr("NAVIGATION_OFF" => "Off");
+                            active: active-secondary-subtitle-idx == -1;
+                            clicked => {
+                                active-secondary-subtitle-idx = -1;
+                                change-secondary-subtitle(-1);
+                            }
+                        }
+                        for sub-name[idx] in subtitles-tracks : TrackItem {
+                            label: sub-name;
+                            secondary-label: idx == active-subtitle-idx
+                                ? @tr("Selected as primary")
+                                : subtitle-track-origins[idx];
+                            active: active-secondary-subtitle-idx == idx;
+                            available: idx != active-subtitle-idx;
+                            clicked => {
+                                active-secondary-subtitle-idx = idx;
+                                change-secondary-subtitle(idx);
+                            }
+                        }
+                        SubtitleStepper {
+                            label: @tr("SIZE" => "Size");
+                            unit: "%";
+                            value: secondary-subtitle-size-percent;
+                            step: 5.0;
+                            minimum: 50.0;
+                            maximum: 200.0;
+                            disabled: active-secondary-subtitle-idx < 0;
+                            changed(value) => {
+                                secondary-subtitle-size-percent = value;
+                                change-secondary-subtitle-size(value);
+                            }
+                        }
+                        SubtitleStepper {
+                            label: @tr("PLAYER_SUBTITLES_VERTICAL_POSITION" => "Vertical Position");
+                            unit: "%";
+                            value: secondary-subtitle-offset-percent;
+                            step: 1.0;
+                            minimum: 0.0;
+                            maximum: 100.0;
+                            disabled: active-secondary-subtitle-idx < 0;
+                            changed(value) => {
+                                secondary-subtitle-offset-percent = value;
+                                change-secondary-subtitle-offset(value);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (controls-visible && show-audio-menu) : audio-menu := PopupMenuSurface {
+        x: parent.width - audio-menu.width - 64px;
+        y: parent.height - audio-menu.height - 120px;
+        width: 320px;
+        height: min(440px, parent.height - 200px);
+        background: Theme.card-background;
+        border-radius: Theme.border-radius;
+        border-width: 1px;
+        border-color: Theme.divider;
+        z: 180;
+
+        VerticalLayout {
+            spacing: 0px;
+
+            HorizontalLayout {
+                height: 56px;
+                padding-left: 24px;
+                Text {
+                    text: @tr("AUDIO_TRACKS" => "Audio Tracks");
+                    color: Theme.surface-light;
+                    font-size: 16px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                }
+            }
+
+            SubtitleStepper {
+                label: @tr("DELAY" => "Delay");
+                unit: "s";
+                value: audio-delay-seconds;
+                step: 0.25;
+                minimum: -10.0;
+                maximum: 10.0;
+                disabled: active-audio-idx < 0;
+                changed(value) => {
+                    audio-delay-seconds = value;
+                    change-audio-delay(value);
+                }
+            }
+
+            Rectangle { height: 1px; background: Theme.overlay-color; }
+
+            ScrollView {
+                vertical-stretch: 1;
+                viewport-width: self.width;
+                horizontal-scrollbar-policy: always-off;
+
+                VerticalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-bottom: 16px;
+                    padding-top: 8px;
+                    spacing: 8px;
+                    for aud-name[idx] in audio-tracks : TrackItem {
+                        label: audio-track-languages[idx];
+                        secondary-label: audio-track-labels[idx];
+                        active: active-audio-idx == idx;
+                        clicked => {
+                            active-audio-idx = idx;
+                            change-audio(idx);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (controls-visible && show-speed-menu) : speed-menu := PopupMenuSurface {
+        x: parent.width - speed-menu.width - 32px;
+        y: parent.height - speed-menu.height - 112px;
+        width: 240px;
+        height: min(440px, parent.height - 200px);
+        background: Theme.card-background;
+        border-radius: Theme.border-radius;
+        border-width: 1px;
+        border-color: Theme.divider;
+        z: 180;
+
+        VerticalLayout {
+            spacing: 0px;
+
+            HorizontalLayout {
+                height: 56px;
+                padding-left: 24px;
+                Text {
+                    text: @tr("PLAYER_PLAYBACK_SPEED" => "Playback Speed");
+                    color: Theme.surface-light;
+                    font-size: 16px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                }
+            }
+
+            ScrollView {
+                vertical-stretch: 1;
+                viewport-width: self.width;
+                horizontal-scrollbar-policy: always-off;
+
+                VerticalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-bottom: 16px;
+                    spacing: 4px;
+
+                    TrackItem { label: "2x"; active: playback-speed == 2.0; clicked => { playback-speed = 2.0; change-speed(2.0); show-speed-menu = false; } }
+                    TrackItem { label: "1.75x"; active: playback-speed == 1.75; clicked => { playback-speed = 1.75; change-speed(1.75); show-speed-menu = false; } }
+                    TrackItem { label: "1.5x"; active: playback-speed == 1.5; clicked => { playback-speed = 1.5; change-speed(1.5); show-speed-menu = false; } }
+                    TrackItem { label: "1.25x"; active: playback-speed == 1.25; clicked => { playback-speed = 1.25; change-speed(1.25); show-speed-menu = false; } }
+                    TrackItem { label: "1x"; active: playback-speed == 1.0; clicked => { playback-speed = 1.0; change-speed(1.0); show-speed-menu = false; } }
+                    TrackItem { label: "0.75x"; active: playback-speed == 0.75; clicked => { playback-speed = 0.75; change-speed(0.75); show-speed-menu = false; } }
+                    TrackItem { label: "0.5x"; active: playback-speed == 0.5; clicked => { playback-speed = 0.5; change-speed(0.5); show-speed-menu = false; } }
+                    TrackItem { label: "0.25x"; active: playback-speed == 0.25; clicked => { playback-speed = 0.25; change-speed(0.25); show-speed-menu = false; } }
+                }
+            }
+        }
+    }
+
+    if (controls-visible && show-upscaler-menu) : upscaler-menu := PopupMenuSurface {
+        x: parent.width - upscaler-menu.width - 32px;
+        y: parent.height - upscaler-menu.height - 112px;
+        width: 260px;
+        height: min(500px, parent.height - 200px);
+        background: Theme.card-background;
+        border-radius: Theme.border-radius;
+        border-width: 1px;
+        border-color: Theme.divider;
+        z: 180;
+        forward-focus: upscaler-focus;
+
+        upscaler-focus := FocusScope {
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    show-upscaler-menu = false;
+                    return accept;
+                }
+                reject
+            }
+        }
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 4px;
+
+            Text {
+                height: 40px;
+                text: @tr("Upscaler" => "Upscaler");
+                color: Theme.surface-light;
+                font-size: 16px;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+
+            Text {
+                width: parent.width;
+                text: shader-status;
+                color: Theme.text-muted;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+
+            ScrollView {
+                vertical-stretch: 1;
+                viewport-width: self.width;
+                horizontal-scrollbar-policy: always-off;
+
+                VerticalLayout {
+                    width: parent.width;
+                    spacing: 4px;
+
+                    for name[idx] in shader-preset-names : TrackItem {
+                        label: name;
+                        active: active-shader-preset == idx;
+                        available: idx == 0 || (idx < shader-preset-available.length && shader-preset-available[idx]);
+                        clicked => {
+                            change-shader-preset(idx);
+                            show-upscaler-menu = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (controls-visible && show-stats-menu) : stats-menu := PopupMenuSurface {
+        x: parent.width - stats-menu.width - 32px;
+        y: parent.height - stats-menu.height - 112px;
+        width: min(480px, parent.width - 64px);
+        height: 175px;
+        background: Theme.card-background;
+        border-radius: Theme.border-radius;
+        border-width: 1px;
+        border-color: Theme.divider;
+        z: 180;
+
+        VerticalLayout {
+            padding: 24px;
+            spacing: 20px;
+            alignment: start;
+
+            // Title
+            Text {
+                text: @tr("PLAYER_STATISTICS" => "Statistics");
+                color: Theme.surface-light;
+                font-size: 18px;
+                font-weight: 700;
+            }
+
+            // Stats row: Peers, Speed, Completed - inline label + value
+            HorizontalLayout {
+                spacing: 20px;
+                alignment: start;
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    Text { text: @tr("PLAYER_PEERS" => "Peers"); color: Theme.text-muted; font-size: 15px; font-weight: 500; vertical-alignment: center; }
+                    Text { text: download-speed != "" ? peer-count : "0"; color: Theme.surface-light; font-size: 15px; font-weight: 700; vertical-alignment: center; }
+                }
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    Text { text: @tr("PLAYER_SPEED" => "Speed"); color: Theme.text-muted; font-size: 15px; font-weight: 500; vertical-alignment: center; }
+                    Text { text: download-speed != "" ? download-speed : "0 KB/s"; color: Theme.surface-light; font-size: 15px; font-weight: 700; vertical-alignment: center; }
+                }
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    Text { text: @tr("PLAYER_COMPLETED" => "Completed"); color: Theme.text-muted; font-size: 15px; font-weight: 500; vertical-alignment: center; }
+                    Text { text: download-speed != "" ? round(stream-progress * 100.0) / 100.0 + " %" : "0 %"; color: Theme.surface-light; font-size: 15px; font-weight: 700; vertical-alignment: center; }
+                }
+            }
+
+            // Info hash section
+            VerticalLayout {
+                spacing: 6px;
+                alignment: start;
+                Text { text: @tr("PLAYER_INFO_HASH" => "Info hash"); color: Theme.text-muted; font-size: 14px; font-weight: 500; }
+                Text {
+                    text: info-hash != "" ? info-hash : "N/A";
+                    color: Theme.surface-light;
+                    font-size: 15px;
+                    font-weight: 500;
+                    overflow: elide;
+                }
+            }
+        }
+    }
+
+    // NextVideoPopup Overlay ("Up Next" card) matching stremio-web/src/routes/Player/NextVideoPopup
+    if (controls-visible && show-next-video-popup && has-next-episode) : next-video-popup := PopupMenuSurface {
+        x: parent.width - next-video-popup.width - 32px;
+        y: parent.height - next-video-popup.height - 112px;
+        width: min(560px, parent.width - 64px);
+        height: 180px;
+        background: Theme.card-background;
+        border-radius: Theme.border-radius;
+        border-width: 1px;
+        border-color: Theme.divider;
+        z: 180;
+
+        HorizontalLayout {
+            padding: 0px;
+            spacing: 0px;
+
+            Rectangle {
+                width: 150px;
+                height: 100%;
+                background: Theme.overlay;
+                clip: true;
+
+                Image {
+                    width: 100%;
+                    height: 100%;
+                    source: next-episode-poster;
+                    image-fit: cover;
+                }
+            }
+
+            VerticalLayout {
+                horizontal-stretch: 1;
+                padding: 20px;
+                spacing: 12px;
+
+                VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: next-series-name != "" ? @tr("Next episode from") + " " + next-series-name : @tr("Up Next");
+                        color: Theme.accent;
+                        font-size: 14px;
+                        font-weight: 600;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: next-episode-title;
+                        color: Theme.text-primary;
+                        font-size: 17px;
+                        font-weight: 600;
+                        overflow: elide;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 12px;
+                    alignment: end;
+
+                    ButtonSurface {
+                        height: 40px;
+                        border-radius: 20px;
+                        background: self.has-hover ? Theme.overlay-pressed : Theme.overlay-hover;
+                        HorizontalLayout {
+                            padding-left: 20px;
+                            padding-right: 20px;
+                            alignment: center;
+                            Text {
+                                text: @tr("Dismiss");
+                                color: Theme.text-primary;
+                                font-size: 14px;
+                                font-weight: 500;
+                                vertical-alignment: center;
+                            }
+                        }
+                        clicked => {
+                            show-next-video-popup = false;
+                            root.next-popup-dismissed = true;
+                            dismiss-next-video-popup();
+                        }
+                    }
+
+                    ButtonSurface {
+                        height: 40px;
+                        border-radius: 20px;
+                        background: Theme.accent;
+                        HorizontalLayout {
+                            padding-left: 24px;
+                            padding-right: 24px;
+                            alignment: center;
+                            Text {
+                                text: @tr("Watch Now") + " (" + next-video-countdown + "s)";
+                                color: Theme.surface-light;
+                                font-size: 14px;
+                                font-weight: 700;
+                                vertical-alignment: center;
+                            }
+                        }
+                        clicked => {
+                            show-next-video-popup = false;
+                            play-next-episode();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

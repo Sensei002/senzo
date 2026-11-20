@@ -1,0 +1,550 @@
+import { ListView, ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { MediaCardItem } from "../components/media_card.slint";
+import { MediaCardGridRow, MediaGridPlaceholder } from "../components/media_carousel.slint";
+import { ButtonSurface, IconAction, PillButton } from "../components/button.slint";
+import { EmptyState } from "../components/feedback.slint";
+import { MetaStringLinks } from "../components/meta_preview.slint";
+import { SelectField } from "../components/select.slint";
+import { ModalDialog } from "../components/overlays.slint";
+
+export struct DiscoverRow {
+    cols: [MediaCardItem],
+}
+
+export struct DiscoverFilterOption {
+    extra-name: string,
+    extra-label: string,
+    value: string,
+    label: string,
+    selected: bool,
+}
+
+export component DiscoverPage inherits Rectangle {
+    in property <[DiscoverRow]> rows: [];
+    in property <int> column-count: 6;
+    in property <bool> loading: false;
+    in property <bool> has-next-page: false;
+
+    in property <[string]> available-types: [];
+    in property <string> active-type: "";
+    in property <[string]> available-catalogs: [];
+    in property <string> active-catalog: "";
+    in property <[string]> available-genres: [];
+    in property <string> active-genre: "";
+    in property <[DiscoverFilterOption]> available-extra-options: [];
+    in property <bool> selected-addon-installed: true;
+    in property <string> selected-addon-name: "";
+
+    in-out property <length> scroll-y: 0px;
+
+    in property <bool> has-preview: false;
+    in property <string> preview-title: "";
+    in property <image> preview-logo;
+    in property <string> preview-description: "";
+    in property <string> preview-rating: "";
+    in property <string> preview-year: "";
+    in property <string> preview-runtime: "";
+    in property <[string]> preview-genres: [];
+    in property <[string]> preview-cast: [];
+    in property <[string]> preview-directors: [];
+    in property <image> preview-poster;
+    in property <bool> preview-is-in-library: false;
+    in property <bool> preview-is-watched: false;
+    in property <bool> preview-has-trailer: false;
+    in property <string> preview-trailer-selection-id: "";
+    in property <bool> enable-hover-preview: false;
+    in property <duration> hover-preview-delay: 1200ms;
+
+    callback hover-preview-requested(string, string, length, length, length, length);
+    callback hover-preview-dismissed();
+    callback type-changed(string);
+    callback catalog-changed(string);
+    callback genre-changed(string);
+    callback item-selected(string, string, string);
+    callback item-activated(string, string, string);
+    callback load-next-page;
+    callback poster-requested(string);
+    callback play-preview;
+    callback toggle-library-preview;
+    callback toggle-watched-preview;
+    callback play-trailer-preview(string);
+    callback extra-changed(string, string);
+    callback install-selected-addon;
+    callback metadata-filter-selected(string);
+
+    private property <bool> pagination-latched: false;
+    private property <int> pagination-content-length: root.rows.length;
+    changed pagination-content-length => { root.pagination-latched = false; }
+    changed has-next-page => {
+        if (root.has-next-page) {
+            root.pagination-latched = false;
+        }
+    }
+    function request-next-page() {
+        if (root.has-next-page && !root.pagination-latched) {
+            root.pagination-latched = true;
+            root.load-next-page();
+        }
+    }
+    function check-pagination(remaining: length) {
+        if (remaining <= 25 * root.unit) {
+            root.request-next-page();
+        } else {
+            root.pagination-latched = false;
+        }
+    }
+
+    in property <length> unit: Theme.root-font-size;
+    property <bool> preview-visible: root.has-preview && root.preview-title != "";
+    in-out property <bool> type-open: false;
+    in-out property <bool> catalog-open: false;
+    in-out property <bool> genre-open: false;
+    in-out property <bool> all-filters-open: false;
+    property <length> preview-panel-width: 29 * root.unit;
+    property <length> grid-width: catalog.width - 3 * root.unit;
+    property <length> card-width: root.column-count > 0
+        ? (root.grid-width - (root.column-count - 1) * 0.5 * root.unit) / root.column-count
+        : root.grid-width;
+    property <length> card-height: (root.card-width - 2 * root.unit) * 1.464 + 6 * root.unit;
+
+    background: transparent;
+
+    HorizontalLayout {
+        spacing: 0px;
+
+        catalog := VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 0px;
+
+            Rectangle {
+                height: root.selected-addon-installed ? 5.75 * root.unit : 10 * root.unit;
+
+                HorizontalLayout {
+                    padding: 1.5 * root.unit;
+                    spacing: 1.5 * root.unit;
+                    alignment: start;
+
+                    SelectField {
+                        unit: root.unit;
+                        field-width: 15 * root.unit;
+                        value: root.active-type;
+                        placeholder: @tr("Type");
+                        options: root.available-types;
+                        open: root.type-open;
+                        toggle => {
+                            root.type-open = !root.type-open;
+                            root.catalog-open = false;
+                            root.genre-open = false;
+                        }
+                        selected(value) => {
+                            root.type-open = false;
+                            root.type-changed(value);
+                        }
+                    }
+
+                    SelectField {
+                        unit: root.unit;
+                        field-width: 15 * root.unit;
+                        value: root.active-catalog;
+                        placeholder: @tr("Catalog");
+                        options: root.available-catalogs;
+                        open: root.catalog-open;
+                        toggle => {
+                            root.catalog-open = !root.catalog-open;
+                            root.type-open = false;
+                            root.genre-open = false;
+                        }
+                        selected(value) => {
+                            root.catalog-open = false;
+                            root.catalog-changed(value);
+                        }
+                    }
+
+                    SelectField {
+                        unit: root.unit;
+                        field-width: 15 * root.unit;
+                        value: root.active-genre;
+                        placeholder: @tr("Genre");
+                        options: root.available-genres;
+                        open: root.genre-open;
+                        toggle => {
+                            root.genre-open = !root.genre-open;
+                            root.type-open = false;
+                            root.catalog-open = false;
+                        }
+                        selected(value) => {
+                            root.genre-open = false;
+                            root.genre-changed(value);
+                        }
+                    }
+
+                    if (root.available-extra-options.length > 0) : PillButton {
+                        width: 10 * root.unit;
+                        height: 3.25 * root.unit;
+                        unit: root.unit;
+                        label: @tr("All filters");
+                        show-icon: true;
+                        use-svg-icon: true;
+                        icon-source: @image-url("../assets/images/icons/filters.svg");
+                        clicked => {
+                            root.type-open = false;
+                            root.catalog-open = false;
+                            root.genre-open = false;
+                            root.all-filters-open = true;
+                        }
+                    }
+                }
+
+                if (!root.selected-addon-installed) : Rectangle {
+                    x: 1.5 * root.unit;
+                    y: 5.5 * root.unit;
+                    width: parent.width - 3 * root.unit;
+                    height: 3.5 * root.unit;
+                    border-radius: Theme.border-radius;
+                    background: Theme.modal-color;
+                    border-width: 1px;
+                    border-color: Theme.warning;
+
+                    HorizontalLayout {
+                        padding-left: root.unit;
+                        padding-right: 0.5 * root.unit;
+                        spacing: root.unit;
+                        alignment: center;
+                        Image {
+                            width: 1.5 * root.unit;
+                            height: 1.5 * root.unit;
+                            source: @image-url("../assets/images/icons/warning.svg");
+                            colorize: Theme.warning;
+                            image-fit: contain;
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: @tr("This catalog belongs to an addon that is not installed")
+                                + (root.selected-addon-name != "" ? ": " + root.selected-addon-name : "");
+                            color: Theme.primary-foreground;
+                            font-size: 0.95 * root.unit;
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+                        PillButton {
+                            width: 8 * root.unit;
+                            height: 2.75 * root.unit;
+                            unit: root.unit;
+                            label: @tr("Install");
+                            surface-color: Theme.secondary-accent;
+                            hover-color: Theme.secondary-accent.brighter(0.2);
+                            clicked => { root.install-selected-addon(); }
+                        }
+                    }
+                }
+            }
+
+            if (root.loading) : MediaGridPlaceholder {
+                vertical-stretch: 1;
+                unit: root.unit;
+                card-width: root.card-width;
+                card-height: root.card-height;
+            }
+
+            if (!root.loading && root.rows.length == 0) : EmptyState {
+                vertical-stretch: 1;
+                unit: root.unit;
+                icon-source: @image-url("../assets/images/icons/discover.svg");
+                title: @tr("No items found");
+                message: @tr("Try changing the catalog filters.");
+            }
+
+            if (!root.loading && root.rows.length > 0) : catalog-scroll := ListView {
+                vertical-stretch: 1;
+                viewport-width: catalog.width;
+                viewport-y <=> root.scroll-y;
+                horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+                changed viewport-y => {
+                    root.check-pagination(self.viewport-height + self.viewport-y - self.height);
+                }
+                changed viewport-height => {
+                    root.check-pagination(self.viewport-height + self.viewport-y - self.height);
+                }
+
+                for row[row-index] in root.rows : Rectangle {
+                    width: catalog.width;
+                    height: root.card-height + 0.5 * root.unit;
+                    clip: true;
+
+                    init => {
+                        if (row-index == root.rows.length - 1) {
+                            root.request-next-page();
+                        }
+                    }
+
+                    MediaCardGridRow {
+                        x: 1.5 * root.unit;
+                        width: root.grid-width;
+                        height: root.card-height;
+                        unit: root.unit;
+                        items: row.cols;
+                        card-width: root.card-width;
+                        card-height: root.card-height;
+                        spacing: 0.5 * root.unit;
+                        enable-hover-preview: root.enable-hover-preview;
+                        hover-preview-delay: root.hover-preview-delay;
+                        item-selected(id, media-type, video-id) => {
+                            root.item-selected(id, media-type, video-id);
+                        }
+                        item-activated(id, media-type, video-id) => {
+                            root.item-activated(id, media-type, video-id);
+                        }
+                        poster-requested(url) => { root.poster-requested(url); }
+                        hover-preview-requested(id, media-type, x, y, width, height) => {
+                            root.hover-preview-requested(id, media-type, x, y, width, height);
+                        }
+                        hover-preview-dismissed => { root.hover-preview-dismissed(); }
+                    }
+                }
+            }
+        }
+
+        if (root.preview-visible) : preview := Rectangle {
+            width: root.preview-panel-width;
+            background: Theme.modal-background;
+            border-radius: 0.75 * root.unit;
+            clip: true;
+
+            if (root.preview-poster.width > 0) : Image {
+                source: root.preview-poster;
+                width: parent.width;
+                height: parent.height;
+                image-fit: cover;
+                opacity: 0.15;
+            }
+
+            ScrollView {
+                width: parent.width;
+                height: max(0px, parent.height - 6.5 * root.unit);
+                viewport-width: parent.width;
+                horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+                vertical-scrollbar-policy: ScrollBarPolicy.as-needed;
+
+                drawer-content := VerticalLayout {
+                    width: preview.width;
+                    padding-left: 2.5 * root.unit;
+                    padding-right: 2.5 * root.unit;
+                    padding-top: 2 * root.unit;
+                    padding-bottom: 2 * root.unit;
+                    spacing: 1.5 * root.unit;
+                    alignment: start;
+
+                    if (root.preview-logo.width > 0) : Image {
+                        horizontal-stretch: 1;
+                        max-width: preview.width - 5 * root.unit;
+                        height: 5 * root.unit;
+                        source: root.preview-logo;
+                        image-fit: contain;
+                        horizontal-alignment: left;
+                    }
+
+                    if (root.preview-logo.width == 0) : Text {
+                        horizontal-stretch: 1;
+                        max-width: preview.width - 5 * root.unit;
+                        text: root.preview-title;
+                        color: Theme.text-primary;
+                        font-size: 1.8 * root.unit;
+                        font-weight: 600;
+                        wrap: word-wrap;
+                    }
+
+                    HorizontalLayout {
+                        horizontal-stretch: 1;
+                        max-width: preview.width - 5 * root.unit;
+                        spacing: 2.25 * root.unit;
+                        alignment: start;
+                        Text {
+                            text: root.preview-runtime;
+                            color: Theme.text-primary;
+                            opacity: 0.85;
+                            font-size: 1.1 * root.unit;
+                            font-weight: 600;
+                        }
+                        Text {
+                            text: root.preview-year;
+                            color: Theme.text-primary;
+                            opacity: 0.6;
+                            font-size: root.unit;
+                        }
+                        Text {
+                            text: root.preview-rating;
+                            color: Theme.text-primary;
+                            opacity: 0.6;
+                            font-size: root.unit;
+                        }
+                        if (root.preview-rating != "") : Image {
+                            width: 2.5 * root.unit;
+                            height: 1.4 * root.unit;
+                            source: @image-url("../assets/images/icons/imdb.svg");
+                            image-fit: contain;
+                        }
+                    }
+
+                    Text {
+                        horizontal-stretch: 1;
+                        max-width: preview.width - 5 * root.unit;
+                        text: root.preview-description;
+                        color: Theme.text-primary;
+                        opacity: 0.65;
+                        font-size: root.unit;
+                        wrap: word-wrap;
+                    }
+
+                    if (root.preview-genres.length > 0) : MetaStringLinks {
+                        horizontal-stretch: 1;
+                        max-width: preview.width - 5 * root.unit;
+                        unit: root.unit;
+                        label: @tr("LINKS_GENRES" => "Genres");
+                        values: root.preview-genres;
+                        link-selected(value) => { root.metadata-filter-selected(value); }
+                    }
+
+                    if (root.preview-cast.length > 0) : MetaStringLinks {
+                        horizontal-stretch: 1;
+                        max-width: preview.width - 5 * root.unit;
+                        unit: root.unit;
+                        label: @tr("CAST" => "Cast");
+                        values: root.preview-cast;
+                        link-selected(value) => { root.metadata-filter-selected(value); }
+                    }
+
+                    if (root.preview-directors.length > 0) : MetaStringLinks {
+                        horizontal-stretch: 1;
+                        max-width: preview.width - 5 * root.unit;
+                        unit: root.unit;
+                        label: @tr("LINKS_DIRECTORS" => "Directors");
+                        values: root.preview-directors;
+                        link-selected(value) => { root.metadata-filter-selected(value); }
+                    }
+                }
+            }
+
+            actions := HorizontalLayout {
+                x: 2.5 * root.unit;
+                y: parent.height - 5.5 * root.unit;
+                width: parent.width - 5 * root.unit;
+                height: 3.5 * root.unit;
+                spacing: 0.65 * root.unit;
+
+                if (root.preview-has-trailer && root.preview-trailer-selection-id != "") : IconAction {
+                    unit: root.unit;
+                    width: 3.5 * root.unit;
+                    height: 3.5 * root.unit;
+                    icon-size: 1.55 * root.unit;
+                    label: @tr("TRAILER" => "Trailer");
+                    surface-color: Theme.overlay;
+                    icon-source: @image-url("../assets/images/icons/trailer.svg");
+                    clicked => { root.play-trailer-preview(root.preview-trailer-selection-id); }
+                }
+
+                IconAction {
+                    unit: root.unit;
+                    width: 3.5 * root.unit;
+                    height: 3.5 * root.unit;
+                    icon-size: 1.55 * root.unit;
+                    label: root.preview-is-in-library
+                        ? @tr("REMOVE_FROM_LIB" => "Remove from Library")
+                        : @tr("ADD_TO_LIB" => "Add to Library");
+                    active: root.preview-is-in-library;
+                    active-color: Theme.accent;
+                    surface-color: Theme.overlay;
+                    icon-source: root.preview-is-in-library
+                        ? @image-url("../assets/images/icons/remove-from-library.svg")
+                        : @image-url("../assets/images/icons/add-to-library.svg");
+                    clicked => { root.toggle-library-preview(); }
+                }
+
+                IconAction {
+                    unit: root.unit;
+                    width: 3.5 * root.unit;
+                    height: 3.5 * root.unit;
+                    icon-size: 1.55 * root.unit;
+                    label: root.preview-is-watched
+                        ? @tr("MARK_AS_UNWATCHED" => "Mark as unwatched")
+                        : @tr("MARK_AS_WATCHED" => "Mark as watched");
+                    active: root.preview-is-watched;
+                    active-color: Theme.accent;
+                    surface-color: Theme.overlay;
+                    icon-source: root.preview-is-watched
+                        ? @image-url("../assets/images/icons/eye-off.svg")
+                        : @image-url("../assets/images/icons/eye.svg");
+                    clicked => { root.toggle-watched-preview(); }
+                }
+
+                PillButton {
+                    horizontal-stretch: 1;
+                    unit: root.unit;
+                    label: @tr("SHOW" => "Show");
+                    primary: true;
+                    clicked => { root.play-preview(); }
+                }
+            }
+        }
+    }
+
+    ModalDialog {
+        open: root.all-filters-open;
+        unit: root.unit;
+        title: @tr("All filters");
+        dialog-width: 42 * root.unit;
+        dialog-height: 38 * root.unit;
+        close-requested => { root.all-filters-open = false; }
+
+        ScrollView {
+            width: parent.width;
+            height: parent.height;
+            viewport-width: parent.width;
+            horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+            VerticalLayout {
+                width: parent.width;
+                spacing: 0.5 * root.unit;
+                for option in root.available-extra-options : ButtonSurface {
+                    height: 3.25 * root.unit;
+                    border-radius: Theme.border-radius;
+                    background: option.selected
+                        ? Theme.primary-accent
+                        : (self.has-hover ? Theme.overlay-hover : Theme.overlay-color);
+                    accessible-name: option.extra-label + ": " + option.label;
+                    clicked => {
+                        root.extra-changed(option.extra-name, option.value);
+                        root.all-filters-open = false;
+                    }
+                    HorizontalLayout {
+                        padding-left: root.unit;
+                        padding-right: root.unit;
+                        spacing: root.unit;
+                        Text {
+                            width: 10 * root.unit;
+                            text: option.extra-label;
+                            color: Theme.text-secondary;
+                            font-size: 0.9 * root.unit;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: option.label;
+                            color: Theme.primary-foreground;
+                            font-size: root.unit;
+                            font-weight: option.selected ? 700 : 500;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        if (option.selected) : Image {
+                            width: 1.25 * root.unit;
+                            source: @image-url("../assets/images/icons/checkmark.svg");
+                            colorize: Theme.primary-foreground;
+                            image-fit: contain;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

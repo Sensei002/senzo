@@ -1,0 +1,169 @@
+import { ListView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { EmptyState, SearchHint } from "../components/feedback.slint";
+import { MediaCatalogRow } from "../components/media_carousel.slint";
+import { MetaRowPlaceholder } from "../components/meta_row.slint";
+import { BoardSection } from "board.slint";
+
+export component SearchPage inherits Rectangle {
+    width: 1280px;
+    height: 720px;
+    in property <string> query: "";
+    in property <[BoardSection]> sections: [];
+    in property <bool> loading: false;
+    in property <int> catalog-count: 0;
+    in property <bool> enable-hover-preview: false;
+    in property <duration> hover-preview-delay: 1200ms;
+    callback item-selected(string, string, string);
+    callback catalog-visible(int);
+    callback poster-requested(string);
+    callback hover-preview-requested(string, string, length, length, length, length);
+    callback hover-preview-dismissed();
+
+    in property <length> unit: Theme.root-font-size;
+    property <int> visible-count: root.width > 2100px ? 9 :
+        (root.width > 1500px ? 8 : (root.width > 1200px ? 7 :
+        (root.width > 900px ? 6 : 4)));
+    property <length> card-width: (root.width - 2 * root.unit) / root.visible-count;
+    property <length> card-height: (root.card-width - 2 * root.unit) * 1.464 + 6 * root.unit;
+
+    background: transparent;
+
+    // This is the exact empty-search composition used by the web route: one
+    // understated title followed by four searchable-domain hints.
+    if (root.query == "") : VerticalLayout {
+        alignment: center;
+        spacing: 2.5 * root.unit;
+        padding-left: 2 * root.unit;
+        padding-right: 2 * root.unit;
+
+        Text {
+            text: @tr("SEARCH_ANYTHING" => "You Can Search Anything...");
+            color: Theme.text-primary;
+            opacity: 0.4;
+            font-size: 1.6 * root.unit;
+            horizontal-alignment: center;
+        }
+
+        HorizontalLayout {
+            alignment: center;
+            HorizontalLayout {
+                width: min(46 * root.unit, root.width - 4 * root.unit);
+                height: 10 * root.unit;
+                alignment: center;
+                spacing: 2 * root.unit;
+
+                SearchHint {
+                    unit: root.unit;
+                    icon-source: @image-url("../assets/images/icons/trailer.svg");
+                    label: @tr("SEARCH_CATEGORIES" => "Movies, Series, YouTube & TV");
+                }
+                SearchHint {
+                    unit: root.unit;
+                    icon-source: @image-url("../assets/images/icons/actors.svg");
+                    label: @tr("SEARCH_PERSONS" => "Actors, Directors & Writers");
+                }
+                SearchHint {
+                    unit: root.unit;
+                    icon-source: @image-url("../assets/images/icons/link.svg");
+                    label: @tr("SEARCH_PROTOCOLS" => "HTTP & Magnet Links");
+                }
+                SearchHint {
+                    unit: root.unit;
+                    icon-source: @image-url("../assets/images/icons/imdb-outline.svg");
+                    label: @tr("SEARCH_TYPES" => "IMDB / TVDB links");
+                }
+            }
+        }
+    }
+
+    if (root.query != "" && root.loading && root.sections.length == 0) : ListView {
+        x: root.unit;
+        width: max(0px, root.width - 2 * root.unit);
+        horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+
+        for _catalog in [0, 1] : MetaRowPlaceholder {
+            width: parent.width;
+            unit: root.unit;
+            item-width: max(9 * root.unit, root.card-width - 2 * root.unit);
+        }
+    }
+
+    if (root.query != "" && !root.loading && root.catalog-count == 0) : EmptyState {
+        x: root.unit;
+        width: max(0px, root.width - 2 * root.unit);
+        height: 18 * root.unit;
+        unit: root.unit;
+        icon-source: @image-url("../assets/images/icons/addons-outline.svg");
+        title: @tr("No installed addons support search");
+    }
+
+    if (root.query != "" && !root.loading && root.catalog-count > 0 && root.sections.length == 0) : EmptyState {
+        x: root.unit;
+        width: max(0px, root.width - 2 * root.unit);
+        height: 18 * root.unit;
+        unit: root.unit;
+        icon-source: @image-url("../assets/images/icons/search-outline.svg");
+        title: @tr("SEARCH_NO_RESULTS" => "No results were found");
+    }
+
+    if (root.query != "" && root.sections.length > 0) : ListView {
+        x: root.unit;
+        width: max(0px, root.width - 2 * root.unit);
+        horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+
+        for section in root.sections : Rectangle {
+            property <string> p-shape: section.poster-shape != "" ? section.poster-shape : "poster";
+            property <length> section-card-height: p-shape == "landscape"
+                ? (root.card-width - 2 * root.unit) * Theme.landscape-shape-ratio + 6 * root.unit
+                : (p-shape == "square"
+                    ? (root.card-width - 2 * root.unit) + 6 * root.unit
+                    : root.card-height);
+            width: parent.width;
+            height: 3 * root.unit + section-card-height;
+            background: transparent;
+            property <int> visible-catalog-index: section.catalog-index;
+
+            init => {
+                if (self.visible-catalog-index >= 0) {
+                    root.catalog-visible(self.visible-catalog-index);
+                }
+            }
+            changed visible-catalog-index => {
+                if (self.visible-catalog-index >= 0) {
+                    root.catalog-visible(self.visible-catalog-index);
+                }
+            }
+
+            if (section.loading) : MetaRowPlaceholder {
+                width: parent.width;
+                height: parent.height;
+                unit: root.unit;
+                title: section.title;
+                item-width: max(9 * root.unit, root.card-width - 2 * root.unit);
+            }
+
+            if (!section.loading) : MediaCatalogRow {
+                width: parent.width;
+                height: parent.height;
+                unit: root.unit;
+                title: section.title;
+                message: section.error-message;
+                poster-shape: p-shape;
+                card-width: root.card-width;
+                card-height: section-card-height;
+                items: section.items;
+                enable-hover-preview: root.enable-hover-preview;
+                hover-preview-delay: root.hover-preview-delay;
+                item-selected(id, media-type, video-id) => {
+                    root.item-selected(id, media-type, video-id);
+                }
+                poster-requested(url) => { root.poster-requested(url); }
+                hover-preview-requested(id, media-type, x, y, width, height) => {
+                    root.hover-preview-requested(id, media-type, x, y, width, height);
+                }
+                hover-preview-dismissed => { root.hover-preview-dismissed(); }
+            }
+        }
+    }
+}
