@@ -245,10 +245,10 @@ component OptionsSection inherits VerticalLayout {
         clicked => { root.toggle-mode(); }
     }
 
-    if (root.register-mode) : PillButton {
+    PillButton {
         unit: root.unit;
         height: 4 * root.unit;
-        label: @tr("Guest login");
+        label: @tr("Continue without signing in");
         enabled: !root.loading;
         outlined: true;
         surface-color: transparent;
