@@ -25,7 +25,7 @@ impl AppPaths {
     fn from_root(root: PathBuf) -> Self {
         let cache = root.join("cache");
         Self {
-            database: root.join("stremio.db"),
+            database: root.join("senzo.db"),
             logs: root.join("logs"),
             image_cache: cache.join("image-cache-v1"),
             streaming_server: root.join("streaming-server"),
