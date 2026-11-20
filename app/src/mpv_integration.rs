@@ -1,7 +1,7 @@
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet, VecDeque},
-    path::PathBuf,
+    path::{Component, Path, PathBuf},
     rc::Rc,
     sync::{
         Arc, Mutex, OnceLock, RwLock,
@@ -37,6 +37,7 @@ use stremio_core::{
         streams::{AudioTrack, StreamItemState, StreamsBucket, StreamsItemKey, SubtitleTrack},
     },
 };
+use enginefs::backend::{TorrentBackend, TorrentHandle};
 use tokio_util::sync::CancellationToken;
 
 use crate::{AppModel, AppModelField, MainWindow, NavigationController, NavigationIntent};
@@ -100,9 +101,17 @@ struct PlaybackEventInbox {
 mod tests {
     use super::{
         ExternalSubtitle, PlaybackEvent, PlaybackEventInbox, PlaybackState, SessionState,
-        UNKNOWN_SUBTITLE_ORIGIN, addon_origin, subtitle_track_label,
+        UNKNOWN_SUBTITLE_ORIGIN, addon_origin, subtitle_track_label, torrent_relative_path,
     };
     use std::sync::Arc;
+
+    #[test]
+    fn torrent_cache_cleanup_rejects_paths_outside_the_cache_root() {
+        assert!(torrent_relative_path("Movies/Film.mkv").is_some());
+        assert!(torrent_relative_path("../outside/Film.mkv").is_none());
+        assert!(torrent_relative_path("/outside/Film.mkv").is_none());
+        assert!(torrent_relative_path("C:\\\\outside\\\\Film.mkv").is_none());
+    }
 
     fn state_at(time: f64) -> PlaybackEvent {
         PlaybackEvent::State(Arc::new(PlaybackState {
@@ -381,6 +390,7 @@ fn subtitle_origin(source_url: Option<&str>) -> Option<String> {
 
 #[derive(Default)]
 struct SessionState {
+    active_torrent: Option<(String, usize)>,
     url: Option<String>,
     subtitle_catalog: Vec<ExternalSubtitle>,
     loaded_subtitle_urls: HashSet<String>,
@@ -2358,6 +2368,7 @@ impl NativePlaybackBridge {
             let navigation = navigation.clone();
             let discord_rpc = self.discord_rpc.clone();
             let thumbnails = self.thumbnails.clone();
+            let runtime_handle = self.runtime_handle.clone();
             let pip_controller = pip_controller.clone();
             move || {
                 if play_next(&core) {
@@ -2418,6 +2429,7 @@ impl NativePlaybackBridge {
                     &session,
                     &discord_rpc,
                     &thumbnails,
+                    &runtime_handle,
                 );
                 if let Some(ui) = weak.upgrade() {
                     if !navigation.is_player_visible() {
@@ -2459,6 +2471,7 @@ impl NativePlaybackBridge {
             let navigation = navigation.clone();
             let discord_rpc = self.discord_rpc.clone();
             let thumbnails = self.thumbnails.clone();
+            let runtime_handle = self.runtime_handle.clone();
             let pip_controller = pip_controller.clone();
             move |video_id| {
                 let video_id = video_id.to_string();
@@ -2528,6 +2541,7 @@ impl NativePlaybackBridge {
                     &session,
                     &discord_rpc,
                     &thumbnails,
+                    &runtime_handle,
                 );
                 if let Some(ui) = weak.upgrade() {
                     if !navigation.is_player_visible() {
@@ -2569,6 +2583,7 @@ impl NativePlaybackBridge {
             let navigation = navigation.clone();
             let discord_rpc = self.discord_rpc.clone();
             let thumbnails = self.thumbnails.clone();
+            let runtime_handle = self.runtime_handle.clone();
             let pip_controller = pip_controller.clone();
             move |index, video_id| {
                 let video_id = video_id.to_string();
@@ -2610,6 +2625,7 @@ impl NativePlaybackBridge {
                     &session,
                     &discord_rpc,
                     &thumbnails,
+                    &runtime_handle,
                 );
                 if let Some(ui) = weak.upgrade() {
                     if !navigation.is_player_visible() {
@@ -2657,6 +2673,7 @@ impl NativePlaybackBridge {
             let media_session = self.media_session.clone();
             let autohide_task = self.autohide_task.clone();
             let thumbnails = self.thumbnails.clone();
+            let runtime_handle = self.runtime_handle.clone();
             let pip_controller = pip_controller.clone();
             move || {
                 // Release the OS media controls and wake lock up front, so an exit
@@ -2695,6 +2712,7 @@ impl NativePlaybackBridge {
                     &session,
                     &discord_rpc,
                     &thumbnails,
+                    &runtime_handle,
                 );
             }
         });
@@ -2775,6 +2793,10 @@ impl NativePlaybackBridge {
                 file_idx: file_idx.unwrap_or_default(),
             })
         });
+        let active_torrent = request
+            .as_ref()
+            .map(|request| (request.info_hash.clone(), usize::from(request.file_idx)));
+        lock_session(&self.session).active_torrent = active_torrent;
         let Some(request) = request else {
             self.cancel_statistics_poll();
             return;
@@ -4864,6 +4886,228 @@ fn cancel_statistics_poll(poll: &Mutex<Option<StatisticsPoll>>) {
     }
 }
 
+
+fn torrent_relative_path(name: &str) -> Option<PathBuf> {
+    let portable = name.replace('\\\\', "/");
+    let path = Path::new(&portable);
+    if portable.is_empty()
+        || portable.starts_with('/')
+        || portable.as_bytes().get(1) == Some(&b':')
+        || path
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return None;
+    }
+    Some(path.to_path_buf())
+}
+
+fn torrent_relative_path_key(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace('\\\\', "/")
+        .to_lowercase()
+}
+
+async fn remove_empty_torrent_parents(path: &Path, cache_root: &Path) {
+    let mut parent = path.parent();
+    while let Some(directory) = parent {
+        if directory == cache_root || !directory.starts_with(cache_root) {
+            break;
+        }
+        if tokio::fs::remove_dir(directory).await.is_err() {
+            break;
+        }
+        parent = directory.parent();
+    }
+}
+
+async fn cleanup_closed_torrent_cache(info_hash: String, file_idx: usize) {
+    let info_hash = info_hash.to_ascii_lowercase();
+    let server_state = stream_server::GLOBAL_STATE
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    let Some(server_state) = server_state else {
+        tracing::debug!(info_hash, "Skipping torrent cache cleanup: stream server is not running");
+        return;
+    };
+
+    let engine_fs = server_state.stream_engine();
+    let Some(torrent_handle) = engine_fs.backend.get_torrent(&info_hash).await else {
+        tracing::debug!(info_hash, "Torrent engine was already released; no playback cache handle remains");
+        return;
+    };
+
+    if let Err(error) = torrent_handle
+        .end_hls_activity(file_idx, "player-closed")
+        .await
+    {
+        tracing::debug!(info_hash, %error, "Torrent playback lease was already closed");
+    }
+
+    // MPV's Stop command closes the loopback HTTP readers asynchronously. Do
+    // not remove the torrent or touch its files until the server confirms that
+    // every reader for this info-hash has drained.
+    let mut readers_drained = false;
+    for _ in 0..150 {
+        let snapshot = engine_fs.stream_activity_snapshot().await;
+        let active_streams = snapshot
+            .active_streams
+            .get(&info_hash)
+            .copied()
+            .unwrap_or_default();
+        let active_file_streams = snapshot
+            .active_file_streams
+            .iter()
+            .filter(|stream| stream.info_hash.eq_ignore_ascii_case(&info_hash))
+            .map(|stream| stream.count)
+            .sum::<usize>();
+        if active_streams == 0 && active_file_streams == 0 {
+            readers_drained = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    if !readers_drained {
+        tracing::warn!(
+            info_hash,
+            "Keeping torrent cache because stream readers did not close in time"
+        );
+        return;
+    }
+
+    let target_files = torrent_handle.get_files().await;
+    if target_files.is_empty() {
+        tracing::warn!(
+            info_hash,
+            "Keeping torrent cache because the torrent file list could not be resolved"
+        );
+        return;
+    }
+
+    // Protect paths used by every other loaded torrent. Libtorrent stores
+    // torrent files below one shared directory, so overlapping names must not
+    // be deleted when another torrent still references them.
+    let mut protected_paths = HashSet::new();
+    for other_hash in engine_fs.backend.list_torrents().await {
+        if other_hash.eq_ignore_ascii_case(&info_hash) {
+            continue;
+        }
+        let Some(other_handle) = engine_fs.backend.get_torrent(&other_hash).await else {
+            continue;
+        };
+        for file in other_handle.get_files().await {
+            if let Some(relative) = torrent_relative_path(&file.name) {
+                protected_paths.insert(torrent_relative_path_key(&relative));
+            }
+        }
+    }
+
+    // First detach the exact torrent from libtorrent. The upstream backend's
+    // remove_torrent intentionally preserves its files, so the guarded,
+    // per-file deletion below releases only this playback's payload.
+    engine_fs.remove_engine(&info_hash).await;
+    if let Err(error) = engine_fs.backend.remove_torrent(&info_hash).await {
+        tracing::warn!(
+            info_hash,
+            %error,
+            "Could not detach torrent; leaving playback cache untouched"
+        );
+        return;
+    }
+
+    // Explicit SENZO downloads are stored under paths::downloads(), never in
+    // this directory. If stream-server fell back to memory-only mode there is
+    // no disk payload to delete.
+    if !server_state.download_engine_disk_backed {
+        tracing::info!(info_hash, "Released memory-only torrent playback storage");
+        return;
+    }
+
+    let cache_root = crate::paths::get()
+        .streaming_server_cache()
+        .join("torrent-cache");
+    let canonical_root = match tokio::fs::canonicalize(&cache_root).await {
+        Ok(path) => path,
+        Err(error) => {
+            tracing::debug!(%error, "Torrent cache directory is unavailable; nothing to delete");
+            return;
+        }
+    };
+
+    let mut files_removed = 0usize;
+    for file in target_files {
+        let Some(relative) = torrent_relative_path(&file.name) else {
+            tracing::warn!(
+                info_hash,
+                file = %file.name,
+                "Skipping unsafe torrent cache path"
+            );
+            continue;
+        };
+        if protected_paths.contains(&torrent_relative_path_key(&relative)) {
+            tracing::debug!(
+                info_hash,
+                file = %file.name,
+                "Preserving cache file shared by another torrent"
+            );
+            continue;
+        }
+
+        let disk_path = canonical_root.join(&relative);
+        let metadata = match tokio::fs::symlink_metadata(&disk_path).await {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                tracing::warn!(info_hash, file = %file.name, %error, "Could not inspect torrent cache file");
+                continue;
+            }
+        };
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            tracing::warn!(
+                info_hash,
+                file = %file.name,
+                "Skipping non-regular torrent cache entry"
+            );
+            continue;
+        }
+        let canonical_file = match tokio::fs::canonicalize(&disk_path).await {
+            Ok(path) => path,
+            Err(error) => {
+                tracing::warn!(info_hash, file = %file.name, %error, "Could not resolve torrent cache file");
+                continue;
+            }
+        };
+        if !canonical_file.starts_with(&canonical_root) {
+            tracing::warn!(
+                info_hash,
+                file = %file.name,
+                "Skipping torrent cache path that resolves outside the cache directory"
+            );
+            continue;
+        }
+
+        match tokio::fs::remove_file(&disk_path).await {
+            Ok(()) => {
+                files_removed += 1;
+                remove_empty_torrent_parents(&disk_path, &canonical_root).await;
+            }
+            Err(error) => tracing::warn!(
+                info_hash,
+                file = %file.name,
+                %error,
+                "Failed to delete torrent playback cache file"
+            ),
+        }
+    }
+
+    tracing::info!(
+        info_hash,
+        files_removed,
+        "Removed temporary torrent playback files after player close"
+    );
+}
+
 fn unload_player(
     controller: &PlaybackController,
     core: &Arc<Runtime<DesktopEnv, AppModel>>,
@@ -4871,6 +5115,7 @@ fn unload_player(
     session: &Mutex<SessionState>,
     discord_rpc: &Arc<crate::discord::DiscordRpc>,
     thumbnails: &crate::thumbnail_preview::ThumbnailPreview,
+    runtime_handle: &tokio::runtime::Handle,
 ) {
     cancel_statistics_poll(statistics_poll);
     let mut current = lock_session(session);
@@ -4881,6 +5126,7 @@ fn unload_player(
         task.abort();
     }
     cancel_sleep_timer(&mut current);
+    let torrent_to_cleanup = current.active_torrent.take();
     let next_generation = current.playback_generation.wrapping_add(1);
     *current = SessionState {
         playback_generation: next_generation,
@@ -4894,6 +5140,9 @@ fn unload_player(
         field: Some(AppModelField::Player),
         action: Action::Unload,
     });
+    if let Some((info_hash, file_idx)) = torrent_to_cleanup {
+        runtime_handle.spawn(cleanup_closed_torrent_cache(info_hash, file_idx));
+    }
 }
 
 fn lock_autohide_task(
