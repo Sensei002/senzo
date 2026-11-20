@@ -16,8 +16,8 @@ use axum::{
     routing::get,
 };
 use librqbit::{
-    AddTorrent, AddTorrentOptions, Session, SessionOptions,
-    api::{Api, ApiAddTorrentResponse, TorrentIdOrHash},
+    AddTorrent, AddTorrentOptions, ListenerOptions, Session, SessionOptions,
+    api::{Api, ApiAddTorrentResponse, TorrentIdOrHash, TorrentStats},
 };
 use tokio::{
     io::{AsyncReadExt, AsyncSeekExt, SeekFrom},
@@ -78,9 +78,33 @@ pub struct TorrentProgress {
     pub downloaded_bytes: u64,
     pub total_bytes: u64,
     pub uploaded_bytes: u64,
+    pub connected_peers: u32,
+    pub seeders: u32,
+    pub seen_peers: u32,
+    pub download_speed_bytes_per_second: u64,
+    pub upload_speed_bytes_per_second: u64,
     pub finished: bool,
     pub state: String,
     pub error: Option<String>,
+}
+
+fn torrent_progress(stats: &TorrentStats) -> TorrentProgress {
+    let live = stats.live.as_ref();
+    let peer_stats = live.map(|live| &live.snapshot.peer_stats);
+
+    TorrentProgress {
+        downloaded_bytes: stats.progress_bytes,
+        total_bytes: stats.total_bytes,
+        uploaded_bytes: stats.uploaded_bytes,
+        connected_peers: peer_stats.map_or(0, |peers| peers.live),
+        seeders: peer_stats.map_or(0, |peers| peers.live_seeders),
+        seen_peers: peer_stats.map_or(0, |peers| peers.seen),
+        download_speed_bytes_per_second: live.map_or(0, |live| live.download_speed.as_bytes()),
+        upload_speed_bytes_per_second: live.map_or(0, |live| live.upload_speed.as_bytes()),
+        finished: stats.finished,
+        state: format!("{:?}", stats.state),
+        error: stats.error.clone(),
+    }
 }
 
 #[derive(Clone)]
@@ -118,19 +142,39 @@ impl TorrentPlaybackSession {
         info_hash: &str,
         trackers: &[String],
     ) -> Result<(Self, Vec<TorrentVideoFile>)> {
+        let cancellation = CancellationToken::new();
+        Self::inspect_with_trackers_cancellable(info_hash, trackers, &cancellation).await
+    }
+
+    /// Cancellable variant used by interactive playback source selection.
+    /// Cancelling also stops the underlying librqbit session instead of merely
+    /// discarding its eventual result.
+    pub async fn inspect_with_trackers_cancellable(
+        info_hash: &str,
+        trackers: &[String],
+        cancellation: &CancellationToken,
+    ) -> Result<(Self, Vec<TorrentVideoFile>)> {
+        if cancellation.is_cancelled() {
+            bail!("torrent startup was cancelled");
+        }
         let hash = normalize_v1_info_hash(info_hash)?;
         let magnet_uri = build_magnet_uri(&hash, trackers)?;
         let temp = TorrentSessionDirectory::create_default()?;
         let output_folder = temp.path().to_string_lossy().into_owned();
         let mut runtime = TorrentRuntime::new()?;
+        let engine_cancellation = cancellation.child_token();
 
         let mut options = SessionOptions {
             disable_upload: true,
-            listen: None,
+            // Accept incoming TCP peers on an ephemeral port. UPnP forwarding
+            // remains disabled; only users who explicitly enable P2P reach here.
+            listen: Some(ListenerOptions::default()),
             persistence: None,
             fastresume: false,
             disable_local_service_discovery: true,
             peer_limit: Some(50),
+            concurrent_init_limit: Some(1),
+            cancellation_token: Some(engine_cancellation.clone()),
             runtime_worker_threads: Some(2),
             ..SessionOptions::default()
         };
@@ -171,7 +215,17 @@ impl TorrentPlaybackSession {
             }
             Ok::<_, anyhow::Error>((session, api, files))
         });
-        let task_result = tokio::time::timeout(Duration::from_secs(45), &mut session_task).await;
+        let task_result = tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => {
+                engine_cancellation.cancel();
+                session_task.abort();
+                let _ = session_task.await;
+                runtime.shutdown();
+                bail!("torrent startup was cancelled");
+            }
+            result = tokio::time::timeout(Duration::from_secs(45), &mut session_task) => result,
+        };
         let (session, api, files) = match task_result {
             Ok(Ok(Ok(result))) => result,
             Ok(Ok(Err(error))) => {
@@ -211,6 +265,19 @@ impl TorrentPlaybackSession {
 
     /// Download only the chosen video file and return an MPV-compatible local URL.
     pub async fn start_file(&mut self, file_index: usize) -> Result<String> {
+        let cancellation = CancellationToken::new();
+        self.start_file_cancellable(file_index, &cancellation).await
+    }
+
+    /// Cancellable variant used when a user chooses another source mid-startup.
+    pub async fn start_file_cancellable(
+        &mut self,
+        file_index: usize,
+        cancellation: &CancellationToken,
+    ) -> Result<String> {
+        if cancellation.is_cancelled() {
+            bail!("torrent startup was cancelled");
+        }
         if self.stream_url.is_some() {
             bail!("a torrent file is already active in this session");
         }
@@ -242,15 +309,23 @@ impl TorrentPlaybackSession {
             ..Default::default()
         };
         let add_api = api.clone();
-        let add_task = runtime_handle.spawn(async move {
+        let mut add_task = runtime_handle.spawn(async move {
             add_api
                 .api_add_torrent(AddTorrent::from_url(magnet_uri.as_str()), Some(add_options))
                 .await
                 .context("could not start downloading the selected video")
         });
-        let added: ApiAddTorrentResponse = add_task
-            .await
-            .context("torrent download initialization task panicked")??;
+        let added: ApiAddTorrentResponse = tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => {
+                add_task.abort();
+                let _ = add_task.await;
+                bail!("torrent startup was cancelled");
+            }
+            result = &mut add_task => {
+                result.context("torrent download initialization task panicked")??
+            }
+        };
         let torrent_id = added
             .id
             .context("torrent engine returned no active torrent ID")?;
@@ -270,7 +345,7 @@ impl TorrentPlaybackSession {
             .with_state(state);
         let shutdown = cancel.clone();
         let (address_tx, address_rx) = tokio::sync::oneshot::channel();
-        let task = runtime_handle.spawn(async move {
+        let mut task = runtime_handle.spawn(async move {
             let listener = TcpListener::bind("127.0.0.1:0")
                 .await
                 .context("could not bind the loopback torrent stream endpoint")?;
@@ -281,9 +356,18 @@ impl TorrentPlaybackSession {
                 .await
                 .context("local torrent stream server failed")
         });
-        let address: SocketAddr = address_rx
-            .await
-            .context("local torrent stream server failed before binding")?;
+        let address: SocketAddr = tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => {
+                cancel.cancel();
+                task.abort();
+                let _ = task.await;
+                bail!("torrent startup was cancelled");
+            }
+            result = &mut address_rx => {
+                result.context("local torrent stream server failed before binding")?
+            }
+        };
         let url = format!("http://{address}/{token}/{torrent_id}/{file_index}");
         let progress_cache = self.progress_cache.clone();
         let progress_cancel = CancellationToken::new();
@@ -292,6 +376,9 @@ impl TorrentPlaybackSession {
         let progress_runtime = self.runtime.as_ref().context("torrent runtime is closed")?;
         let progress_task = progress_runtime.handle().spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(1));
+            let mut last_logged = tokio::time::Instant::now()
+                .checked_sub(Duration::from_secs(10))
+                .unwrap_or_else(tokio::time::Instant::now);
             loop {
                 tokio::select! {
                     _ = monitor_cancel.cancelled() => break,
@@ -299,14 +386,24 @@ impl TorrentPlaybackSession {
                         let snapshot = progress_api
                             .api_stats_v1(TorrentIdOrHash::Id(torrent_id))
                             .ok()
-                            .map(|stats| TorrentProgress {
-                                downloaded_bytes: stats.progress_bytes,
-                                total_bytes: stats.total_bytes,
-                                uploaded_bytes: stats.uploaded_bytes,
-                                finished: stats.finished,
-                                state: format!("{:?}", stats.state),
-                                error: stats.error.clone(),
-                            });
+                            .map(|stats| torrent_progress(&stats));
+                        if let Some(progress) = snapshot.as_ref()
+                            && last_logged.elapsed() >= Duration::from_secs(10)
+                        {
+                            tracing::info!(
+                                torrent_id,
+                                state = %progress.state,
+                                downloaded_bytes = progress.downloaded_bytes,
+                                total_bytes = progress.total_bytes,
+                                connected_peers = progress.connected_peers,
+                                seeders = progress.seeders,
+                                seen_peers = progress.seen_peers,
+                                download_mib_per_second = progress.download_speed_bytes_per_second as f64 / 1_048_576.0,
+                                upload_mib_per_second = progress.upload_speed_bytes_per_second as f64 / 1_048_576.0,
+                                "Torrent peer and download status"
+                            );
+                            last_logged = tokio::time::Instant::now();
+                        }
                         if let Ok(mut cache) = progress_cache.lock() {
                             *cache = snapshot;
                         }
@@ -351,14 +448,7 @@ impl TorrentPlaybackSession {
             return Ok(None);
         };
         let stats = api.api_stats_v1(TorrentIdOrHash::Id(id))?;
-        Ok(Some(TorrentProgress {
-            downloaded_bytes: stats.progress_bytes,
-            total_bytes: stats.total_bytes,
-            uploaded_bytes: stats.uploaded_bytes,
-            finished: stats.finished,
-            state: format!("{:?}", stats.state),
-            error: stats.error.clone(),
-        }))
+        Ok(Some(torrent_progress(&stats)))
     }
 
     /// Stop the HTTP endpoint and torrent before deleting temporary payloads.
