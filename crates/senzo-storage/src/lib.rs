@@ -2220,7 +2220,17 @@ mod tests {
 
         database.remove_library_item("default", "550", MediaKind::Movie, 450).unwrap();
         assert_eq!(database.list_library_items("default").unwrap().len(), 1);
-        assert!(database.list_collection_items("default", &collection.id).unwrap().is_empty());
+        let remaining_collection_items = database
+            .list_collection_items("default", &collection.id)
+            .unwrap();
+        assert_eq!(
+            remaining_collection_items
+                .iter()
+                .map(|item| item.media_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["680"],
+            "removing a library title must remove only that title's collection membership"
+        );
         database.delete_library_collection("default", &collection.id, 460).unwrap();
         assert!(database.list_library_collections("default").unwrap().is_empty());
     }
