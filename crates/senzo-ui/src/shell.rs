@@ -13022,11 +13022,19 @@ impl SenzoShell {
             let collection_id = collection.id.clone();
             let items = self.library_collection_items.get(&collection.id).cloned().unwrap_or_default();
             let collection_empty = items.is_empty();
+            let rename_collection_id = collection.id.clone();
             let delete_collection_id = collection.id.clone();
             let mut section = div().w_full().rounded_md().border_1().border_color(rgb(Theme::BORDER))
                 .bg(rgb(Theme::SURFACE)).p_3().flex().flex_col().gap_2()
                 .child(div().flex().items_center().gap_2()
                     .child(div().flex_1().text_sm().text_color(rgb(Theme::TEXT_PRIMARY)).child(collection.title.clone()))
+                    .child(div().id(format!("collection-rename-{}", collection.id)).cursor_pointer().rounded_md().px_2().py_1()
+                        .bg(rgb(Theme::SURFACE_RAISED))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let title = this.library_collection_input.read(cx).value().trim().to_owned();
+                            this.rename_library_collection(rename_collection_id.clone(), title, cx);
+                        }))
+                        .child(div().text_xs().text_color(rgb(Theme::TEXT_SECONDARY)).child("Rename")))
                     .child(div().id(format!("collection-reorder-{}", collection.id)).cursor_pointer().rounded_md().px_2().py_1()
                         .bg(rgb(Theme::SURFACE_RAISED))
                         .on_click(cx.listener(move |this, _, _, cx| this.reorder_library_collection(collection_id.clone(), cx)))
