@@ -1,5 +1,5 @@
 [package]
-name = "senzo-integrations"
+name = "senzo-downloads"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,12 +7,21 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+anyhow.workspace = true
+axum.workspace = true
+dirs.workspace = true
+futures-util.workspace = true
+librqbit.workspace = true
 reqwest.workspace = true
+senzo-platform = { path = "../senzo-platform" }
 serde.workspace = true
 serde_json.workspace = true
-senzo-domain = { path = "../senzo-domain" }
 thiserror.workspace = true
-tracing.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
 url.workspace = true
 uuid.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

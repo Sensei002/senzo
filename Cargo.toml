@@ -17,6 +17,7 @@ members = [
     "crates/senzo-sync",
     "crates/senzo-ui",
     "crates/senzo-player",
+    "crates/senzo-downloads",
 ]
 default-members = ["crates/senzo-app"]
 resolver = "2"
@@ -30,6 +31,9 @@ publish = false
 
 [workspace.dependencies]
 anyhow = "1"
+axum = "0.8"
+futures-util = "0.3"
+librqbit = { version = "=9.1.0", default-features = false, features = ["rust-tls"] }
 async-trait = "0.1"
 image = { version = "0.25", default-features = false }
 dirs = "6"
@@ -42,8 +46,8 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros", "net", "io-util"] }
-tokio-util = { version = "0.7", features = ["rt"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros", "net", "io-util", "fs"] }
+tokio-util = { version = "0.7", features = ["io", "rt"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 url = "2"
