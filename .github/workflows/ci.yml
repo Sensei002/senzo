@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: senzo-windows-ci-${{ github.ref }}
+  group: senzo-windows-ci-v2-${{ github.ref }}
   cancel-in-progress: true
 
 env:
