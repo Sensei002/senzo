@@ -46,7 +46,7 @@ use senzo_player::{MpvConfig, MpvPlayer, PlaybackSnapshot, PlaybackStatus, Resiz
 use senzo_plugins::{PluginManager, PluginState, PluginStream, ScraperInput};
 use senzo_sources::{
     Source, SourceAggregator, SourceDiscoveryResult, SourceRequest, SourceSort, SourceTarget,
-    sort_sources,
+    sort_sources, source_quality_label,
 };
 use senzo_sync::{CloudError, CloudService};
 use serde_json::Value;
@@ -696,6 +696,7 @@ struct DetailsPage {
     source_season: Option<u32>,
     source_episode: Option<u32>,
     source_sort: SourceSort,
+    source_quality_filter: Option<String>,
     source_show_direct: bool,
     source_show_torrents: bool,
     source_show_external: bool,
@@ -2685,6 +2686,7 @@ impl SenzoShell {
             source_season: None,
             source_episode: None,
             source_sort: SourceSort::Recommended,
+            source_quality_filter: None,
             source_show_direct: true,
             source_show_torrents: true,
             source_show_external: true,
@@ -5255,6 +5257,17 @@ impl SenzoShell {
         }
     }
 
+    fn set_detail_source_quality_filter(
+        &mut self,
+        quality: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(details) = self.details.as_mut() {
+            details.source_quality_filter = quality;
+            cx.notify();
+        }
+    }
+
     fn set_detail_source_filter(&mut self, filter: &str, enabled: bool, cx: &mut Context<Self>) {
         if let Some(details) = self.details.as_mut() {
             match filter {
@@ -5416,6 +5429,72 @@ impl SenzoShell {
             );
         }
         panel = panel.child(filter_row);
+
+        let mut quality_counts = HashMap::<&'static str, usize>::new();
+        for source in result.groups.iter().flat_map(|group| group.sources.iter()) {
+            let enabled_by_kind = (source.is_direct() && details.source_show_direct)
+                || (source.is_torrent() && details.source_show_torrents)
+                || (source.is_external() && details.source_show_external);
+            if enabled_by_kind {
+                *quality_counts
+                    .entry(source_quality_label(source.quality.as_deref()))
+                    .or_default() += 1;
+            }
+        }
+        let available_qualities = ["4K", "1440p", "1080p", "720p", "SD", "Unknown"]
+            .into_iter()
+            .filter_map(|label| quality_counts.get(label).copied().map(|count| (label, count)))
+            .collect::<Vec<_>>();
+        let total_visible = quality_counts.values().sum::<usize>();
+        let mut quality_row = div().flex().flex_wrap().gap_2().items_center().child(
+            div()
+                .text_xs()
+                .text_color(rgb(Theme::TEXT_MUTED))
+                .child("QUALITY"),
+        );
+        let all_selected = details.source_quality_filter.is_none();
+        quality_row = quality_row.child(
+            div()
+                .id("source-quality-all")
+                .cursor_pointer()
+                .rounded_md()
+                .bg(rgb(if all_selected { Theme::ACCENT_DARK } else { Theme::SURFACE }))
+                .px_2()
+                .py_1()
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.set_detail_source_quality_filter(None, cx)
+                }))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(if all_selected { Theme::ACCENT } else { Theme::TEXT_SECONDARY }))
+                        .child(format!("All ({total_visible})")),
+                ),
+        );
+        for (label, count) in available_qualities {
+            let selected = details.source_quality_filter.as_deref() == Some(label);
+            let quality = label.to_owned();
+            quality_row = quality_row.child(
+                div()
+                    .id(format!("source-quality-{}", label.to_ascii_lowercase()))
+                    .cursor_pointer()
+                    .rounded_md()
+                    .bg(rgb(if selected { Theme::ACCENT_DARK } else { Theme::SURFACE }))
+                    .px_2()
+                    .py_1()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.set_detail_source_quality_filter(Some(quality.clone()), cx)
+                    }))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(if selected { Theme::ACCENT } else { Theme::TEXT_SECONDARY }))
+                            .child(format!("{label} ({count})")),
+                    ),
+            );
+        }
+        panel = panel.child(quality_row);
+
         if result.groups.is_empty() {
             panel = panel.child(status_panel(StatusTone::Empty, "NO SOURCES FOUND", "No provider returned a playable source", "Check that add-ons and scrapers are enabled, network permission is granted, or a media server is connected."));
         }
@@ -5424,9 +5503,13 @@ impl SenzoShell {
                 .sources
                 .iter()
                 .filter(|source| {
-                    (source.is_direct() && details.source_show_direct)
+                    let enabled_by_kind = (source.is_direct() && details.source_show_direct)
                         || (source.is_torrent() && details.source_show_torrents)
-                        || (source.is_external() && details.source_show_external)
+                        || (source.is_external() && details.source_show_external);
+                    enabled_by_kind
+                        && details.source_quality_filter.as_deref().is_none_or(|selected| {
+                            source_quality_label(source.quality.as_deref()) == selected
+                        })
                 })
                 .cloned()
                 .collect::<Vec<_>>();

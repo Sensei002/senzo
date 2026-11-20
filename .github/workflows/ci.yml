@@ -69,6 +69,67 @@ jobs:
       - name: Smoke-test native window startup and shutdown
         run: cargo run --release --locked -p senzo-app -- --smoke-test
         timeout-minutes: 3
+      - name: Package Windows application and native libmpv runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $mpvVersion = "0.42.0"
+          $mpvArchiveName = "libmpv-v0.42.0-x86_64-w64-mingw32-lgpl.zip"
+          $mpvSha256 = "8e5f77430efc53ef175804ba6618527e3af0448a0dcabf04d3cc72659d1a6fce"
+          $mpvUrl = "https://github.com/mpv-player/mpv/releases/download/v$mpvVersion/$mpvArchiveName"
+          $archivePath = Join-Path $env:RUNNER_TEMP $mpvArchiveName
+          $extractPath = Join-Path $env:RUNNER_TEMP "senzo-libmpv-runtime"
+          $packagePath = Join-Path $env:GITHUB_WORKSPACE "target/release/senzo-windows-x64"
+          Invoke-WebRequest -Uri $mpvUrl -OutFile $archivePath
+          $actualHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualHash -ne $mpvSha256) { throw "libmpv archive SHA-256 mismatch: $actualHash" }
+          Expand-Archive -LiteralPath $archivePath -DestinationPath $extractPath -Force
+          $library = Get-ChildItem -Path $extractPath -Recurse -File |
+            Where-Object { $_.Name -in @("libmpv-2.dll", "mpv-2.dll") } |
+            Select-Object -First 1
+          if (-not $library) { throw "The pinned libmpv archive did not contain libmpv-2.dll or mpv-2.dll." }
+          $runtimeDlls = Get-ChildItem -Path $extractPath -Recurse -File -Filter "*.dll"
+          if (-not $runtimeDlls) { throw "The pinned libmpv archive did not contain runtime DLLs." }
+          New-Item -ItemType Directory -Path $packagePath -Force | Out-Null
+          Copy-Item -LiteralPath "target/release/senzo.exe" -Destination $packagePath
+          $duplicateNames = $runtimeDlls | Group-Object Name | Where-Object Count -gt 1
+          if ($duplicateNames) {
+            $names = ($duplicateNames | ForEach-Object Name) -join ", "
+            throw "The libmpv archive contains duplicate DLL names; refusing an ambiguous bundle: $names"
+          }
+          foreach ($dll in $runtimeDlls) { Copy-Item -LiteralPath $dll.FullName -Destination $packagePath }
+          $mpvShare = Get-ChildItem -Path $extractPath -Recurse -Directory -Filter "mpv" |
+            Where-Object { $_.Parent.Name -eq "share" } |
+            Select-Object -First 1
+          if ($mpvShare) {
+            $sharePath = Join-Path $packagePath "share"
+            New-Item -ItemType Directory -Path $sharePath -Force | Out-Null
+            Copy-Item -Path $mpvShare.FullName -Destination (Join-Path $sharePath "mpv") -Recurse -Force
+          }
+          $licenseFiles = Get-ChildItem -Path $extractPath -Recurse -File |
+            Where-Object { $_.Name -match "^(LICENSE|COPYING|NOTICE)(\..*)?$" }
+          if ($licenseFiles) {
+            $licensePath = Join-Path $packagePath "third-party-licenses/mpv"
+            New-Item -ItemType Directory -Path $licensePath -Force | Out-Null
+            foreach ($file in $licenseFiles) { Copy-Item -LiteralPath $file.FullName -Destination $licensePath -Force }
+          }
+          @(
+            "SENZO Windows native runtime bundle",
+            "libmpv version: mpv $mpvVersion",
+            "Build: upstream mpv LGPL x86_64 Windows CI package",
+            "Source: https://github.com/mpv-player/mpv/tree/v$mpvVersion",
+            "Runtime archive: $mpvUrl",
+            "Runtime archive SHA-256: $mpvSha256",
+            "The upstream libmpv package and its third-party components retain their respective licenses."
+          ) | Set-Content -Path (Join-Path $packagePath "MPV-RUNTIME.txt") -Encoding utf8
+          if (-not (Test-Path (Join-Path $packagePath $library.Name))) {
+            throw "The selected libmpv DLL was not copied beside senzo.exe."
+          }
+      - name: Verify bundled Windows libmpv runtime
+        shell: pwsh
+        env:
+          SENZO_LIBMPV_TEST_PATH: ${{ github.workspace }}\target\release\senzo-windows-x64\libmpv-2.dll
+        run: cargo test -p senzo-player packaged_windows_libmpv_runtime_initializes_headlessly --locked
       - name: Set up Node.js for live native integration
         if: >-
           (github.event_name == 'workflow_dispatch' && inputs.run_live_api_acceptance) ||
@@ -88,7 +149,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: senzo-windows-x64-development-${{ github.sha }}
-          path: target/release/senzo.exe
+          path: target/release/senzo-windows-x64/**
           if-no-files-found: error
           retention-days: 14
 

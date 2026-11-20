@@ -1119,11 +1119,8 @@ struct Api {
 }
 impl Api {
     fn load(explicit: Option<&Path>) -> Result<Self, MpvError> {
-        let candidates = if let Some(p) = explicit {
-            vec![p.to_path_buf()]
-        } else {
-            library_names().iter().map(PathBuf::from).collect()
-        };
+        let executable = env::current_exe().ok();
+        let candidates = library_candidates(explicit, executable.as_deref());
         let mut lib = None;
         let mut errors = Vec::new();
         for p in candidates {
@@ -1229,6 +1226,23 @@ impl Api {
         (e >= 0).then_some(v != 0)
     }
 }
+fn library_candidates(explicit: Option<&Path>, executable: Option<&Path>) -> Vec<PathBuf> {
+    if let Some(path) = explicit {
+        return vec![path.to_path_buf()];
+    }
+    let mut candidates = Vec::new();
+    if let Some(executable_directory) = executable.and_then(Path::parent) {
+        for name in library_names() {
+            let bundled = executable_directory.join(name);
+            if bundled.is_file() {
+                candidates.push(bundled);
+            }
+        }
+    }
+    candidates.extend(library_names().iter().map(PathBuf::from));
+    candidates
+}
+
 #[cfg(target_os = "windows")]
 fn library_names() -> &'static [&'static str] {
     &["mpv-2.dll", "libmpv-2.dll", "mpv-1.dll"]
@@ -1274,6 +1288,41 @@ fn validate_track_id(id: Option<i64>) -> Result<(), MpvError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bundled_mpv_library_is_searched_beside_the_application() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("senzo.exe");
+        std::fs::write(&executable, b"test executable").unwrap();
+        let bundled_library = directory.path().join(library_names()[0]);
+        std::fs::write(&bundled_library, b"test library").unwrap();
+        let candidates = library_candidates(None, Some(&executable));
+        assert_eq!(candidates.first(), Some(&bundled_library));
+    }
+
+    #[test]
+    fn explicit_mpv_library_path_is_respected_without_fallbacks() {
+        let directory = tempfile::tempdir().unwrap();
+        let explicit = directory.path().join("custom-mpv.dll");
+        let candidates = library_candidates(Some(&explicit), None);
+        assert_eq!(candidates, vec![explicit]);
+    }
+
+    #[test]
+    fn packaged_windows_libmpv_runtime_initializes_headlessly() {
+        let Some(path) = env::var_os("SENZO_LIBMPV_TEST_PATH").map(PathBuf::from) else {
+            return;
+        };
+        let player = MpvPlayer::spawn(MpvConfig {
+            library_path: Some(path),
+            video_output: Some("null".to_owned()),
+            audio_output: Some("null".to_owned()),
+            force_window: Some(false),
+            ..Default::default()
+        })
+        .expect("the packaged libmpv runtime must load and initialize");
+        player.shutdown().expect("the packaged libmpv runtime must shut down cleanly");
+    }
+
     #[test]
     fn accepts_direct_sources() {
         assert!(validate_url("https://cdn.example/video.mkv").is_ok());

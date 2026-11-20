@@ -95,3 +95,9 @@ The render-context feasibility prototype is complete and the separate native out
 ## libmpv API compatibility correction
 
 The player now uses libmpv's documented `MPV_EVENT_IDLE = 11` value (rather than `MPV_EVENT_HOOK = 25`) and writes HTTP headers through the documented `options/http-header-fields` runtime option property. Stop completion leaves the snapshot in `Stopped`, including when MPV subsequently emits its idle notification. Regression tests lock the event ID and option-property name.
+
+## Windows libmpv runtime packaging
+
+The Windows development artifact includes the matching x86_64 LGPL libmpv runtime beside `senzo.exe`. CI downloads the pinned upstream mpv v0.42.0 Windows LGPL libmpv archive, verifies its SHA-256 before extraction, places the runtime DLLs beside the executable, retains any packaged MPV shared data/licence files, and runs a headless `MpvPlayer::spawn` + shutdown regression against the bundled DLL. The player loader searches the executable directory before PATH, so launching SENZO from a shortcut or a different working directory does not make a bundled runtime invisible.
+
+The LGPL runtime archive is from the upstream [mpv v0.42.0 release](https://github.com/mpv-player/mpv/releases/tag/v0.42.0), asset `libmpv-v0.42.0-x86_64-w64-mingw32-lgpl.zip`, SHA-256 `8e5f77430efc53ef175804ba6618527e3af0448a0dcabf04d3cc72659d1a6fce`. The Windows development package is an upstream CI build; final physical Windows playback acceptance remains a release check.

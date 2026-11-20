@@ -910,10 +910,10 @@ pub fn select_source(sources: &[Source], policy: AutoSelectPolicy) -> Option<&So
     sources.iter().max_by(|a, b| {
         let score = |source: &Source| match policy {
             AutoSelectPolicy::Disabled => 0_i64,
-            AutoSelectPolicy::HighestQuality => quality_rank(source.quality.as_deref()) as i64,
+            AutoSelectPolicy::HighestQuality => source_quality_rank(source.quality.as_deref()) as i64,
             AutoSelectPolicy::CachedFirst => {
                 i64::from(source.cache_state == CacheState::Cached) * 100
-                    + quality_rank(source.quality.as_deref()) as i64
+                    + source_quality_rank(source.quality.as_deref()) as i64
             }
             AutoSelectPolicy::HighestSeeders => source.seeders.unwrap_or(0) as i64,
             AutoSelectPolicy::Recommended => recommendation_score(source),
@@ -923,7 +923,7 @@ pub fn select_source(sources: &[Source], policy: AutoSelectPolicy) -> Option<&So
 }
 
 fn recommendation_score(source: &Source) -> i64 {
-    quality_rank(source.quality.as_deref()) as i64 * 10
+    source_quality_rank(source.quality.as_deref()) as i64 * 10
         + i64::from(source.cache_state == CacheState::Cached) * 100
         + i64::from(source.is_direct()) * 20
         + (source.seeders.unwrap_or(0).min(1000) as i64 / 10)
@@ -938,18 +938,18 @@ pub fn sort_sources(sources: &mut [Source], sort: SourceSort) {
     sources.sort_by(|a, b| match sort {
         SourceSort::Recommended => source_order(a, b),
         SourceSort::Quality => {
-            quality_rank(b.quality.as_deref()).cmp(&quality_rank(a.quality.as_deref()))
+            source_quality_rank(b.quality.as_deref()).cmp(&source_quality_rank(a.quality.as_deref()))
         }
         SourceSort::Seeders => b.seeders.unwrap_or(0).cmp(&a.seeders.unwrap_or(0)),
         SourceSort::Size => b.size_bytes.unwrap_or(0).cmp(&a.size_bytes.unwrap_or(0)),
     });
 }
 
-fn quality_rank(value: Option<&str>) -> u8 {
+pub fn source_quality_rank(value: Option<&str>) -> u8 {
     let value = value.unwrap_or("").to_ascii_lowercase();
     if value.contains("2160") || value.contains("4k") || value.contains("uhd") {
         4
-    } else if value.contains("1440") {
+    } else if value.contains("1440") || value.contains("qhd") || value.contains("2k") {
         3
     } else if value.contains("1080") || value.contains("fhd") {
         2
@@ -957,6 +957,23 @@ fn quality_rank(value: Option<&str>) -> u8 {
         1
     } else {
         0
+    }
+}
+
+pub fn source_quality_label(value: Option<&str>) -> &'static str {
+    let value = value.unwrap_or("").to_ascii_lowercase();
+    if value.contains("2160") || value.contains("4k") || value.contains("uhd") {
+        "4K"
+    } else if value.contains("1440") || value.contains("qhd") || value.contains("2k") {
+        "1440p"
+    } else if value.contains("1080") || value.contains("fhd") {
+        "1080p"
+    } else if value.contains("720") || value.contains("hd") {
+        "720p"
+    } else if value.contains("576") || value.contains("480") || value.contains("360") || value.contains("sd") {
+        "SD"
+    } else {
+        "Unknown"
     }
 }
 
@@ -1396,6 +1413,18 @@ mod tests {
         b.provider_id = "other".into();
         b.provider_name = "Other".into();
         assert_eq!(group_sources(&[a, b], &[]).len(), 2);
+    }
+
+    #[test]
+    fn source_quality_filter_labels_are_normalized() {
+        assert_eq!(source_quality_label(Some("2160p WEB-DL")), "4K");
+        assert_eq!(source_quality_label(Some("UHD")), "4K");
+        assert_eq!(source_quality_label(Some("1440p")), "1440p");
+        assert_eq!(source_quality_label(Some("1080p HEVC")), "1080p");
+        assert_eq!(source_quality_label(Some("FHD")), "1080p");
+        assert_eq!(source_quality_label(Some("720p")), "720p");
+        assert_eq!(source_quality_label(Some("480p")), "SD");
+        assert_eq!(source_quality_label(None), "Unknown");
     }
 
     #[test]

@@ -27,3 +27,8 @@ Contributions intended for inclusion in SENZO are accepted under GPL-3.0-only, s
 ## Legal note
 
 This document is an explanatory summary, not legal advice. Consult the root `LICENSE` and the [official GPLv3 text](https://www.gnu.org/licenses/gpl-3.0.html).
+
+
+## Bundled Windows media runtime
+
+The Windows development bundle includes the x86_64 LGPL libmpv runtime from the upstream [mpv v0.42.0 release](https://github.com/mpv-player/mpv/releases/tag/v0.42.0). The build downloads the upstream `libmpv-v0.42.0-x86_64-w64-mingw32-lgpl.zip` asset and verifies SHA-256 `8e5f77430efc53ef175804ba6618527e3af0448a0dcabf04d3cc72659d1a6fce` before packaging. The corresponding source is [mpv v0.42.0](https://github.com/mpv-player/mpv/tree/v0.42.0). The app bundle retains license/copyright files present in the runtime archive under `third-party-licenses/mpv`; consult those notices for the exact terms of each included component.
