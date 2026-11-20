@@ -113,3 +113,95 @@ impl CredentialStore for KeyringCredentialStore {
         }
     }
 }
+
+/// Native child HWND used as an in-process video host for libmpv on Windows.
+#[cfg(target_os = "windows")]
+pub struct NativeVideoSurface {
+    hwnd: windows_sys::Win32::Foundation::HWND,
+}
+
+#[cfg(target_os = "windows")]
+impl NativeVideoSurface {
+    pub fn create(parent_hwnd: isize) -> Result<Self, String> {
+        use windows_sys::Win32::{
+            Foundation::GetLastError,
+            System::LibraryLoader::GetModuleHandleW,
+            UI::WindowsAndMessaging::{
+                CreateWindowExW, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_EX_NOACTIVATE,
+            },
+        };
+        if parent_hwnd == 0 {
+            return Err("the SENZO main window handle is not available".to_owned());
+        }
+        let class_name = "STATIC\0".encode_utf16().collect::<Vec<_>>();
+        let hwnd = unsafe {
+            CreateWindowExW(
+                WS_EX_NOACTIVATE,
+                class_name.as_ptr(),
+                std::ptr::null(),
+                WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
+                0, 0, 1, 1,
+                parent_hwnd as windows_sys::Win32::Foundation::HWND,
+                std::ptr::null_mut(),
+                GetModuleHandleW(std::ptr::null()),
+                std::ptr::null(),
+            )
+        };
+        if hwnd.is_null() {
+            return Err(format!(
+                "could not create the embedded video surface (Win32 error {})",
+                unsafe { GetLastError() }
+            ));
+        }
+        Ok(Self { hwnd })
+    }
+
+    pub fn hwnd(&self) -> isize { self.hwnd as isize }
+
+    pub fn set_bounds(&self, x: i32, y: i32, width: i32, height: i32) -> Result<(), String> {
+        use windows_sys::Win32::{
+            Foundation::GetLastError,
+            UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW},
+        };
+        let result = unsafe {
+            SetWindowPos(
+                self.hwnd, std::ptr::null_mut(), x, y, width.max(1), height.max(1),
+                SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW,
+            )
+        };
+        if result == 0 {
+            return Err(format!(
+                "could not position the embedded video surface (Win32 error {})",
+                unsafe { GetLastError() }
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn hide(&self) {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+        unsafe { ShowWindow(self.hwnd, SW_HIDE); }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for NativeVideoSurface {
+    fn drop(&mut self) {
+        use windows_sys::Win32::UI::WindowsAndMessaging::DestroyWindow;
+        if !self.hwnd.is_null() { unsafe { DestroyWindow(self.hwnd); } }
+    }
+}
+
+/// Non-Windows builds retain the platform API while the Linux player surface is deferred.
+#[cfg(not(target_os = "windows"))]
+pub struct NativeVideoSurface;
+
+#[cfg(not(target_os = "windows"))]
+impl NativeVideoSurface {
+    pub fn create(_parent_hwnd: isize) -> Result<Self, String> {
+        Err("embedded MPV surfaces are currently supported on Windows only".to_owned())
+    }
+    pub fn hwnd(&self) -> isize { 0 }
+    pub fn set_bounds(&self, _x: i32, _y: i32, _width: i32, _height: i32) -> Result<(), String> { Ok(()) }
+    pub fn hide(&self) {}
+}

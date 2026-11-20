@@ -10,3 +10,6 @@ publish.workspace = true
 dirs.workspace = true
 keyring.workspace = true
 thiserror.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys.workspace = true
