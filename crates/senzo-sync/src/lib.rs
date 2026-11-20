@@ -239,10 +239,13 @@ impl CloudService {
         }
         match self.refresh(profile_id, &session.refresh_token).await {
             Ok(refreshed) => Ok(Some(refreshed)),
-            Err(error) => {
+            Err(CloudError::Unauthorized) => {
+                // A revoked/invalid refresh token is terminal. A network or server
+                // error is not: retain the refresh token so the user can retry online.
                 let _ = self.credential_store.delete(&Self::session_key(profile_id)?);
-                Err(error)
+                Err(CloudError::Unauthorized)
             }
+            Err(error) => Err(error),
         }
     }
 
