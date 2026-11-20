@@ -150,6 +150,14 @@ pub enum RepositoryError {
     Unavailable(String),
     #[error("profile name must contain between 1 and 64 non-control characters")]
     InvalidProfileName,
+    #[error("library item or collection data is invalid")]
+    InvalidLibraryEntry,
+    #[error("profile PIN must contain between 4 and 12 ASCII digits")]
+    InvalidProfilePin,
+    #[error("profile PIN is temporarily locked")]
+    ProfilePinLocked,
+    #[error("requested library item or collection was not found")]
+    NotFound,
     #[error("playback progress identity or values are invalid")]
     InvalidPlaybackProgress,
 }
@@ -162,6 +170,126 @@ pub trait SettingsRepository: Send + Sync {
 pub trait ProfileRepository: Send + Sync {
     fn list_profiles(&self) -> Result<Vec<Profile>, RepositoryError>;
     fn create_profile(&self, name: &str) -> Result<Profile, RepositoryError>;
+    fn update_profile(&self, _profile_id: &str, _name: &str) -> Result<Profile, RepositoryError> {
+        Err(RepositoryError::Unavailable("profile editing is not supported by this repository".to_owned()))
+    }
+    fn delete_profile(&self, _profile_id: &str) -> Result<(), RepositoryError> {
+        Err(RepositoryError::Unavailable("profile deletion is not supported by this repository".to_owned()))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LibraryItem {
+    pub profile_id: String,
+    pub media_id: String,
+    pub media_kind: MediaKind,
+    pub title: String,
+    pub overview: Option<String>,
+    pub release_year: Option<u16>,
+    pub poster_path: Option<String>,
+    pub backdrop_path: Option<String>,
+    pub added_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub is_favorite: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LibraryCollection {
+    pub id: String,
+    pub profile_id: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub sort_order: i64,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LibraryCollectionItem {
+    pub collection_id: String,
+    pub profile_id: String,
+    pub media_id: String,
+    pub media_kind: MediaKind,
+    pub sort_order: i64,
+    pub added_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+pub trait LibraryRepository: Send + Sync {
+    fn list_library_items(&self, profile_id: &str) -> Result<Vec<LibraryItem>, RepositoryError>;
+    fn get_library_item(
+        &self, profile_id: &str, media_id: &str, media_kind: MediaKind,
+    ) -> Result<Option<LibraryItem>, RepositoryError>;
+    fn save_library_item(&self, item: &LibraryItem) -> Result<(), RepositoryError>;
+    fn remove_library_item(
+        &self, profile_id: &str, media_id: &str, media_kind: MediaKind, removed_at_ms: i64,
+    ) -> Result<(), RepositoryError>;
+    fn list_library_collections(&self, profile_id: &str) -> Result<Vec<LibraryCollection>, RepositoryError>;
+    fn create_library_collection(
+        &self, profile_id: &str, title: &str, description: Option<&str>, created_at_ms: i64,
+    ) -> Result<LibraryCollection, RepositoryError>;
+    fn update_library_collection(
+        &self, profile_id: &str, collection_id: &str, title: &str, description: Option<&str>, updated_at_ms: i64,
+    ) -> Result<LibraryCollection, RepositoryError>;
+    fn delete_library_collection(
+        &self, profile_id: &str, collection_id: &str, deleted_at_ms: i64,
+    ) -> Result<(), RepositoryError>;
+    fn list_collection_items(
+        &self, profile_id: &str, collection_id: &str,
+    ) -> Result<Vec<LibraryItem>, RepositoryError>;
+    fn set_collection_item(
+        &self, profile_id: &str, collection_id: &str, media_id: &str, media_kind: MediaKind,
+        included: bool, changed_at_ms: i64,
+    ) -> Result<(), RepositoryError>;
+    fn reorder_collection_items(
+        &self, profile_id: &str, collection_id: &str, ordered: &[(String, MediaKind)], changed_at_ms: i64,
+    ) -> Result<(), RepositoryError>;
+}
+
+pub trait ProfileSettingsRepository: Send + Sync {
+    fn get_profile_setting(
+        &self, profile_id: &str, key: &SettingKey,
+    ) -> Result<Option<String>, RepositoryError>;
+    fn set_profile_setting(
+        &self, profile_id: &str, key: &SettingKey, value: &str,
+    ) -> Result<(), RepositoryError>;
+}
+
+pub trait ProfileSecurityRepository: Send + Sync {
+    fn has_profile_pin(&self, profile_id: &str) -> Result<bool, RepositoryError>;
+    fn set_profile_pin(&self, profile_id: &str, pin: &str) -> Result<(), RepositoryError>;
+    fn verify_profile_pin(&self, profile_id: &str, pin: &str, now_ms: i64) -> Result<bool, RepositoryError>;
+    fn clear_profile_pin(&self, profile_id: &str) -> Result<(), RepositoryError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncMutation {
+    pub id: String,
+    pub profile_id: String,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub operation: String,
+    pub payload_json: String,
+    pub changed_at_ms: i64,
+    pub attempt_count: u32,
+    pub next_attempt_at_ms: i64,
+    pub last_error: Option<String>,
+}
+
+pub trait SyncOutboxRepository: Send + Sync {
+    fn list_pending_sync_mutations(
+        &self, profile_id: &str, now_ms: i64, limit: usize,
+    ) -> Result<Vec<SyncMutation>, RepositoryError>;
+    fn mark_sync_mutations_applied(
+        &self, profile_id: &str, mutation_ids: &[String],
+    ) -> Result<(), RepositoryError>;
+    fn record_sync_mutation_failure(
+        &self, profile_id: &str, mutation_id: &str, error: &str, next_attempt_at_ms: i64,
+    ) -> Result<(), RepositoryError>;
+    fn get_sync_checkpoint(&self, profile_id: &str, provider: &str) -> Result<Option<String>, RepositoryError>;
+    fn set_sync_checkpoint(
+        &self, profile_id: &str, provider: &str, cursor: &str, updated_at_ms: i64,
+    ) -> Result<(), RepositoryError>;
 }
 
 /// A local playback checkpoint. Series progress is keyed by parent series and
