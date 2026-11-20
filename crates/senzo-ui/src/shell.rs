@@ -46,6 +46,7 @@ use senzo_metadata::{
 };
 use senzo_player::{MpvConfig, MpvPlayer, PlaybackSnapshot, PlaybackStatus, ResizeMode, TrackKind};
 use senzo_platform::NativeVideoSurface;
+#[cfg(all(target_os = "windows", not(test)))]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use senzo_plugins::{PluginManager, PluginState, PluginStream, ScraperInput};
 use senzo_sources::{
