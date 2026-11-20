@@ -630,9 +630,7 @@ mod tests {
     #[test]
     fn installer_handoff_preserves_the_staged_path() {
         let (request, launcher) = installer_handoff();
-        request
-            .queue(PathBuf::from("senzo-installer.exe"))
-            .unwrap();
+        request.queue(PathBuf::from("senzo-installer.exe")).unwrap();
 
         assert_eq!(
             launcher.take_pending(),
