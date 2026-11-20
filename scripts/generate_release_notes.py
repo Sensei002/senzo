@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Stremio Native release notes from assets, changelog, and git history."""
+"""Generate SENZO release notes from assets, changelog, and git history."""
 
 from __future__ import annotations
 
@@ -14,18 +14,17 @@ from urllib.parse import quote
 
 
 PROJECT_DESCRIPTION = (
-    "A high-performance native Stremio desktop client with a Slint interface, "
-    "embedded Rust stream server, and hardware-accelerated libmpv playback."
+    "A native SENZO desktop media center built with Rust and Slint, with an embedded stream server and hardware-accelerated libmpv playback."
 )
 
 ASSET_PATTERNS = (
-    ("StremioSetup-v*-x64.exe", "Windows installer"),
+    ("SENZO-Setup-v*-x64.exe", "Windows installer"),
     (
-        "stremio-native-v*-x86_64-pc-windows-msvc.zip",
+        "senzo-v*-x86_64-pc-windows-msvc.zip",
         "Windows automatic updater",
     ),
     (
-        "stremio-native-v*-x86_64-unknown-linux-gnu",
+        "senzo-v*-x86_64-unknown-linux-gnu",
         "Linux x64 portable",
     ),
     ("*.deb", "Debian / Ubuntu Package"),
@@ -254,7 +253,7 @@ def generate_release_notes(
     asset_dir: Path,
     changelog: Path,
 ) -> str:
-    lines = [f"## Stremio Native {tag}", "", PROJECT_DESCRIPTION, ""]
+    lines = [f"## SENZO {tag}", "", PROJECT_DESCRIPTION, ""]
     lines.extend(render_downloads(repo, tag, sorted_assets(asset_dir)))
     lines.extend(["### Release notes", ""])
     lines.extend(changelog_section(changelog, tag))
