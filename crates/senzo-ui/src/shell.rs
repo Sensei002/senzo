@@ -1967,7 +1967,11 @@ impl SenzoShell {
             shelf.load_more_error = None;
             shelf.page.saturating_add(1)
         };
-        tracing::info!(catalogue = key.as_str(), page, "Loading more Home catalogue items");
+        tracing::info!(
+            catalogue = key.as_str(),
+            page,
+            "Loading more Home catalogue items"
+        );
 
         let generation = self.home_catalogue_generation;
         let Some(descriptor_identity) =
@@ -8243,13 +8247,12 @@ impl SenzoShell {
         let state = self.discovery_state(media_type);
         let movie = media_type == MediaType::Movie;
         let title = if movie { "Movies" } else { "TV Shows" };
-        let selector = if movie { "discover-page-movies" } else { "discover-page-tv" };
-        let mut page = div()
-            .w_full()
-            .flex()
-            .flex_col()
-            .gap_5()
-            .child(page_intro(
+        let selector = if movie {
+            "discover-page-movies"
+        } else {
+            "discover-page-tv"
+        };
+        let mut page = div().w_full().flex().flex_col().gap_5().child(page_intro(
             "DISCOVER",
             title,
             if movie {
@@ -8537,9 +8540,9 @@ impl SenzoShell {
                 error,
             ));
         }
-        div().w_full().child(
-            page.id(selector).debug_selector(|| selector.to_owned()),
-        )
+        div()
+            .w_full()
+            .child(page.id(selector).debug_selector(|| selector.to_owned()))
     }
 
     fn update_search_query(&mut self, query: String, cx: &mut Context<Self>) {
@@ -11161,8 +11164,7 @@ impl SenzoShell {
         let current = handle.offset();
         let maximum = handle.max_offset();
         let step = (f32::from(handle.bounds().size.width) * 0.72).max(160.0);
-        let next_x = (f32::from(current.x) - step * direction)
-            .clamp(-f32::from(maximum.x), 0.0);
+        let next_x = (f32::from(current.x) - step * direction).clamp(-f32::from(maximum.x), 0.0);
         handle.set_offset(point(px(next_x), current.y));
         cx.notify();
     }
@@ -11195,15 +11197,17 @@ impl SenzoShell {
         let current = handle.offset();
         let maximum = handle.max_offset();
         let delta = event.position.x - previous_x;
-        let next_x = (f32::from(current.x) + f32::from(delta))
-            .clamp(-f32::from(maximum.x), 0.0);
+        let next_x = (f32::from(current.x) + f32::from(delta)).clamp(-f32::from(maximum.x), 0.0);
         handle.set_offset(point(px(next_x), current.y));
         self.home_shelf_drag = Some((key, event.position.x));
         cx.notify();
     }
 
     fn end_home_shelf_drag(&mut self, key: HomeShelfKey, cx: &mut Context<Self>) {
-        if self.home_shelf_drag.is_some_and(|(active_key, _)| active_key == key) {
+        if self
+            .home_shelf_drag
+            .is_some_and(|(active_key, _)| active_key == key)
+        {
             self.home_shelf_drag = None;
             cx.notify();
         }
@@ -11282,10 +11286,7 @@ impl SenzoShell {
             .expect("every built-in Home catalogue has a persistent scroll handle")
             .clone();
         let mut arrows = div().flex().items_center().gap_2();
-        for (direction, label, name) in [
-            (-1.0_f32, "‹", "left"),
-            (1.0_f32, "›", "right"),
-        ] {
+        for (direction, label, name) in [(-1.0_f32, "‹", "left"), (1.0_f32, "›", "right")] {
             arrows = arrows.child(
                 div()
                     .id(format!("home-{}-scroll-{name}", key.as_str()))
@@ -11336,15 +11337,21 @@ impl SenzoShell {
                     .w_full()
                     .track_scroll(&scroll_handle)
                     .overflow_x_scroll()
-                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, event, _, cx| {
-                        this.begin_home_shelf_drag(key, event, cx);
-                    }))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, event, _, cx| {
+                            this.begin_home_shelf_drag(key, event, cx);
+                        }),
+                    )
                     .on_mouse_move(cx.listener(move |this, event, _, cx| {
                         this.drag_home_shelf(key, event, cx);
                     }))
-                    .on_mouse_up(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                        this.end_home_shelf_drag(key, cx);
-                    }))
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, _, cx| {
+                            this.end_home_shelf_drag(key, cx);
+                        }),
+                    )
                     .child(content),
             );
 
@@ -14633,9 +14640,8 @@ impl SenzoShell {
     fn copy_diagnostic_logs(&mut self, cx: &mut Context<Self>) {
         let report = senzo_diagnostics::export_text();
         cx.write_to_clipboard(ClipboardItem::new_string(report));
-        self.notification = Some(
-            "Redacted diagnostic report copied. Review it before sharing.".to_owned(),
-        );
+        self.notification =
+            Some("Redacted diagnostic report copied. Review it before sharing.".to_owned());
         tracing::info!("User copied the SENZO diagnostic report");
         cx.notify();
     }

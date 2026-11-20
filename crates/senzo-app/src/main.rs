@@ -129,7 +129,9 @@ fn run() -> anyhow::Result<()> {
     let directories =
         AppDirectories::discover().context("resolve native application directories")?;
     senzo_diagnostics::init_with_file(directories.data_dir().join("logs").join("senzo.log"))
-        .map_err(|error| anyhow::anyhow!("initialize persistent structured diagnostics: {error}"))?;
+        .map_err(|error| {
+            anyhow::anyhow!("initialize persistent structured diagnostics: {error}")
+        })?;
     TorrentSessionDirectory::recover_default_root()
         .context("recover abandoned torrent playback sessions")?;
     let database = Arc::new(

@@ -242,8 +242,7 @@ pub fn export_text() -> String {
         .get()
         .map(|sink| sink.export())
         .unwrap_or_else(|| {
-            "SENZO Diagnostic Report\nDiagnostics are not initialized in this process.\n"
-                .to_owned()
+            "SENZO Diagnostic Report\nDiagnostics are not initialized in this process.\n".to_owned()
         })
 }
 
@@ -369,14 +368,23 @@ mod tests {
         let redacted = redact_url("https://example.test/items?api_key=private&lang=en");
         let parsed = Url::parse(&redacted).unwrap();
         let pairs: Vec<_> = parsed.query_pairs().collect();
-        assert!(pairs.iter().any(|(key, value)| key == "api_key" && value == "[REDACTED]"));
-        assert!(pairs.iter().any(|(key, value)| key == "lang" && value == "en"));
+        assert!(
+            pairs
+                .iter()
+                .any(|(key, value)| key == "api_key" && value == "[REDACTED]")
+        );
+        assert!(
+            pairs
+                .iter()
+                .any(|(key, value)| key == "lang" && value == "en")
+        );
         assert!(!redacted.contains("private"));
     }
 
     #[test]
     fn redact_text_handles_json_authorization_and_inline_secrets() {
-        let input = r#"Authorization: Bearer private-token "api_key":"inline-secret" password=example"#;
+        let input =
+            r#"Authorization: Bearer private-token "api_key":"inline-secret" password=example"#;
         let redacted = redact_text(input);
         assert!(!redacted.contains("private-token"));
         assert!(!redacted.contains("inline-secret"));
@@ -398,12 +406,16 @@ mod tests {
             .expect("redacted request URL should remain present");
         let parsed = Url::parse(url_text).expect("redacted request URL should remain valid");
         let pairs: Vec<_> = parsed.query_pairs().collect();
-        assert!(pairs
-            .iter()
-            .any(|(key, value)| key == "token" && value == "[REDACTED]"));
-        assert!(pairs
-            .iter()
-            .any(|(key, value)| key == "language" && value == "en"));
+        assert!(
+            pairs
+                .iter()
+                .any(|(key, value)| key == "token" && value == "[REDACTED]")
+        );
+        assert!(
+            pairs
+                .iter()
+                .any(|(key, value)| key == "language" && value == "en")
+        );
     }
 
     #[test]
