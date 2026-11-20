@@ -28,6 +28,7 @@ use senzo_catalog::{
     HomeSettings, home_collection_folder_key, visible_home_collections,
 };
 use senzo_debrid::{DebridManager, DebridProviderId, ResolvedDebridSource};
+use senzo_downloads::{DownloadManager, DownloadRequest, DownloadStatus, TorrentPlaybackSession};
 use senzo_domain::{
     AppPage, LibraryCollection, LibraryItem, LibraryRepository, MediaKind, PlaybackProgress,
     PlaybackProgressRepository, Profile, ProfileRepository, ProfileScope,
@@ -722,6 +723,7 @@ pub struct ShellServices {
     pub debrid_manager: DebridManager,
     pub media_server_manager: MediaServerManager,
     pub source_aggregator: SourceAggregator,
+    pub download_manager: DownloadManager,
 }
 
 pub(crate) struct SenzoShell {
@@ -786,6 +788,10 @@ pub(crate) struct SenzoShell {
     debrid_manager: DebridManager,
     media_server_manager: MediaServerManager,
     source_aggregator: SourceAggregator,
+    download_manager: DownloadManager,
+    downloads_refresh_cancel: CancellationToken,
+    active_torrent_session: Option<TorrentPlaybackSession>,
+    torrent_start_cancel: CancellationToken,
     mpv_player: Option<MpvPlayer>,
     playback_start_cancel: CancellationToken,
     playback_refresh_cancel: CancellationToken,
@@ -1193,6 +1199,7 @@ impl SenzoShell {
             debrid_manager,
             media_server_manager,
             source_aggregator,
+            download_manager,
         } = services;
         let navigation_focus = AppPage::ALL
             .iter()
@@ -1486,6 +1493,10 @@ impl SenzoShell {
             debrid_manager,
             media_server_manager,
             source_aggregator,
+            download_manager,
+            downloads_refresh_cancel: CancellationToken::new(),
+            active_torrent_session: None,
+            torrent_start_cancel: CancellationToken::new(),
             mpv_player: None,
             playback_start_cancel: CancellationToken::new(),
             playback_refresh_cancel: CancellationToken::new(),
@@ -1676,6 +1687,7 @@ impl SenzoShell {
     }
 
     fn navigate(&mut self, page: AppPage, window: &mut Window, cx: &mut Context<Self>) {
+        self.downloads_refresh_cancel.cancel();
         self.stop_playback();
         self.remember_current_page_scroll();
         self.remember_focused_home_card(window);
@@ -1683,6 +1695,9 @@ impl SenzoShell {
             self.menu_open = false;
             if page == AppPage::Library {
                 self.reload_library_state();
+            }
+            if page == AppPage::Downloads {
+                self.start_downloads_refresh(cx);
             }
             if page == AppPage::Addons {
                 self.load_addon_registry(cx);
@@ -11249,6 +11264,7 @@ impl SenzoShell {
                             .child("YOUR SPACE"),
                     )
                     .child(self.nav_item(AppPage::Library, cx))
+                    .child(self.nav_item(AppPage::Downloads, cx))
                     .child(self.nav_item(AppPage::Addons, cx)),
             )
             .child(div().flex_1())
@@ -13901,6 +13917,7 @@ impl SenzoShell {
             AppPage::TvShows => self.render_discovery(MediaType::Tv, cx),
             AppPage::Search => self.render_search(cx),
             AppPage::Library => self.render_library(cx),
+            AppPage::Downloads => self.render_downloads(cx),
             AppPage::Addons => self.render_addons(cx),
             AppPage::Settings => self.render_settings(cx),
         }
@@ -15682,6 +15699,7 @@ mod tests {
             AppPage::TvShows,
             AppPage::Search,
             AppPage::Library,
+            AppPage::Downloads,
             AppPage::Addons,
             AppPage::Settings,
         ] {
