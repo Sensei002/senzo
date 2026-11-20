@@ -286,14 +286,16 @@ impl CloudService {
             let batch = repository.list_pending_sync_mutations(profile_id, now_ms(), SYNC_BATCH_SIZE)?;
             if batch.is_empty() { break; }
             let outgoing = batch.iter().map(|item| {
-                let payload: Value = serde_json::from_str(&item.payload_json)
+                // The API validates a bounded serialized payload, parses it server-side,
+                // and passes the decoded JSON value to the authenticated database RPC.
+                let _: Value = serde_json::from_str(&item.payload_json)
                     .map_err(|_| CloudError::InvalidResponse)?;
                 Ok(json!({
                     "id":item.id,
                     "entity_type":item.entity_type,
                     "entity_id":item.entity_id,
                     "operation":item.operation,
-                    "payload":payload,
+                    "payload_json":item.payload_json,
                     "changed_at_ms":item.changed_at_ms
                 }))
             }).collect::<Result<Vec<_>, CloudError>>()?;
