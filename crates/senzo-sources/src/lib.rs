@@ -910,7 +910,9 @@ pub fn select_source(sources: &[Source], policy: AutoSelectPolicy) -> Option<&So
     sources.iter().max_by(|a, b| {
         let score = |source: &Source| match policy {
             AutoSelectPolicy::Disabled => 0_i64,
-            AutoSelectPolicy::HighestQuality => source_quality_rank(source.quality.as_deref()) as i64,
+            AutoSelectPolicy::HighestQuality => {
+                source_quality_rank(source.quality.as_deref()) as i64
+            }
             AutoSelectPolicy::CachedFirst => {
                 i64::from(source.cache_state == CacheState::Cached) * 100
                     + source_quality_rank(source.quality.as_deref()) as i64
@@ -937,9 +939,8 @@ fn source_order(a: &Source, b: &Source) -> std::cmp::Ordering {
 pub fn sort_sources(sources: &mut [Source], sort: SourceSort) {
     sources.sort_by(|a, b| match sort {
         SourceSort::Recommended => source_order(a, b),
-        SourceSort::Quality => {
-            source_quality_rank(b.quality.as_deref()).cmp(&source_quality_rank(a.quality.as_deref()))
-        }
+        SourceSort::Quality => source_quality_rank(b.quality.as_deref())
+            .cmp(&source_quality_rank(a.quality.as_deref())),
         SourceSort::Seeders => b.seeders.unwrap_or(0).cmp(&a.seeders.unwrap_or(0)),
         SourceSort::Size => b.size_bytes.unwrap_or(0).cmp(&a.size_bytes.unwrap_or(0)),
     });
@@ -970,7 +971,11 @@ pub fn source_quality_label(value: Option<&str>) -> &'static str {
         "1080p"
     } else if value.contains("720") || value.contains("hd") {
         "720p"
-    } else if value.contains("576") || value.contains("480") || value.contains("360") || value.contains("sd") {
+    } else if value.contains("576")
+        || value.contains("480")
+        || value.contains("360")
+        || value.contains("sd")
+    {
         "SD"
     } else {
         "Unknown"

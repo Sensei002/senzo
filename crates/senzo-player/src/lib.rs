@@ -1320,7 +1320,9 @@ mod tests {
             ..Default::default()
         })
         .expect("the packaged libmpv runtime must load and initialize");
-        player.shutdown().expect("the packaged libmpv runtime must shut down cleanly");
+        player
+            .shutdown()
+            .expect("the packaged libmpv runtime must shut down cleanly");
     }
 
     #[test]

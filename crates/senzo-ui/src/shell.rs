@@ -5443,7 +5443,12 @@ impl SenzoShell {
         }
         let available_qualities = ["4K", "1440p", "1080p", "720p", "SD", "Unknown"]
             .into_iter()
-            .filter_map(|label| quality_counts.get(label).copied().map(|count| (label, count)))
+            .filter_map(|label| {
+                quality_counts
+                    .get(label)
+                    .copied()
+                    .map(|count| (label, count))
+            })
             .collect::<Vec<_>>();
         let total_visible = quality_counts.values().sum::<usize>();
         let mut quality_row = div().flex().flex_wrap().gap_2().items_center().child(
@@ -5458,16 +5463,24 @@ impl SenzoShell {
                 .id("source-quality-all")
                 .cursor_pointer()
                 .rounded_md()
-                .bg(rgb(if all_selected { Theme::ACCENT_DARK } else { Theme::SURFACE }))
+                .bg(rgb(if all_selected {
+                    Theme::ACCENT_DARK
+                } else {
+                    Theme::SURFACE
+                }))
                 .px_2()
                 .py_1()
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.set_detail_source_quality_filter(None, cx)
-                }))
+                .on_click(
+                    cx.listener(|this, _, _, cx| this.set_detail_source_quality_filter(None, cx)),
+                )
                 .child(
                     div()
                         .text_xs()
-                        .text_color(rgb(if all_selected { Theme::ACCENT } else { Theme::TEXT_SECONDARY }))
+                        .text_color(rgb(if all_selected {
+                            Theme::ACCENT
+                        } else {
+                            Theme::TEXT_SECONDARY
+                        }))
                         .child(format!("All ({total_visible})")),
                 ),
         );
@@ -5479,7 +5492,11 @@ impl SenzoShell {
                     .id(format!("source-quality-{}", label.to_ascii_lowercase()))
                     .cursor_pointer()
                     .rounded_md()
-                    .bg(rgb(if selected { Theme::ACCENT_DARK } else { Theme::SURFACE }))
+                    .bg(rgb(if selected {
+                        Theme::ACCENT_DARK
+                    } else {
+                        Theme::SURFACE
+                    }))
                     .px_2()
                     .py_1()
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -5488,7 +5505,11 @@ impl SenzoShell {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(rgb(if selected { Theme::ACCENT } else { Theme::TEXT_SECONDARY }))
+                            .text_color(rgb(if selected {
+                                Theme::ACCENT
+                            } else {
+                                Theme::TEXT_SECONDARY
+                            }))
                             .child(format!("{label} ({count})")),
                     ),
             );
@@ -5507,9 +5528,12 @@ impl SenzoShell {
                         || (source.is_torrent() && details.source_show_torrents)
                         || (source.is_external() && details.source_show_external);
                     enabled_by_kind
-                        && details.source_quality_filter.as_deref().is_none_or(|selected| {
-                            source_quality_label(source.quality.as_deref()) == selected
-                        })
+                        && details
+                            .source_quality_filter
+                            .as_deref()
+                            .is_none_or(|selected| {
+                                source_quality_label(source.quality.as_deref()) == selected
+                            })
                 })
                 .cloned()
                 .collect::<Vec<_>>();
