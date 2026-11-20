@@ -162,14 +162,14 @@ pub fn default_player_layout() -> PlayerLayoutV1 {
 pub fn default_theme(layout: HomeLayoutPreset) -> ThemeManifestV1 {
     ThemeManifestV1 {
         version: 1,
-        name: "Stremio Native".to_owned(),
+        name: "SENZO Midnight".to_owned(),
         layout,
         colors: ThemeColors {
-            background: "#0c0b11".to_owned(),
-            surface: "#151320".to_owned(),
-            text: "#ffffffe6".to_owned(),
-            accent: "#7b5bf5".to_owned(),
-            focus: "#ffffffe6".to_owned(),
+            background: "#080D11".to_owned(),
+            surface: "#101B21".to_owned(),
+            text: "#F3FAFC".to_owned(),
+            accent: "#22D3EE".to_owned(),
+            focus: "#22D3EE".to_owned(),
         },
         density: 1.0,
         spacing_scale: 1.0,
