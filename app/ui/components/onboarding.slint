@@ -114,7 +114,7 @@ export component OnboardingModal inherits Rectangle {
             spacing: 12px;
             alignment: start;
 
-            // Centered Stremio Native Logo Badge
+            // Centered SENZO Logo Badge
             HorizontalLayout {
                 alignment: center;
                 height: 64px;
@@ -122,13 +122,13 @@ export component OnboardingModal inherits Rectangle {
                 Image {
                     width: 64px;
                     height: 64px;
-                    source: @image-url("../assets/images/stremio_symbol.png");
+                    source: @image-url("../assets/images/app_icon.png");
                     image-fit: contain;
                 }
             }
 
             Text {
-                text: @tr("Welcome to Stremio Native");
+                text: @tr("Welcome to SENZO");
                 color: Theme.primary-foreground;
                 font-size: 24px;
                 font-weight: 700;
@@ -544,7 +544,7 @@ export component OnboardingModal inherits Rectangle {
             }
 
             Text {
-                text: @tr("Link Stremio Native with your other apps and services.");
+                text: @tr("Link SENZO with your other apps and services.");
                 color: Theme.text-secondary;
                 font-size: 14px;
                 font-weight: 500;
@@ -706,7 +706,7 @@ export component OnboardingModal inherits Rectangle {
             }
 
             Text {
-                text: @tr("What's New in Stremio Native");
+                text: @tr("What's New in SENZO");
                 color: Theme.primary-foreground;
                 font-size: 24px;
                 font-weight: 700;
