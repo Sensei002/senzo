@@ -8815,6 +8815,8 @@ impl SenzoShell {
         let manager = self.plugin_manager.clone();
         let settings_manager = manager.clone();
         let settings_scraper_id = scraper_id.clone();
+        let profile_id = self.active_profile_id.clone();
+        let settings_profile_id = profile_id.clone();
         let runtime = self.tokio.clone();
         self.plugin_busy = true;
         self.plugin_error = None;
@@ -12392,7 +12394,7 @@ impl SenzoShell {
         cx.notify();
     }
 
-    fn unlock_startup_profile(&mut self, cx: &mut Context<Self>) {
+    fn unlock_startup_profile(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let pin = self.profile_pin_input.read(cx).value().to_string();
         match self.profile_security_repository.verify_profile_pin(
             &self.active_profile_id, &pin, current_epoch_millis(),
@@ -12400,7 +12402,7 @@ impl SenzoShell {
             Ok(true) => {
                 self.profile_locked = false;
                 self.profile_error = None;
-                self.profile_pin_input.update(cx, |input, window, cx| {
+                self.profile_pin_input.update(cx, |input, cx| {
                     input.set_value(String::new(), window, cx);
                 });
                 self.profile_notice = Some("Profile unlocked.".to_owned());
@@ -12414,7 +12416,7 @@ impl SenzoShell {
         cx.notify();
     }
 
-    fn render_startup_profile_lock(&self, cx: &mut Context<Self>) -> gpui::Div {
+    fn render_startup_profile_lock(&self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
         let name = self.profiles.iter().find(|profile| profile.id == self.active_profile_id)
             .map(|profile| profile.name.clone()).unwrap_or_else(|| "Profile".to_owned());
         let mut view = div().id("profile-startup-lock").size_full().flex()
@@ -12427,7 +12429,7 @@ impl SenzoShell {
                 .child(Input::new(&self.profile_pin_input))
                 .child(div().id("profile-startup-unlock").cursor_pointer().rounded_md()
                     .bg(rgb(Theme::ACCENT_DARK)).px_4().py_3()
-                    .on_click(cx.listener(|this, _, _, cx| this.unlock_startup_profile(cx)))
+                    .on_click(cx.listener(|this, _, window, cx| this.unlock_startup_profile(window, cx)))
                     .child(div().text_sm().text_color(rgb(Theme::ACCENT)).child("Unlock"))));
         if let Some(error) = &self.profile_error {
             view = view.child(status_panel(StatusTone::Error,"PROFILE","Unlock failed",error));
@@ -12442,7 +12444,7 @@ impl SenzoShell {
         match self.profile_security_repository.has_profile_pin(&profile_id) {
             Ok(true) => {
                 self.profile_switch_target = Some(profile_id);
-                self.profile_pin_input.update(cx, |input, window, cx| {
+                self.profile_pin_input.update(cx, |input, cx| {
                     input.set_value(String::new(), window, cx);
                 });
                 self.profile_error = None;
@@ -12498,11 +12500,11 @@ impl SenzoShell {
         self.profile_switch_target = None;
         self.profile_error = None;
         if let Some(name) = self.profiles.iter().find(|profile| profile.id == profile_id).map(|profile| profile.name.clone()) {
-            self.profile_name_input.update(cx, |input, window, cx| {
+            self.profile_name_input.update(cx, |input, cx| {
                 input.set_value(name, window, cx);
             });
         }
-        self.profile_pin_input.update(cx, |input, window, cx| {
+        self.profile_pin_input.update(cx, |input, cx| {
             input.set_value(String::new(), window, cx);
         });
         self.profile_notice = self.profiles.iter()
@@ -12531,10 +12533,10 @@ impl SenzoShell {
         self.plugin_registry_loaded = false;
         self.plugin_state = PluginState::default();
         self.plugin_stream_results.clear();
-        self.debrid_api_key_input.update(cx, |input, window, cx| {
+        self.debrid_api_key_input.update(cx, |input, cx| {
             input.set_value(String::new(), window, cx);
         });
-        self.server_password_input.update(cx, |input, window, cx| {
+        self.server_password_input.update(cx, |input, cx| {
             input.set_value(String::new(), window, cx);
         });
         if self.navigation.current() == AppPage::Addons {
@@ -12730,13 +12732,13 @@ impl SenzoShell {
         cx.notify();
     }
 
-    fn cloud_sign_in(&mut self, cx: &mut Context<Self>) {
+    fn cloud_sign_in(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.cloud_busy { return; }
         let email = self.cloud_email_input.read(cx).value().to_string();
         let password = self.cloud_password_input.read(cx).value().to_string();
         let profile_id = self.active_profile_id.clone();
         let service = self.cloud_service.clone();
-        self.cloud_password_input.update(cx, |input, window, cx| {
+        self.cloud_password_input.update(cx, |input, cx| {
             input.set_value(String::new(), window, cx);
         });
         self.cloud_busy = true;
@@ -12766,7 +12768,7 @@ impl SenzoShell {
         }).detach();
     }
 
-    fn cloud_sign_up(&mut self, cx: &mut Context<Self>) {
+    fn cloud_sign_up(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.cloud_busy { return; }
         let email = self.cloud_email_input.read(cx).value().to_string();
         let password = self.cloud_password_input.read(cx).value().to_string();
@@ -12775,7 +12777,7 @@ impl SenzoShell {
             .map(|profile| profile.name.clone());
         let profile_id = self.active_profile_id.clone();
         let service = self.cloud_service.clone();
-        self.cloud_password_input.update(cx, |input, window, cx| {
+        self.cloud_password_input.update(cx, |input, cx| {
             input.set_value(String::new(), window, cx);
         });
         self.cloud_busy = true;
@@ -12894,10 +12896,10 @@ impl SenzoShell {
                 .child(Input::new(&self.cloud_password_input))
                 .child(div().flex().gap_2()
                     .child(div().id("cloud-sign-in").cursor_pointer().rounded_md().bg(rgb(Theme::ACCENT_DARK))
-                        .px_3().py_2().on_click(cx.listener(|this, _, _, cx| this.cloud_sign_in(cx)))
+                        .px_3().py_2().on_click(cx.listener(|this, _, window, cx| this.cloud_sign_in(window, cx)))
                         .child(div().text_xs().text_color(rgb(Theme::ACCENT)).child("Sign in")))
                     .child(div().id("cloud-sign-up").cursor_pointer().rounded_md().bg(rgb(Theme::SURFACE_RAISED))
-                        .px_3().py_2().on_click(cx.listener(|this, _, _, cx| this.cloud_sign_up(cx)))
+                        .px_3().py_2().on_click(cx.listener(|this, _, window, cx| this.cloud_sign_up(window, cx)))
                         .child(div().text_xs().text_color(rgb(Theme::TEXT_PRIMARY)).child("Create account"))));
         } else {
             section = section.child(div().flex().gap_2()
