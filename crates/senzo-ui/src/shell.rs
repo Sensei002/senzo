@@ -12,14 +12,16 @@ use gpui::{
     App, Bounds, ClipboardItem, ColorExt, Context, Entity, FocusHandle, Image, ImageFormat,
     KeyBinding, Menu, MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent, NavigationDirection,
     Pixels, QuitMode, Render, RenderImage, ScrollHandle, SharedString, Subscription,
-    TitlebarOptions, Window, WindowBounds, WindowOptions, actions, canvas, div, img, point, prelude::*, px,
-    rgb, size,
+    TitlebarOptions, Window, WindowBounds, WindowOptions, actions, canvas, div, img, point,
+    prelude::*, px, rgb, size,
 };
 use gpui_component::scroll::ScrollableElement;
 use gpui_component::{
     input::{Input, InputEvent, InputState},
     slider::{Slider, SliderEvent, SliderState},
 };
+#[cfg(all(target_os = "windows", not(test)))]
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use senzo_addons::{
     AddonCatalogItem, AddonManager, AddonPreview, AddonStream, AddonSubtitle, ManagedAddon,
 };
@@ -44,10 +46,8 @@ use senzo_metadata::{
     DiscoverRequest, DiscoverSort, EpisodeDetails, Genre, MediaItem, MediaType, MetadataClient,
     MetadataError, Person, SearchType, SeasonDetails, SeasonSummary, VideoItem,
 };
-use senzo_player::{MpvConfig, MpvPlayer, PlaybackSnapshot, PlaybackStatus, ResizeMode, TrackKind};
 use senzo_platform::NativeVideoSurface;
-#[cfg(all(target_os = "windows", not(test)))]
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+use senzo_player::{MpvConfig, MpvPlayer, PlaybackSnapshot, PlaybackStatus, ResizeMode, TrackKind};
 use senzo_plugins::{PluginManager, PluginState, PluginStream, ScraperInput};
 use senzo_sources::{
     Source, SourceAggregator, SourceDiscoveryResult, SourceRequest, SourceSort, SourceTarget,
@@ -3803,7 +3803,11 @@ impl SenzoShell {
         let surface = NativeVideoSurface::create(parent)?;
         let hwnd = surface.hwnd() as u64;
         self.native_video_surface = Some(Rc::new(surface));
-        tracing::info!(parent_hwnd = parent, child_hwnd = hwnd, "Created embedded MPV video surface");
+        tracing::info!(
+            parent_hwnd = parent,
+            child_hwnd = hwnd,
+            "Created embedded MPV video surface"
+        );
         Ok(hwnd)
     }
     fn start_playback_url(
@@ -14722,14 +14726,13 @@ impl SenzoShell {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
-            let (mut session, files) =
-                TorrentPlaybackSession::inspect_with_trackers_cancellable(
-                    &info_hash,
-                    &trackers,
-                    &worker_cancel,
-                )
-                .await
-                .map_err(|error| format!("Could not inspect torrent metadata: {error:#}"))?;
+            let (mut session, files) = TorrentPlaybackSession::inspect_with_trackers_cancellable(
+                &info_hash,
+                &trackers,
+                &worker_cancel,
+            )
+            .await
+            .map_err(|error| format!("Could not inspect torrent metadata: {error:#}"))?;
             if worker_cancel.is_cancelled() {
                 let _ = session.shutdown().await;
                 return Err("Torrent startup was cancelled.".to_owned());
@@ -15370,13 +15373,14 @@ impl Render for SenzoShell {
         // Only acquire the host handle in a normal Windows desktop build.
         #[cfg(all(target_os = "windows", not(test)))]
         if self.native_window_hwnd.is_none() {
-            self.native_window_hwnd = window
-                .window_handle()
-                .ok()
-                .and_then(|handle| match handle.as_raw() {
-                    RawWindowHandle::Win32(handle) => Some(handle.hwnd.get()),
-                    _ => None,
-                });
+            self.native_window_hwnd =
+                window
+                    .window_handle()
+                    .ok()
+                    .and_then(|handle| match handle.as_raw() {
+                        RawWindowHandle::Win32(handle) => Some(handle.hwnd.get()),
+                        _ => None,
+                    });
         }
         if !self.playback_open
             && let Some(surface) = self.native_video_surface.as_ref()

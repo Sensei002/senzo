@@ -140,7 +140,10 @@ impl NativeVideoSurface {
                 class_name.as_ptr(),
                 std::ptr::null(),
                 WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
-                0, 0, 1, 1,
+                0,
+                0,
+                1,
+                1,
                 parent_hwnd as windows_sys::Win32::Foundation::HWND,
                 std::ptr::null_mut(),
                 GetModuleHandleW(std::ptr::null()),
@@ -156,16 +159,23 @@ impl NativeVideoSurface {
         Ok(Self { hwnd })
     }
 
-    pub fn hwnd(&self) -> isize { self.hwnd as isize }
+    pub fn hwnd(&self) -> isize {
+        self.hwnd as isize
+    }
 
     pub fn set_bounds(&self, x: i32, y: i32, width: i32, height: i32) -> Result<(), String> {
         use windows_sys::Win32::{
             Foundation::GetLastError,
-            UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW},
+            UI::WindowsAndMessaging::{SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW, SetWindowPos},
         };
         let result = unsafe {
             SetWindowPos(
-                self.hwnd, std::ptr::null_mut(), x, y, width.max(1), height.max(1),
+                self.hwnd,
+                std::ptr::null_mut(),
+                x,
+                y,
+                width.max(1),
+                height.max(1),
                 SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW,
             )
         };
@@ -179,8 +189,10 @@ impl NativeVideoSurface {
     }
 
     pub fn hide(&self) {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
-        unsafe { ShowWindow(self.hwnd, SW_HIDE); }
+        use windows_sys::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow};
+        unsafe {
+            ShowWindow(self.hwnd, SW_HIDE);
+        }
     }
 }
 
@@ -188,7 +200,11 @@ impl NativeVideoSurface {
 impl Drop for NativeVideoSurface {
     fn drop(&mut self) {
         use windows_sys::Win32::UI::WindowsAndMessaging::DestroyWindow;
-        if !self.hwnd.is_null() { unsafe { DestroyWindow(self.hwnd); } }
+        if !self.hwnd.is_null() {
+            unsafe {
+                DestroyWindow(self.hwnd);
+            }
+        }
     }
 }
 
@@ -201,7 +217,11 @@ impl NativeVideoSurface {
     pub fn create(_parent_hwnd: isize) -> Result<Self, String> {
         Err("embedded MPV surfaces are currently supported on Windows only".to_owned())
     }
-    pub fn hwnd(&self) -> isize { 0 }
-    pub fn set_bounds(&self, _x: i32, _y: i32, _width: i32, _height: i32) -> Result<(), String> { Ok(()) }
+    pub fn hwnd(&self) -> isize {
+        0
+    }
+    pub fn set_bounds(&self, _x: i32, _y: i32, _width: i32, _height: i32) -> Result<(), String> {
+        Ok(())
+    }
     pub fn hide(&self) {}
 }
