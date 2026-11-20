@@ -8239,7 +8239,7 @@ impl SenzoShell {
             )
     }
 
-    fn render_discovery(&self, media_type: MediaType, cx: &mut Context<Self>) -> gpui::Div {
+    fn render_discovery(&self, media_type: MediaType, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
         let state = self.discovery_state(media_type);
         let movie = media_type == MediaType::Movie;
         let title = if movie { "Movies" } else { "TV Shows" };
