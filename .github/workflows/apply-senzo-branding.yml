@@ -45,4 +45,6 @@ jobs:
           git add app/ui/assets/images/logo.png app/ui/assets/images/senzo-logo.png app/ui/assets/images/app_icon.png app/assets/app.ico
           git diff --cached --quiet && { echo "No branding changes to commit."; exit 0; }
           git commit -m "branding: apply canonical SENZO logo and app icons"
+          git fetch origin migration/stremio-native
+          git rebase origin/migration/stremio-native
           git push origin HEAD:migration/stremio-native
