@@ -19,6 +19,17 @@ use fs2::FileExt;
 const SESSION_PREFIX: &str = "session-";
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(windows)]
+fn is_windows_lock_violation(error: &std::io::Error) -> bool {
+    // Win32 ERROR_LOCK_VIOLATION from LockFileEx.
+    error.raw_os_error() == Some(33)
+}
+
+#[cfg(not(windows))]
+fn is_windows_lock_violation(_error: &std::io::Error) -> bool {
+    false
+}
+
 /// Owns one isolated directory for transient torrent payloads.
 #[derive(Debug)]
 pub struct TorrentSessionDirectory {
@@ -92,8 +103,12 @@ impl TorrentSessionDirectory {
                         }
                     }
                 }
-                Err(error) if error.kind() == ErrorKind::WouldBlock => {
-                    // Another SENZO process still owns this active session.
+                Err(error)
+                    if error.kind() == ErrorKind::WouldBlock || is_windows_lock_violation(&error) =>
+                {
+                    // Another SENZO process still owns this active session. Windows
+                    // reports LockFileEx contention as ERROR_LOCK_VIOLATION (33)
+                    // rather than consistently mapping it to WouldBlock.
                 }
                 Err(error) if error.kind() == ErrorKind::PermissionDenied => continue,
                 Err(error) => {
@@ -257,6 +272,13 @@ mod tests {
         assert!(!abandoned.exists());
         assert!(unrelated.join("important.txt").exists());
         assert!(file.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_lock_violation_is_recognized_as_active_session_contention() {
+        let error = std::io::Error::from_raw_os_error(33);
+        assert!(is_windows_lock_violation(&error));
     }
 
     #[test]
