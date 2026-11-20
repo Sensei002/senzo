@@ -3766,8 +3766,9 @@ impl SenzoShell {
             duration_ms,
             snapshot.status == PlaybackStatus::Ended,
         );
-        if (!should_store_playback_progress(position_ms, duration_ms) && !completed)
-            || (!completed && position_ms == context.last_persisted_position_ms)
+        if (position_ms == context.last_persisted_position_ms
+            || !should_store_playback_progress(position_ms, duration_ms))
+            && !completed
         {
             return;
         }
