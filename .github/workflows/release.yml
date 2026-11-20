@@ -1,0 +1,484 @@
+name: SENZO Desktop Releases
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: senzo-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: 10
+  CARGO_HTTP_MULTIPLEXING: false
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-2022
+    env:
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+      VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+      VCPKG_INSTALLED_DIR: ${{ github.workspace }}\vcpkg_installed
+      VCPKG_DEFAULT_TRIPLET: x64-windows-v3-static-md-release
+      VCPKGRS_TRIPLET: x64-windows-v3-static-md-release
+      VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}\triplets
+      VCPKG_OVERLAY_PORTS: ${{ github.workspace }}\vcpkg-overlays
+      PKG_CONFIG_PATH: ${{ github.workspace }}\vcpkg_installed\x64-windows-v3-static-md-release\lib\pkgconfig
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-31
+          targets: x86_64-pc-windows-msvc
+
+      - name: Provide libclang for native dependency bindings
+        shell: pwsh
+        run: |
+          $roots = @(
+            'C:\Program Files\LLVM\bin',
+            'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\Llvm\x64\bin',
+            'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\x64\bin'
+          )
+          function Find-LibClang {
+            foreach ($root in $roots) {
+              if (Test-Path (Join-Path $root 'libclang.dll')) { return $root }
+            }
+            return $null
+          }
+          $llvmBin = Find-LibClang
+          if (-not $llvmBin) {
+            choco install llvm --no-progress --yes
+            $llvmBin = Find-LibClang
+          }
+          if (-not $llvmBin) { throw "libclang.dll was not found." }
+          "LIBCLANG_PATH=$llvmBin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Export GitHub Actions cache environment for vcpkg
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL);
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN);
+
+      - name: Restore vcpkg cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: vcpkg_installed
+          key: Windows-vcpkg-x86-64-v3-static-md-release-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
+          restore-keys: |
+            Windows-vcpkg-x86-64-v3-static-md-release-
+
+      - name: Prepare pinned vcpkg with retries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $dir = Join-Path $env:GITHUB_WORKSPACE 'vcpkg'
+          $commit = '84bab45d415d22042bd0b9081aea57f362da3f35'
+
+          function Invoke-WithRetry {
+            param([string] $What, [scriptblock] $Action)
+            for ($attempt = 1; $attempt -le 5; $attempt++) {
+              & $Action
+              if ($LASTEXITCODE -eq 0) { return }
+              Write-Output "$What failed with exit $LASTEXITCODE (attempt $attempt of 5)"
+              Start-Sleep -Seconds (5 * $attempt)
+            }
+            throw "$What did not succeed after 5 attempts"
+          }
+
+          if (-not (Test-Path (Join-Path $dir '.git'))) {
+            Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            Invoke-WithRetry 'vcpkg clone' {
+              git clone https://github.com/microsoft/vcpkg.git -n $dir
+            }
+          }
+          Invoke-WithRetry 'vcpkg checkout' { git -C $dir checkout --force $commit }
+          if (-not (Test-Path (Join-Path $dir 'vcpkg.exe'))) {
+            Invoke-WithRetry 'vcpkg bootstrap' {
+              & (Join-Path $dir 'bootstrap-vcpkg.bat') -disableMetrics
+            }
+          }
+
+      - name: Install optimized static libtorrent and OpenSSL
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: "84bab45d415d22042bd0b9081aea57f362da3f35"
+          vcpkgDirectory: "${{ github.workspace }}/vcpkg"
+          doNotUpdateVcpkg: true
+          vcpkgJsonGlob: "vcpkg.json"
+          runVcpkgInstall: true
+        env:
+          VCPKG_INSTALLED_DIR: ${{ github.workspace }}\vcpkg_installed
+          VCPKG_DEFAULT_TRIPLET: x64-windows-v3-static-md-release
+          VCPKGRS_TRIPLET: x64-windows-v3-static-md-release
+          VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}\triplets
+          VCPKG_OVERLAY_PORTS: ${{ github.workspace }}\vcpkg-overlays
+
+      - name: Save vcpkg cache
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: vcpkg_installed
+          key: Windows-vcpkg-x86-64-v3-static-md-release-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build SENZO release
+        run: cargo build --locked --release --package senzo
+
+      - name: Stage app-local MSVC runtime
+        shell: pwsh
+        run: ./scripts/stage_windows_msvc_runtime.ps1 -BuildRoot ./target/release
+
+      - name: Verify Windows runtime bundle
+        shell: pwsh
+        run: |
+          $root = "target/release"
+          @(
+            "senzo.exe",
+            "libmpv-2.dll",
+            "licenses/mpv/LICENSE.GPL",
+            "licenses/mpv/LICENSE.LGPL"
+          ) | ForEach-Object {
+            if (-not (Test-Path (Join-Path $root $_))) {
+              throw "Missing required Windows release file: $_"
+            }
+          }
+
+      - name: Provide Inno Setup for the installer
+        shell: pwsh
+        run: |
+          $roots = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6",
+            "$env:ProgramFiles\Inno Setup 6"
+          )
+          function Find-Iscc {
+            foreach ($root in $roots) {
+              $candidate = Join-Path $root 'ISCC.exe'
+              if (Test-Path $candidate) { return $candidate }
+            }
+            return $null
+          }
+          $iscc = Find-Iscc
+          if (-not $iscc) {
+            choco install innosetup --no-progress --yes
+            $iscc = Find-Iscc
+          }
+          if (-not $iscc) { throw "ISCC.exe was not found after installing Inno Setup." }
+          "ISCC_EXE=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build SENZO installer and updater archive
+        shell: cmd
+        run: |
+          set "SKIP_BUILD=1"
+          call setup\create_setup.cmd
+
+      - name: Upload Windows release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: senzo-windows-x64
+          path: |
+            target/release/senzo.exe
+            target/release/libmpv-2.dll
+            target/release/msvc-runtime/**
+            target/release/licenses/mpv/**
+            artifacts/SENZO-Setup-v*-x64.exe
+            artifacts/senzo-v*-x86_64-pc-windows-msvc.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  linux:
+    name: Linux x64 and Debian package
+    runs-on: ubuntu-24.04
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg_installed
+      VCPKG_DEFAULT_TRIPLET: x64-linux-v3-static-release
+      VCPKGRS_TRIPLET: x64-linux-v3-static-release
+      VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/triplets
+      VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/vcpkg-overlays
+      PKG_CONFIG_PATH: ${{ github.workspace }}/vcpkg_installed/x64-linux-v3-static-release/lib/pkgconfig
+      LIBTORRENT_STATIC: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-31
+          target: x86_64-unknown-linux-gnu
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang cmake ninja-build pkg-config libssl-dev libclang-dev \
+            libgtk-3-dev libayatana-appindicator3-dev libmpv-dev libfontconfig1-dev \
+            libfreetype6-dev libxkbcommon-dev libwayland-dev libx11-xcb-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev libgl1-mesa-dev libegl1-mesa-dev
+
+      - name: Restore libtorrent cache
+        id: libtorrent-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: vcpkg_installed
+          key: Linux-vcpkg-x64-linux-v3-static-release-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
+          restore-keys: |
+            Linux-vcpkg-x64-linux-v3-static-release-
+
+      - name: Install pinned static libtorrent 2.1.1
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: "84bab45d415d22042bd0b9081aea57f362da3f35"
+          vcpkgDirectory: "${{ github.workspace }}/vcpkg"
+          vcpkgJsonGlob: "vcpkg.json"
+          runVcpkgInstall: true
+
+      - name: Save libtorrent cache
+        if: steps.libtorrent-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: vcpkg_installed
+          key: Linux-vcpkg-x64-linux-v3-static-release-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
+
+      - name: Build SENZO Linux binary
+        run: cargo build --locked --release --package senzo
+
+      - name: Install cargo-deb
+        uses: taiki-e/install-action@v2.85.4
+        with:
+          tool: cargo-deb
+
+      - name: Build Debian package
+        run: cargo deb --package senzo --no-build
+
+      - name: Upload Linux portable binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: senzo-linux-x64
+          path: target/release/senzo
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Debian package
+        uses: actions/upload-artifact@v4
+        with:
+          name: senzo-linux-deb
+          path: target/debian/*.deb
+          if-no-files-found: error
+          retention-days: 14
+
+  arch:
+    name: Arch Linux x64 package
+    needs: linux
+    runs-on: ubuntu-24.04
+    container:
+      image: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Linux binary
+        uses: actions/download-artifact@v4
+        with:
+          name: senzo-linux-x64
+          path: target/release
+
+      - name: Install packaging dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --needed --noconfirm base-devel
+
+      - name: Create PKGBUILD
+        run: |
+          pkgver=$(grep -m1 '^version = ' app/Cargo.toml | cut -d '"' -f2)
+          mkdir -p pkg
+          cat > pkg/PKGBUILD << EOF
+          # Maintainer: Sensei002
+          pkgname=senzo
+          pkgver=${pkgver}
+          pkgrel=1
+          pkgdesc="SENZO native desktop media center built with Rust and Slint"
+          arch=('x86_64')
+          url="https://github.com/Sensei002/senzo"
+          license=('GPL-3.0-only')
+          depends=('openssl' 'mpv' 'gtk3' 'libayatana-appindicator' 'fontconfig' 'freetype2' 'libxkbcommon' 'libxcursor' 'libx11' 'wayland')
+          options=('!strip' '!debug')
+          source=("senzo")
+          sha256sums=('SKIP')
+
+          package() {
+              install -Dm755 "\$srcdir/senzo" "\$pkgdir/usr/bin/senzo"
+          }
+          EOF
+          cp target/release/senzo pkg/senzo
+
+      - name: Build Arch package
+        run: |
+          cd pkg
+          mapfile -t runtime_deps < <(bash -c 'source ./PKGBUILD; printf "%s\n" "${depends[@]}"')
+          pacman -S --needed --noconfirm "${runtime_deps[@]}"
+          useradd -m builder
+          chown -R builder:builder .
+          su builder -c "makepkg --noconfirm"
+
+      - name: Upload Arch package
+        uses: actions/upload-artifact@v4
+        with:
+          name: senzo-arch-package
+          path: pkg/*.pkg.tar.zst
+          if-no-files-found: error
+          retention-days: 14
+
+  fedora:
+    name: Fedora x64 RPM package
+    needs: linux
+    runs-on: ubuntu-24.04
+    container:
+      image: fedora:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Linux binary
+        uses: actions/download-artifact@v4
+        with:
+          name: senzo-linux-x64
+          path: target/release
+
+      - name: Install RPM build dependencies
+        run: dnf install -y rpm-build
+
+      - name: Create RPM spec
+        run: |
+          pkgver=$(grep -m1 '^version = ' app/Cargo.toml | cut -d '"' -f2)
+          mkdir -p rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+          cp target/release/senzo rpmbuild/SOURCES/
+          cat > rpmbuild/SPECS/senzo.spec << 'SPEC'
+          Name:           senzo
+          Version:        __VERSION__
+          Release:        1%{?dist}
+          Summary:        SENZO native desktop media center built with Rust and Slint
+          License:        GPL-3.0-only
+          URL:            https://github.com/Sensei002/senzo
+          Source0:        senzo
+          Requires:       openssl mpv-libs gtk3 libayatana-appindicator-gtk3 fontconfig freetype libxkbcommon libXcursor libX11 libwayland-client
+
+          %description
+          SENZO is a native desktop media center built with Rust and Slint.
+
+          %install
+          rm -rf %{buildroot}
+          mkdir -p %{buildroot}%{_bindir}
+          install -p -m 755 %{_sourcedir}/senzo %{buildroot}%{_bindir}/senzo
+
+          %files
+          %{_bindir}/senzo
+          SPEC
+          sed -i "s/__VERSION__/$pkgver/g" rpmbuild/SPECS/senzo.spec
+
+      - name: Validate RPM runtime dependencies
+        run: |
+          read -r -a runtime_deps <<< "$(sed -n 's/^Requires:[[:space:]]*//p' rpmbuild/SPECS/senzo.spec)"
+          dnf install -y "${runtime_deps[@]}"
+
+      - name: Build RPM package
+        run: rpmbuild -bb rpmbuild/SPECS/senzo.spec --define "_topdir $(pwd)/rpmbuild"
+
+      - name: Upload Fedora package
+        uses: actions/upload-artifact@v4
+        with:
+          name: senzo-fedora-rpm
+          path: rpmbuild/RPMS/x86_64/*.rpm
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub Release
+    needs: [windows, linux, arch, fedora]
+    runs-on: ubuntu-24.04
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all OS release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+
+          copy_latest() {
+            local pattern="$1"
+            local source
+            source="$(find artifacts -type f -name "$pattern" | sort -V | tail -n 1)"
+            if [[ -z "$source" ]]; then
+              echo "Missing required release asset: $pattern" >&2
+              exit 1
+            fi
+            cp "$source" release/
+          }
+
+          copy_latest "SENZO-Setup-v*-x64.exe"
+          copy_latest "senzo-v*-x86_64-pc-windows-msvc.zip"
+          copy_latest "*.deb"
+          copy_latest "senzo-[0-9]*.pkg.tar.zst"
+          copy_latest "senzo-*.rpm"
+
+          linux_binary="$(find artifacts/senzo-linux-x64 -type f -name senzo | head -n 1)"
+          if [[ -z "$linux_binary" ]]; then
+            echo "Missing required SENZO Linux binary" >&2
+            exit 1
+          fi
+          linux_asset="release/senzo-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu"
+          cp "$linux_binary" "$linux_asset"
+          chmod +x "$linux_asset"
+
+          (cd release && sha256sum * > SHA256SUMS.txt)
+          find release -maxdepth 1 -type f -printf '%f\n' | sort
+
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          previous_tag="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          python scripts/generate_release_notes.py \
+            --repo "${GITHUB_REPOSITORY}" \
+            --tag "${GITHUB_REF_NAME}" \
+            --previous-tag "$previous_tag" \
+            --asset-dir release \
+            --changelog CHANGELOG.md \
+            --output "${GITHUB_WORKSPACE}/RELEASE_BODY.md"
+          cat "${GITHUB_WORKSPACE}/RELEASE_BODY.md"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: release/*
+          body_path: RELEASE_BODY.md
+          fail_on_unmatched_files: true
+          generate_release_notes: false
+          prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') || contains(github.ref, 'rc') }}
