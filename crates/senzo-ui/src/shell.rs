@@ -8015,12 +8015,16 @@ impl SenzoShell {
         let metadata = self.metadata.clone();
         let artwork = self.artwork.clone();
         let runtime = self.tokio.clone();
-        let task_token = cancellation.clone();
+        let worker_token = cancellation.clone();
+        let completion_token = cancellation;
         cx.notify();
 
-        cx.spawn(async move |this, cx| {
-            let genre_token = task_token.child_token();
-            let discover_token = task_token.child_token();
+        // MetadataClient uses Tokio-backed networking. GPUI's executor is used
+        // only to deliver the completed result back to the view; the entire
+        // request/decode/artwork pipeline must run on SENZO's Tokio runtime.
+        let worker = runtime.spawn(async move {
+            let genre_token = worker_token.child_token();
+            let discover_token = worker_token.child_token();
             let (genre_result, response_result) = tokio::join!(
                 metadata.genres(media_type, "en-US", &genre_token),
                 metadata.discover(
@@ -8035,29 +8039,24 @@ impl SenzoShell {
                     &discover_token
                 ),
             );
-            if task_token.is_cancelled() {
-                return;
+
+            if worker_token.is_cancelled() {
+                return Err("Cancelled".to_owned());
             }
+
             let response = match response_result {
                 Ok(response) => response,
                 Err(error) => {
-                    tracing::warn!(media_type = ?media_type, page, error = %error, "Discovery catalogue request failed");
-                    let message = metadata_error_message(&error);
-                    let _ = this.update(cx, |this, cx| {
-                        let state = this.discovery_state_mut(media_type);
-                        if state.generation != generation || task_token.is_cancelled() {
-                            return;
-                        }
-                        state.loading_more = false;
-                        state.error = Some(message);
-                        if state.cards.is_empty() {
-                            state.status = DiscoveryStatus::Failed;
-                        }
-                        cx.notify();
-                    });
-                    return;
+                    tracing::warn!(
+                        media_type = ?media_type,
+                        page,
+                        error = %error,
+                        "Discovery catalogue request failed"
+                    );
+                    return Err(metadata_error_message(&error));
                 }
             };
+
             let genres = genre_result
                 .ok()
                 .map(|response| response.genres)
@@ -8070,6 +8069,7 @@ impl SenzoShell {
                 result_count = response.results.len(),
                 "Discovery catalogue response received"
             );
+
             let mut cards = Vec::new();
             let mut image_requests = Vec::new();
             let mut seen = existing;
@@ -8102,76 +8102,110 @@ impl SenzoShell {
                     poster: None,
                 });
             }
-            let images = if image_requests.is_empty() {
-                Vec::new()
-            } else {
-                let image_token = task_token.clone();
-                runtime
-                    .spawn(async move {
-                        let mut jobs = JoinSet::new();
-                        for (index, path) in image_requests {
-                            let service = artwork.clone();
-                            let token = image_token.child_token();
-                            jobs.spawn(async move {
-                                (
-                                    index,
-                                    load_gpui_artwork(service, path, ArtworkSize::W342, token)
-                                        .await,
-                                )
-                            });
-                        }
-                        let mut images = Vec::new();
-                        while let Some(result) = jobs.join_next().await {
-                            if let Ok((index, Some(image))) = result {
-                                images.push((index, image));
-                            }
-                        }
-                        images
-                    })
-                    .await
-                    .unwrap_or_default()
-            };
-            if task_token.is_cancelled() {
-                return;
+
+            let mut jobs = JoinSet::new();
+            for (index, path) in image_requests {
+                let service = artwork.clone();
+                let token = worker_token.child_token();
+                jobs.spawn(async move {
+                    (
+                        index,
+                        load_gpui_artwork(service, path, ArtworkSize::W342, token).await,
+                    )
+                });
             }
-            for (index, image) in images {
-                if let Some(card) = cards.get_mut(index) {
+
+            while let Some(result) = jobs.join_next().await {
+                if worker_token.is_cancelled() {
+                    return Err("Cancelled".to_owned());
+                }
+                if let Ok((index, Some(image))) = result
+                    && let Some(card) = cards.get_mut(index)
+                {
                     card.poster = Some(image);
                 }
             }
+
+            if worker_token.is_cancelled() {
+                return Err("Cancelled".to_owned());
+            }
+
+            Ok::<_, String>((genres, total_pages, cards))
+        });
+
+        cx.spawn(async move |this, cx| {
+            let result = worker
+                .await
+                .map_err(|error| {
+                    format!("The discovery catalogue worker stopped unexpectedly: {error}")
+                })
+                .and_then(|result| result);
+
+            if completion_token.is_cancelled() {
+                return;
+            }
+
             let _ = this.update(cx, |this, cx| {
                 let state = this.discovery_state_mut(media_type);
-                if state.generation != generation || task_token.is_cancelled() {
+                if state.generation != generation || completion_token.is_cancelled() {
                     return;
                 }
-                if !genres.is_empty() {
-                    state.genres = genres;
-                }
-                if reset {
-                    state.cards = cards;
-                } else {
-                    let mut identities = state
-                        .cards
-                        .iter()
-                        .map(|card| crate::discovery::media_identity(card.media_type, card.id))
-                        .collect::<HashSet<_>>();
-                    for card in cards {
-                        if identities
-                            .insert(crate::discovery::media_identity(card.media_type, card.id))
-                        {
-                            state.cards.push(card);
+
+                match result {
+                    Ok((genres, total_pages, cards)) => {
+                        if !genres.is_empty() {
+                            state.genres = genres;
+                        }
+                        if reset {
+                            state.cards = cards;
+                        } else {
+                            let mut identities = state
+                                .cards
+                                .iter()
+                                .map(|card| {
+                                    crate::discovery::media_identity(card.media_type, card.id)
+                                })
+                                .collect::<HashSet<_>>();
+                            for card in cards {
+                                if identities.insert(crate::discovery::media_identity(
+                                    card.media_type,
+                                    card.id,
+                                )) {
+                                    state.cards.push(card);
+                                }
+                            }
+                        }
+                        state.page = page;
+                        state.total_pages = total_pages;
+                        state.loading_more = false;
+                        state.error = None;
+                        state.status = if state.cards.is_empty() {
+                            DiscoveryStatus::Empty
+                        } else {
+                            DiscoveryStatus::Results
+                        };
+                        tracing::info!(
+                            media_type = ?media_type,
+                            page,
+                            total_pages,
+                            total_items = state.cards.len(),
+                            "Discovery catalogue page applied"
+                        );
+                    }
+                    Err(message) => {
+                        tracing::warn!(
+                            media_type = ?media_type,
+                            page,
+                            error = %message,
+                            "Discovery catalogue request failed"
+                        );
+                        state.loading_more = false;
+                        state.error = Some(message);
+                        if state.cards.is_empty() {
+                            state.status = DiscoveryStatus::Failed;
                         }
                     }
                 }
-                state.page = page;
-                state.total_pages = total_pages;
-                state.loading_more = false;
-                state.error = None;
-                state.status = if state.cards.is_empty() {
-                    DiscoveryStatus::Empty
-                } else {
-                    DiscoveryStatus::Results
-                };
                 cx.notify();
             });
         })
