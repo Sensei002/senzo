@@ -552,13 +552,20 @@ impl ProfileSettingsRepository for SqliteDatabase {
     fn set_profile_setting(&self, profile_id: &str, key: &SettingKey, value: &str) -> Result<(), RepositoryError> {
         validate_profile_id(profile_id)?;
         if value.len() > 1_048_576 { return Err(RepositoryError::InvalidLibraryEntry); }
-        let connection = self.lock()?;
-        connection.execute(
+        let mut connection = self.lock()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        let changed_at = now_epoch_millis();
+        transaction.execute(
             "INSERT INTO profile_settings(profile_id,key,value,updated_at_ms)
              VALUES(?1,?2,?3,?4)
-             ON CONFLICT(profile_id,key) DO UPDATE SET value=excluded.value,updated_at_ms=excluded.updated_at_ms",
-            (profile_id, key.as_str(), value, now_epoch_millis()),
+             ON CONFLICT(profile_id,key) DO UPDATE SET value=excluded.value,updated_at_ms=excluded.updated_at_ms
+             WHERE excluded.updated_at_ms >= profile_settings.updated_at_ms",
+            (profile_id, key.as_str(), value, changed_at),
         ).map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        let payload = serde_json::json!({"key":key.as_str(),"value":value});
+        enqueue_sync_mutation(&transaction, profile_id, "profile_setting", key.as_str(), "upsert", &payload, changed_at)?;
+        transaction.commit().map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
         Ok(())
     }
 }
@@ -952,6 +959,216 @@ fn enqueue_sync_mutation<T:Serialize>(
 }
 
 impl SyncOutboxRepository for SqliteDatabase {
+    fn apply_remote_sync_page(
+        &self,
+        profile_id: &str,
+        provider: &str,
+        next_cursor: &str,
+        mutations: &[senzo_domain::RemoteSyncMutation],
+        updated_at_ms: i64,
+    ) -> Result<(), RepositoryError> {
+        validate_profile_id(profile_id)?;
+        let cursor = next_cursor.parse::<i64>().map_err(|_| RepositoryError::InvalidLibraryEntry)?;
+        if provider.trim().is_empty() || provider.len() > 100 || cursor < 0
+            || updated_at_ms < 0 || mutations.len() > 500
+        {
+            return Err(RepositoryError::InvalidLibraryEntry);
+        }
+        let mut connection = self.lock()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        let previous_cursor = transaction.query_row(
+            "SELECT cursor FROM sync_checkpoints WHERE profile_id=?1 AND provider=?2",
+            (profile_id, provider),
+            |row| row.get::<_, String>(0),
+        ).optional().map_err(|error| RepositoryError::Unavailable(error.to_string()))?
+            .and_then(|value| value.parse::<i64>().ok()).unwrap_or(0);
+
+        for mutation in mutations {
+            if mutation.cursor <= previous_cursor || mutation.cursor > cursor
+                || mutation.changed_at_ms < 0
+                || !matches!(mutation.operation.as_str(), "upsert" | "delete")
+            {
+                return Err(RepositoryError::InvalidLibraryEntry);
+            }
+            let payload: serde_json::Value = serde_json::from_str(&mutation.payload_json)
+                .map_err(|_| RepositoryError::InvalidLibraryEntry)?;
+            match mutation.entity_type.as_str() {
+                "library_item" => {
+                    if mutation.operation == "upsert" {
+                        let mut item: LibraryItem = serde_json::from_value(payload)
+                            .map_err(|_| RepositoryError::InvalidLibraryEntry)?;
+                        item.profile_id = profile_id.to_owned();
+                        item.updated_at_ms = item.updated_at_ms.max(mutation.changed_at_ms);
+                        validate_library_item(&item)?;
+                        transaction.execute(
+                            "INSERT INTO library_items(profile_id,media_kind,media_id,title,overview,release_year,poster_path,backdrop_path,added_at_ms,updated_at_ms,is_favorite,is_deleted,deleted_at_ms)
+                             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,0,NULL)
+                             ON CONFLICT(profile_id,media_kind,media_id) DO UPDATE SET
+                                title=excluded.title,overview=excluded.overview,release_year=excluded.release_year,
+                                poster_path=excluded.poster_path,backdrop_path=excluded.backdrop_path,
+                                added_at_ms=MIN(library_items.added_at_ms,excluded.added_at_ms),
+                                updated_at_ms=excluded.updated_at_ms,is_favorite=excluded.is_favorite,
+                                is_deleted=0,deleted_at_ms=NULL
+                             WHERE excluded.updated_at_ms >= library_items.updated_at_ms",
+                            (&item.profile_id,library_media_kind(item.media_kind),&item.media_id,&item.title,&item.overview,
+                             item.release_year.map(i64::from),&item.poster_path,&item.backdrop_path,item.added_at_ms,
+                             item.updated_at_ms,if item.is_favorite {1_i64}else{0_i64})
+                        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+                    } else {
+                        let media_id = payload.get("media_id").and_then(|v|v.as_str()).unwrap_or(&mutation.entity_id);
+                        let kind = payload.get("media_kind").and_then(|v|v.as_str()).unwrap_or("movie");
+                        transaction.execute(
+                            "UPDATE library_items SET is_deleted=1,deleted_at_ms=?4,updated_at_ms=MAX(updated_at_ms,?4)
+                             WHERE profile_id=?1 AND media_kind=?2 AND media_id=?3",
+                            (profile_id,kind,media_id,mutation.changed_at_ms)
+                        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+                    }
+                }
+                "library_collection" => {
+                    if mutation.operation == "upsert" {
+                        let mut item: LibraryCollection = serde_json::from_value(payload)
+                            .map_err(|_| RepositoryError::InvalidLibraryEntry)?;
+                        item.profile_id = profile_id.to_owned();
+                        if item.id.is_empty() || item.id.len()>128 || item.title.trim().is_empty()
+                            || item.title.chars().count()>80 || item.updated_at_ms<0 || item.created_at_ms<0
+                        { return Err(RepositoryError::InvalidLibraryEntry); }
+                        transaction.execute(
+                            "INSERT INTO library_collections(id,profile_id,title,description,sort_order,created_at_ms,updated_at_ms,is_deleted,deleted_at_ms)
+                             VALUES(?1,?2,?3,?4,?5,?6,?7,0,NULL)
+                             ON CONFLICT(id) DO UPDATE SET title=excluded.title,description=excluded.description,
+                                sort_order=excluded.sort_order,updated_at_ms=excluded.updated_at_ms,is_deleted=0,deleted_at_ms=NULL
+                             WHERE excluded.updated_at_ms >= library_collections.updated_at_ms
+                               AND library_collections.profile_id=excluded.profile_id",
+                            (&item.id,&item.profile_id,&item.title,&item.description,item.sort_order,item.created_at_ms,item.updated_at_ms)
+                        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+                    } else {
+                        transaction.execute(
+                            "UPDATE library_collections SET is_deleted=1,deleted_at_ms=?3,updated_at_ms=MAX(updated_at_ms,?3)
+                             WHERE profile_id=?1 AND id=?2",
+                            (profile_id,mutation.entity_id,mutation.changed_at_ms)
+                        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+                    }
+                }
+                "collection_item" => {
+                    let collection_id=payload.get("collection_id").and_then(|v|v.as_str()).ok_or(RepositoryError::InvalidLibraryEntry)?;
+                    let media_id=payload.get("media_id").and_then(|v|v.as_str()).ok_or(RepositoryError::InvalidLibraryEntry)?;
+                    let kind=payload.get("media_kind").and_then(|v|v.as_str()).ok_or(RepositoryError::InvalidLibraryEntry)?;
+                    let included=mutation.operation=="upsert"
+                        && payload.get("included").and_then(|v|v.as_bool()).unwrap_or(true);
+                    if included {
+                        let sort_order:i64=transaction.query_row(
+                            "SELECT COALESCE(MAX(sort_order)+1,0) FROM library_collection_items WHERE profile_id=?1 AND collection_id=?2",
+                            (profile_id,collection_id),|row|row.get(0)
+                        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+                        transaction.execute(
+                            "INSERT INTO library_collection_items(profile_id,collection_id,media_kind,media_id,sort_order,added_at_ms,updated_at_ms,is_deleted,deleted_at_ms)
+                             VALUES(?1,?2,?3,?4,?5,?6,?6,0,NULL)
+                             ON CONFLICT(profile_id,collection_id,media_kind,media_id) DO UPDATE SET
+                                sort_order=CASE WHEN excluded.updated_at_ms>=library_collection_items.updated_at_ms THEN excluded.sort_order ELSE library_collection_items.sort_order END,
+                                updated_at_ms=MAX(library_collection_items.updated_at_ms,excluded.updated_at_ms),is_deleted=0,deleted_at_ms=NULL",
+                            (profile_id,collection_id,kind,media_id,sort_order,mutation.changed_at_ms)
+                        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+                    } else {
+                        transaction.execute(
+                            "UPDATE library_collection_items SET is_deleted=1,deleted_at_ms=?5,updated_at_ms=MAX(updated_at_ms,?5)
+                             WHERE profile_id=?1 AND collection_id=?2 AND media_kind=?3 AND media_id=?4",
+                            (profile_id,collection_id,kind,media_id,mutation.changed_at_ms)
+                        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+                    }
+                }
+                "collection_order" => {
+                    let collection_id=payload.get("collection_id").and_then(|v|v.as_str()).unwrap_or(&mutation.entity_id);
+                    let items=payload.get("items").and_then(|v|v.as_array()).ok_or(RepositoryError::InvalidLibraryEntry)?;
+                    if items.len()>500 {return Err(RepositoryError::InvalidLibraryEntry);}
+                    for (index,item) in items.iter().enumerate() {
+                        let media_id=item.get("media_id").and_then(|v|v.as_str()).ok_or(RepositoryError::InvalidLibraryEntry)?;
+                        let kind=item.get("media_kind").and_then(|v|v.as_str()).ok_or(RepositoryError::InvalidLibraryEntry)?;
+                        transaction.execute(
+                            "UPDATE library_collection_items SET sort_order=?5,updated_at_ms=MAX(updated_at_ms,?6)
+                             WHERE profile_id=?1 AND collection_id=?2 AND media_kind=?3 AND media_id=?4",
+                            (profile_id,collection_id,kind,media_id,index as i64,mutation.changed_at_ms)
+                        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+                    }
+                }
+                "profile_setting" => {
+                    let key=payload.get("key").and_then(|v|v.as_str()).ok_or(RepositoryError::InvalidLibraryEntry)?;
+                    let value=payload.get("value").and_then(|v|v.as_str()).ok_or(RepositoryError::InvalidLibraryEntry)?;
+                    if value.len()>1_048_576 {return Err(RepositoryError::InvalidLibraryEntry);}
+                    let key=SettingKey::new(key.to_owned()).map_err(|_|RepositoryError::InvalidLibraryEntry)?;
+                    transaction.execute(
+                        "INSERT INTO profile_settings(profile_id,key,value,updated_at_ms) VALUES(?1,?2,?3,?4)
+                         ON CONFLICT(profile_id,key) DO UPDATE SET value=excluded.value,updated_at_ms=excluded.updated_at_ms
+                         WHERE excluded.updated_at_ms>=profile_settings.updated_at_ms",
+                        (profile_id,key.as_str(),value,mutation.changed_at_ms)
+                    ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+                }
+                "playback_progress" => {
+                    let mut progress:PlaybackProgress=serde_json::from_value(payload)
+                        .map_err(|_|RepositoryError::InvalidPlaybackProgress)?;
+                    progress.profile_id=profile_id.to_owned();
+                    validate_playback_progress(&progress)?;
+                    transaction.execute(
+                        "INSERT INTO playback_progress(profile_id,media_kind,media_id,season_number,episode_number,title,episode_title,poster_path,backdrop_path,still_path,position_ms,duration_ms,is_completed,updated_at_ms)
+                         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
+                         ON CONFLICT(profile_id,media_kind,media_id,season_number,episode_number) DO UPDATE SET
+                            title=excluded.title,episode_title=excluded.episode_title,poster_path=excluded.poster_path,
+                            backdrop_path=excluded.backdrop_path,still_path=excluded.still_path,position_ms=excluded.position_ms,
+                            duration_ms=excluded.duration_ms,is_completed=excluded.is_completed,updated_at_ms=excluded.updated_at_ms
+                         WHERE excluded.updated_at_ms>=playback_progress.updated_at_ms",
+                        (&progress.profile_id,media_kind_storage_value(progress.media_kind),&progress.media_id,
+                         stored_episode_number(progress.season_number),stored_episode_number(progress.episode_number),
+                         &progress.title,&progress.episode_title,&progress.poster_path,&progress.backdrop_path,&progress.still_path,
+                         i64::try_from(progress.position_ms).map_err(|_|RepositoryError::InvalidPlaybackProgress)?,
+                         i64::try_from(progress.duration_ms).map_err(|_|RepositoryError::InvalidPlaybackProgress)?,
+                         if progress.is_completed {1_i64}else{0_i64},progress.updated_at_ms)
+                    ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+                    if progress.is_completed {
+                        transaction.execute(
+                            "INSERT INTO watched_items(profile_id,media_kind,media_id,season_number,episode_number,marked_at_ms)
+                             VALUES(?1,?2,?3,?4,?5,?6)
+                             ON CONFLICT(profile_id,media_kind,media_id,season_number,episode_number)
+                             DO UPDATE SET marked_at_ms=MAX(watched_items.marked_at_ms,excluded.marked_at_ms)",
+                            (&progress.profile_id,media_kind_storage_value(progress.media_kind),&progress.media_id,
+                             stored_episode_number(progress.season_number),stored_episode_number(progress.episode_number),progress.updated_at_ms)
+                        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+                    }
+                }
+                "watched_item" => {
+                    let mut item:WatchedItem=serde_json::from_value(payload)
+                        .map_err(|_|RepositoryError::InvalidPlaybackProgress)?;
+                    item.profile_id=profile_id.to_owned();
+                    validate_watch_identity(&item.profile_id,&item.media_id,item.media_kind,item.season_number,item.episode_number)?;
+                    if mutation.operation=="upsert" {
+                        transaction.execute(
+                            "INSERT INTO watched_items(profile_id,media_kind,media_id,season_number,episode_number,marked_at_ms)
+                             VALUES(?1,?2,?3,?4,?5,?6)
+                             ON CONFLICT(profile_id,media_kind,media_id,season_number,episode_number)
+                             DO UPDATE SET marked_at_ms=MAX(watched_items.marked_at_ms,excluded.marked_at_ms)",
+                            (&item.profile_id,media_kind_storage_value(item.media_kind),&item.media_id,
+                             stored_episode_number(item.season_number),stored_episode_number(item.episode_number),item.marked_at_ms)
+                        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+                    } else {
+                        transaction.execute(
+                            "DELETE FROM watched_items WHERE profile_id=?1 AND media_kind=?2 AND media_id=?3 AND season_number=?4 AND episode_number=?5",
+                            (&item.profile_id,media_kind_storage_value(item.media_kind),&item.media_id,
+                             stored_episode_number(item.season_number),stored_episode_number(item.episode_number))
+                        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+                    }
+                }
+                _ => return Err(RepositoryError::InvalidLibraryEntry),
+            }
+        }
+
+        transaction.execute(
+            "INSERT INTO sync_checkpoints(profile_id,provider,cursor,updated_at_ms) VALUES(?1,?2,?3,?4)
+             ON CONFLICT(profile_id,provider) DO UPDATE SET cursor=excluded.cursor,updated_at_ms=MAX(sync_checkpoints.updated_at_ms,excluded.updated_at_ms)",
+            (profile_id,provider,next_cursor,updated_at_ms)
+        ).map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        transaction.commit().map_err(|error|RepositoryError::Unavailable(error.to_string()))?;
+        Ok(())
+    }
+
     fn list_pending_sync_mutations(&self,profile_id:&str,now_ms:i64,limit:usize)->Result<Vec<SyncMutation>,RepositoryError>{
         validate_profile_id(profile_id)?;
         let limit=limit.clamp(1,500) as i64;
@@ -1135,6 +1352,15 @@ impl PlaybackProgressRepository for SqliteDatabase {
                 )
                 .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
         }
+        enqueue_sync_mutation(
+            &transaction,
+            &progress.profile_id,
+            "playback_progress",
+            &playback_sync_entity_key(progress),
+            "upsert",
+            progress,
+            progress.updated_at_ms,
+        )?;
         transaction
             .commit()
             .map_err(|error| RepositoryError::Unavailable(error.to_string()))
@@ -1375,10 +1601,41 @@ impl PlaybackProgressRepository for SqliteDatabase {
                 )
                 .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
         }
+        let payload = serde_json::to_value(item)
+            .map_err(|error| RepositoryError::Unavailable(error.to_string()))?;
+        enqueue_sync_mutation(
+            &transaction,
+            &item.profile_id,
+            "watched_item",
+            &watched_sync_entity_key(item),
+            if watched { "upsert" } else { "delete" },
+            &payload,
+            item.marked_at_ms,
+        )?;
         transaction
             .commit()
             .map_err(|error| RepositoryError::Unavailable(error.to_string()))
     }
+}
+
+fn playback_sync_entity_key(progress: &PlaybackProgress) -> String {
+    format!(
+        "{}:{}:{}:{}",
+        media_kind_storage_value(progress.media_kind),
+        progress.media_id,
+        stored_episode_number(progress.season_number),
+        stored_episode_number(progress.episode_number)
+    )
+}
+
+fn watched_sync_entity_key(item: &WatchedItem) -> String {
+    format!(
+        "{}:{}:{}:{}",
+        media_kind_storage_value(item.media_kind),
+        item.media_id,
+        stored_episode_number(item.season_number),
+        stored_episode_number(item.episode_number)
+    )
 }
 
 fn validate_profile_id(profile_id: &str) -> Result<(), RepositoryError> {
