@@ -21,7 +21,7 @@
 - Uploading is disabled in this build. The engine is configured without peer upload, UPnP, local service discovery or an externally-bound stream listener, and peer concurrency is bounded.
 - The engine enumerates supported video files, honours a provider-supplied file index when available, and otherwise selects the first supported video file. The current UI does not yet provide a separate multi-file picker.
 - Selected-file streams are served from a random loopback-only HTTP endpoint. Byte-range requests support seeking. Engine progress reports downloaded/total/uploaded byte counts and state in the player controls.
-- Torrent temporary directories are isolated per session. Normal playback close stops MPV first and then shuts down the torrent server/engine. Startup recovery removes abandoned session directories left by an interrupted process.
+- Torrent temporary directories are isolated per session and protected by cross-process file locks. Normal playback close stops MPV first and then shuts down the torrent server/engine. Startup recovery removes unlocked abandoned session directories while preserving active sessions owned by another SENZO instance.
 
 ## Automated regression coverage
 
