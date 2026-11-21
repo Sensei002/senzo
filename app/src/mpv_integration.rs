@@ -2688,16 +2688,6 @@ impl NativePlaybackBridge {
                 if let Some(handle) = lock_autohide_task(&autohide_task).take() {
                     handle.abort();
                 }
-                let torrent_hash = core.model().ok().and_then(|model| {
-                    model.player.selected.as_ref().and_then(|selected| {
-                        if let StreamSource::Torrent { info_hash, .. } = &selected.stream.source {
-                            Some(hex::encode(info_hash))
-                        } else {
-                            None
-                        }
-                    })
-                });
-                let server_url = weak.upgrade().map(|ui| ui.get_server_url().to_string());
                 unload_player(
                     &controller,
                     &core,
@@ -2706,9 +2696,6 @@ impl NativePlaybackBridge {
                     &discord_rpc,
                     &thumbnails,
                 );
-                if let (Some(hash), Some(server_url)) = (torrent_hash, server_url) {
-                    cleanup_torrent_cache_after_close(server_url, hash);
-                }
             }
         });
 
@@ -4875,66 +4862,6 @@ fn cancel_statistics_poll(poll: &Mutex<Option<StatisticsPoll>>) {
     if let Some(poll) = lock_statistics_poll(poll).take() {
         poll.cancellation.cancel();
     }
-}
-
-fn cleanup_torrent_cache_after_close(server_url: String, info_hash: String) {
-    // Delete only the closed torrent's cache after the local stream-server
-    // releases its engine. Other torrents, downloads, local media and subtitle
-    // files remain untouched.
-    if info_hash.len() != 40 || !info_hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        tracing::warn!(%info_hash, "refused cleanup for an invalid torrent info hash");
-        return;
-    }
-    let Ok(server) = url::Url::parse(&server_url) else {
-        tracing::warn!(%server_url, "refused torrent-cache cleanup for an invalid server URL");
-        return;
-    };
-    if !server.host_str().is_some_and(|host| {
-        host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
-    }) {
-        tracing::warn!(%server_url, "refused torrent-cache cleanup for a non-local server");
-        return;
-    }
-
-    let cache_dir = crate::paths::get()
-        .streaming_server_cache()
-        .join(info_hash.to_ascii_lowercase());
-    let remove_url = format!("{}/{}/remove", server_url.trim_end_matches('/'), info_hash);
-    tokio::spawn(async move {
-        let client = reqwest::Client::new();
-        match client.get(&remove_url).send().await {
-            Ok(response) if response.status().is_success() => {}
-            Ok(response) => {
-                tracing::warn!(
-                    status = %response.status(),
-                    info_hash = %info_hash,
-                    "torrent engine removal failed; cache was preserved"
-                );
-                return;
-            }
-            Err(error) => {
-                tracing::warn!(%error, info_hash = %info_hash, "could not remove torrent engine; cache was preserved");
-                return;
-            }
-        }
-
-        for attempt in 0..8 {
-            match tokio::fs::remove_dir_all(&cache_dir).await {
-                Ok(()) => {
-                    tracing::info!(info_hash = %info_hash, path = %cache_dir.display(), "removed temporary torrent cache");
-                    return;
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
-                Err(error) if attempt < 7 => {
-                    tracing::debug!(%error, attempt, info_hash = %info_hash, "cache still in use; retrying cleanup");
-                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-                }
-                Err(error) => {
-                    tracing::warn!(%error, info_hash = %info_hash, "temporary torrent cache could not be removed");
-                }
-            }
-        }
-    });
 }
 
 fn unload_player(

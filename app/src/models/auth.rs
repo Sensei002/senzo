@@ -325,19 +325,10 @@ pub fn setup(ui: &MainWindow, runtime: &Arc<Runtime<DesktopEnv, AppModel>>) {
         }
     });
 
-    // Continue without signing in: explicitly clear any account session and
-    // keep the current profile's data local.
+    // Guest login callback
     ui.on_guest_login({
-        let runtime = runtime.clone();
         let ui_weak = ui_weak.clone();
         move || {
-            let rt = runtime.clone();
-            tokio::spawn(async move {
-                rt.dispatch(RuntimeAction {
-                    field: None,
-                    action: Action::Ctx(ActionCtx::Logout),
-                });
-            });
             let ui_weak = ui_weak.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = ui_weak.upgrade() {
