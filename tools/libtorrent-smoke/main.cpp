@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <iostream>
+#include <set>
 #include <string>
 #include <utility>
 
@@ -61,10 +62,19 @@ int main() {
             << ", sizeof(session_params): " << sizeof(lt::session_params)
             << std::endl;
 
+  std::cout << "[0] Verify the runner's native std::set..." << std::endl;
+  std::set<int> native_set;
+  native_set.insert(1);
+  std::cout << "[0a] Native std::set is valid." << std::endl;
+
   std::cout << "[1] Construct standalone ip_filter..." << std::endl;
   lt::ip_filter standalone_filter;
-  std::cout << "[2] standalone ip_filter.empty() = "
-            << standalone_filter.empty() << std::endl;
+  std::cout << "[1a] Standalone ip_filter constructed." << std::endl;
+
+  std::cout << "[2] Call standalone ip_filter.empty()..." << std::endl;
+  const bool standalone_empty = standalone_filter.empty();
+  std::cout << "[2a] standalone ip_filter.empty() = "
+            << standalone_empty << std::endl;
 
   std::cout << "[3] Construct session_params without plugins..." << std::endl;
   lt::settings_pack pack;
