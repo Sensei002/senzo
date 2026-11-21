@@ -38,6 +38,13 @@ VersionInfoVersion={#AppVersion}
 VersionInfoProductName={#AppName}
 VersionInfoProductVersion={#AppVersion}
 
+[InstallDelete]
+; Remove obsolete Stremio Native files and shortcuts when upgrading this install.
+Type: files; Name: "{app}\stremio-native.exe"
+Type: files; Name: "{group}\Stremio Native.lnk"
+Type: files; Name: "{autodesktop}\Stremio Native.lnk"
+Type: files; Name: "{userstartup}\Stremio Native.lnk"
+
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 Name: "startup"; Description: "Start SENZO when I sign in"; GroupDescription: "Startup:"; Flags: unchecked
@@ -58,7 +65,7 @@ Name: "{autodesktop}\SENZO"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}
 Name: "{userstartup}\SENZO"; Filename: "{app}\{#AppExeName}"; Parameters: "--start-hidden"; WorkingDir: "{app}"; Tasks: startup; AppUserModelID: "com.senzo.desktop"
 
 [Registry]
-Root: HKCU; Subkey: "Software\Classes\stremio"; ValueType: string; ValueData: "URL:Stremio Protocol"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\stremio"; ValueType: string; ValueData: "URL:SENZO Protocol"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\stremio"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
 Root: HKCU; Subkey: "Software\Classes\stremio\DefaultIcon"; ValueType: string; ValueData: "{app}\{#AppExeName},0"
 Root: HKCU; Subkey: "Software\Classes\stremio\shell\open\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" ""%1"""
