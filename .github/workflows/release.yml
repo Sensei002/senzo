@@ -166,15 +166,12 @@ jobs:
       - name: Verify Windows crash debug symbols
         shell: pwsh
         run: |
-          $pdbs = @(Get-ChildItem -LiteralPath "target/release" -Recurse -File -Filter "*.pdb" -ErrorAction SilentlyContinue)
-          if ($pdbs.Count -eq 0) {
-            throw "No PDB was generated for target/release/stremio-native.exe"
+          $pdb = Get-Item -LiteralPath "target/release/stremio_native.pdb" -ErrorAction Stop
+          if ($pdb.Length -lt 1MB) {
+            throw "The executable PDB is unexpectedly small ($($pdb.Length) bytes)"
           }
 
-          Write-Output "Generated $($pdbs.Count) PDB debug-symbol file(s):"
-          $pdbs | Sort-Object FullName | ForEach-Object {
-            Write-Output ("{0} ({1:N0} bytes)" -f $_.FullName, $_.Length)
-          }
+          Write-Output ("Verified executable PDB: {0} ({1:N0} bytes)" -f $pdb.FullName, $pdb.Length)
       - name: Stage app-local MSVC runtime
         shell: pwsh
         run: ./scripts/stage_windows_msvc_runtime.ps1 -BuildRoot ./target/release
@@ -223,11 +220,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: senzo-windows-x64-pdb
-          path: |
-            target/release/*.pdb
-            target/release/deps/*.pdb
+          path: target/release/stremio_native.pdb
           if-no-files-found: error
-          compression-level: 0
+          compression-level: 1
       - uses: actions/upload-artifact@v7
         with:
           name: stremio-native-windows-x64
