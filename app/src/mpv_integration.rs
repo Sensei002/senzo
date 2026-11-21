@@ -2659,6 +2659,7 @@ impl NativePlaybackBridge {
             let autohide_task = self.autohide_task.clone();
             let thumbnails = self.thumbnails.clone();
             let pip_controller = pip_controller.clone();
+            let runtime_handle = self.runtime_handle.clone();
             move || {
                 // Release the OS media controls and wake lock up front, so an exit
                 // that emits no further playback state can't strand either.
