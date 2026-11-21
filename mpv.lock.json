@@ -40,11 +40,11 @@
   },
   "licenses": {
     "LICENSE.GPL": {
-      "url": "https://raw.githubusercontent.com/mpv-player/mpv/304426c390901436fb1d4a63efbd582ae80c88f4/LICENSE.GPL",
+      "url": "https://raw.githubusercontent.com/mpv-player/mpv/bcde6b93cca4d128d84e1a60d1a6db2cd81c889e/LICENSE.GPL",
       "sha256": "edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6"
     },
     "LICENSE.LGPL": {
-      "url": "https://raw.githubusercontent.com/mpv-player/mpv/304426c390901436fb1d4a63efbd582ae80c88f4/LICENSE.LGPL",
+      "url": "https://raw.githubusercontent.com/mpv-player/mpv/bcde6b93cca4d128d84e1a60d1a6db2cd81c889e/LICENSE.LGPL",
       "sha256": "72b672113d642cbb8ef5dcc76938db801983c56e50b1400ab930f1a64d6dc8d9"
     }
   },
