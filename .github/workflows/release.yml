@@ -395,7 +395,7 @@ jobs:
           pkgrel=1
           pkgdesc="SENZO native media center built with Rust and Slint"
           arch=('x86_64')
-          url="https://github.com/senzo/senzo"
+          url="https://github.com/Sensei002/senzo"
           license=('GPL-3.0')
           depends=('openssl' 'mpv' 'gtk3' 'libayatana-appindicator' 'fontconfig' 'freetype2' 'libxkbcommon' 'libxcursor' 'libx11' 'wayland')
           options=('!strip' '!debug')
@@ -458,14 +458,14 @@ jobs:
           Name:           senzo
           Version:        __VERSION__
           Release:        1%{?dist}
-          Summary:        High-performance native Stremio client built with Rust and Slint
+          Summary:        SENZO native media center built with Rust and Slint
           License:        GPLv3
-          URL:            https://github.com/senzo/senzo
+          URL:            https://github.com/Sensei002/senzo
           Source0:        senzo
           Requires:       openssl mpv-libs gtk3 libayatana-appindicator-gtk3 fontconfig freetype libxkbcommon libXcursor libX11 libwayland-client
 
           %description
-          High-performance native Stremio client built with Rust and Slint.
+          SENZO native media center built with Rust and Slint.
 
           %install
           rm -rf %{buildroot}

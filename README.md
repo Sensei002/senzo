@@ -125,7 +125,7 @@ Rust and Skia:
 Cargo configuration. Do not substitute `x64-windows-static`: that triplet uses
 the static `/MT` CRT and is incompatible with the `/MD` Skia build.
 
-Settings, logs, and caches are stored under the operating system's local application-data directory in `SENZO` (for example, `%LOCALAPPDATA%\\SENZO` on Windows or `$XDG_DATA_HOME/SENZO` on Linux).
+Settings, logs, and caches are stored under the operating system's local application-data directory in `SENZO` (for example, `%LOCALAPPDATA%\SENZO` on Windows or `$XDG_DATA_HOME/SENZO` on Linux).
 
 On Windows, `setup/create_setup.cmd` runs `scripts/stage_windows_msvc_runtime.ps1` for both fresh and `SKIP_BUILD=1` builds. The script copies the newest x64 `Microsoft.VC143.CRT` DLLs beside the packaged app, validates runtime imports with `dumpbin`, and writes a SHA-256 manifest. This app-local deployment supports the project's per-user, non-admin installer.
 
