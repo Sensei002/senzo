@@ -56,7 +56,7 @@ jobs:
       - name: Check out this repository
         uses: actions/checkout@v7
         with:
-          path: stremio-native
+          path: senzo
 
       - name: Check out mpv-winbuild-cmake
         uses: actions/checkout@v7
@@ -71,7 +71,7 @@ jobs:
         working-directory: winbuild
         run: |
           set -euo pipefail
-          patch=../stremio-native/.github/patches/mpv-winbuild-avx-stack-alignment.patch
+          patch=../senzo/.github/patches/mpv-winbuild-avx-stack-alignment.patch
           git apply --3way --verbose "$patch"
           # An applied-but-wrong patch would silently produce a crashing DLL, so
           # assert on the resulting condition rather than trusting the exit code.
@@ -109,7 +109,7 @@ jobs:
               replacement += f"\n    GIT_TAG {ref}"
 
           # Add PATCH_COMMAND to apply the omniphony spatial audio decoder patch
-          patch_path = "${CMAKE_CURRENT_SOURCE_DIR}/../stremio-native/.github/patches/mpv-omniphony.patch"
+          patch_path = "${CMAKE_CURRENT_SOURCE_DIR}/../senzo/.github/patches/mpv-omniphony.patch"
           replacement += f"\n    PATCH_COMMAND git -C <SOURCE_DIR> reset --hard && git -C <SOURCE_DIR> clean -fd && git -C <SOURCE_DIR> apply --3way {patch_path}"
 
           text = text.replace(anchor, replacement, 1)
@@ -175,7 +175,7 @@ jobs:
           OBJDUMP: ${{ github.workspace }}/winbuild/build_x86_64/install/bin/cross-objdump
         run: |
           set -euo pipefail
-          bash ../stremio-native/.github/scripts/audit-vector-alignment.sh \
+          bash ../senzo/.github/scripts/audit-vector-alignment.sh \
             build_x86_64/packages/mpv-prefix/src/mpv-build/libmpv-2.dll
 
       - name: Summarise the artifact

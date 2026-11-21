@@ -1,13 +1,13 @@
 # <img src="app/assets/app.ico" width="36" align="center" /> SENZO
 
-### A SENZO-branded fork of SENZO, retaining its original Rust + Slint application.
+### A native media center built with Rust + Slint, with Stremio-compatible catalogs and add-ons.
 
 [![Desktop release builds](https://github.com/Sensei002/senzo/actions/workflows/release.yml/badge.svg)](https://github.com/Sensei002/senzo/actions/workflows/release.yml)
 [![Clippy](https://github.com/Sensei002/senzo/actions/workflows/clippy.yml/badge.svg)](https://github.com/Sensei002/senzo/actions/workflows/clippy.yml)
-[![Latest Release](https://img.shields.io/github/v/release/stremio-native/stremio-native?color=7c3aed&label=release)](https://github.com/Sensei002/senzo/releases)
+[![Latest Release](https://img.shields.io/github/v/release/Sensei002/senzo?color=22d3ee&label=release)](https://github.com/Sensei002/senzo/releases)
 ![Rust](https://img.shields.io/badge/rust-2024_stable-orange.svg?logo=rust)
 ![Slint UI](https://img.shields.io/badge/UI-Slint_1.17-blue.svg?logo=slint)
-![License](https://img.shields.io/github/license/stremio-native/stremio-native?color=informational)
+![License](https://img.shields.io/github/license/Sensei002/senzo?color=informational)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
 
 <!-- SEO Meta Tags & Keywords -->
@@ -41,14 +41,8 @@ See the [changelog](CHANGELOG.md) for the current build's implementation notes a
 
 ## 📥 Download
 
-| Platform | Format | Link |
-| :--- | :--- | :--- |
-| **Windows** | Installer | [SENZO-Setup-v1.0.6-x64.exe](https://github.com/Sensei002/senzo/releases/download/v1.0.6/SENZO-Setup-v1.0.6-x64.exe) |
-| **Windows** | Updater ZIP | [stremio-native-v1.0.6-x86_64-pc-windows-msvc.zip](https://github.com/Sensei002/senzo/releases/download/v1.0.6/stremio-native-v1.0.6-x86_64-pc-windows-msvc.zip) |
-| **Arch Linux** | Pacman `.pkg.tar.zst` | [stremio-native-1.0.6-1-x86_64.pkg.tar.zst](https://github.com/Sensei002/senzo/releases/download/v1.0.6/stremio-native-1.0.6-1-x86_64.pkg.tar.zst) |
-| **Debian / Ubuntu** | `.deb` | [stremio-native_1.0.6-1_amd64.deb](https://github.com/Sensei002/senzo/releases/download/v1.0.6/stremio-native_1.0.6-1_amd64.deb) |
-| **Fedora / RHEL** | `.rpm` | [stremio-native-1.0.6-1.fc44.x86_64.rpm](https://github.com/Sensei002/senzo/releases/download/v1.0.6/stremio-native-1.0.6-1.fc44.x86_64.rpm) |
-| **Linux** | Standalone binary | [stremio-native-v1.0.6-x86_64-unknown-linux-gnu](https://github.com/Sensei002/senzo/releases/download/v1.0.6/stremio-native-v1.0.6-x86_64-unknown-linux-gnu) |
+- **Stable releases:** [GitHub Releases](https://github.com/Sensei002/senzo/releases)
+- **Development builds:** [GitHub Actions](https://github.com/Sensei002/senzo/actions/workflows/release.yml) — open the latest successful run and download its artifacts.
 
 ---
 
@@ -111,7 +105,7 @@ Measured on Windows x64 from the settled, idle v1.0.0 release process. CPU and I
 ```bash
 git clone https://github.com/Sensei002/senzo.git
 cd senzo
-cargo run --release --package stremio-native
+cargo run --release --package senzo
 ```
 
 Before the first Windows build, install the manifest dependencies with the
@@ -131,7 +125,7 @@ Rust and Skia:
 Cargo configuration. Do not substitute `x64-windows-static`: that triplet uses
 the static `/MT` CRT and is incompatible with the `/MD` Skia build.
 
-Settings, logs, and image caches are stored in `./storage/` inside the project directory.
+Settings, logs, and caches are stored under the operating system's local application-data directory in `SENZO` (for example, `%LOCALAPPDATA%\\SENZO` on Windows or `$XDG_DATA_HOME/SENZO` on Linux).
 
 On Windows, `setup/create_setup.cmd` runs `scripts/stage_windows_msvc_runtime.ps1` for both fresh and `SKIP_BUILD=1` builds. The script copies the newest x64 `Microsoft.VC143.CRT` DLLs beside the packaged app, validates runtime imports with `dumpbin`, and writes a SHA-256 manifest. This app-local deployment supports the project's per-user, non-admin installer.
 
@@ -139,7 +133,7 @@ Timeline previews reuse the same packaged libmpv library as the main player. Bui
 
 ### CI & Releases
 
-Pushing a `v*` tag builds both Windows and Linux and publishes a GitHub release automatically. Windows release builds target the `x64-windows-v3-static-md-release` triplet (`x86-64-v3` / `/arch:AVX2`, static native libraries, dynamic CRT) for broad CPU compatibility. The release includes installers, portable archives, Linux packages, SHA-256 checksums, changelog notes, and a linked commit diff.
+Pushes to `main` and `development` run the Windows and Linux build jobs (plus Arch and Fedora packaging). Pushing a `v*` tag builds release packages and publishes a GitHub release automatically. Windows release builds target the `x64-windows-v3-static-md-release` triplet (`x86-64-v3` / `/arch:AVX2`, static native libraries, dynamic CRT) for broad CPU compatibility. The release includes installers, portable archives, Linux packages, SHA-256 checksums, changelog notes, and a linked commit diff.
 
 ---
 

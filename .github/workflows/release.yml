@@ -3,7 +3,7 @@
 on:
   workflow_dispatch:
   push:
-    branches: ["rebrand/stremio-native-baseline", "fix/windows-libtorrent-session-smoke"]
+    branches: ["main", "development"]
     tags: ["v*"]
 
 env:
@@ -199,13 +199,13 @@ jobs:
         run: |
           # Never let a stale PDB from a restored target directory be mistaken
           # for symbols matching this executable.
-          Get-Item -LiteralPath "target/release/stremio_native.pdb" -ErrorAction SilentlyContinue |
+          Get-Item -LiteralPath "target/release/senzo.pdb" -ErrorAction SilentlyContinue |
             Remove-Item -Force
 
           # Add minimal source-line debug information only to the application
           # target. Dependencies retain the normal stripped release profile,
           # keeping the existing Cargo dependency cache reusable.
-          cargo rustc --locked --release --package stremio-native --bin stremio-native -- -C debuginfo=line-tables-only -C strip=none
+          cargo rustc --locked --release --package senzo --bin senzo -- -C debuginfo=line-tables-only -C strip=none
         env:
           VCPKG_ROOT: ${{ github.workspace }}/vcpkg
           VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg_installed
@@ -215,7 +215,7 @@ jobs:
       - name: Verify Windows crash debug symbols
         shell: pwsh
         run: |
-          $pdb = Get-Item -LiteralPath "target/release/stremio_native.pdb" -ErrorAction Stop
+          $pdb = Get-Item -LiteralPath "target/release/senzo.pdb" -ErrorAction Stop
           if ($pdb.Length -lt 1MB) {
             throw "The executable PDB is unexpectedly small ($($pdb.Length) bytes)"
           }
@@ -228,7 +228,7 @@ jobs:
         shell: pwsh
         run: |
           $root = "target/release"
-          @("stremio-native.exe", "libmpv-2.dll", "licenses/mpv/LICENSE.GPL", "licenses/mpv/LICENSE.LGPL") | ForEach-Object {
+          @("senzo.exe", "libmpv-2.dll", "licenses/mpv/LICENSE.GPL", "licenses/mpv/LICENSE.LGPL") | ForEach-Object {
             if (-not (Test-Path (Join-Path $root $_))) { throw "Missing release artifact: $_" }
           }
       - name: Provide Inno Setup for the installer
@@ -293,14 +293,14 @@ jobs:
           compression-level: 1
       - uses: actions/upload-artifact@v7
         with:
-          name: stremio-native-windows-x64
+          name: senzo-windows-x64
           path: |
-            target/release/stremio-native.exe
+            target/release/senzo.exe
             target/release/libmpv-2.dll
             target/release/msvc-runtime
             target/release/licenses/mpv
             artifacts/SENZO-Setup-v*-x64.exe
-            artifacts/stremio-native-v*-x86_64-pc-windows-msvc.zip
+            artifacts/senzo-v*-x86_64-pc-windows-msvc.zip
           if-no-files-found: error
 
   linux:
@@ -350,21 +350,21 @@ jobs:
           path: vcpkg_installed
           key: Linux-vcpkg-x64-linux-v3-static-release-v1-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
       - name: Build release
-        run: cargo build --locked --release --package stremio-native
+        run: cargo build --locked --release --package senzo
       - name: Install cargo-deb
         uses: taiki-e/install-action@v2.85.4
         with:
           tool: cargo-deb
       - name: Build DEB Package
-        run: cargo deb --package stremio-native --no-build
+        run: cargo deb --package senzo --no-build
       - uses: actions/upload-artifact@v7
         with:
-          name: stremio-native-linux-x64
-          path: target/release/stremio-native
+          name: senzo-linux-x64
+          path: target/release/senzo
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
-          name: stremio-native-linux-deb
+          name: senzo-linux-deb
           path: target/debian/*.deb
           if-no-files-found: error
 
@@ -378,7 +378,7 @@ jobs:
       - name: Download Linux binary
         uses: actions/download-artifact@v8
         with:
-          name: stremio-native-linux-x64
+          name: senzo-linux-x64
           path: target/release
       - name: Install packaging dependencies
         run: |
@@ -390,23 +390,23 @@ jobs:
           mkdir -p pkg
           cat > pkg/PKGBUILD << EOF
           # Maintainer: perpetus <perpetus.github@gmail.com>
-          pkgname=stremio-native
+          pkgname=senzo
           pkgver=${pkgver}
           pkgrel=1
-          pkgdesc="High-performance native Stremio client built with Rust and Slint"
+          pkgdesc="SENZO native media center built with Rust and Slint"
           arch=('x86_64')
-          url="https://github.com/stremio-native/stremio-native"
+          url="https://github.com/senzo/senzo"
           license=('GPL-3.0')
           depends=('openssl' 'mpv' 'gtk3' 'libayatana-appindicator' 'fontconfig' 'freetype2' 'libxkbcommon' 'libxcursor' 'libx11' 'wayland')
           options=('!strip' '!debug')
-          source=("stremio-native")
+          source=("senzo")
           sha256sums=('SKIP')
 
           package() {
-              install -Dm755 "\$srcdir/stremio-native" "\$pkgdir/usr/bin/stremio-native"
+              install -Dm755 "\$srcdir/senzo" "\$pkgdir/usr/bin/senzo"
           }
           EOF
-          cp target/release/stremio-native pkg/stremio-native
+          cp target/release/senzo pkg/senzo
       - name: Build package
         run: |
           cd pkg
@@ -418,7 +418,7 @@ jobs:
       - name: Upload Arch Package
         uses: actions/upload-artifact@v7
         with:
-          name: stremio-native-arch-pkg
+          name: senzo-arch-pkg
           path: pkg/*.pkg.tar.zst
           if-no-files-found: error
 
@@ -432,7 +432,7 @@ jobs:
       - name: Download Linux binary
         uses: actions/download-artifact@v8
         with:
-          name: stremio-native-linux-x64
+          name: senzo-linux-x64
           path: target/release
       - name: Restore dnf cache
         id: dnf-cache
@@ -453,15 +453,15 @@ jobs:
         run: |
           pkgver=$(grep -m1 'version = ' app/Cargo.toml | cut -d '"' -f2)
           mkdir -p rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-          cp target/release/stremio-native rpmbuild/SOURCES/
-          cat > rpmbuild/SPECS/stremio-native.spec << 'SPEC'
-          Name:           stremio-native
+          cp target/release/senzo rpmbuild/SOURCES/
+          cat > rpmbuild/SPECS/senzo.spec << 'SPEC'
+          Name:           senzo
           Version:        __VERSION__
           Release:        1%{?dist}
           Summary:        High-performance native Stremio client built with Rust and Slint
           License:        GPLv3
-          URL:            https://github.com/stremio-native/stremio-native
-          Source0:        stremio-native
+          URL:            https://github.com/senzo/senzo
+          Source0:        senzo
           Requires:       openssl mpv-libs gtk3 libayatana-appindicator-gtk3 fontconfig freetype libxkbcommon libXcursor libX11 libwayland-client
 
           %description
@@ -470,27 +470,27 @@ jobs:
           %install
           rm -rf %{buildroot}
           mkdir -p %{buildroot}%{_bindir}
-          install -p -m 755 %{_sourcedir}/stremio-native %{buildroot}%{_bindir}/stremio-native
+          install -p -m 755 %{_sourcedir}/senzo %{buildroot}%{_bindir}/senzo
 
           %files
-          %{_bindir}/stremio-native
+          %{_bindir}/senzo
 
           %changelog
           * Sun Jul 19 2026 perpetus <perpetus.github@gmail.com> - __VERSION__-1
           - Initial release
           SPEC
-          sed -i "s/__VERSION__/$pkgver/g" rpmbuild/SPECS/stremio-native.spec
+          sed -i "s/__VERSION__/$pkgver/g" rpmbuild/SPECS/senzo.spec
       - name: Validate RPM runtime dependencies
         run: |
-          read -r -a runtime_deps <<< "$(sed -n 's/^Requires:[[:space:]]*//p' rpmbuild/SPECS/stremio-native.spec)"
+          read -r -a runtime_deps <<< "$(sed -n 's/^Requires:[[:space:]]*//p' rpmbuild/SPECS/senzo.spec)"
           dnf install -y "${runtime_deps[@]}"
       - name: Build RPM Package
         run: |
-          rpmbuild -bb rpmbuild/SPECS/stremio-native.spec --define "_topdir $(pwd)/rpmbuild"
+          rpmbuild -bb rpmbuild/SPECS/senzo.spec --define "_topdir $(pwd)/rpmbuild"
       - name: Upload RPM Package
         uses: actions/upload-artifact@v7
         with:
-          name: stremio-native-fedora-rpm
+          name: senzo-fedora-rpm
           path: rpmbuild/RPMS/x86_64/*.rpm
           if-no-files-found: error
 
@@ -527,17 +527,17 @@ jobs:
           }
 
           copy_latest "SENZO-Setup-v*-x64.exe"
-          copy_latest "stremio-native-v*-x86_64-pc-windows-msvc.zip"
+          copy_latest "senzo-v*-x86_64-pc-windows-msvc.zip"
           copy_latest "*.deb"
-          copy_latest "stremio-native-[0-9]*.pkg.tar.zst"
+          copy_latest "senzo-[0-9]*.pkg.tar.zst"
           copy_latest "*.rpm"
 
-          linux_binary="$(find artifacts/stremio-native-linux-x64 -type f -name stremio-native | head -n 1)"
+          linux_binary="$(find artifacts/senzo-linux-x64 -type f -name senzo | head -n 1)"
           if [[ -z "$linux_binary" ]]; then
             echo "Missing required Linux release binary" >&2
             exit 1
           fi
-          linux_asset="release/stremio-native-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu"
+          linux_asset="release/senzo-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu"
           cp "$linux_binary" "$linux_asset"
           chmod +x "$linux_asset"
 
