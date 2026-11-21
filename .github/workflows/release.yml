@@ -164,7 +164,7 @@ jobs:
           $buildDir = Join-Path $env:RUNNER_TEMP "senzo-libtorrent-smoke-build"
           $buildLog = Join-Path $env:RUNNER_TEMP "libtorrent-smoke-build.log"
           $toolchain = Join-Path $env:GITHUB_WORKSPACE "vcpkg/scripts/buildsystems/vcpkg.cmake"
-          cmake -S tools/libtorrent-smoke -B $buildDir -DCMAKE_TOOLCHAIN_FILE="$toolchain" -DVCPKG_MANIFEST_MODE=OFF -DVCPKG_TARGET_TRIPLET=x64-windows-v3-static-md-release -DVCPKG_INSTALLED_DIR="$env:GITHUB_WORKSPACE/vcpkg_installed" -DCMAKE_BUILD_TYPE=Release *> $buildLog
+          cmake -S tools/libtorrent-smoke -B $buildDir -DCMAKE_TOOLCHAIN_FILE="$toolchain" -DVCPKG_MANIFEST_MODE=OFF -DVCPKG_TARGET_TRIPLET=x64-windows-v3-static-md-release -DVCPKG_OVERLAY_TRIPLETS="$env:GITHUB_WORKSPACE/triplets" -DVCPKG_OVERLAY_PORTS="$env:GITHUB_WORKSPACE/vcpkg-overlays" -DVCPKG_INSTALLED_DIR="$env:GITHUB_WORKSPACE/vcpkg_installed" -DCMAKE_BUILD_TYPE=Release *> $buildLog
           $configureExit = $LASTEXITCODE
           if ($configureExit -ne 0) {
             Get-Content $buildLog -Tail 120
