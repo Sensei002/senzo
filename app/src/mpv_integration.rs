@@ -11,6 +11,7 @@ use std::{
 };
 
 use anyhow::{Context, anyhow};
+use enginefs::backend::{TorrentBackend, TorrentHandle};
 use playback_mpv::{
     EndReason, HdrMode, OmniphonyAudioSettings, PlaybackCommand, PlaybackController, PlaybackEvent,
     PlaybackRuntime, PlaybackState, PlayerConfig, PreviewConfig, PreviewRuntime, RenderContext,
@@ -2699,7 +2700,6 @@ impl NativePlaybackBridge {
                         }
                     })
                 });
-                let server_url = weak.upgrade().map(|ui| ui.get_server_url().to_string());
                 unload_player(
                     &controller,
                     &core,
@@ -2708,8 +2708,8 @@ impl NativePlaybackBridge {
                     &discord_rpc,
                     &thumbnails,
                 );
-                if let (Some(hash), Some(server_url)) = (torrent_hash, server_url) {
-                    cleanup_torrent_cache_after_close(runtime_handle, server_url, hash);
+                if let Some(hash) = torrent_hash {
+                    cleanup_torrent_cache_after_close(runtime_handle, hash);
                 }
             }
         });
@@ -4881,68 +4881,200 @@ fn cancel_statistics_poll(poll: &Mutex<Option<StatisticsPoll>>) {
 
 fn cleanup_torrent_cache_after_close(
     runtime_handle: tokio::runtime::Handle,
-    server_url: String,
     info_hash: String,
 ) {
-    // Delete only the closed torrent's cache after the local stream-server
-    // releases its engine. Other torrents, downloads, local media and subtitle
-    // files remain untouched.
     if info_hash.len() != 40 || !info_hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        tracing::warn!(%info_hash, "refused cleanup for an invalid torrent info hash");
-        return;
-    }
-    let Ok(server) = url::Url::parse(&server_url) else {
-        tracing::warn!(%server_url, "refused torrent-cache cleanup for an invalid server URL");
-        return;
-    };
-    if !server.host_str().is_some_and(|host| {
-        host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
-    }) {
-        tracing::warn!(%server_url, "refused torrent-cache cleanup for a non-local server");
+        tracing::warn!(%info_hash, "refused torrent cleanup for an invalid info hash");
         return;
     }
 
-    let cache_dir = crate::paths::get()
-         .streaming_server_cache()
-        .join("disk-cache")
-        .join(info_hash.to_ascii_lowercase());
-    let remove_url = format!("{}/{}/remove", server_url.trim_end_matches('/'), info_hash);
+    let info_hash = info_hash.to_ascii_lowercase();
     runtime_handle.spawn(async move {
-        let client = reqwest::Client::new();
-        match client.get(&remove_url).send().await {
-            Ok(response) if response.status().is_success() => {}
-            Ok(response) => {
-                tracing::warn!(
-                    status = %response.status(),
-                    info_hash = %info_hash,
-                    "torrent engine removal failed; cache was preserved"
-                );
+        let state = match stream_server::GLOBAL_STATE.read() {
+            Ok(state) => state.clone(),
+            Err(error) => {
+                tracing::warn!(%error, "could not access the embedded streaming server for torrent cleanup");
                 return;
             }
+        };
+        let Some(state) = state else {
+            tracing::debug!(%info_hash, "embedded streaming server is unavailable; preserving torrent cache");
+            return;
+        };
+
+        let engine_fs = state.stream_engine();
+
+        // End HLS leases explicitly, then wait for HTTP/HLS readers to release
+        // their file handles before stopping libtorrent or deleting anything.
+        let initial_activity = engine_fs.stream_activity_snapshot().await;
+        let leases = initial_activity
+            .active_playback_leases
+            .iter()
+            .filter(|lease| lease.info_hash.eq_ignore_ascii_case(&info_hash))
+            .map(|lease| lease.file_idx)
+            .collect::<HashSet<_>>();
+        for file_idx in leases {
+            engine_fs
+                .end_hls_playback(&info_hash, file_idx, "senzo-player-closed")
+                .await;
+        }
+
+        let mut drained = false;
+        for _ in 0..50 {
+            let activity = engine_fs.stream_activity_snapshot().await;
+            let active_http = activity
+                .active_streams
+                .get(&info_hash)
+                .copied()
+                .unwrap_or_default() > 0;
+            let active_file = activity.active_file_streams.iter().any(|stream| {
+                stream.info_hash.eq_ignore_ascii_case(&info_hash) && stream.count > 0
+            });
+            let active_hls = activity
+                .active_playback_leases
+                .iter()
+                .any(|lease| lease.info_hash.eq_ignore_ascii_case(&info_hash));
+            if !active_http && !active_file && !active_hls {
+                drained = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        if !drained {
+            tracing::warn!(
+                %info_hash,
+                "torrent playback still has active readers; preserving its files rather than racing cleanup"
+            );
+            return;
+        }
+
+        let Some(engine) = engine_fs.get_engine(&info_hash).await else {
+            tracing::debug!(%info_hash, "torrent engine is already absent; nothing to clean");
+            return;
+        };
+
+        let download_root = match tokio::fs::canonicalize(&engine_fs.download_dir).await {
+            Ok(root) => root,
             Err(error) => {
-                tracing::warn!(%error, info_hash = %info_hash, "could not remove torrent engine; cache was preserved");
+                tracing::warn!(%info_hash, %error, "could not resolve the stream-server download root; preserving torrent files");
                 return;
+            }
+        };
+
+        // Disk-backed torrents store their payload files under download_dir.
+        // Collect those paths while the libtorrent handle is still available.
+        let files = engine.handle.get_files().await;
+        let mut candidate_paths = HashSet::new();
+        for file_idx in 0..files.len() {
+            if let Some(path) = engine.handle.get_file_path(file_idx).await {
+                candidate_paths.insert(PathBuf::from(path));
             }
         }
 
-        for attempt in 0..8 {
-            match tokio::fs::remove_dir_all(&cache_dir).await {
-                Ok(()) => {
-                    tracing::info!(info_hash = %info_hash, path = %cache_dir.display(), "removed temporary torrent cache");
-                    return;
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
-                Err(error) if attempt < 7 => {
-                    tracing::debug!(%error, attempt, info_hash = %info_hash, "cache still in use; retrying cleanup");
-                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-                }
-                Err(error) => {
-                    tracing::warn!(%error, info_hash = %info_hash, "temporary torrent cache could not be removed");
+        // A different active torrent may refer to the same relative file path.
+        // Protect any path still referenced by another registered engine.
+        let mut protected_paths = HashSet::new();
+        for other_hash in engine_fs.list_engines().await {
+            if other_hash.eq_ignore_ascii_case(&info_hash) {
+                continue;
+            }
+            let Some(other_engine) = engine_fs.get_engine(&other_hash).await else {
+                continue;
+            };
+            let other_files = other_engine.handle.get_files().await;
+            for file_idx in 0..other_files.len() {
+                if let Some(path) = other_engine.handle.get_file_path(file_idx).await {
+                    if let Ok(path) = tokio::fs::canonicalize(path).await {
+                        protected_paths.insert(path);
+                    }
                 }
             }
         }
+
+        // The legacy memory-backed mode maintains a per-info-hash disk cache.
+        // This directory is independent of SENZO's user-visible Downloads path.
+        let disk_cache_dir = crate::paths::get()
+            .streaming_server_cache()
+            .join("disk-cache")
+            .join(&info_hash);
+        let metadata_file = download_root
+            .join(".metadata")
+            .join(format!("{info_hash}.torrent"));
+
+        // Stop the actual libtorrent session first. The HTTP remove route only
+        // drops EngineFS's index entry and does not remove the native torrent.
+        if let Err(error) = engine_fs.get_backend().remove_torrent(&info_hash).await {
+            tracing::warn!(%info_hash, %error, "failed to stop torrent in libtorrent; preserving playback files");
+            return;
+        }
+        engine_fs.remove_engine(&info_hash).await;
+        drop(engine);
+
+        let mut removed_files = 0usize;
+        for path in candidate_paths {
+            let canonical = match tokio::fs::canonicalize(&path).await {
+                Ok(path) => path,
+                Err(_) => continue,
+            };
+            if canonical == download_root
+                || !canonical.starts_with(&download_root)
+                || protected_paths.contains(&canonical)
+            {
+                tracing::warn!(
+                    %info_hash,
+                    path = %canonical.display(),
+                    "refused to remove a torrent path outside the cache root or still used by another torrent"
+                );
+                continue;
+            }
+            if !tokio::fs::metadata(&canonical)
+                .await
+                .is_ok_and(|metadata| metadata.is_file())
+            {
+                continue;
+            }
+            match tokio::fs::remove_file(&canonical).await {
+                Ok(()) => {
+                    removed_files += 1;
+                    let mut parent = canonical.parent().map(PathBuf::from);
+                    while let Some(directory) = parent {
+                        if directory == download_root || !directory.starts_with(&download_root) {
+                            break;
+                        }
+                        if tokio::fs::remove_dir(&directory).await.is_err() {
+                            break;
+                        }
+                        parent = directory.parent().map(PathBuf::from);
+                    }
+                }
+                Err(error) => tracing::warn!(
+                    %info_hash,
+                    path = %canonical.display(),
+                    %error,
+                    "failed to remove closed torrent playback file"
+                ),
+            }
+        }
+
+        if let Err(error) = tokio::fs::remove_dir_all(&disk_cache_dir).await {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(%info_hash, path = %disk_cache_dir.display(), %error, "failed to remove per-torrent disk cache");
+            }
+        }
+        if let Err(error) = tokio::fs::remove_file(&metadata_file).await {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                tracing::debug!(%info_hash, path = %metadata_file.display(), %error, "torrent metadata file was not removed");
+            }
+        }
+
+        tracing::info!(
+            %info_hash,
+            removed_files,
+            "closed torrent playback cache cleanup completed"
+        );
     });
 }
+
 
 fn unload_player(
     controller: &PlaybackController,

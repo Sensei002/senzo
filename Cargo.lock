@@ -10097,6 +10097,7 @@ dependencies = [
  "crash-handler",
  "credential-store",
  "debrid",
+ "enginefs",
  "dirs",
  "discord-rich-presence",
  "fluent-bundle",
