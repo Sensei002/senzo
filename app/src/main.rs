@@ -177,7 +177,7 @@ async fn run_app(
     let navigation = NavigationController::new(initial_config.active_tab);
     navigation.project(&ui);
     ui.set_settings_application_version(env!("CARGO_PKG_VERSION").into());
-    ui.set_settings_build_version(env!("STREMIO_BUILD_VERSION").into());
+    ui.set_settings_build_version(env!("SENZO_BUILD_VERSION").into());
     ui.set_settings_shell_version(env!("CARGO_PKG_VERSION").into());
     ui.set_settings_hardware_acceleration(initial_config.hardware_acceleration);
     ui.set_settings_thumbnail_previews(initial_config.thumbnail_previews_enabled);
