@@ -46,7 +46,7 @@ if not exist "%INSTALLER%" (
 )
 
 if not exist "%UPDATER_PACKAGE_DIR%" mkdir "%UPDATER_PACKAGE_DIR%"
-if exist "%UPDATER_PACKAGE_DIR%\senzo-installer.exe" del /q "%UPDATER_PACKAGE_DIR%\stremio-installer.exe"
+if exist "%UPDATER_PACKAGE_DIR%\senzo-installer.exe" del /q "%UPDATER_PACKAGE_DIR%\senzo-installer.exe"
 copy /y "%INSTALLER%" "%UPDATER_PACKAGE_DIR%\stremio-installer.exe" >nul
 if errorlevel 1 exit /b %errorlevel%
 

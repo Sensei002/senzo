@@ -52,6 +52,7 @@ impl AppPaths {
         } else if legacy_root.exists() && new_root.exists() {
             copy_missing_entries(&legacy_root, &new_root)?;
         }
+        migrate_legacy_cache_root(&new_root, &legacy_root)?;
         Ok(Self::from_root(new_root))
     }
 
@@ -130,16 +131,40 @@ fn copy_missing_entries(source: &Path, destination: &Path) -> Result<()> {
             if destination_path.exists() {
                 copy_missing_entries(&source_path, &destination_path)?;
             } else {
-                std::fs::rename(&source_path, &destination_path).or_else(|_| {
-                    copy_missing_entries(&source_path, &destination_path)
-                        .map_err(|error| std::io::Error::other(error.to_string()))
-                })?;
+                copy_missing_entries(&source_path, &destination_path)?;
             }
         } else if !destination_path.exists() {
             std::fs::copy(&source_path, &destination_path).with_context(|| format!(
                 "failed to preserve legacy file {}", source_path.display()
             ))?;
         }
+    }
+    Ok(())
+}
+
+fn migrate_legacy_cache_root(new_root: &Path, legacy_root: &Path) -> Result<()> {
+    let settings_path = new_root.join("streaming-server").join("settings.json");
+    if !settings_path.is_file() {
+        return Ok(());
+    }
+    let contents = std::fs::read_to_string(&settings_path)
+        .with_context(|| format!("failed to read {}", settings_path.display()))?;
+    let mut settings: serde_json::Value = match serde_json::from_str(&contents) {
+        Ok(settings) => settings,
+        Err(error) => {
+            tracing::warn!(%error, path = %settings_path.display(), "skipped legacy cache-path migration for invalid server settings");
+            return Ok(());
+        }
+    };
+    let Some(cache_root) = settings.get("cacheRoot").and_then(serde_json::Value::as_str) else {
+        return Ok(());
+    };
+    let old_cache_root = PathBuf::from(cache_root);
+    if let Ok(relative) = old_cache_root.strip_prefix(legacy_root) {
+        settings["cacheRoot"] = new_root.join(relative).to_string_lossy().into_owned().into();
+        let serialized = serde_json::to_vec_pretty(&settings)?;
+        std::fs::write(&settings_path, serialized)
+            .with_context(|| format!("failed to update {}", settings_path.display()))?;
     }
     Ok(())
 }

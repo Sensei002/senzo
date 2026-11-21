@@ -4897,7 +4897,8 @@ fn cleanup_torrent_cache_after_close(server_url: String, info_hash: String) {
     }
 
     let cache_dir = crate::paths::get()
-        .streaming_server_cache()
+         .streaming_server_cache()
+        .join("torrent-cache")
         .join(info_hash.to_ascii_lowercase());
     let remove_url = format!("{}/{}/remove", server_url.trim_end_matches('/'), info_hash);
     tokio::spawn(async move {

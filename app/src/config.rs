@@ -280,6 +280,35 @@ impl AppConfig {
                     *value = new.to_owned();
                 }
             }
+            let previous_saved_colors = [
+                "#10b981", "#3b82f6", "#6366f1", "#8b5cf6", "#d946ef", "#f43f5e", "#ef4444",
+                "#f97316", "#7b5bf5",
+            ]
+            .iter()
+            .map(|color| color.to_string())
+            .collect::<Vec<_>>();
+            if self.theme.saved_colors == previous_saved_colors {
+                self.theme.saved_colors = ThemeConfig::default().saved_colors;
+            }
+            let previous_gradients = [
+                (135.0, "#7b5bf5", "#1a173e"),
+                (135.0, "#3b82f6", "#1c2541"),
+                (135.0, "#10b981", "#047857"),
+                (135.0, "#f43f5e", "#881337"),
+                (135.0, "#a855f7", "#121212"),
+                (135.0, "#f97316", "#431407"),
+            ];
+            let gradients_match_previous_defaults = self.theme.saved_gradients.len() == previous_gradients.len()
+                && self.theme.saved_gradients.iter().zip(previous_gradients).all(
+                    |(gradient, (angle, start, end))| {
+                        gradient.angle == angle
+                            && gradient.start.eq_ignore_ascii_case(start)
+                            && gradient.end.eq_ignore_ascii_case(end)
+                    },
+                );
+            if gradients_match_previous_defaults {
+                self.theme.saved_gradients = ThemeConfig::default().saved_gradients;
+            }
             self.config_version = 4;
         }
         self.config_version != original_version
