@@ -704,7 +704,7 @@ export component ThemePage inherits Rectangle {
     private property <bool> sec-system: true;
 
     private property <[ThemePreset]> presets: [
-        { name: "Stremio Official (Purple)", accent: #7b5bf5, background: #0c0b11, secondary: #1a173e, card: #151320, border: #201e2f, text: #ffffffe6 },
+        { name: "SENZO Cyan", accent: #22D3EE, background: #080D11, secondary: #0D171D, card: #101B21, border: #1E343D, text: #F3FAFC },
         { name: "Dracula Dark", accent: #bd93f9, background: #282a36, secondary: #44475a, card: #21222c, border: #6272a4, text: #f8f8f2 },
         { name: "Nordic Frost (Nord)", accent: #88c0d0, background: #2e3440, secondary: #3b4252, card: #434c5e, border: #4c566a, text: #eceff4 },
         { name: "Catppuccin Mocha", accent: #cba6f7, background: #1e1e2e, secondary: #181825, card: #313244, border: #45475a, text: #cdd6f4 },
@@ -721,7 +721,7 @@ export component ThemePage inherits Rectangle {
     ];
 
     private property <[string]> preset-names: [
-        "Stremio Official (Purple)",
+        "SENZO Cyan",
         "Dracula Dark",
         "Nordic Frost (Nord)",
         "Catppuccin Mocha",
@@ -804,7 +804,7 @@ export component ThemePage inherits Rectangle {
     }
 
     public function select-preset-by-name(name: string) {
-        if (name == "Stremio Official (Purple)") { root.selected-preset-idx = 0; root.apply-theme(#7b5bf5, #0c0b11, #1a173e, #151320, #201e2f, #ffffffe6); }
+        if (name == "SENZO Cyan") { root.selected-preset-idx = 0; root.apply-theme(#22D3EE, #080D11, #0D171D, #101B21, #1E343D, #F3FAFC); }
         else if (name == "Dracula Dark") { root.selected-preset-idx = 1; root.apply-theme(#bd93f9, #282a36, #44475a, #21222c, #6272a4, #f8f8f2); }
         else if (name == "Nordic Frost (Nord)") { root.selected-preset-idx = 2; root.apply-theme(#88c0d0, #2e3440, #3b4252, #434c5e, #4c566a, #eceff4); }
         else if (name == "Catppuccin Mocha") { root.selected-preset-idx = 3; root.apply-theme(#cba6f7, #1e1e2e, #181825, #313244, #45475a, #cdd6f4); }
@@ -876,7 +876,7 @@ export component ThemePage inherits Rectangle {
                         outlined: true;
                         clicked => {
                             root.selected-preset-idx = 0;
-                            root.apply-theme(#7b5bf5, #0c0b11, #1a173e, #151320, #201e2f, #ffffffe6);
+                            root.apply-theme(#22D3EE, #080D11, #0D171D, #101B21, #1E343D, #F3FAFC);
                             root.reset-theme();
                         }
                     }
