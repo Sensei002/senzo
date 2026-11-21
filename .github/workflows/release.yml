@@ -46,7 +46,7 @@ jobs:
 
           $clangVersion = (& $clangExe --version | Select-Object -First 1)
           Write-Output "Using $clangVersion"
-          if ($clangVersion -notmatch '^clang version 23\\.') {
+          if (-not $clangVersion.StartsWith('clang version 23.')) {
             throw "Expected Clang 23.x from pinned LLVM $llvmVersion, got: $clangVersion"
           }
 
