@@ -58,9 +58,9 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: vcpkg_installed
-          key: Windows-vcpkg-84bab45d-x86-64-v4-msvc-${{ steps.msvc-version.outputs.version }}-static-md-release-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
+          key: Windows-vcpkg-84bab45d-x86-64-v5-msvc-${{ steps.msvc-version.outputs.version }}-static-md-release-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
           restore-keys: |
-            Windows-vcpkg-84bab45d-x86-64-v4-msvc-${{ steps.msvc-version.outputs.version }}-static-md-release-
+            Windows-vcpkg-84bab45d-x86-64-v5-msvc-${{ steps.msvc-version.outputs.version }}-static-md-release-
       - name: Prepare vcpkg with retries
         shell: pwsh
         run: |
@@ -118,7 +118,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: vcpkg_installed
-          key: Windows-vcpkg-84bab45d-x86-64-v4-msvc-${{ steps.msvc-version.outputs.version }}-static-md-release-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
+          key: Windows-vcpkg-84bab45d-x86-64-v5-msvc-${{ steps.msvc-version.outputs.version }}-static-md-release-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
       - uses: Swatinem/rust-cache@v2
       - name: Enable Windows native crash dumps
         shell: pwsh
