@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main, development, migration/stremio-native]
   workflow_dispatch:
+    inputs:
+      extended_checks:
+        description: Run Clippy and the full workspace test suite
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -18,6 +24,8 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_NET_RETRY: 10
   CARGO_HTTP_MULTIPLEXING: false
+  VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+  SENZO_MPV_CACHE_DIR: ${{ github.workspace }}\.mpv-cache
   VCPKG_ROOT: ${{ github.workspace }}\vcpkg
   VCPKG_INSTALLED_DIR: ${{ github.workspace }}\vcpkg_installed
   VCPKG_DEFAULT_TRIPLET: x64-windows-v3-static-md-release
@@ -59,8 +67,34 @@ jobs:
           if (-not $llvmBin) { throw "libclang.dll was not found." }
           "LIBCLANG_PATH=$llvmBin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+      - name: Verify Rust formatting
+        run: cargo fmt --all -- --check
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
+
+      - name: Export GitHub Actions cache environment for vcpkg
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL);
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN);
+
+      - name: Restore vcpkg cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: vcpkg_installed
+          key: Windows-vcpkg-x86-64-v3-static-md-release-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
+          restore-keys: |
+            Windows-vcpkg-x86-64-v3-static-md-release-
+
+      - name: Restore MPV SDK cache
+        id: mpv-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .mpv-cache
+          key: Windows-mpv-sdk-${{ hashFiles('mpv.lock.json') }}
 
       - name: Prepare pinned vcpkg
         shell: pwsh
@@ -94,17 +128,30 @@ jobs:
           VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}\triplets
           VCPKG_OVERLAY_PORTS: ${{ github.workspace }}\vcpkg-overlays
 
-      - name: Verify Rust formatting
-        run: cargo fmt --all -- --check
+      - name: Save vcpkg cache
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: vcpkg_installed
+          key: Windows-vcpkg-x86-64-v3-static-md-release-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
 
       - name: Run Clippy
+        if: github.event_name == 'pull_request' || inputs.extended_checks
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Run workspace tests
+        if: github.event_name == 'pull_request' || inputs.extended_checks
         run: cargo test --workspace --all-targets --locked
 
       - name: Build SENZO release binary
         run: cargo build --locked --release --package senzo
+
+      - name: Save MPV SDK cache
+        if: steps.mpv-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .mpv-cache
+          key: Windows-mpv-sdk-${{ hashFiles('mpv.lock.json') }}
 
       - name: Stage app-local MSVC runtime
         shell: pwsh
