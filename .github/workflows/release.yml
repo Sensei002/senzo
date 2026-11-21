@@ -6,6 +6,10 @@ on:
     branches: ["main", "development"]
     tags: ["v*"]
 
+concurrency:
+  group: senzo-build-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   CARGO_NET_RETRY: 10
