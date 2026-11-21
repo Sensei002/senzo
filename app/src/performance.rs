@@ -33,15 +33,15 @@ impl ProfileMode {
         match self {
             Self::Off => false,
             Self::Full => true,
-            Self::Ui => target == "senzo" || target.starts_with("senzo::"),
+            Self::Ui => target == "stremio_native" || target.starts_with("stremio_native::"),
             Self::Io => {
-                target == "senzo"
-                    || target.starts_with("senzo::image_cache")
-                    || target.starts_with("senzo::db")
+                target == "stremio_native"
+                    || target.starts_with("stremio_native::image_cache")
+                    || target.starts_with("stremio_native::db")
                     || target.starts_with("core_env")
             }
             Self::Playback => {
-                target.starts_with("senzo::mpv_integration")
+                target.starts_with("stremio_native::mpv_integration")
                     || target.starts_with("playback_mpv")
             }
         }
@@ -186,7 +186,7 @@ pub fn spawn_reporter() -> Option<tokio::task::JoinHandle<()>> {
                 interval.tick().await;
                 let snapshot = counters().snapshot();
                 tracing::info!(
-                    target: "senzo::performance",
+                    target: "stremio_native::performance",
                     ui_patches = snapshot.ui_patches,
                     ui_patch_ms = snapshot.ui_patch_micros / 1_000,
                     image_memory_hits = snapshot.image_memory_hits,
@@ -209,14 +209,14 @@ mod tests {
     #[test]
     fn legacy_profile_flag_enables_full_profile() {
         let config =
-            ProfileConfig::from_args(["senzo".to_owned(), "--profile".to_owned()]);
+            ProfileConfig::from_args(["stremio-native".to_owned(), "--profile".to_owned()]);
         assert_eq!(config.mode, ProfileMode::Full);
     }
 
     #[test]
     fn profile_output_is_parsed_without_enabling_an_unrequested_mode() {
         let config = ProfileConfig::from_args([
-            "senzo".to_owned(),
+            "stremio-native".to_owned(),
             "--profile-output=trace.json".to_owned(),
         ]);
         assert_eq!(config.mode, ProfileMode::Off);

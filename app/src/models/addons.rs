@@ -30,7 +30,8 @@ use url::Url;
 static LAST_SYNC_STATE: OnceLock<Mutex<Option<SyncFingerprint>>> = OnceLock::new();
 static PENDING_ADDON_ORDER: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
 static ADDON_REORDER_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-const ADDON_ORDER_STORAGE_KEY: &str = "stremio-native-addon-order";
+const ADDON_ORDER_STORAGE_KEY: &str = "senzo-addon-order";
+const LEGACY_ADDON_ORDER_STORAGE_KEY: &str = "stremio-native-addon-order";
 
 fn move_item<T>(items: &mut Vec<T>, from: i32, to: i32) -> bool {
     let (Ok(from), Ok(to)) = (usize::try_from(from), usize::try_from(to)) else {
@@ -201,10 +202,17 @@ pub fn setup(
         let runtime = runtime.clone();
         let ui_weak = ui_weak.clone();
         tokio::spawn(async move {
-            let Ok(Some(order)) =
-                DesktopEnv::get_storage::<Vec<String>>(ADDON_ORDER_STORAGE_KEY).await
-            else {
-                return;
+            let order = match DesktopEnv::get_storage::<Vec<String>>(ADDON_ORDER_STORAGE_KEY).await {
+                Ok(Some(order)) => order,
+                _ => match DesktopEnv::get_storage::<Vec<String>>(LEGACY_ADDON_ORDER_STORAGE_KEY).await {
+                    Ok(Some(order)) => {
+                        if let Err(error) = DesktopEnv::set_storage(ADDON_ORDER_STORAGE_KEY, Some(&order)).await {
+                            tracing::warn!(%error, "failed to migrate addon ordering to SENZO storage");
+                        }
+                        order
+                    }
+                    _ => return,
+                },
             };
             *PENDING_ADDON_ORDER
                 .get_or_init(|| Mutex::new(Vec::new()))

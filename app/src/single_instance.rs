@@ -13,7 +13,7 @@ use tokio::{
 };
 
 const INSTANCE_ADDRESS: SocketAddrV4 = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 35_984);
-const PROTOCOL_MAGIC: &str = "STREMIO_NATIVE/1";
+const PROTOCOL_MAGIC: &str = "SENZO/1";
 const MAX_COMMAND_BYTES: usize = 16 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -207,7 +207,7 @@ mod tests {
     #[test]
     fn startup_arguments_find_official_deep_link() {
         let args: [std::ffi::OsString; 3] = [
-            "stremio-native".into(),
+            "senzo".into(),
             "--start-hidden".into(),
             "stremio:///detail/movie/tt1254207".into(),
         ];
