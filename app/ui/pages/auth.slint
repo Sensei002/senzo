@@ -245,17 +245,17 @@ component OptionsSection inherits VerticalLayout {
         clicked => { root.toggle-mode(); }
     }
 
-    PillButton {
+    if (root.register-mode) : PillButton {
         unit: root.unit;
         height: 4 * root.unit;
-        label: @tr("Continue without signing in");
+        label: @tr("Guest login");
         enabled: !root.loading;
         outlined: true;
         surface-color: transparent;
-        hover-color: Theme.primary-accent;
-        foreground-color: Theme.primary-foreground;
-        hover-foreground-color: Theme.secondary-foreground;
-        outline-color: Theme.primary-accent.with-alpha(0.45);
+        hover-color: #ffffff;
+        foreground-color: #ffffff;
+        hover-foreground-color: #0c0b11;
+        outline-color: #ffffff40;
         clicked => { root.guest-login(); }
     }
 }
