@@ -1,4 +1,4 @@
-name: Desktop release builds
+name: SENZO desktop builds
 
 on:
   workflow_dispatch:

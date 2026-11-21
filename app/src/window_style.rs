@@ -46,7 +46,7 @@ fn apply_windows_caption(window: &winit::window::Window) -> bool {
         return false;
     };
 
-    const CAPTION_COLOR: u32 = colorref(0x15, 0x12, 0x2b);
+    const CAPTION_COLOR: u32 = colorref(0x0a, 0x15, 0x1a);
     const TEXT_COLOR: u32 = colorref(0xff, 0xff, 0xff);
     let hwnd = window_handle.hwnd.get() as *mut c_void;
 
