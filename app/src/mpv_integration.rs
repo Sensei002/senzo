@@ -11,6 +11,7 @@ use std::{
 };
 
 use anyhow::{Context, anyhow};
+use enginefs::backend::{TorrentBackend, TorrentHandle};
 use playback_mpv::{
     EndReason, HdrMode, OmniphonyAudioSettings, PlaybackCommand, PlaybackController, PlaybackEvent,
     PlaybackRuntime, PlaybackState, PlayerConfig, PreviewConfig, PreviewRuntime, RenderContext,
@@ -4886,7 +4887,6 @@ fn cancel_statistics_poll(poll: &Mutex<Option<StatisticsPoll>>) {
     }
 }
 
-
 fn torrent_relative_path(name: &str) -> Option<PathBuf> {
     let portable = name.replace('\\', "/");
     let path = Path::new(&portable);
@@ -4903,9 +4903,7 @@ fn torrent_relative_path(name: &str) -> Option<PathBuf> {
 }
 
 fn torrent_relative_path_key(path: &Path) -> String {
-    path.to_string_lossy()
-        .replace('\\', "/")
-        .to_lowercase()
+    path.to_string_lossy().replace('\\', "/").to_lowercase()
 }
 
 async fn remove_empty_torrent_parents(path: &Path, cache_root: &Path) {
@@ -4928,13 +4926,19 @@ async fn cleanup_closed_torrent_cache(info_hash: String, file_idx: usize) {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone();
     let Some(server_state) = server_state else {
-        tracing::debug!(info_hash, "Skipping torrent cache cleanup: stream server is not running");
+        tracing::debug!(
+            info_hash,
+            "Skipping torrent cache cleanup: stream server is not running"
+        );
         return;
     };
 
     let engine_fs = server_state.stream_engine();
     let Some(torrent_handle) = engine_fs.backend.get_torrent(&info_hash).await else {
-        tracing::debug!(info_hash, "Torrent engine was already released; no playback cache handle remains");
+        tracing::debug!(
+            info_hash,
+            "Torrent engine was already released; no playback cache handle remains"
+        );
         return;
     };
 
