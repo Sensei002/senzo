@@ -16,7 +16,9 @@ jobs:
     name: Windows x64
     runs-on: windows-2025
     env:
-      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+      # run-vcpkg otherwise selects the removed x-gha provider. The complete
+      # installed tree is cached below with an MSVC-version-specific key.
+      VCPKG_BINARY_SOURCES: "clear"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -25,6 +27,32 @@ jobs:
         with:
           toolchain: nightly-2026-05-03
           targets: x86_64-pc-windows-msvc
+      - name: Detect MSVC toolset version for native dependency cache
+        id: msvc-version
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
+            throw "vswhere.exe not found: $vswhere"
+          }
+
+          $vsPath = (& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
+          if ([string]::IsNullOrWhiteSpace($vsPath)) {
+            throw 'No Visual Studio installation with the x64 C++ toolset was found'
+          }
+
+          $toolsRoot = Join-Path $vsPath 'VC\Tools\MSVC'
+          $toolset = Get-ChildItem -LiteralPath $toolsRoot -Directory |
+            Where-Object { $_.Name -match '^\d+\.\d+\.\d+$' } |
+            Sort-Object { [version]$_.Name } -Descending |
+            Select-Object -First 1
+
+          if ($null -eq $toolset) {
+            throw "No versioned MSVC toolset directory found under $toolsRoot"
+          }
+
+          Write-Output "Detected MSVC toolset: $($toolset.Name)"
+          "version=$($toolset.Name)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
       - name: Install compatible LLVM for autocxx bindings
         shell: pwsh
         run: |
@@ -51,20 +79,14 @@ jobs:
           }
 
           "LIBCLANG_PATH=$llvmBin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      - name: Export GitHub Actions cache environment for vcpkg
-        uses: actions/github-script@v9
-        with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL);
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN);
       - name: Restore vcpkg cache
         id: vcpkg-cache
         uses: actions/cache/restore@v6
         with:
           path: vcpkg_installed
-          key: Windows-vcpkg-x86-64-v3-static-md-release-v1-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
+          key: Windows-vcpkg-84bab45d-x86-64-v4-msvc-${{ steps.msvc-version.outputs.version }}-static-md-release-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
           restore-keys: |
-            Windows-vcpkg-x86-64-v3-static-md-release-v1-
+            Windows-vcpkg-84bab45d-x86-64-v4-msvc-${{ steps.msvc-version.outputs.version }}-static-md-release-
       - name: Prepare vcpkg with retries
         shell: pwsh
         run: |
@@ -122,15 +144,37 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: vcpkg_installed
-          key: Windows-vcpkg-x86-64-v3-static-md-release-v1-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
+          key: Windows-vcpkg-84bab45d-x86-64-v4-msvc-${{ steps.msvc-version.outputs.version }}-static-md-release-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
       - uses: Swatinem/rust-cache@v2
-      - name: Build release
-        run: cargo build --locked --release --package stremio-native
+      - name: Build release with line-table crash symbols
+        shell: pwsh
+        run: |
+          # Never let a stale PDB from a restored target directory be mistaken
+          # for symbols matching this executable.
+          Get-ChildItem -LiteralPath "target/release" -Recurse -File -Filter "*.pdb" -ErrorAction SilentlyContinue |
+            Remove-Item -Force
+
+          # Add minimal source-line debug information only to the application
+          # target. Dependencies retain the normal stripped release profile,
+          # keeping the existing Cargo dependency cache reusable.
+          cargo rustc --locked --release --package stremio-native --bin stremio-native -- -C debuginfo=line-tables-only -C strip=none
         env:
           VCPKG_ROOT: ${{ github.workspace }}/vcpkg
           VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg_installed
           VCPKGRS_TRIPLET: x64-windows-v3-static-md-release
           PKG_CONFIG_PATH: ${{ github.workspace }}/vcpkg_installed/x64-windows-v3-static-md-release/lib/pkgconfig
+      - name: Verify Windows crash debug symbols
+        shell: pwsh
+        run: |
+          $pdbs = @(Get-ChildItem -LiteralPath "target/release" -Recurse -File -Filter "*.pdb" -ErrorAction SilentlyContinue)
+          if ($pdbs.Count -eq 0) {
+            throw "No PDB was generated for target/release/stremio-native.exe"
+          }
+
+          Write-Output "Generated $($pdbs.Count) PDB debug-symbol file(s):"
+          $pdbs | Sort-Object FullName | ForEach-Object {
+            Write-Output ("{0} ({1:N0} bytes)" -f $_.FullName, $_.Length)
+          }
       - name: Stage app-local MSVC runtime
         shell: pwsh
         run: ./scripts/stage_windows_msvc_runtime.ps1 -BuildRoot ./target/release
@@ -175,6 +219,15 @@ jobs:
         run: |
           set "SKIP_BUILD=1"
           call setup\create_setup.cmd
+      - name: Upload Windows crash debug symbols
+        uses: actions/upload-artifact@v7
+        with:
+          name: senzo-windows-x64-pdb
+          path: |
+            target/release/*.pdb
+            target/release/deps/*.pdb
+          if-no-files-found: error
+          compression-level: 0
       - uses: actions/upload-artifact@v7
         with:
           name: stremio-native-windows-x64
