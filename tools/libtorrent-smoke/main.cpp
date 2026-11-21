@@ -7,7 +7,9 @@
 #include <libtorrent/settings_pack.hpp>
 #include <libtorrent/version.hpp>
 
+#include <array>
 #include <cstdint>
+#include <iomanip>
 #include <iostream>
 #include <set>
 #include <string>
@@ -67,9 +69,45 @@ int main() {
   native_set.insert(1);
   std::cout << "[0a] Native std::set is valid." << std::endl;
 
+  std::cout << "[0b] Test plain std::set<std::array<uint8_t, 16>>..." << std::endl;
+  std::set<std::array<std::uint8_t, 16>> plain_v6_set;
+  plain_v6_set.insert({});
+  const std::array<std::uint8_t, 16> zero_v6{};
+  std::cout << "[0c] Plain 16-byte array set comparison = "
+            << (*plain_v6_set.begin() == zero_v6) << std::endl;
+
+  std::cout << "[0d] Construct standalone libtorrent IPv6 filter..." << std::endl;
+  lt::aux::filter_impl<std::array<std::uint8_t, 16>> standalone_v6_filter;
+  std::cout << "[0e] Standalone libtorrent IPv6 filter constructed." << std::endl;
+  std::cout << "[0f] Standalone libtorrent IPv6 filter.empty() = "
+            << standalone_v6_filter.empty() << std::endl;
+
   std::cout << "[1] Construct standalone ip_filter..." << std::endl;
   lt::ip_filter standalone_filter;
   std::cout << "[1a] Standalone ip_filter constructed." << std::endl;
+
+  const auto* filter_words = reinterpret_cast<const std::uintptr_t*>(&standalone_filter);
+  std::cout << "[1b] ip_filter raw words:";
+  for (int i = 0; i < 4; ++i) std::cout << " 0x" << std::hex << filter_words[i];
+  std::cout << std::dec << std::endl;
+
+  struct TreeHeader {
+    std::uintptr_t left;
+    std::uintptr_t parent;
+    std::uintptr_t right;
+    std::uint8_t color;
+    std::uint8_t is_nil;
+  };
+  const auto head_address = filter_words[2];
+  std::cout << "[1c] IPv6 set head address = 0x" << std::hex << head_address
+            << std::dec << std::endl;
+  if (head_address >= 0x10000 && head_address < 0x0000800000000000ULL) {
+    const auto* head = reinterpret_cast<const TreeHeader*>(head_address);
+    std::cout << "[1d] IPv6 tree head left/parent/right = 0x" << std::hex
+              << head->left << " 0x" << head->parent << " 0x" << head->right
+              << std::dec << " color=" << unsigned(head->color)
+              << " is_nil=" << unsigned(head->is_nil) << std::endl;
+  }
 
   std::cout << "[2] Call standalone ip_filter.empty()..." << std::endl;
   const bool standalone_empty = standalone_filter.empty();
