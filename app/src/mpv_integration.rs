@@ -38,7 +38,6 @@ use stremio_core::{
         streams::{AudioTrack, StreamItemState, StreamsBucket, StreamsItemKey, SubtitleTrack},
     },
 };
-use enginefs::backend::{TorrentBackend, TorrentHandle};
 use tokio_util::sync::CancellationToken;
 
 use crate::{AppModel, AppModelField, MainWindow, NavigationController, NavigationIntent};
