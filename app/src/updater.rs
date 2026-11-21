@@ -17,12 +17,12 @@ use tokio::task::JoinHandle;
 
 use crate::{MainWindow, tray};
 
-const REPOSITORY_OWNER: &str = "perpetus";
-const REPOSITORY_NAME: &str = "stremio-native";
+const REPOSITORY_OWNER: &str = "Sensei002";
+const REPOSITORY_NAME: &str = "senzo";
 #[cfg(target_os = "windows")]
-const WINDOWS_ASSET_IDENTIFIER: &str = "stremio-native";
+const WINDOWS_ASSET_IDENTIFIER: &str = "senzo";
 #[cfg(target_os = "windows")]
-const WINDOWS_INSTALLER_NAME: &str = "stremio-installer";
+const WINDOWS_INSTALLER_NAME: &str = "senzo-installer";
 
 #[derive(Clone)]
 struct AvailableUpdate {
@@ -402,7 +402,7 @@ fn stage_installer(version: &str) -> Result<PathBuf> {
     let update_dir = crate::paths::get().updates().join(display_version(version));
     std::fs::create_dir_all(&update_dir)
         .with_context(|| format!("failed to create {}", update_dir.display()))?;
-    let installer = update_dir.join("stremio-installer.exe");
+    let installer = update_dir.join("senzo-installer.exe");
     if installer.exists() {
         std::fs::remove_file(&installer)
             .with_context(|| format!("failed to remove stale {}", installer.display()))?;
@@ -417,7 +417,7 @@ fn stage_installer(version: &str) -> Result<PathBuf> {
         .target_version_tag(&release_tag)
         .current_version(env!("CARGO_PKG_VERSION"))
         .bin_name(WINDOWS_INSTALLER_NAME)
-        .bin_path_in_archive("stremio-installer.exe")
+        .bin_path_in_archive("senzo-installer.exe")
         .bin_install_path(&installer)
         .show_download_progress(false)
         .show_output(false)
@@ -614,8 +614,8 @@ mod tests {
 
     #[test]
     fn updater_targets_the_published_repository() {
-        assert_eq!(REPOSITORY_OWNER, "perpetus");
-        assert_eq!(REPOSITORY_NAME, "stremio-native");
+        assert_eq!(REPOSITORY_OWNER, "Sensei002");
+        assert_eq!(REPOSITORY_NAME, "senzo");
     }
 
     #[test]

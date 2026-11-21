@@ -121,11 +121,11 @@ async fn run_application() -> anyhow::Result<()> {
     // A forwarded process exits before touching the primary process's log.
     let app_paths = paths::initialize()?;
     let _guards = logger::init_logger(&profile, app_paths)?;
-    tracing::info!(data_root = %app_paths.root().display(), "Starting Stremio-Rust GUI client...");
+    tracing::info!(data_root = %app_paths.root().display(), "Starting SENZO desktop client...");
 
     let res = run_app(&profile, primary_instance, startup_started).await;
     if let Err(ref e) = res {
-        tracing::error!(error = ?e, "Stremio-Rust execution failed with error");
+        tracing::error!(error = ?e, "SENZO startup failed");
         let _ = db::insert_log("ERROR", &format!("Application crash: {:?}", e)).await;
     }
     res
@@ -242,7 +242,7 @@ async fn run_app(
         .then(performance::spawn_reporter)
         .flatten();
 
-    tracing::info!("Stremio-Rust GUI loop starting...");
+    tracing::info!("SENZO event loop starting...");
     let ui_result = tokio::task::block_in_place(slint::run_event_loop);
     if let Some(reporter) = performance_reporter {
         reporter.abort();
@@ -421,7 +421,7 @@ async fn finish_startup(
         paths::get()
             .root()
             .join("backups")
-            .join(format!("stremio-native-{timestamp}.zip"))
+            .join(format!("senzo-{timestamp}.zip"))
             .to_string_lossy()
             .into_owned()
             .into(),
@@ -1105,7 +1105,7 @@ fn setup_integration_management(ui: &MainWindow) {
                             integrations::send_notification(
                                 profile.as_str(),
                                 kind,
-                                "Stremio Native notification test succeeded.",
+                                "SENZO notification test succeeded.",
                             )
                             .await?;
                             format!("{provider} connected and tested")
