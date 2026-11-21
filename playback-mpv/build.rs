@@ -52,7 +52,7 @@ struct RuntimeArtifact {
 #[derive(Deserialize)]
 struct PinnedFile {
     file: String,
-    sha256: String,
+    sha256: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -63,6 +63,7 @@ struct RemoteFile {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-env-changed=STREMIO_MPV_DIR");
+    println!("cargo:rerun-if-env-changed=SENZO_MPV_CACHE_DIR");
 
     let target_os = env::var("CARGO_CFG_TARGET_OS")?;
     if target_os == "windows" {
@@ -103,8 +104,8 @@ fn configure_windows_runtime() -> Result<(), Box<dyn std::error::Error>> {
     };
     let import_library = resolve_pinned_file(&sdk_dir, &artifact.import_library, "import library")?;
     let runtime_library = resolve_pinned_file(&sdk_dir, &artifact.runtime_library, "runtime DLL")?;
-    validate_file_hash(&import_library, &artifact.import_library.sha256)?;
-    validate_file_hash(&runtime_library, &artifact.runtime_library.sha256)?;
+    validate_optional_file_hash(&import_library, artifact.import_library.sha256.as_deref())?;
+    validate_optional_file_hash(&runtime_library, artifact.runtime_library.sha256.as_deref())?;
 
     let library_dir = import_library.parent().ok_or_else(|| {
         io::Error::other(format!(
@@ -191,8 +192,8 @@ fn validate_windows_lock(lock: &MpvLock) -> Result<(), io::Error> {
         )));
     }
     validate_link_name(&artifact.link_name)?;
-    validate_sha256(&artifact.import_library.sha256)?;
-    validate_sha256(&artifact.runtime_library.sha256)?;
+    validate_optional_sha256(artifact.import_library.sha256.as_deref())?;
+    validate_optional_sha256(artifact.runtime_library.sha256.as_deref())?;
 
     for name in ["LICENSE.GPL", "LICENSE.LGPL"] {
         let license = lock
@@ -218,16 +219,25 @@ fn ensure_cached_sdk(
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let cached_import = join_safe(cache_dir, &artifact.import_library.file, "import library")?;
     let cached_runtime = join_safe(cache_dir, &artifact.runtime_library.file, "runtime DLL")?;
-    if hash_matches(&cached_import, &artifact.import_library.sha256)?
-        && hash_matches(&cached_runtime, &artifact.runtime_library.sha256)?
-    {
-        return Ok(cache_dir.to_path_buf());
-    }
 
     fs::create_dir_all(cache_dir)?;
     let archive = cache_dir.join(&lock.distribution.asset);
     if !hash_matches(&archive, &lock.distribution.sha256)? {
         download_verified(&lock.distribution.url, &archive, &lock.distribution.sha256)?;
+    }
+
+    // Reuse extracted files only when the lock contains their individual
+    // hashes. Otherwise, re-extract from the verified archive on every build
+    // instead of trusting library files restored from a CI cache.
+    if let (Some(import_hash), Some(runtime_hash)) = (
+        artifact.import_library.sha256.as_deref(),
+        artifact.runtime_library.sha256.as_deref(),
+    ) {
+        if hash_matches(&cached_import, import_hash)?
+            && hash_matches(&cached_runtime, runtime_hash)?
+        {
+            return Ok(cache_dir.to_path_buf());
+        }
     }
 
     let extract_dir = cache_dir.join(format!(".extract-{}", std::process::id()));
@@ -245,8 +255,8 @@ fn ensure_cached_sdk(
 
         let source_runtime = extract_dir.join("libmpv-2.dll");
         let source_import = extract_dir.join("libmpv.dll.a");
-        validate_file_hash(&source_runtime, &artifact.runtime_library.sha256)?;
-        validate_file_hash(&source_import, &artifact.import_library.sha256)?;
+        validate_optional_file_hash(&source_runtime, artifact.runtime_library.sha256.as_deref())?;
+        validate_optional_file_hash(&source_import, artifact.import_library.sha256.as_deref())?;
         copy_if_changed(&source_runtime, &cached_runtime)?;
         copy_if_changed(&source_import, &cached_import)?;
         Ok(())
@@ -254,8 +264,8 @@ fn ensure_cached_sdk(
     let _ = fs::remove_dir_all(&extract_dir);
     extraction_result?;
 
-    validate_file_hash(&cached_import, &artifact.import_library.sha256)?;
-    validate_file_hash(&cached_runtime, &artifact.runtime_library.sha256)?;
+    validate_optional_file_hash(&cached_import, artifact.import_library.sha256.as_deref())?;
+    validate_optional_file_hash(&cached_runtime, artifact.runtime_library.sha256.as_deref())?;
     Ok(cache_dir.to_path_buf())
 }
 
@@ -438,6 +448,29 @@ fn sha256_file(path: &Path) -> Result<String, io::Error> {
     Ok(encoded)
 }
 
+fn validate_optional_sha256(value: Option<&str>) -> Result<(), io::Error> {
+    if let Some(value) = value {
+        validate_sha256(value)?;
+    }
+    Ok(())
+}
+
+fn validate_optional_file_hash(path: &Path, expected: Option<&str>) -> Result<(), io::Error> {
+    if let Some(expected) = expected {
+        return validate_file_hash(path, expected);
+    }
+
+    let metadata = fs::metadata(path)?;
+    if metadata.is_file() && metadata.len() > 0 {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "MPV SDK file is missing or empty: {}",
+            path.display()
+        )))
+    }
+}
+
 fn validate_sha256(value: &str) -> Result<(), io::Error> {
     if value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         Ok(())
@@ -484,9 +517,13 @@ fn cargo_profile_dir() -> Result<PathBuf, io::Error> {
 }
 
 fn mpv_cache_dir(lock: &MpvLock, profile_dir: &Path) -> PathBuf {
-    let cache_root = profile_dir
-        .parent()
-        .unwrap_or(profile_dir)
-        .join(".mpv-cache");
+    let cache_root = env::var_os("SENZO_MPV_CACHE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            profile_dir
+                .parent()
+                .unwrap_or(profile_dir)
+                .join(".mpv-cache")
+        });
     cache_root.join(&lock.distribution.sha256[..16])
 }

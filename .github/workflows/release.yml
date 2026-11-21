@@ -14,7 +14,7 @@ env:
 jobs:
   windows:
     name: Windows x64
-    runs-on: windows-2022
+    runs-on: blacksmith-4vcpu-windows-2025
     env:
       VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
     steps:
@@ -23,7 +23,7 @@ jobs:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2026-07-31
+          toolchain: nightly-2026-05-03
           targets: x86_64-pc-windows-msvc
       - name: Provide libclang for autocxx bindings
         shell: pwsh
@@ -195,7 +195,7 @@ jobs:
 
   linux:
     name: Linux x64
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
       VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg_installed
@@ -211,24 +211,12 @@ jobs:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2026-07-31
+          toolchain: nightly-2026-05-03
       - uses: Swatinem/rust-cache@v2
-      - name: Restore apt cache
-        id: apt-cache
-        uses: actions/cache/restore@v6
-        with:
-          path: /var/cache/apt/archives
-          key: linux-apt-deps-v2
       - name: Install native dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential clang cmake ninja-build pkg-config libssl-dev libclang-dev libgtk-3-dev libayatana-appindicator3-dev libmpv-dev libfontconfig1-dev libfreetype6-dev libxkbcommon-dev libwayland-dev libx11-xcb-dev libxcb-shape0-dev libxcb-xfixes0-dev libgl1-mesa-dev libegl1-mesa-dev
-      - name: Save apt cache
-        if: steps.apt-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: /var/cache/apt/archives
-          key: linux-apt-deps-v2
       - name: Restore libtorrent cache
         id: libtorrent-cache
         uses: actions/cache/restore@v6
@@ -272,7 +260,7 @@ jobs:
   arch:
     name: Arch Linux x64
     needs: linux
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     container: archlinux:latest
     steps:
       - uses: actions/checkout@v7
@@ -326,7 +314,7 @@ jobs:
   fedora:
     name: Fedora x64
     needs: linux
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     container: fedora:latest
     steps:
       - uses: actions/checkout@v7
@@ -398,7 +386,7 @@ jobs:
   release:
     name: Publish tagged release
     needs: [windows, linux, arch, fedora]
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
