@@ -240,7 +240,7 @@ fn process_metadata(log_dir: &Path) -> String {
     format!(
         "version={}\nbuild={}\npid={}\nos={}\narch={}\nexecutable={}\nlog={}",
         env!("CARGO_PKG_VERSION"),
-        env!("STREMIO_BUILD_VERSION"),
+        env!("SENZO_BUILD_VERSION"),
         std::process::id(),
         std::env::consts::OS,
         std::env::consts::ARCH,
@@ -466,7 +466,7 @@ fn show_crash_dialog(
         use slint::ComponentHandle as _;
 
         dialog.set_app_version(env!("CARGO_PKG_VERSION").into());
-        dialog.set_build_version(env!("STREMIO_BUILD_VERSION").into());
+        dialog.set_build_version(env!("SENZO_BUILD_VERSION").into());
         let log_path_str = log_dir.join("stremio.log").display().to_string();
         dialog.set_log_path(log_path_str.clone().into());
 
@@ -501,7 +501,7 @@ fn show_crash_dialog(
                 let report_text = format!(
                     "### Stremio Crash Report\n- **Version**: {}\n- **Build**: {}\n- **Minidump**: `{}`\n- **Log**: `{}`\n- **Capture status**: {}\n\n**Process metadata**:\n```\n{}\n```\n",
                     env!("CARGO_PKG_VERSION"),
-                    env!("STREMIO_BUILD_VERSION"),
+                    env!("SENZO_BUILD_VERSION"),
                     dump_str,
                     log_str,
                     error_str,

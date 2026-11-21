@@ -63,7 +63,7 @@ fn normalize_build_version(value: &str) -> Option<String> {
 }
 
 fn build_version() -> String {
-    ["STREMIO_BUILD_VERSION", "GITHUB_SHA", "CI_COMMIT_SHA"]
+    ["SENZO_BUILD_VERSION", "GITHUB_SHA", "CI_COMMIT_SHA"]
         .into_iter()
         .find_map(|name| {
             std::env::var(name)
@@ -183,11 +183,11 @@ fn embed_windows_resources() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("cargo:rerun-if-env-changed=STREMIO_BUILD_VERSION");
+    println!("cargo:rerun-if-env-changed=SENZO_BUILD_VERSION");
     println!("cargo:rerun-if-env-changed=GITHUB_SHA");
     println!("cargo:rerun-if-env-changed=CI_COMMIT_SHA");
     println!("cargo:rerun-if-changed=../.git/HEAD");
-    println!("cargo:rustc-env=STREMIO_BUILD_VERSION={}", build_version());
+    println!("cargo:rustc-env=SENZO_BUILD_VERSION={}", build_version());
     embed_windows_resources()?;
 
     // 1. Generate Slint imports file for imported_fonts.slint
