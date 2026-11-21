@@ -270,7 +270,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: senzo-windows-x64-pdb
-          path: ${{ runner.temp }}/senzo-libtorrent-smoke-build/**/*.pdb
+          path: ${{ runner.temp }}/senzo-libtorrent-smoke-build/Release/*.pdb
           if-no-files-found: warn
           compression-level: 1
       - name: Upload Windows native crash dump
