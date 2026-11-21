@@ -9,6 +9,7 @@ members = [
     "playback-mpv",
     "server-connector",
     "stream-ranking",
+    "tools/libtorrent-smoke",
 ]
 exclude = ["vendor/i-slint-renderer-skia", "vendor/i-slint-core"]
 
