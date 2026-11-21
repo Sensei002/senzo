@@ -118,7 +118,7 @@ pub(crate) fn init_crash_handler(log_dir: &Path) -> Result<CrashReporter> {
             Ok(()) => ::crash_handler::CrashEventResult::Handled(true),
             Err(_) => {
                 ::crash_handler::write_stderr(
-                    "stremio-native: crash monitor could not capture a minidump\n",
+                    "SENZO: crash monitor could not capture a minidump\n",
                 );
                 ::crash_handler::CrashEventResult::Handled(false)
             }
@@ -356,7 +356,7 @@ fn run_reporter(args: &ReporterArgs) -> Result<()> {
 fn make_dump_path(crash_dir: &Path, crashed_pid: u32) -> PathBuf {
     let timestamp = Utc::now().format("%Y%m%dT%H%M%S%.3fZ");
     crash_dir.join(format!(
-        "stremio-native-{timestamp}-{crashed_pid}-{}.dmp",
+        "senzo-{timestamp}-{crashed_pid}-{}.dmp",
         Uuid::new_v4().simple()
     ))
 }
@@ -518,7 +518,7 @@ fn show_crash_dialog(
 
         dialog.on_report_github({
             move || {
-                let github_url = "https://github.com/stremio-native/stremio-native/issues/new?template=bug_report.md&title=%5BCrash%5D+Application+Crash+Report";
+                let github_url = "https://github.com/Sensei002/senzo/issues/new?template=bug_report.md&title=%5BCrash%5D+Application+Crash+Report";
                 let _ = open::that(github_url);
             }
         });
@@ -639,7 +639,7 @@ mod tests {
     #[test]
     fn reporter_args_should_ignore_regular_application_launch() {
         let args = [
-            OsString::from("stremio-native"),
+            OsString::from("senzo"),
             OsString::from("stremio://movie"),
         ];
 
