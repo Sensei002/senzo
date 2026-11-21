@@ -161,34 +161,39 @@ jobs:
       - name: Build and smoke-test native libtorrent before the desktop app
         shell: pwsh
         run: |
-          # This tiny package depends only on libtorrent-sys, not the full desktop app.
-          # Force the native bridge to rebuild under the static-link configuration.
-          cargo clean -p libtorrent-sys
+          $buildDir = Join-Path $env:RUNNER_TEMP "senzo-libtorrent-smoke-build"
           $buildLog = Join-Path $env:RUNNER_TEMP "libtorrent-smoke-build.log"
-          cargo rustc -vv --locked --release --package libtorrent-smoke --bin libtorrent-smoke -- -C debuginfo=line-tables-only -C strip=none *> $buildLog
-          $buildExit = $LASTEXITCODE
-          Select-String -Path $buildLog -Pattern "libtorrent|pkg-config|rustc-link|cl.exe|clang-cl|wrapper.cpp|Finished" |
-            Select-Object -Last 120 |
-            ForEach-Object { Write-Output $_.Line }
-          if ($buildExit -ne 0) {
-            throw "Standalone libtorrent smoke build failed with exit code $buildExit. Full log: $buildLog"
+          $toolchain = Join-Path $env:GITHUB_WORKSPACE "vcpkg/scripts/buildsystems/vcpkg.cmake"
+          cmake -S tools/libtorrent-smoke -B $buildDir -DCMAKE_TOOLCHAIN_FILE="$toolchain" -DVCPKG_MANIFEST_MODE=OFF -DVCPKG_TARGET_TRIPLET=x64-windows-v3-static-md-release -DVCPKG_INSTALLED_DIR="$env:GITHUB_WORKSPACE/vcpkg_installed" -DCMAKE_BUILD_TYPE=Release *> $buildLog
+          $configureExit = $LASTEXITCODE
+          if ($configureExit -ne 0) {
+            Get-Content $buildLog -Tail 120
+            throw "Native libtorrent CMake configure failed with exit code $configureExit"
           }
 
-          & (Join-Path $env:GITHUB_WORKSPACE "target/release/libtorrent-smoke.exe")
+          cmake --build $buildDir --config Release --verbose *>> $buildLog
+          $buildExit = $LASTEXITCODE
+          Select-String -Path $buildLog -Pattern "LibtorrentRasterbar|torrent-rasterbar|libtorrent-smoke|error|Error|Linking|Building" |
+            Select-Object -Last 100 |
+            ForEach-Object { Write-Output $_.Line }
+          if ($buildExit -ne 0) {
+            throw "Native libtorrent C++ smoke build failed with exit code $buildExit. Full log: $buildLog"
+          }
+
+          $smoke = Get-ChildItem -Path $buildDir -Filter "libtorrent-smoke.exe" -Recurse -File | Select-Object -First 1
+          if (-not $smoke) { throw "CMake completed but libtorrent-smoke.exe was not found under $buildDir" }
+          Write-Output "Running direct C++ libtorrent session smoke test: $($smoke.FullName)"
+          & $smoke.FullName
           $smokeExit = $LASTEXITCODE
           if ($smokeExit -ne 0) {
-            Write-Output "Native smoke test exited with $smokeExit"
+            Write-Output "Native C++ smoke test exited with $smokeExit"
             Write-Output "Crash dump directory: $env:SENZO_LIBUTORRENT_DUMP_DIR"
-            throw "Native libtorrent session startup failed with exit code $smokeExit"
+            throw "Direct libtorrent session startup failed with exit code $smokeExit"
           }
         env:
           VCPKG_ROOT: ${{ github.workspace }}/vcpkg
           VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg_installed
-          VCPKGRS_TRIPLET: x64-windows-v3-static-md-release
-          LIBTORRENT_STATIC: "1"
-          PKG_CONFIG_PATH: ${{ github.workspace }}/vcpkg_installed/x64-windows-v3-static-md-release/lib/pkgconfig
-          PKG_CONFIG_DEBUG_SPEW: "1"
-          CC_ENABLE_DEBUG_OUTPUT: "1"
+          VCPKG_TARGET_TRIPLET: x64-windows-v3-static-md-release
       - name: Build release with line-table crash symbols
         shell: pwsh
         run: |
@@ -265,9 +270,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: senzo-windows-x64-pdb
-          path: |
-            target/release/stremio_native.pdb
-            target/release/libtorrent_smoke.pdb
+          path: ${{ runner.temp }}/senzo-libtorrent-smoke-build/**/*.pdb
           if-no-files-found: warn
           compression-level: 1
       - name: Upload Windows native crash dump

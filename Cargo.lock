@@ -5713,14 +5713,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "libtorrent-smoke"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "libtorrent-sys",
-]
-
-[[package]]
 name = "libtorrent-sys"
 version = "0.1.8"
 source = "git+https://github.com/stremio-native/stream-server.git?rev=f585ab6eda9b1411034548c131bb0dc30c6f5f9e#f585ab6eda9b1411034548c131bb0dc30c6f5f9e"
