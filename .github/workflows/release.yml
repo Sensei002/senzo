@@ -83,6 +83,7 @@ jobs:
       VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}\triplets
       VCPKG_OVERLAY_PORTS: ${{ github.workspace }}\vcpkg-overlays
       PKG_CONFIG_PATH: ${{ github.workspace }}\vcpkg_installed\x64-windows-v3-static-md-release\lib\pkgconfig
+      SENZO_MPV_CACHE_DIR: ${{ github.workspace }}\.mpv-cache
     steps:
       - uses: actions/checkout@v4
         with:
@@ -189,8 +190,22 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Restore MPV SDK cache
+        id: mpv-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .mpv-cache
+          key: Windows-mpv-sdk-${{ hashFiles('mpv.lock.json') }}
+
       - name: Build SENZO release
         run: cargo build --locked --release --package senzo
+
+      - name: Save MPV SDK cache
+        if: steps.mpv-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .mpv-cache
+          key: Windows-mpv-sdk-${{ hashFiles('mpv.lock.json') }}
 
       - name: Stage app-local MSVC runtime
         shell: pwsh
