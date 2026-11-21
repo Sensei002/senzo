@@ -2360,7 +2360,6 @@ impl NativePlaybackBridge {
             let discord_rpc = self.discord_rpc.clone();
             let thumbnails = self.thumbnails.clone();
             let pip_controller = pip_controller.clone();
-            let runtime_handle = self.runtime_handle.clone();
             move || {
                 if play_next(&core) {
                     return;
@@ -2709,7 +2708,7 @@ impl NativePlaybackBridge {
                     &thumbnails,
                 );
                 if let Some(hash) = torrent_hash {
-                    cleanup_torrent_cache_after_close(runtime_handle, hash);
+                    cleanup_torrent_cache_after_close(runtime_handle.clone(), hash);
                 }
             }
         });
