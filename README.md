@@ -1,106 +1,139 @@
-# <img src="app/assets/app.ico" width="36" align="center" /> SENZO
+# SENZO
 
-### A native media center built with Rust + Slint, with Stremio-compatible catalogs and add-ons.
+<p align="center">
+  <img src="app/assets/app.ico" width="76" alt="SENZO logo" />
+  <br />
+  <strong>Your media. Your space.</strong>
+  <br />
+  A native desktop media center for discovering, organizing, and watching movies and series.
+</p>
 
-[![Desktop release builds](https://github.com/Sensei002/senzo/actions/workflows/release.yml/badge.svg)](https://github.com/Sensei002/senzo/actions/workflows/release.yml)
-[![Clippy](https://github.com/Sensei002/senzo/actions/workflows/clippy.yml/badge.svg)](https://github.com/Sensei002/senzo/actions/workflows/clippy.yml)
-[![Latest Release](https://img.shields.io/github/v/release/Sensei002/senzo?color=22d3ee&label=release)](https://github.com/Sensei002/senzo/releases)
-![Rust](https://img.shields.io/badge/rust-2024_stable-orange.svg?logo=rust)
-![Slint UI](https://img.shields.io/badge/UI-Slint_1.17-blue.svg?logo=slint)
-![License](https://img.shields.io/github/license/Sensei002/senzo?color=informational)
-![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
+<p align="center">
+  <a href="https://github.com/Sensei002/senzo/actions/workflows/release.yml"><img src="https://github.com/Sensei002/senzo/actions/workflows/release.yml/badge.svg" alt="Desktop builds" /></a>
+  <a href="https://github.com/Sensei002/senzo/actions/workflows/clippy.yml"><img src="https://github.com/Sensei002/senzo/actions/workflows/clippy.yml/badge.svg" alt="Clippy" /></a>
+  <a href="https://github.com/Sensei002/senzo/releases"><img src="https://img.shields.io/github/v/release/Sensei002/senzo?color=22d3ee&label=latest%20release" alt="Latest release" /></a>
+  <img src="https://img.shields.io/badge/Rust-native-orange?logo=rust" alt="Rust" />
+  <img src="https://img.shields.io/badge/UI-Slint-2563eb?logo=slint" alt="Slint" />
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey" alt="Windows and Linux" />
+  <a href="https://github.com/Sensei002/senzo/blob/development/LICENSE"><img src="https://img.shields.io/github/license/Sensei002/senzo" alt="License" /></a>
+</p>
 
-<!-- SEO Meta Tags & Keywords -->
-<!-- Keywords: Stremio alternative client, Stremio desktop, fast Stremio player, lightweight Stremio app, Stremio web ui offline, Slint media player Rust, BitTorrent streaming player, local database media center, open source stream server -->
-<meta name="description" content="SENZO is an ultra-fast, lightweight, and modern desktop client for Stremio. Built with Rust and Slint UI, it features a custom, open-source stream server instead of the proprietary server.js." />
+**SENZO** is an independent, native media center built around three things: content discovery, a flexible playback experience, and a personal media library. It brings catalogs, community add-ons, media sources, local files, downloads, and playback tools together in one desktop application.
 
----
+Built with **Rust** and **Slint**, SENZO has its own interface, visual identity, settings, and local-first experience. It is designed to be responsive, customizable, and useful whether you simply want to watch something or fine-tune how your media center works.
 
-### 🤔 Why Use SENZO?
+> SENZO is actively developed. Features, integrations, and platform support can change between development builds. Check the [changelog](CHANGELOG.md) for implementation history and current changes.
 
-The official Stremio desktop app runs on Electron-style WebViews backed by a separate Node.js server (`server.js`). At idle it spawns **10 processes** and holds **800+ MB of RAM**.
-
-**SENZO** replaces all of that with a single Rust binary and a native [Slint](https://slint.dev/) UI:
-
-* **🚀 Instant Startup** — launches in under a second with zero UI lag.
-* **💧 56% Less RAM** — **358 MB** idle vs. the 814 MB official baseline.
-* **⚡ 1 Process Instead of 10** — an open-source stream server runs in-process; no Node.js required.
-* **🔋 Battery-Friendly** — GPU hardware video decoding keeps CPU usage near **0%** during playback.
-* **🔒 100% Local & Private** — local SQLite database, zero telemetry, no cloud dependencies.
-
-![SENZO Interface](app/assets/preview.png)
-
-See the [changelog](CHANGELOG.md) for the current build's implementation notes and known limitations.
-
-> [!IMPORTANT]
-> **⚠️ Full UI Rewrite & Feedback Notice**: SENZO is a complete ground-up rewrite in Rust & Slint UI. As a result, some features may not be fully implemented or might not work as intended in all scenarios. If you encounter any bugs, unexpected behavior, or missing features, please [raise an issue on GitHub](https://github.com/Sensei002/senzo/issues) so the developer can look into it!
->
-> **💻 Modern Hardware Requirements**: Current precompiled release binaries require a **modern CPU** (`x86-64-v3` architecture baseline with AVX2/BMI2 instruction support) and a **modern GPU** (OpenGL 3.3+ support for Skia UI rendering & Anime4K/FSR upscaler shaders, with hardware GPU video decoding for H.264, HEVC, AV1, and VP9).
+![SENZO application preview](app/assets/preview.png)
 
 ---
 
-## 📥 Download
+## What SENZO offers
 
-- **Stable releases:** [GitHub Releases](https://github.com/Sensei002/senzo/releases)
-- **Development builds:** [GitHub Actions](https://github.com/Sensei002/senzo/actions/workflows/release.yml) — open the latest successful run and download its artifacts.
+### Discover and explore
 
----
+- Browse movies, series, anime, and other media made available by your installed catalogs and add-ons.
+- Search and explore content through dedicated discovery, library, and details views.
+- View rich media details, artwork, trailers, and available ratings from supported metadata providers.
+- Discover community add-ons through the in-app add-on directory.
+- Filter and organize catalog results using the options provided by each catalog.
 
-## 📊 Performance Comparison
+### Flexible playback
 
-| Metric | Official Stremio | SENZO | Improvement |
-| :--- | ---: | ---: | :---: |
-| Processes | 10 | **1** | 90% fewer |
-| Idle memory (RAM) | 814.4 MB | **358.6 MB** | 56% lower |
-| Idle CPU | — | **0.19%** | near-zero |
-| Threads | 190 | **72** | 62% fewer |
-| Handles | 4,872 | **891** | 82% fewer |
+- Native desktop playback powered by **MPV / libmpv**.
+- Hardware-accelerated video decoding when supported by the system and available codecs.
+- Audio and subtitle track selection, including independent primary and secondary subtitle controls.
+- Playback speed controls, remappable keyboard shortcuts, A/B repeat, and episode-aware sleep timers.
+- Picture-in-Picture mode and operating-system media controls.
+- HDR playback modes and optional Anime4K / AMD FSR shader-based upscaling on supported desktop graphics hardware.
+- Timeline preview thumbnails and playback recovery tools.
+- Stream ranking and filtering options to help choose between available sources.
 
-Measured on Windows x64 from the settled, idle v1.0.0 release process. CPU and I/O are five-second samples; other values are point-in-time readings. The official baseline was captured from a corresponding settled Stremio session. This is an observational comparison, not a controlled laboratory benchmark.
+### Your library and downloads
 
----
+- Local media library scanning with recursive folders, movie and episode recognition, and external subtitle discovery.
+- A native download manager with pause, resume, retry, cancellation, and resumable transfers where supported by the source.
+- Profile-aware app data and library organization.
+- Local media playback through the integrated player.
 
-## ✨ Features
+### Make SENZO yours
 
-### 🎨 Native Desktop UI & Customization
-* **Slint UI & Custom Themes** — native desktop rendering with Side Rail, Top Bar, Minimal, and Classic theme presets.
-* **Browser-Style Smooth Scrolling** — tuned scroll physics (100px wheel step, cubic ease-out, 1200px/s² fling) across all list views.
-* **Picture-in-Picture (PiP)** — compact always-on-top window mode with integrated player controls.
-* **Multi-Profile Management** — Owner, Standard, and Kids profiles with Argon2id PIN protection and live profile switching.
-* **Remappable Hotkeys** — typed Winit hotkey editor with modifier support, hold/release actions, and conflict detection.
-* **Native Localization** — Fluent localization engine for English, Portuguese, and Arabic with full RTL support.
+- Theme Studio with semantic color controls, presets, typography, and layout customization.
+- Side Rail, Top Bar, Minimal, and Classic layout presets.
+- Custom colors and gradients with saved presets.
+- Owner, Standard, and Kids local profiles, including optional PIN protection.
+- Remappable application and playback shortcuts.
+- Native localization resources for English, Portuguese, and Arabic.
+- Configurable playback, subtitle, audio, and application preferences.
 
-### ⚡ Embedded Stream Server & Debrid
-* **No External Dependencies** — eliminates the separate Node.js `server.js` process. The stream engine runs asynchronously inside the Rust async runtime.
-* **Smart Stream Ranking** — deterministic offline stream parsing with Seeders, Quality, Smallest, and Smart ranking modes.
-* **Vault-Secured Debrid** — native integrations for Real-Debrid, AllDebrid, Premiumize, Debrid-Link, and TorBox with OS credential protection.
-* **Community Addon Adapter** — manifest validation, pagination, and PIN-gated adult addon filtering.
+### Integrations
 
-### 🎞️ Advanced MPV Playback & Shaders
-* **Hardware-Accelerated Decoding** — powered by `libmpv` with full GPU hardware video decoding (H.264, HEVC, AV1, VP9).
-* **Anime4K and AMD FSR Upscalers** — all six Anime4K GLSL shader modes plus AMD FSR upscaling on desktop OpenGL 3.3+.
-* **Dual Subtitle Selection** — independent primary and secondary subtitle selection with position and scale adjustments.
-* **Playback Tools** — A/B repeat markers, episode-aware sleep timers, HDR modes (Auto, Passthrough, Tone Map, Disabled), and PNG screenshot capture.
-* **Timeline Previews** — secondary persistent `libmpv` worker delivering zero-lag seekbar thumbnail previews with a 16 MiB exact-frame cache.
+- Compatibility with Stremio-compatible catalogs and community add-ons.
+- Optional integrations for supported debrid providers, including Real-Debrid, AllDebrid, Premiumize, Debrid-Link, and TorBox.
+- Metadata enrichment from supported services and providers.
+- Webhook and Telegram notification configuration.
+- Sensitive integration credentials protected through supported operating-system credential stores.
 
-### 📦 Download Manager & Local Media Indexing
-* **Native Download Manager** — profile-scoped manager supporting HTTP Range resume, `.part` recovery, atomic completion, and bandwidth limits.
-* **Local Library Scanner** — recursive directory watching, movie/episode filename parsing, file fingerprinting, external subtitle discovery, and direct playback.
-
-### 🔒 OS Integrations & Local-First Storage
-* **Native OS Media Controls** — SMTC on Windows, MPRIS on Linux, and MediaRemote on macOS with taskbar thumbnail controls and sleep inhibition.
-* **OS Credential Encryption** — backed by Windows Credential Manager and Linux Secret Service for auth tokens and API keys.
-* **Local-First SQLite Database** — Turso/Limbo engine with zero telemetry, transactional schema migrations, and automated backups.
+Feature availability can depend on the installed add-on, provider, platform, network connection, and hardware.
 
 ---
 
-## 🛠️ Building From Source
+## Accounts, guest mode, and your data
+
+**You can use SENZO without signing in.** Choose **Continue without signing in** to enter the guest experience. A SENZO-owned account is not required.
+
+- **Guest mode:** Use the available app features with a local profile and locally stored application data.
+- **Optional Stremio sign-in:** Connect a Stremio account when you want to use account-connected functionality. Supported account data and synchronization are handled through Stremio's services.
+- **Add-on choice stays yours:** Add-ons are managed by the user. SENZO does not bundle or silently enable Torrentio; install it yourself only if you choose to use it.
+- **Local application data:** Settings, logs, and caches are stored in the operating system's local application-data area under SENZO.
+
+SENZO does not require a separate SENZO cloud account to get started.
+
+---
+
+## Download SENZO
+
+- **Stable releases:** [Download from GitHub Releases](https://github.com/Sensei002/senzo/releases).
+- **Development builds:** Open [GitHub Actions](https://github.com/Sensei002/senzo/actions/workflows/release.yml), choose the latest successful desktop build, and download the Windows or Linux artifact.
+
+Development builds can contain unfinished work and are intended for testing. For everyday use, prefer a stable release when one is available.
+
+---
+
+## Supported platforms and technology
+
+| Area | Technology |
+| --- | --- |
+| Application core | Rust |
+| Desktop interface | Slint |
+| Video playback | MPV / libmpv |
+| Embedded streaming | Rust-based in-process stream services |
+| Local application data | Embedded database and local files |
+| Desktop platforms | Windows and Linux |
+| License | GPL-3.0-only |
+
+SENZO is currently focused on the Windows and Linux desktop experience. Other platforms are not advertised as supported releases unless and until dedicated builds and platform testing are available.
+
+---
+
+## Build from source
 
 ### Prerequisites
-- **Windows**: [Rust toolchain (`msvc`)](https://rustup.rs/), Visual Studio 2022 C++ Build Tools with the x64 MSVC v143 toolset, a Windows SDK, and LLVM/Clang for native dependencies. Release builds use the dynamic MSVC CRT (`/MD`) while vcpkg libraries remain static.
-- **Linux**: Rust, `pkg-config`, `libmpv-dev`, and standard X11/Wayland GUI packages (see the CI workflow for the full list).
 
-### Build & Run
+**Windows**
+- Rust toolchain with the MSVC target.
+- Visual Studio 2022 C++ Build Tools with the x64 MSVC v143 toolset.
+- Windows SDK and LLVM/Clang for native dependencies.
+- The repository's vcpkg manifest and overlay triplets for native libraries.
+
+**Linux**
+- Rust toolchain.
+- pkg-config, libmpv development files, and standard X11 / Wayland GUI development packages.
+- A C/C++ build toolchain and the native libraries used by the project.
+
+The GitHub Actions workflow contains the authoritative CI dependency setup for each target.
+
+### Clone and run
 
 ```bash
 git clone https://github.com/Sensei002/senzo.git
@@ -108,9 +141,9 @@ cd senzo
 cargo run --release --package senzo
 ```
 
-Before the first Windows build, install the manifest dependencies with the
-project triplet so the static native libraries use the same dynamic CRT as
-Rust and Skia:
+### Windows native dependencies
+
+Before the first Windows build, install the manifest dependencies with the project's triplet so the native libraries use the same dynamic CRT configuration as Rust and Skia:
 
 ```powershell
 & "$env:VCPKG_ROOT\vcpkg.exe" install `
@@ -121,28 +154,45 @@ Rust and Skia:
   --overlay-ports="$PWD\vcpkg-overlays"
 ```
 
-`cargo build` then discovers that exact installation through the repository's
-Cargo configuration. Do not substitute `x64-windows-static`: that triplet uses
-the static `/MT` CRT and is incompatible with the `/MD` Skia build.
+The repository's Cargo configuration discovers that installation. Do not replace the project triplet with x64-windows-static; it uses a different CRT configuration.
 
-Settings, logs, and caches are stored under the operating system's local application-data directory in `SENZO` (for example, `%LOCALAPPDATA%\SENZO` on Windows or `$XDG_DATA_HOME/SENZO` on Linux).
+### Local data locations
 
-On Windows, `setup/create_setup.cmd` runs `scripts/stage_windows_msvc_runtime.ps1` for both fresh and `SKIP_BUILD=1` builds. The script copies the newest x64 `Microsoft.VC143.CRT` DLLs beside the packaged app, validates runtime imports with `dumpbin`, and writes a SHA-256 manifest. This app-local deployment supports the project's per-user, non-admin installer.
+SENZO keeps its application data in the operating system's user-data location:
 
-Timeline previews reuse the same packaged libmpv library as the main player. Building or running the application does not depend on the implementation-reference checkout under `docs/thumbfast`.
-
-### CI & Releases
-
-Pushes to `main` and `development` run the Windows and Linux build jobs (plus Arch and Fedora packaging). Pushing a `v*` tag builds release packages and publishes a GitHub release automatically. Windows release builds target the `x64-windows-v3-static-md-release` triplet (`x86-64-v3` / `/arch:AVX2`, static native libraries, dynamic CRT) for broad CPU compatibility. The release includes installers, portable archives, Linux packages, SHA-256 checksums, changelog notes, and a linked commit diff.
+- **Windows:** %LOCALAPPDATA%\SENZO
+- **Linux:** $XDG_DATA_HOME/SENZO (or the user's standard local data directory when XDG_DATA_HOME is not set)
 
 ---
 
-## Attribution
+## Development and releases
 
-The timeline preview scheduler is based on the interaction and seek strategy of [ThumbFast](https://github.com/po5/thumbfast), licensed under the Mozilla Public License 2.0. The source notice, referenced Lua snapshot hash, and license are recorded in [`licenses/thumbfast`](licenses/thumbfast/NOTICE.md).
+- The development branch is the active integration branch.
+- The main branch is reserved for stable work.
+- Pushes to the development and main branches run the desktop build workflow for Windows and Linux.
+- Version tags matching v* are used for release packaging and publication.
+- Development artifacts are published by GitHub Actions and can be downloaded from the workflow run.
+
+See [open issues](https://github.com/Sensei002/senzo/issues) for known work and [the changelog](CHANGELOG.md) for project updates.
+
+## Contributing and feedback
+
+Bug reports, feature suggestions, and technical feedback are welcome.
+
+1. Search the [existing issues](https://github.com/Sensei002/senzo/issues) to avoid duplicates.
+2. Include your operating system, SENZO build or commit, and relevant logs when reporting a problem.
+3. For playback problems, include the source type and relevant player diagnostics where possible. Do not post private tokens, account credentials, or personal data.
 
 ---
 
-## ⚠️ Disclaimer
+## Project independence and third-party services
 
-SENZO is an independent, community-developed project. It is not affiliated with, authorized, maintained, sponsored, or endorsed by SmartCode Ltd (the creators of the official Stremio application).
+SENZO is an independent community-developed project. It is not affiliated with, authorized, maintained, sponsored, or endorsed by SmartCode Ltd or the Stremio project.
+
+SENZO does not host or supply media streams. Catalogs, add-ons, metadata providers, debrid services, and media sources are third-party integrations selected by the user. Their availability and terms are controlled by their respective providers. Users are responsible for ensuring that their use of third-party services and content complies with applicable laws and provider terms.
+
+### Attribution
+
+The timeline preview scheduler uses interaction and seek strategies based on [ThumbFast](https://github.com/po5/thumbfast), licensed under the Mozilla Public License 2.0. The source notice, referenced Lua snapshot hash, and license are recorded in [licenses/thumbfast/NOTICE.md](licenses/thumbfast/NOTICE.md).
+
+SENZO is distributed under the [GNU General Public License v3.0](LICENSE).
