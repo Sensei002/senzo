@@ -28,8 +28,8 @@ use souvlaki::{
 
 use crate::MainWindow;
 
-const DISPLAY_NAME: &str = "Stremio Native";
-const DBUS_NAME: &str = "stremio_native";
+const DISPLAY_NAME: &str = "SENZO";
+const DBUS_NAME: &str = "senzo";
 const WAKE_REVERSE_DOMAIN: &str = "com.stremio.native";
 
 /// Handler invoked for every media-key / OS-control event. Runs on the media
