@@ -2359,6 +2359,7 @@ impl NativePlaybackBridge {
             let discord_rpc = self.discord_rpc.clone();
             let thumbnails = self.thumbnails.clone();
             let pip_controller = pip_controller.clone();
+            let runtime_handle = self.runtime_handle.clone();
             move || {
                 if play_next(&core) {
                     return;
@@ -2707,7 +2708,7 @@ impl NativePlaybackBridge {
                     &thumbnails,
                 );
                 if let (Some(hash), Some(server_url)) = (torrent_hash, server_url) {
-                    cleanup_torrent_cache_after_close(server_url, hash);
+                    cleanup_torrent_cache_after_close(runtime_handle, server_url, hash);
                 }
             }
         });
@@ -4877,7 +4878,11 @@ fn cancel_statistics_poll(poll: &Mutex<Option<StatisticsPoll>>) {
     }
 }
 
-fn cleanup_torrent_cache_after_close(server_url: String, info_hash: String) {
+fn cleanup_torrent_cache_after_close(
+    runtime_handle: tokio::runtime::Handle,
+    server_url: String,
+    info_hash: String,
+) {
     // Delete only the closed torrent's cache after the local stream-server
     // releases its engine. Other torrents, downloads, local media and subtitle
     // files remain untouched.
@@ -4901,7 +4906,7 @@ fn cleanup_torrent_cache_after_close(server_url: String, info_hash: String) {
         .join("torrent-cache")
         .join(info_hash.to_ascii_lowercase());
     let remove_url = format!("{}/{}/remove", server_url.trim_end_matches('/'), info_hash);
-    tokio::spawn(async move {
+    runtime_handle.spawn(async move {
         let client = reqwest::Client::new();
         match client.get(&remove_url).send().await {
             Ok(response) if response.status().is_success() => {}
