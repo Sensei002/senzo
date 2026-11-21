@@ -185,10 +185,10 @@ jobs:
       - name: Smoke-test native libtorrent session startup
         run: cargo run --locked --release --package stremio-native --bin libtorrent-smoke
         env:
-          VCPKG_ROOT: ${{ github.workspace }}\\vcpkg
-          VCPKG_INSTALLED_DIR: ${{ github.workspace }}\\vcpkg_installed
+          VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+          VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg_installed
           VCPKGRS_TRIPLET: x64-windows-v3-static-md-release
-          PKG_CONFIG_PATH: ${{ github.workspace }}\\vcpkg_installed\\x64-windows-v3-static-md-release\\lib\\pkgconfig
+          PKG_CONFIG_PATH: ${{ github.workspace }}/vcpkg_installed\\x64-windows-v3-static-md-release\\lib\\pkgconfig
       - name: Provide Inno Setup for the installer
         shell: pwsh
         run: |
