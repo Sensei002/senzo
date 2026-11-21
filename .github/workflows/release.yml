@@ -162,6 +162,7 @@ jobs:
           VCPKG_ROOT: ${{ github.workspace }}/vcpkg
           VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg_installed
           VCPKGRS_TRIPLET: x64-windows-v3-static-md-release
+          LIBTORRENT_STATIC: "1"
           PKG_CONFIG_PATH: ${{ github.workspace }}/vcpkg_installed/x64-windows-v3-static-md-release/lib/pkgconfig
       - name: Verify Windows crash debug symbols
         shell: pwsh
@@ -182,13 +183,57 @@ jobs:
           @("stremio-native.exe", "libmpv-2.dll", "licenses/mpv/LICENSE.GPL", "licenses/mpv/LICENSE.LGPL") | ForEach-Object {
             if (-not (Test-Path (Join-Path $root $_))) { throw "Missing release artifact: $_" }
           }
-      - name: Smoke-test native libtorrent session startup
-        run: cargo run --locked --release --package stremio-native --bin libtorrent-smoke
+      - name: Enable Windows native crash dumps
+        shell: pwsh
+        run: |
+          $dumpDir = Join-Path $env:RUNNER_TEMP "senzo-libtorrent-dumps"
+          New-Item -Path $dumpDir -ItemType Directory -Force | Out-Null
+          $registryPath = "HKLM:\\SOFTWARE\\Microsoft\\Windows\\Windows Error Reporting\\LocalDumps\\libtorrent-smoke.exe"
+          New-Item -Path $registryPath -Force | Out-Null
+          New-ItemProperty -Path $registryPath -Name DumpFolder -Value $dumpDir -PropertyType ExpandString -Force | Out-Null
+          New-ItemProperty -Path $registryPath -Name DumpType -Value 2 -PropertyType DWord -Force | Out-Null
+          New-ItemProperty -Path $registryPath -Name DumpCount -Value 3 -PropertyType DWord -Force | Out-Null
+          "SENZO_LIBUTORRENT_DUMP_DIR=$dumpDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Output "Windows full crash dumps will be written to $dumpDir"
+      - name: Rebuild native smoke harness with diagnostic symbols
+        shell: pwsh
+        run: |
+          # Force the native bridge to rebuild so the static pkg-config mode
+          # below is applied even if a previous Cargo build-script result exists.
+          cargo clean -p libtorrent-sys
+          $buildLog = Join-Path $env:RUNNER_TEMP "libtorrent-smoke-build.log"
+          cargo rustc -vv --locked --release --package stremio-native --bin libtorrent-smoke -- -C debuginfo=line-tables-only -C strip=none *> $buildLog
+          $buildExit = $LASTEXITCODE
+          Select-String -Path $buildLog -Pattern "libtorrent|pkg-config|rustc-link|cl.exe|clang-cl|wrapper.cpp|Finished" |
+            Select-Object -Last 120 |
+            ForEach-Object { Write-Output $_.Line }
+          if ($buildExit -ne 0) {
+            throw "Diagnostic libtorrent smoke build failed with exit code $buildExit. Full log: $buildLog"
+          }
         env:
           VCPKG_ROOT: ${{ github.workspace }}/vcpkg
           VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg_installed
           VCPKGRS_TRIPLET: x64-windows-v3-static-md-release
-          PKG_CONFIG_PATH: ${{ github.workspace }}/vcpkg_installed\\x64-windows-v3-static-md-release\\lib\\pkgconfig
+          LIBTORRENT_STATIC: "1"
+          PKG_CONFIG_PATH: ${{ github.workspace }}/vcpkg_installed/x64-windows-v3-static-md-release/lib/pkgconfig
+          PKG_CONFIG_DEBUG_SPEW: "1"
+          CC_ENABLE_DEBUG_OUTPUT: "1"
+      - name: Smoke-test native libtorrent session startup
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE\\target\\release\\libtorrent-smoke.exe"
+          $smokeExit = $LASTEXITCODE
+          if ($smokeExit -ne 0) {
+            Write-Output "Native smoke test exited with $smokeExit"
+            Write-Output "Crash dump directory: $env:SENZO_LIBUTORRENT_DUMP_DIR"
+            throw "Native libtorrent session startup failed with exit code $smokeExit"
+          }
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+          VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg_installed
+          VCPKGRS_TRIPLET: x64-windows-v3-static-md-release
+          LIBTORRENT_STATIC: "1"
+          PKG_CONFIG_PATH: ${{ github.workspace }}/vcpkg_installed/x64-windows-v3-static-md-release/lib/pkgconfig
       - name: Provide Inno Setup for the installer
         shell: pwsh
         run: |
@@ -224,11 +269,30 @@ jobs:
           set "SKIP_BUILD=1"
           call setup\create_setup.cmd
       - name: Upload Windows crash debug symbols
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: senzo-windows-x64-pdb
-          path: target/release/stremio_native.pdb
-          if-no-files-found: error
+          path: |
+            target/release/stremio_native.pdb
+            target/release/libtorrent_smoke.pdb
+          if-no-files-found: warn
+          compression-level: 1
+      - name: Upload Windows native crash dump
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: senzo-windows-x64-libtorrent-crash-dump
+          path: ${{ runner.temp }}/senzo-libtorrent-dumps/*.dmp
+          if-no-files-found: warn
+          compression-level: 1
+      - name: Upload libtorrent smoke build log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: senzo-windows-x64-libtorrent-build-log
+          path: ${{ runner.temp }}/libtorrent-smoke-build.log
+          if-no-files-found: warn
           compression-level: 1
       - uses: actions/upload-artifact@v7
         with:
@@ -243,6 +307,7 @@ jobs:
           if-no-files-found: error
 
   linux:
+    if: github.ref != 'refs/heads/fix/windows-libtorrent-session-smoke'
     name: Linux x64
     runs-on: ubuntu-24.04
     env:
