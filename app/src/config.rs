@@ -101,47 +101,21 @@ impl Default for ThemeConfig {
     fn default() -> Self {
         Self {
             active_preset_idx: 0,
-            font_family: "Plus Jakarta Sans".to_string(),
-            background: "#0c0b11".to_string(),
-            secondary_background: "#1a173e".to_string(),
-            sidebar_background: "#0f0d2099".to_string(),
-            modal_background: "#0f0d20".to_string(),
-            drawer_background: "#00000066".to_string(),
-            control_background: "#ffffff0d".to_string(),
-            overlay: "#ffffff0d".to_string(),
-            overlay_hover: "#ffffff14".to_string(),
-            overlay_pressed: "#ffffff20".to_string(),
-            divider: "#ffffff14".to_string(),
-            scrim: "#00000066".to_string(),
-            accent: "#7b5bf5".to_string(),
-            accent_hover: "#9275f7".to_string(),
-            success: "#22b365".to_string(),
-            warning: "#f6c700".to_string(),
-            info: "#1245a6".to_string(),
-            danger: "#dc2626".to_string(),
-            focus: "#ffffffe6".to_string(),
-            title_bar: "#15122b".to_string(),
-            card_background: "#151320".to_string(),
-            card_border: "#201e2f".to_string(),
-            text_primary: "#ffffffe6".to_string(),
-            text_secondary: "#ffffff99".to_string(),
-            text_muted: "#ffffff66".to_string(),
-            skeleton_base: "#1a1828".to_string(),
-            skeleton_shimmer: "#2a2838".to_string(),
+            font_family: "Plus Jakarta Sans".to_string(),            background: "#080d11".to_string(),            secondary_background: "#0d171d".to_string(),            sidebar_background: "#0b151b".to_string(),            modal_background: "#101920".to_string(),            drawer_background: "#00000066".to_string(),            control_background: "#ffffff0b".to_string(),            overlay: "#ffffff0b".to_string(),            overlay_hover: "#22d3ee14".to_string(),            overlay_pressed: "#22d3ee20".to_string(),            divider: "#b8dde51a".to_string(),            scrim: "#00000066".to_string(),            accent: "#22d3ee".to_string(),            accent_hover: "#67e8f9".to_string(),            success: "#34d399".to_string(),            warning: "#fbbf24".to_string(),            info: "#a78bfa".to_string(),            danger: "#fb7185".to_string(),            focus: "#22d3ee".to_string(),            title_bar: "#0a151a".to_string(),            card_background: "#101b21".to_string(),            card_border: "#1e343d".to_string(),            text_primary: "#f3fafc".to_string(),            text_secondary: "#b8cbd1".to_string(),            text_muted: "#8299a2".to_string(),            skeleton_base: "#ffffff1a".to_string(),            skeleton_shimmer: "#ffffff26".to_string(),
             saved_colors: [
-                "#10b981", "#3b82f6", "#6366f1", "#8b5cf6", "#d946ef", "#f43f5e", "#ef4444",
-                "#f97316", "#7b5bf5",
+                "#22d3ee", "#34d399", "#fbbf24", "#a78bfa", "#fb7185", "#67e8f9", "#0d171d",
+                "#1e343d", "#8299a2",
             ]
             .iter()
             .map(|hex| hex.to_string())
             .collect(),
             saved_gradients: vec![
-                saved_gradient(135.0, "#7b5bf5", "#1a173e"),
-                saved_gradient(135.0, "#3b82f6", "#1c2541"),
-                saved_gradient(135.0, "#10b981", "#047857"),
-                saved_gradient(135.0, "#f43f5e", "#881337"),
-                saved_gradient(135.0, "#a855f7", "#121212"),
-                saved_gradient(135.0, "#f97316", "#431407"),
+                 saved_gradient(135.0, "#22d3ee", "#0d171d"),
+                saved_gradient(135.0, "#34d399", "#0a151a"),
+                saved_gradient(135.0, "#fbbf24", "#101920"),
+                saved_gradient(135.0, "#a78bfa", "#080d11"),
+                saved_gradient(135.0, "#fb7185", "#1e343d"),
+                saved_gradient(135.0, "#67e8f9", "#0b151b"),
             ],
         }
     }
@@ -150,7 +124,7 @@ impl Default for ThemeConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            config_version: 3,
+            config_version: 4,
             server_url: "http://127.0.0.1:11470".to_string(),
             active_tab: 0,
             auto_launch_player: true,
@@ -211,6 +185,69 @@ impl AppConfig {
                 self.hover_trailer_preview_delay_ms = DEFAULT_HOVER_PREVIEW_DELAY_MS;
             }
             self.config_version = 3;
+        }
+        if self.config_version < 4 {
+            // Update only values matching the previous shipped palette. Custom
+            // colors are left untouched; user-saved colors/gradients survive.
+            let shipped = [
+                ("background", "#0c0b11", "#080d11"),
+                ("secondary_background", "#1a173e", "#0d171d"),
+                ("sidebar_background", "#0f0d2099", "#0b151b"),
+                ("modal_background", "#0f0d20", "#101920"),
+                ("control_background", "#ffffff0d", "#ffffff0b"),
+                ("overlay", "#ffffff0d", "#ffffff0b"),
+                ("overlay_hover", "#ffffff14", "#22d3ee14"),
+                ("overlay_pressed", "#ffffff20", "#22d3ee20"),
+                ("divider", "#ffffff14", "#b8dde51a"),
+                ("accent", "#7b5bf5", "#22d3ee"),
+                ("accent_hover", "#9275f7", "#67e8f9"),
+                ("success", "#22b365", "#34d399"),
+                ("warning", "#f6c700", "#fbbf24"),
+                ("info", "#1245a6", "#a78bfa"),
+                ("danger", "#dc2626", "#fb7185"),
+                ("focus", "#ffffffe6", "#22d3ee"),
+                ("title_bar", "#15122b", "#0a151a"),
+                ("card_background", "#151320", "#101b21"),
+                ("card_border", "#201e2f", "#1e343d"),
+                ("text_primary", "#ffffffe6", "#f3fafc"),
+                ("text_secondary", "#ffffff99", "#b8cbd1"),
+                ("text_muted", "#ffffff66", "#8299a2"),
+                ("skeleton_base", "#1a1828", "#ffffff1a"),
+                ("skeleton_shimmer", "#2a2838", "#ffffff26"),
+            ];
+            for (field, old, new) in shipped {
+                let value = match field {
+                    "background" => &mut self.theme.background,
+                    "secondary_background" => &mut self.theme.secondary_background,
+                    "sidebar_background" => &mut self.theme.sidebar_background,
+                    "modal_background" => &mut self.theme.modal_background,
+                    "control_background" => &mut self.theme.control_background,
+                    "overlay" => &mut self.theme.overlay,
+                    "overlay_hover" => &mut self.theme.overlay_hover,
+                    "overlay_pressed" => &mut self.theme.overlay_pressed,
+                    "divider" => &mut self.theme.divider,
+                    "accent" => &mut self.theme.accent,
+                    "accent_hover" => &mut self.theme.accent_hover,
+                    "success" => &mut self.theme.success,
+                    "warning" => &mut self.theme.warning,
+                    "info" => &mut self.theme.info,
+                    "danger" => &mut self.theme.danger,
+                    "focus" => &mut self.theme.focus,
+                    "title_bar" => &mut self.theme.title_bar,
+                    "card_background" => &mut self.theme.card_background,
+                    "card_border" => &mut self.theme.card_border,
+                    "text_primary" => &mut self.theme.text_primary,
+                    "text_secondary" => &mut self.theme.text_secondary,
+                    "text_muted" => &mut self.theme.text_muted,
+                    "skeleton_base" => &mut self.theme.skeleton_base,
+                    "skeleton_shimmer" => &mut self.theme.skeleton_shimmer,
+                    _ => unreachable!(),
+                };
+                if value.eq_ignore_ascii_case(old) {
+                    *value = new.to_owned();
+                }
+            }
+            self.config_version = 4;
         }
         self.config_version != original_version
     }
@@ -362,10 +399,10 @@ mod tests {
         let mut config = legacy_config();
 
         assert!(config.migrate());
-        assert_eq!(config.config_version, 3);
-        assert_eq!(config.theme.background, "#0c0b11");
-        assert_eq!(config.theme.secondary_background, "#1a173e");
-        assert_eq!(config.theme.success, "#22b365");
+        assert_eq!(config.config_version, 4);
+        assert_eq!(config.theme.background, "#080d11");
+        assert_eq!(config.theme.secondary_background, "#0d171d");
+        assert_eq!(config.theme.success, "#34d399");
     }
 
     #[test]
@@ -375,7 +412,7 @@ mod tests {
 
         assert!(config.migrate());
         assert_eq!(config.config_version, 3);
-        assert_eq!(config.theme.background, "#08070d");
+        assert_eq!(config.theme.background, "#080d11");
         assert_eq!(config.theme.accent, "#ff3366");
     }
 

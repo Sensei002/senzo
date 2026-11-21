@@ -42,7 +42,17 @@ impl AppPaths {
         let platform_root = dirs::data_local_dir().ok_or_else(|| {
             anyhow!("the operating system did not provide a local application-data directory")
         })?;
-        Ok(Self::from_root(platform_root.join("stremio-native")))
+        let legacy_root = platform_root.join("stremio-native");
+        let new_root = platform_root.join("SENZO");
+        if legacy_root.exists() && !new_root.exists() {
+            std::fs::rename(&legacy_root, &new_root).with_context(|| format!(
+                "failed to migrate legacy SENZO data from {} to {}",
+                legacy_root.display(), new_root.display()
+            ))?;
+        } else if legacy_root.exists() && new_root.exists() {
+            copy_missing_entries(&legacy_root, &new_root)?;
+        }
+        Ok(Self::from_root(new_root))
     }
 
     fn create_directories(&self) -> Result<()> {
@@ -108,6 +118,32 @@ impl AppPaths {
     }
 }
 
+fn copy_missing_entries(source: &Path, destination: &Path) -> Result<()> {
+    std::fs::create_dir_all(destination)
+        .with_context(|| format!("failed to create {}", destination.display()))?;
+    for entry in std::fs::read_dir(source)
+        .with_context(|| format!("failed to read legacy directory {}", source.display()))? {
+        let entry = entry?;
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        if source_path.is_dir() {
+            if destination_path.exists() {
+                copy_missing_entries(&source_path, &destination_path)?;
+            } else {
+                std::fs::rename(&source_path, &destination_path).or_else(|_| {
+                    copy_missing_entries(&source_path, &destination_path)
+                        .map_err(|error| std::io::Error::other(error.to_string()))
+                })?;
+            }
+        } else if !destination_path.exists() {
+            std::fs::copy(&source_path, &destination_path).with_context(|| format!(
+                "failed to preserve legacy file {}", source_path.display()
+            ))?;
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn initialize() -> Result<&'static AppPaths> {
     if let Some(paths) = APP_PATHS.get() {
         return Ok(paths);
@@ -133,18 +169,18 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn resolver_uses_stremio_native_suffix() {
+    fn resolver_uses_senzo_suffix() {
         let paths = AppPaths::resolve().expect("platform data directory should resolve");
 
         assert_eq!(
             paths.root().file_name().and_then(|name| name.to_str()),
-            Some("stremio-native")
+            Some("SENZO")
         );
     }
 
     #[test]
     fn every_derived_path_stays_below_root() {
-        let paths = AppPaths::from_root(PathBuf::from("platform-data").join("stremio-native"));
+        let paths = AppPaths::from_root(PathBuf::from("platform-data").join("SENZO"));
         let derived = [
             paths.database(),
             paths.logs(),
