@@ -101,33 +101,7 @@ impl Default for ThemeConfig {
     fn default() -> Self {
         Self {
             active_preset_idx: 0,
-            font_family: "Plus Jakarta Sans".to_string(),
-            background: "#080d11".to_string(),
-            secondary_background: "#0d171d".to_string(),
-            sidebar_background: "#0b151b".to_string(),
-            modal_background: "#101920".to_string(),
-            drawer_background: "#00000066".to_string(),
-            control_background: "#ffffff0b".to_string(),
-            overlay: "#ffffff0b".to_string(),
-            overlay_hover: "#22d3ee14".to_string(),
-            overlay_pressed: "#22d3ee20".to_string(),
-            divider: "#b8dde51a".to_string(),
-            scrim: "#00000066".to_string(),
-            accent: "#22d3ee".to_string(),
-            accent_hover: "#67e8f9".to_string(),
-            success: "#34d399".to_string(),
-            warning: "#fbbf24".to_string(),
-            info: "#a78bfa".to_string(),
-            danger: "#fb7185".to_string(),
-            focus: "#22d3ee".to_string(),
-            title_bar: "#0a151a".to_string(),
-            card_background: "#101b21".to_string(),
-            card_border: "#1e343d".to_string(),
-            text_primary: "#f3fafc".to_string(),
-            text_secondary: "#b8cbd1".to_string(),
-            text_muted: "#8299a2".to_string(),
-            skeleton_base: "#ffffff1a".to_string(),
-            skeleton_shimmer: "#ffffff26".to_string(),
+            font_family: "Plus Jakarta Sans".to_string(),            background: "#080d11".to_string(),            secondary_background: "#0d171d".to_string(),            sidebar_background: "#0b151b".to_string(),            modal_background: "#101920".to_string(),            drawer_background: "#00000066".to_string(),            control_background: "#ffffff0b".to_string(),            overlay: "#ffffff0b".to_string(),            overlay_hover: "#22d3ee14".to_string(),            overlay_pressed: "#22d3ee20".to_string(),            divider: "#b8dde51a".to_string(),            scrim: "#00000066".to_string(),            accent: "#22d3ee".to_string(),            accent_hover: "#67e8f9".to_string(),            success: "#34d399".to_string(),            warning: "#fbbf24".to_string(),            info: "#a78bfa".to_string(),            danger: "#fb7185".to_string(),            focus: "#22d3ee".to_string(),            title_bar: "#0a151a".to_string(),            card_background: "#101b21".to_string(),            card_border: "#1e343d".to_string(),            text_primary: "#f3fafc".to_string(),            text_secondary: "#b8cbd1".to_string(),            text_muted: "#8299a2".to_string(),            skeleton_base: "#ffffff1a".to_string(),            skeleton_shimmer: "#ffffff26".to_string(),
             saved_colors: [
                 "#22d3ee", "#34d399", "#fbbf24", "#a78bfa", "#fb7185", "#67e8f9", "#0d171d",
                 "#1e343d", "#8299a2",
@@ -136,7 +110,7 @@ impl Default for ThemeConfig {
             .map(|hex| hex.to_string())
             .collect(),
             saved_gradients: vec![
-                saved_gradient(135.0, "#22d3ee", "#0d171d"),
+                 saved_gradient(135.0, "#22d3ee", "#0d171d"),
                 saved_gradient(135.0, "#34d399", "#0a151a"),
                 saved_gradient(135.0, "#fbbf24", "#101920"),
                 saved_gradient(135.0, "#a78bfa", "#080d11"),
@@ -216,13 +190,6 @@ impl AppConfig {
             // Update only values matching the previous shipped palette. Custom
             // colors are left untouched; user-saved colors/gradients survive.
             let shipped = [
-                ("background", "#08070d", "#080d11"),
-                ("sidebar_background", "#13111f", "#0b151b"),
-                ("accent", "#7b5bf5", "#22d3ee"),
-                ("card_background", "#1a1829", "#101b21"),
-                ("card_border", "#2c2842", "#1e343d"),
-                ("text_primary", "#ffffff", "#f3fafc"),
-                ("text_secondary", "#8d8a9f", "#b8cbd1"),
                 ("background", "#0c0b11", "#080d11"),
                 ("secondary_background", "#1a173e", "#0d171d"),
                 ("sidebar_background", "#0f0d2099", "#0b151b"),
@@ -444,7 +411,7 @@ mod tests {
         config.theme.accent = "#ff3366".to_string();
 
         assert!(config.migrate());
-        assert_eq!(config.config_version, 4);
+        assert_eq!(config.config_version, 3);
         assert_eq!(config.theme.background, "#080d11");
         assert_eq!(config.theme.accent, "#ff3366");
     }

@@ -11,7 +11,7 @@
 #endif
 
 #define AppName "SENZO"
-#define AppExeName "stremio-native.exe"
+#define AppExeName "senzo.exe"
 
 [Setup]
 AppId={{9B7477C6-8E3D-4EA7-A128-EB249D052C6C}
@@ -41,7 +41,7 @@ VersionInfoProductVersion={#AppVersion}
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 Name: "startup"; Description: "Start SENZO when I sign in"; GroupDescription: "Startup:"; Flags: unchecked
-Name: "magnet"; Description: "Open magnet links with Stremio"; GroupDescription: "Link handling:"; Flags: unchecked
+Name: "magnet"; Description: "Open magnet links with SENZO"; GroupDescription: "Link handling:"; Flags: unchecked
 
 [Files]
 Source: "{#BuildRoot}\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion

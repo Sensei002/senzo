@@ -159,7 +159,7 @@ fn generate_po_files(translations_src_dir: &Path, output_dir: &Path) -> std::io:
         let lc_messages_dir = output_dir.join(locale).join("LC_MESSAGES");
         std::fs::create_dir_all(&lc_messages_dir)?;
         write_if_changed(
-            &lc_messages_dir.join("stremio-native.po"),
+            &lc_messages_dir.join("senzo.po"),
             po_content.as_bytes(),
         )?;
     }
@@ -177,7 +177,7 @@ fn embed_windows_resources() -> Result<(), Box<dyn std::error::Error>> {
     resources.set_icon_with_id("assets/app.ico", "MAINICON");
     resources.set("FileDescription", "SENZO");
     resources.set("ProductName", "SENZO");
-    resources.set("OriginalFilename", "stremio-native.exe");
+    resources.set("OriginalFilename", "senzo.exe");
     resources.compile()?;
     Ok(())
 }
