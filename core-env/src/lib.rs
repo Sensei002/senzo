@@ -365,24 +365,97 @@ async fn prepare_profile_for_storage(
     }
 }
 
+fn clear_missing_profile_auth(raw: &mut serde_json::Value) -> bool {
+    let is_missing_vault_reference =
+        profile_auth_key(raw).and_then(|key| key.as_str()) == Some(AUTH_VAULT_SENTINEL);
+    if !is_missing_vault_reference {
+        return false;
+    }
+
+    let Some(profile) = raw.as_object_mut() else {
+        return false;
+    };
+
+    // The Stremio token cannot be recovered from its vault reference. Continue
+    // with the profile as a local Guest while preserving add-ons and settings.
+    profile.insert("auth".to_owned(), serde_json::Value::Null);
+    profile.insert("addonsLocked".to_owned(), serde_json::Value::Bool(false));
+    true
+}
+
+async fn persist_profile_json(
+    conn: &mut turso::Connection,
+    profile_id: &str,
+    raw: &serde_json::Value,
+) -> Result<(), EnvError> {
+    let serialized =
+        serde_json::to_string(raw).map_err(|error| EnvError::Serde(error.to_string()))?;
+    let transaction = conn
+        .transaction()
+        .await
+        .map_err(|error| EnvError::StorageWriteError(error.to_string()))?;
+    transaction
+        .execute(
+            "UPDATE profile_core_storage SET value = ? WHERE profile_id = ? AND key = ?",
+            (serialized.clone(), profile_id, PROFILE_STORAGE_KEY),
+        )
+        .await
+        .map_err(|error| EnvError::StorageWriteError(error.to_string()))?;
+    transaction
+        .execute(
+            "UPDATE core_storage SET value = ? WHERE key = ?",
+            (serialized, PROFILE_STORAGE_KEY),
+        )
+        .await
+        .map_err(|error| EnvError::StorageWriteError(error.to_string()))?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| EnvError::StorageWriteError(error.to_string()))?;
+    Ok(())
+}
+
 async fn rehydrate_profile_from_vault(
     conn: &mut turso::Connection,
     profile_id: &str,
     raw: &mut serde_json::Value,
 ) -> Result<(), EnvError> {
-    let Some(key) = profile_auth_key(raw) else {
+    let Some(stored_key) =
+        profile_auth_key(raw).and_then(|key| key.as_str().map(str::to_owned))
+    else {
         return Ok(());
     };
     let reference = vault_reference(profile_id)?;
-    if key.as_str() == Some(AUTH_VAULT_SENTINEL) {
-        let secret = credential_store()
-            .get(&reference)
-            .await
-            .map_err(|error| credential_error("read profile credential", error))?;
-        *key = serde_json::from_slice(secret.expose())
-            .map_err(|error| EnvError::Serde(error.to_string()))?;
-        return Ok(());
+    if stored_key == AUTH_VAULT_SENTINEL {
+        match credential_store().get(&reference).await {
+            Ok(secret) => {
+                let hydrated = serde_json::from_slice(secret.expose())
+                    .map_err(|error| EnvError::Serde(error.to_string()))?;
+                if let Some(key) = profile_auth_key(raw) {
+                    *key = hydrated;
+                }
+                return Ok(());
+            }
+            Err(credential_store::CredentialError::Missing) => {
+                if clear_missing_profile_auth(raw) {
+                    persist_profile_json(conn, profile_id, raw).await?;
+                    tracing::warn!(
+                        "Stremio profile credential is absent from the OS vault; restored this profile in local Guest mode"
+                    );
+                    return Ok(());
+                }
+                return Err(credential_error(
+                    "read profile credential",
+                    credential_store::CredentialError::Missing,
+                ));
+            }
+            Err(error) => return Err(credential_error("read profile credential", error)),
+        }
     }
+
+    let Some(key) = profile_auth_key(raw) else {
+        return Ok(());
+    };
 
     // One-time plaintext migration: write the native vault first, then replace
     // the SQLite value within a transaction before returning hydrated data.
@@ -781,6 +854,43 @@ mod tests {
 
         assert_eq!(logged, "https://example.com/<redacted>");
         assert!(!logged.contains("secret") && !logged.contains("private"));
+    }
+
+    #[test]
+    fn missing_os_credential_falls_back_to_guest_without_losing_local_profile_data() {
+        let mut profile = serde_json::json!({
+            "auth": {
+                "key": "__STREMIO_NATIVE_OS_VAULT__",
+                "user": { "id": "local-test-user" }
+            },
+            "addons": [{ "manifest": { "id": "community-addon" } }],
+            "addonsLocked": true,
+            "settings": { "theme": "dark" }
+        });
+
+        assert!(super::clear_missing_profile_auth(&mut profile));
+        assert!(profile["auth"].is_null());
+        assert_eq!(profile["addonsLocked"], false);
+        assert_eq!(profile["addons"][0]["manifest"]["id"], "community-addon");
+        assert_eq!(profile["settings"]["theme"], "dark");
+    }
+
+    #[test]
+    fn guest_fallback_does_not_change_a_profile_with_a_real_or_no_auth_key() {
+        let mut unauthenticated = serde_json::json!({
+            "auth": null,
+            "addons": [],
+            "addonsLocked": false
+        });
+        assert!(!super::clear_missing_profile_auth(&mut unauthenticated));
+
+        let mut real_key = serde_json::json!({
+            "auth": { "key": "actual-token" },
+            "addons": [],
+            "addonsLocked": false
+        });
+        assert!(!super::clear_missing_profile_auth(&mut real_key));
+        assert_eq!(real_key["auth"]["key"], "actual-token");
     }
 
     #[test]
