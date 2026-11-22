@@ -18,6 +18,7 @@ use tokio::time::{Duration, sleep};
 
 const STREMIO_URL: &str = "https://www.strem.io";
 const MAX_SOCIAL_LOGIN_TRIES: usize = 25;
+const EMAIL_LOGIN_UI_TIMEOUT: Duration = Duration::from_secs(35);
 
 fn is_valid_email(value: &str) -> bool {
     let value = value.trim();
@@ -70,12 +71,14 @@ fn set_auth_error(ui_weak: slint::Weak<MainWindow>, message: String) {
 pub fn setup(ui: &MainWindow, runtime: &Arc<Runtime<DesktopEnv, AppModel>>) {
     let ui_weak = ui.as_weak();
     let social_login_generation = Arc::new(AtomicUsize::new(0));
+    let email_login_generation = Arc::new(AtomicUsize::new(0));
     let http_client = reqwest::Client::new();
 
     // Login callback
     ui.on_submit_login({
         let runtime = runtime.clone();
         let ui_weak = ui_weak.clone();
+        let email_login_generation = email_login_generation.clone();
         move |email, password| {
             if !is_valid_email(email.as_str()) {
                 if let Some(ui) = ui_weak.upgrade() {
@@ -91,7 +94,11 @@ pub fn setup(ui: &MainWindow, runtime: &Arc<Runtime<DesktopEnv, AppModel>>) {
             let rt = runtime.clone();
             let email = email.to_string();
             let password = password.to_string();
+            let attempt = email_login_generation.fetch_add(1, Ordering::SeqCst) + 1;
+            let watchdog_generation = email_login_generation.clone();
+            let watchdog_ui_weak = ui_weak.clone();
             tokio::spawn(async move {
+                tracing::info!("email/password authentication dispatched to Stremio Core");
                 rt.dispatch(RuntimeAction {
                     field: None,
                     action: Action::Ctx(ActionCtx::Authenticate(AuthRequest::Login {
@@ -99,6 +106,27 @@ pub fn setup(ui: &MainWindow, runtime: &Arc<Runtime<DesktopEnv, AppModel>>) {
                         password,
                         facebook: false,
                     })),
+                });
+
+                // Core's HTTP client has a 15-second per-request timeout. Allow
+                // enough time for login plus the parallel account-sync requests,
+                // but never leave the authentication UI spinning indefinitely if
+                // a core result event is lost.
+                sleep(EMAIL_LOGIN_UI_TIMEOUT).await;
+                if watchdog_generation.load(Ordering::SeqCst) != attempt {
+                    return;
+                }
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = watchdog_ui_weak.upgrade()
+                        && ui.get_loading()
+                    {
+                        tracing::warn!("email/password authentication exceeded the UI timeout");
+                        ui.set_loading(false);
+                        ui.set_error_message(
+                            "Authentication timed out. Check your connection and try again."
+                                .into(),
+                        );
+                    }
                 });
             });
         }
@@ -278,8 +306,10 @@ pub fn setup(ui: &MainWindow, runtime: &Arc<Runtime<DesktopEnv, AppModel>>) {
     ui.on_cancel_auth({
         let ui_weak = ui_weak.clone();
         let social_login_generation = social_login_generation.clone();
+        let email_login_generation = email_login_generation.clone();
         move || {
             social_login_generation.fetch_add(1, Ordering::SeqCst);
+            email_login_generation.fetch_add(1, Ordering::SeqCst);
             if let Some(ui) = ui_weak.upgrade() {
                 ui.set_loading(false);
             }
