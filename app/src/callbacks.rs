@@ -500,6 +500,7 @@ fn download_filename(title: &str, link: &str) -> String {
 pub fn trigger_initial_load(runtime: &Arc<Runtime<DesktopEnv, AppModel>>) {
     let rt = runtime.clone();
     tokio::spawn(async move {
+        tracing::info!("dispatching initial Board, Discover, Library, and add-on loads");
         rt.dispatch(RuntimeAction {
             field: None,
             action: Action::Load(ActionLoad::CatalogWithFilters(None)),

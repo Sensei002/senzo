@@ -46,6 +46,13 @@ impl ResourceKind {
             Self::LegacyMeta => "legacy_meta",
         }
     }
+
+    fn is_content_resource(self) -> bool {
+        matches!(
+            self,
+            Self::Catalog | Self::AddonCatalog | Self::Meta | Self::LegacyCatalog | Self::LegacyMeta
+        )
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -139,8 +146,20 @@ where
         {
             match serde_json::from_slice::<OUT>(&entry.body) {
                 Ok(value) => {
+                    let should_revalidate = entry.should_revalidate(now);
+                    if request.resource_kind.is_content_resource() {
+                        tracing::info!(
+                            url = %sanitized_url_for_log(&request.url),
+                            resource_kind = request.resource_kind.as_str(),
+                            status = entry.status,
+                            body_bytes = entry.body.len(),
+                            age_seconds = now.saturating_sub(entry.stored_at),
+                            should_revalidate,
+                            "Stremio content response served from persistent HTTP cache"
+                        );
+                    }
                     schedule_access_touch(request.cache_key.clone(), now);
-                    if entry.should_revalidate(now) {
+                    if should_revalidate {
                         schedule_revalidation::<OUT>(request, entry, client);
                     }
                     return Ok(value);
@@ -164,9 +183,38 @@ where
         }
     }
 
+    if request.resource_kind.is_content_resource() {
+        tracing::info!(
+            url = %sanitized_url_for_log(&request.url),
+            resource_kind = request.resource_kind.as_str(),
+            "Stremio content response cache miss; requesting network resource"
+        );
+    }
     let response = send_request_with_retry(&client, &request, None).await?;
-    let value = serde_json::from_slice::<OUT>(&response.body)
-        .map_err(|error| EnvError::Fetch(error.to_string()))?;
+    let response_status = response.status;
+    let response_bytes = response.body.len();
+    let value = serde_json::from_slice::<OUT>(&response.body).map_err(|error| {
+        if request.resource_kind.is_content_resource() {
+            tracing::error!(
+                url = %sanitized_url_for_log(&request.url),
+                resource_kind = request.resource_kind.as_str(),
+                status = response_status,
+                body_bytes = response_bytes,
+                %error,
+                "Stremio content response JSON decoding failed"
+            );
+        }
+        EnvError::Fetch(error.to_string())
+    })?;
+    if request.resource_kind.is_content_resource() {
+        tracing::info!(
+            url = %sanitized_url_for_log(&request.url),
+            resource_kind = request.resource_kind.as_str(),
+            status = response_status,
+            body_bytes = response_bytes,
+            "Stremio content response decoded successfully"
+        );
+    }
 
     if response_is_storable(&response) {
         let stored_at = chrono::Utc::now().timestamp();
@@ -334,7 +382,16 @@ async fn send_request(
         }
     }
 
-    tracing::debug!(method = "GET", url = %log_url, "Sending Core API request");
+    if request.resource_kind.is_content_resource() {
+        tracing::info!(
+            method = "GET",
+            url = %log_url,
+            resource_kind = request.resource_kind.as_str(),
+            "Stremio content HTTP request started"
+        );
+    } else {
+        tracing::debug!(method = "GET", url = %log_url, "Sending Core API request");
+    }
     let start = std::time::Instant::now();
     let response = builder.send().await.map_err(|error| {
         let error = error.without_url();
@@ -349,7 +406,15 @@ async fn send_request(
     })?;
     let elapsed = start.elapsed().as_millis();
     let status = response.status();
-    if elapsed > 300 {
+    if request.resource_kind.is_content_resource() {
+        tracing::info!(
+            url = %log_url,
+            resource_kind = request.resource_kind.as_str(),
+            %status,
+            elapsed_ms = elapsed,
+            "Stremio content HTTP response headers received"
+        );
+    } else if elapsed > 300 {
         tracing::warn!(url = %log_url, %status, elapsed_ms = elapsed, "Core API request took longer than threshold");
     } else {
         tracing::debug!(url = %log_url, %status, elapsed_ms = elapsed, "Core API request completed");
@@ -370,8 +435,28 @@ async fn send_request(
     let body = response
         .bytes()
         .await
-        .map_err(|error| EnvError::Fetch(error.without_url().to_string()))?
+        .map_err(|error| {
+            if request.resource_kind.is_content_resource() {
+                tracing::error!(
+                    url = %log_url,
+                    resource_kind = request.resource_kind.as_str(),
+                    error = %error.without_url(),
+                    "Stremio content HTTP response body read failed"
+                );
+            }
+            EnvError::Fetch(error.without_url().to_string())
+        })?
         .to_vec();
+    if request.resource_kind.is_content_resource() {
+        tracing::info!(
+            url = %log_url,
+            resource_kind = request.resource_kind.as_str(),
+            status = status.as_u16(),
+            body_bytes = body.len(),
+            elapsed_ms = start.elapsed().as_millis(),
+            "Stremio content HTTP response body received"
+        );
+    }
 
     Ok(NetworkResponse {
         status: status.as_u16(),

@@ -191,16 +191,47 @@ impl CommunityAddonClient {
         let cache_key =
             serde_json::to_string(filters).map_err(|_| CommunityAddonError::InvalidResponse)?;
         let endpoint = build_request_url(&self.endpoint, filters)?;
+        let endpoint_for_log = format!(
+            "{}{}",
+            endpoint.origin().ascii_serialization(),
+            endpoint.path()
+        );
+        let sort = filters.sort;
+        let category = filters.category.clone();
+        let has_query = filters.query.is_some();
+        let page_number = filters.page;
+        let started = std::time::Instant::now();
         let filters = filters.clone();
-        self.cache
+        let result = self.cache
             .try_get_with(cache_key, async move {
+                let request_started = std::time::Instant::now();
+                tracing::info!(
+                    endpoint = %endpoint_for_log,
+                    ?sort,
+                    ?category,
+                    has_query,
+                    page = page_number,
+                    "Stremio Addons directory request started"
+                );
                 let response = self
                     .client
                     .get(endpoint)
                     .send()
                     .await
-                    .map_err(|_| CommunityAddonError::Unavailable)?;
-                if !response.status().is_success() {
+                    .map_err(|error| {
+                        tracing::error!(
+                            error = %error.without_url(),
+                            "Stremio Addons directory request failed"
+                        );
+                        CommunityAddonError::Unavailable
+                    })?;
+                let status = response.status();
+                tracing::info!(
+                    %status,
+                    elapsed_ms = request_started.elapsed().as_millis(),
+                    "Stremio Addons directory HTTP response received"
+                );
+                if !status.is_success() {
                     return Err(CommunityAddonError::Unavailable);
                 }
                 if response
@@ -217,7 +248,21 @@ impl CommunityAddonClient {
                 Ok::<Arc<CommunityAddonPage>, CommunityAddonError>(Arc::new(page))
             })
             .await
-            .map_err(|error| (*error).clone())
+            .map_err(|error| (*error).clone());
+        match &result {
+            Ok(page) => tracing::info!(
+                addon_count = page.addons.len(),
+                has_next_page = page.has_next_page,
+                elapsed_ms = started.elapsed().as_millis(),
+                "Stremio Addons directory results parsed"
+            ),
+            Err(error) => tracing::warn!(
+                %error,
+                elapsed_ms = started.elapsed().as_millis(),
+                "Stremio Addons directory load failed"
+            ),
+        }
+        result
     }
 }
 
@@ -551,7 +596,7 @@ async fn fetch_and_project(
     expected_revision: u64,
 ) {
     let result = default_client().fetch(&filters).await;
-    let _ = slint::invoke_from_event_loop(move || {
+    let projection_result = slint::invoke_from_event_loop(move || {
         if request_revision.load(std::sync::atomic::Ordering::Acquire) != expected_revision {
             return;
         }
@@ -587,6 +632,12 @@ async fn fetch_and_project(
             }
         }
     });
+    if let Err(error) = projection_result {
+        tracing::error!(
+            %error,
+            "could not project Stremio Addons directory results to the Slint UI"
+        );
+    }
 }
 
 fn project_community_addon(

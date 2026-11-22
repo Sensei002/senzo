@@ -210,14 +210,36 @@ pub(crate) fn spawn_catalog_visibility_loader(
                 last_visible = last_visible.max(index);
             }
 
-            let range = runtime.model().ok().and_then(|model| {
-                visible_catalog_load_range(scope.catalogs(&model), first_visible, last_visible)
+            let snapshot = runtime.model().ok().map(|model| {
+                let catalogs = scope.catalogs(&model);
+                let selected = catalogs.selected.is_some();
+                let catalog_count = catalogs.catalogs.len();
+                let range = visible_catalog_load_range(catalogs, first_visible, last_visible);
+                (selected, catalog_count, range)
             });
+            let Some((selected, catalog_count, range)) = snapshot else {
+                tracing::error!(?scope, "could not read Core model while loading visible catalog rows");
+                continue;
+            };
+            tracing::info!(
+                ?scope,
+                first_visible,
+                last_visible,
+                selected,
+                catalog_count,
+                planned_range = ?range,
+                "visible catalog range evaluated"
+            );
             let Some(range) = range else {
                 continue;
             };
 
-            tracing::debug!(?scope, ?range, "loading visible addon catalog rows");
+            tracing::info!(
+                ?scope,
+                range_start = range.start,
+                range_end_exclusive = range.end,
+                "dispatching visible catalog range to Stremio Core"
+            );
             runtime.dispatch(RuntimeAction {
                 field: Some(scope.field()),
                 action: Action::CatalogsWithExtra(ActionCatalogsWithExtra::LoadRange(range)),
@@ -234,7 +256,14 @@ pub(crate) fn queue_visible_catalog(sender: &tokio::sync::mpsc::Sender<usize>, i
     // A full queue already contains more visible rows than a viewport can
     // display. Dropping another index keeps the UI callback non-blocking; the
     // worker coalesces the queued indices into a preload window.
-    let _ = sender.try_send(index);
+    match sender.try_send(index) {
+        Ok(()) => tracing::info!(catalog_index = index, "Board requested visible catalog row"),
+        Err(error) => tracing::warn!(
+            catalog_index = index,
+            ?error,
+            "could not queue visible catalog row"
+        ),
+    }
 }
 
 fn visible_catalog_load_range(

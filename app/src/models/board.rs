@@ -266,6 +266,37 @@ pub fn sync(
         return;
     }
 
+    let mut loading_catalogs = 0usize;
+    let mut ready_catalogs = 0usize;
+    let mut failed_catalogs = 0usize;
+    let mut ready_items = 0usize;
+    for catalog in &board.catalogs {
+        if let Some(page) = catalog.first() {
+            match &page.content {
+                None | Some(stremio_core::models::common::Loadable::Loading) => {
+                    loading_catalogs += 1;
+                }
+                Some(stremio_core::models::common::Loadable::Ready(items)) => {
+                    ready_catalogs += 1;
+                    ready_items += items.len();
+                }
+                Some(stremio_core::models::common::Loadable::Err(_)) => {
+                    failed_catalogs += 1;
+                }
+            }
+        }
+    }
+    tracing::info!(
+        selected = board.selected.is_some(),
+        addon_count = addons.len(),
+        catalog_count = board.catalogs.len(),
+        loading_catalogs,
+        ready_catalogs,
+        failed_catalogs,
+        ready_items,
+        "Board catalog state projected"
+    );
+
     // 1. Sync Continue Watching
     let continue_watching_items: Vec<MediaCardItem> = {
         let _span = tracing::info_span!("sync_continue_watching").entered();

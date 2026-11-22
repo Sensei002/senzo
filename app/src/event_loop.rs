@@ -333,6 +333,31 @@ pub fn start_event_loop(
                     let ui_weak_clone = ui_weak.clone();
 
                     let active_tab = navigation.active_tab_index();
+                    let content_state_changed = fields.iter().any(|field| {
+                        matches!(
+                            field,
+                            AppModelField::Ctx
+                                | AppModelField::Board
+                                | AppModelField::Discover
+                                | AppModelField::RemoteAddons
+                                | AppModelField::InstalledAddons
+                                | AppModelField::MetaDetails
+                        )
+                    });
+                    if content_state_changed {
+                        tracing::info!(
+                            ?fields,
+                            active_tab,
+                            board_catalogs = model.board.catalogs.len(),
+                            board_selected = model.board.selected.is_some(),
+                            discover_selected = model.discover.selected.is_some(),
+                            discover_selectable_types = model.discover.selectable.types.len(),
+                            discover_selectable_catalogs = model.discover.selectable.catalogs.len(),
+                            remote_addons_selected = model.remote_addons.selected.is_some(),
+                            remote_addons_selectable_catalogs = model.remote_addons.selectable.catalogs.len(),
+                            "Core content state update received by SENZO event loop"
+                        );
+                    }
                     let profile_sync_needed = first_render || fields.contains(&AppModelField::Ctx);
                     let profile_catalogs_changed = if profile_sync_needed {
                         let fingerprint =
@@ -685,7 +710,8 @@ pub fn start_event_loop(
 
                     #[cfg(debug_assertions)]
                     let dispatch_queued = std::time::Instant::now();
-                    let _ = slint::invoke_from_event_loop(move || {
+                    let fields_for_projection_log = fields.clone();
+                    let projection_result = slint::invoke_from_event_loop(move || {
                         #[cfg(debug_assertions)]
                         {
                             let queue_delay = dispatch_queued.elapsed();
@@ -1031,6 +1057,13 @@ pub fn start_event_loop(
                         }
                         crate::performance::counters().record_ui_patch(patch_started.elapsed());
                     });
+                    if let Err(error) = projection_result {
+                        tracing::error!(
+                            %error,
+                            fields = ?fields_for_projection_log,
+                            "could not enqueue Core content projection on the Slint UI event loop"
+                        );
+                    }
                     #[cfg(debug_assertions)]
                     tracing::trace!(
                         elapsed_micros = state_started.elapsed().as_micros(),
