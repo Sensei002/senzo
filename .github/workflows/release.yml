@@ -1,4 +1,5 @@
-name: SENZO desktop builds
+
+name: SENZO desktop builds
 
 on:
   workflow_dispatch:
@@ -275,6 +276,7 @@ jobs:
         with:
           name: senzo-windows-x64-pdb
           path: |
+            target/release/senzo.pdb
             ${{ runner.temp }}/senzo-libtorrent-smoke-build/Release/libtorrent-smoke.pdb
             ${{ runner.temp }}/senzo-libtorrent-smoke-build/Release/libtorrent-smoke.map
           if-no-files-found: warn
