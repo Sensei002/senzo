@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex, OnceLock,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant, SystemTime},
 };
@@ -36,6 +36,11 @@ static REFRESH_URLS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 static READY_CACHE_DIRS: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
 static REFRESH_PENDING: AtomicBool = AtomicBool::new(false);
 static MAINTENANCE_STARTED: AtomicBool = AtomicBool::new(false);
+static UI_POSTER_REQUESTS: AtomicU64 = AtomicU64::new(0);
+static READY_POSTER_IMAGES: AtomicU64 = AtomicU64::new(0);
+static UI_REFRESH_CALLBACKS: AtomicU64 = AtomicU64::new(0);
+
+const MAX_DIAGNOSTIC_IMAGE_LOGS: u64 = 12;
 
 const MEMORY_CAPACITY_BYTES: u64 = 32 * 1024 * 1024;
 const REQUIRED_IMAGE_CAPACITY_BYTES: u64 = 64 * 1024 * 1024;
@@ -105,9 +110,22 @@ pub fn get_cached_image_url(url: &str) -> slint::Image {
 }
 
 pub fn request_image(url: &str) {
-    if !url.is_empty() {
-        let _ = get_image(url, true);
+    if url.is_empty() {
+        return;
     }
+
+    let request_number = UI_POSTER_REQUESTS.fetch_add(1, Ordering::Relaxed) + 1;
+    if request_number <= MAX_DIAGNOSTIC_IMAGE_LOGS {
+        tracing::info!(
+            request_number,
+            url_origin = %sanitized_url_for_log(url),
+            "poster request received from UI"
+        );
+    } else if request_number == MAX_DIAGNOSTIC_IMAGE_LOGS + 1 {
+        tracing::info!("additional poster request logs suppressed for this session");
+    }
+
+    let _ = get_image(url, true);
 }
 
 fn get_image(url: &str, request_on_miss: bool) -> slint::Image {
@@ -265,16 +283,32 @@ async fn fetch_worker() {
 }
 
 async fn process_fetch(job: FetchJob) {
-    let result = match load_from_disk(&job.url).await {
+    let started = Instant::now();
+    let (source, result) = match load_from_disk(&job.url).await {
         Some(buffer) => {
             crate::performance::counters().record_image_disk_hit();
-            Ok(buffer)
+            ("disk", Ok(buffer))
         }
-        None => download_and_cache(&job.url).await,
+        None => ("network", download_and_cache(&job.url).await),
     };
 
     match result {
         Ok(buffer) => {
+            let image_number = READY_POSTER_IMAGES.fetch_add(1, Ordering::Relaxed) + 1;
+            if image_number <= MAX_DIAGNOSTIC_IMAGE_LOGS {
+                tracing::info!(
+                    image_number,
+                    source,
+                    url_origin = %sanitized_url_for_log(&job.url),
+                    width = buffer.width(),
+                    height = buffer.height(),
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "poster image became available"
+                );
+            } else if image_number == MAX_DIAGNOSTIC_IMAGE_LOGS + 1 {
+                tracing::info!("additional successful poster image logs suppressed for this session");
+            }
+
             required_image_cache().insert(job.url.clone(), buffer.clone());
             image_cache().insert(job.url.clone(), buffer);
             download_state().invalidate(&job.url);
@@ -706,8 +740,19 @@ fn dispatch_ui_refresh() {
         finish_ui_refresh();
         return;
     };
+    let completed_url_count = urls.len();
     let result = slint::invoke_from_event_loop(move || {
         callback(urls);
+        let callback_number = UI_REFRESH_CALLBACKS.fetch_add(1, Ordering::Relaxed) + 1;
+        if callback_number <= MAX_DIAGNOSTIC_IMAGE_LOGS {
+            tracing::info!(
+                callback_number,
+                completed_url_count,
+                "poster images delivered to the UI refresh callback"
+            );
+        } else if callback_number == MAX_DIAGNOSTIC_IMAGE_LOGS + 1 {
+            tracing::info!("additional poster UI refresh logs suppressed for this session");
+        }
         finish_ui_refresh();
     });
     if let Err(error) = result {
