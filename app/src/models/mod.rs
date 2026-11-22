@@ -578,6 +578,14 @@ pub(crate) fn refresh_cached_media_images(ui: &MainWindow, urls: &[String]) -> u
         }
     }
 
+    if !urls.is_empty() {
+        tracing::info!(
+            completed_urls = urls.len(),
+            updated_ui_image_slots = updated,
+            "poster image refresh applied to UI models"
+        );
+    }
+
     updated
 }
 
