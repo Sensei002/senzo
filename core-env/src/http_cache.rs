@@ -406,11 +406,13 @@ async fn send_request(
     })?;
     let elapsed = start.elapsed().as_millis();
     let status = response.status();
+    let http_version = response.version();
     if request.resource_kind.is_content_resource() {
         tracing::info!(
             url = %log_url,
             resource_kind = request.resource_kind.as_str(),
             %status,
+            ?http_version,
             elapsed_ms = elapsed,
             "Stremio content HTTP response headers received"
         );
