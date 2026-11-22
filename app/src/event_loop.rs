@@ -710,7 +710,6 @@ pub fn start_event_loop(
 
                     #[cfg(debug_assertions)]
                     let dispatch_queued = std::time::Instant::now();
-                    let fields_for_projection_log = fields.clone();
                     let projection_result = slint::invoke_from_event_loop(move || {
                         #[cfg(debug_assertions)]
                         {
@@ -1060,7 +1059,7 @@ pub fn start_event_loop(
                     if let Err(error) = projection_result {
                         tracing::error!(
                             %error,
-                            fields = ?fields_for_projection_log,
+                            fields = ?fields,
                             "could not enqueue Core content projection on the Slint UI event loop"
                         );
                     }
