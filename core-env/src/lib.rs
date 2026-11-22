@@ -870,7 +870,7 @@ mod tests {
 
         assert!(super::clear_missing_profile_auth(&mut profile));
         assert!(profile["auth"].is_null());
-        assert_eq!(profile["addonsLocked"], false);
+        assert!(!profile["addonsLocked"].as_bool().unwrap_or(true));
         assert_eq!(profile["addons"][0]["manifest"]["id"], "community-addon");
         assert_eq!(profile["settings"]["theme"], "dark");
     }
