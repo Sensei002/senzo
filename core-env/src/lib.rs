@@ -6,7 +6,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{
     Arc, LazyLock, OnceLock, RwLock,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     mpsc::{Receiver, SyncSender, TrySendError},
 };
 use tokio::runtime::Handle;
@@ -29,6 +29,7 @@ const SEQUENTIAL_QUEUE_CAPACITY: usize = 64;
 const SEQUENTIAL_WORKER_STACK_BYTES: usize = 512 * 1024;
 static SEQUENTIAL_EXECUTOR: OnceLock<SyncSender<SequentialFuture>> = OnceLock::new();
 static SEQUENTIAL_SATURATED: AtomicBool = AtomicBool::new(false);
+static CONCURRENT_EFFECT_ID: AtomicUsize = AtomicUsize::new(0);
 
 /// Registers the application runtime so core work can be scheduled safely from
 /// native callback threads such as the libmpv actor.
@@ -108,13 +109,25 @@ fn get_http_client() -> &'static reqwest::Client {
         headers.insert("Origin", "https://app.strem.io".parse().unwrap());
         headers.insert("Referer", "https://app.strem.io/".parse().unwrap());
 
-        reqwest::Client::builder()
+        // Keep the Stremio content transport on HTTP/1.1. Catalogue loads
+        // are small independent JSON requests; avoiding HTTP/2 multiplexing
+        // also avoids protocol-negotiation/connection-pool stalls on some
+        // Windows network stacks.
+        let client = reqwest::Client::builder()
+            .http1_only()
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Stremio/4.4.168 Chrome/110.0.0.0 Safari/537.36")
             .default_headers(headers)
             .timeout(std::time::Duration::from_secs(15))
             .connect_timeout(std::time::Duration::from_secs(10))
             .build()
-            .expect("Failed to build HTTP client")
+            .expect("Failed to build HTTP client");
+        tracing::info!(
+            protocol = "HTTP/1.1",
+            request_timeout_seconds = 15,
+            connect_timeout_seconds = 10,
+            "Core HTTP transport initialized"
+        );
+        client
     })
 }
 
@@ -821,7 +834,17 @@ impl Env for DesktopEnv {
     }
 
     fn exec_concurrent<F: Future<Output = ()> + Send + 'static>(future: F) {
-        spawn_on_runtime(future);
+        let effect_id = CONCURRENT_EFFECT_ID.fetch_add(1, Ordering::Relaxed) + 1;
+        spawn_on_runtime(async move {
+            let started = std::time::Instant::now();
+            tracing::info!(effect_id, "Stremio Core concurrent effect started");
+            future.await;
+            tracing::info!(
+                effect_id,
+                elapsed_ms = started.elapsed().as_millis(),
+                "Stremio Core concurrent effect completed"
+            );
+        });
     }
 
     fn exec_sequential<F: Future<Output = ()> + Send + 'static>(future: F) {
