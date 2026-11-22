@@ -1,4 +1,4 @@
-app-name = Stremio Native
+app-name = SENZO
 downloads-title = Downloads
 downloads-empty = No downloads yet
 download-count = { $count ->

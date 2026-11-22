@@ -73,6 +73,7 @@ mod shaders;
 mod shortcuts;
 mod single_instance;
 mod taskbar_media;
+mod torrent_cache_cleanup;
 mod theme_studio;
 mod thumbnail_preview;
 mod tray;
@@ -122,6 +123,26 @@ async fn run_application() -> anyhow::Result<()> {
     let app_paths = paths::initialize()?;
     let _guards = logger::init_logger(&profile, app_paths)?;
     tracing::info!(data_root = %app_paths.root().display(), "Starting SENZO desktop client...");
+
+    // Only the primary instance reaches this point. The embedded stream server
+    // creates a fresh disk-backed engine each launch and does not restore old
+    // torrent handles, so any files left under torrent-cache are non-resumable
+    // playback data. User-managed downloads live in the separate downloads dir.
+    match tokio::task::spawn_blocking(torrent_cache_cleanup::clear_stale_torrent_cache).await {
+        Ok(Ok(removed_entries)) if removed_entries > 0 => {
+            tracing::info!(
+                removed_entries,
+                "removed stale torrent playback cache from the previous session"
+            );
+        }
+        Ok(Ok(_)) => tracing::debug!("torrent playback cache is already clean"),
+        Ok(Err(error)) => {
+            tracing::warn!(%error, "could not clear stale torrent playback cache; continuing startup");
+        }
+        Err(error) => {
+            tracing::warn!(%error, "torrent playback cache cleanup task failed; continuing startup");
+        }
+    }
 
     let res = run_app(&profile, primary_instance, startup_started).await;
     if let Err(ref e) = res {

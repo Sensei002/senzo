@@ -1,4 +1,4 @@
-app-name = ستريميو نيتف
+app-name = SENZO
 downloads-title = التنزيلات
 downloads-empty = لا توجد تنزيلات بعد
 download-count = { $count ->
