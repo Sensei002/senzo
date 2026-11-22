@@ -124,26 +124,6 @@ fn get_http_client() -> &'static reqwest::Client {
 /// Callers should remove the request URL first because Stremio add-on URLs may
 /// contain user configuration or credentials in their query strings.
 pub fn describe_reqwest_error(error: &reqwest::Error) -> String {
-    let category = if error.is_dns() {
-        "dns"
-    } else if error.is_connect() {
-        "connect"
-    } else if error.is_timeout() {
-        "timeout"
-    } else if error.is_body() {
-        "body"
-    } else if error.is_decode() {
-        "decode"
-    } else if error.is_redirect() {
-        "redirect"
-    } else if error.is_request() {
-        "request"
-    } else if error.is_status() {
-        "http_status"
-    } else {
-        "other"
-    };
-
     let mut causes = Vec::new();
     let mut source = std::error::Error::source(error);
     while let Some(cause) = source {
@@ -156,12 +136,62 @@ pub fn describe_reqwest_error(error: &reqwest::Error) -> String {
     } else {
         causes.join(" -> ")
     };
+    let diagnostic_text = format!("{} {cause_chain}", error).to_ascii_lowercase();
+
+    // Reqwest 0.13 does not expose is_dns(). Detect resolver failures from the
+    // underlying resolver / OS error messages instead.
+    let dns = [
+        "dns error",
+        "failed to lookup",
+        "failed to resolve",
+        "no such host",
+        "name or service not known",
+        "nodename nor servname",
+        "temporary failure in name resolution",
+    ]
+    .iter()
+    .any(|needle| diagnostic_text.contains(needle));
+    let tls = [
+        "tls",
+        "certificate",
+        "handshake",
+        "unknown issuer",
+        "invalid peer",
+    ]
+    .iter()
+    .any(|needle| diagnostic_text.contains(needle));
+    let http2 = ["http/2", "http2", "h2 protocol", "stream reset", "goaway"]
+        .iter()
+        .any(|needle| diagnostic_text.contains(needle));
+
+    let category = if dns {
+        "dns"
+    } else if tls {
+        "tls"
+    } else if error.is_timeout() {
+        "timeout"
+    } else if error.is_connect() {
+        "connect"
+    } else if error.is_body() {
+        "body"
+    } else if error.is_decode() {
+        "decode"
+    } else if error.is_redirect() {
+        "redirect"
+    } else if error.is_request() {
+        "request"
+    } else if error.is_status() {
+        "http_status"
+    } else if http2 {
+        "http2"
+    } else {
+        "other"
+    };
 
     format!(
-        "category={category} timeout={} connect={} dns={} request={} body={} decode={} redirect={} status={:?} causes={cause_chain}",
+        "category={category} timeout={} connect={} dns={dns} tls={tls} http2={http2} request={} body={} decode={} redirect={} status={:?} causes={cause_chain}",
         error.is_timeout(),
         error.is_connect(),
-        error.is_dns(),
         error.is_request(),
         error.is_body(),
         error.is_decode(),
