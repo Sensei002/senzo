@@ -46,17 +46,49 @@ impl Drop for CrashReporter {
         // treats that clean disconnect as its normal shutdown signal.
         self.handler.take();
 
+        let monitor_pid = self.monitor.id();
         let deadline = Instant::now() + REPORTER_STOP_TIMEOUT;
         while Instant::now() < deadline {
             match self.monitor.try_wait() {
-                Ok(Some(_)) => return,
+                Ok(Some(status)) => {
+                    tracing::debug!(
+                        monitor_pid,
+                        ?status,
+                        "crash reporter helper exited after application shutdown"
+                    );
+                    return;
+                }
                 Ok(None) => thread::sleep(Duration::from_millis(10)),
-                Err(_) => break,
+                Err(error) => {
+                    tracing::warn!(
+                        monitor_pid,
+                        %error,
+                        "could not query crash reporter helper during shutdown"
+                    );
+                    break;
+                }
             }
         }
 
-        let _ = self.monitor.kill();
-        let _ = self.monitor.wait();
+        tracing::warn!(
+            monitor_pid,
+            "crash reporter helper did not exit after IPC disconnect; terminating it"
+        );
+        if let Err(error) = self.monitor.kill() {
+            tracing::warn!(monitor_pid, %error, "failed to terminate crash reporter helper");
+        }
+        match self.monitor.wait() {
+            Ok(status) => tracing::debug!(
+                monitor_pid,
+                ?status,
+                "crash reporter helper terminated during application shutdown"
+            ),
+            Err(error) => tracing::warn!(
+                monitor_pid,
+                %error,
+                "failed to reap crash reporter helper process"
+            ),
+        }
     }
 }
 
