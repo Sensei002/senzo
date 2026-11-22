@@ -36,6 +36,8 @@ pub struct AppConfig {
     /// How long the pointer must rest on a card before its trailer opens.
     pub hover_trailer_preview_delay_ms: u32,
     pub onboarding_completed: bool,
+    /// Keep the local guest experience active across application restarts.
+    pub guest_mode: bool,
     pub download_bandwidth_limit_bps: u64,
     pub region: String,
     pub home_row_order: Vec<String>,
