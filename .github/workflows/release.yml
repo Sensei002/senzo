@@ -356,7 +356,18 @@ jobs:
           path: vcpkg_installed
           key: Linux-vcpkg-x64-linux-v3-static-release-v1-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
       - name: Build release
-        run: cargo build --locked --release --package senzo
+        run: |
+          set -o pipefail
+          cargo build --locked --release --package senzo 2>&1 | tee build.log
+      - name: Report build failure
+        if: failure()
+        shell: bash
+        run: |
+          if [ -f build.log ]; then
+            grep -m 20 -E "^error(\[|:)" build.log | while IFS= read -r line; do
+              echo "::error title=Rust build error::${line//::/ - }"
+            done
+          fi
       - name: Install cargo-deb
         uses: taiki-e/install-action@v2.85.4
         with:
