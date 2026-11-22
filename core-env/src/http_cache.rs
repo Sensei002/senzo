@@ -80,12 +80,19 @@ impl CacheRequest {
 
         let resource_kind = classify_path(&url)?;
         let canonical_url = url.to_string();
-        let cache_key = cache_key(&canonical_url, &parts.headers);
+        // This cache owns conditional validation through the validators stored
+        // with each cache entry. Forwarding caller-supplied validators on a
+        // cache miss can produce HTTP 304 with no body and no cached entity to
+        // reuse, leaving Core without catalogue data.
+        let mut headers = parts.headers.clone();
+        headers.remove(http::header::IF_NONE_MATCH);
+        headers.remove(http::header::IF_MODIFIED_SINCE);
+        let cache_key = cache_key(&canonical_url, &headers);
         Some(Self {
             cache_key,
             resource_kind,
             url: canonical_url,
-            headers: parts.headers.clone(),
+            headers,
         })
     }
 }
@@ -838,6 +845,23 @@ mod tests {
             .into_parts();
 
         assert!(CacheRequest::classify(&parts).is_none());
+    }
+
+    #[test]
+    fn cache_requests_use_only_cache_owned_conditional_validators() {
+        let (parts, ()) = Request::get("https://example.com/catalog/movie/top.json")
+            .header(http::header::IF_NONE_MATCH, "\\"upstream-etag\\"")
+            .header(
+                http::header::IF_MODIFIED_SINCE,
+                "Sat, 21 Nov 2026 12:00:00 GMT",
+            )
+            .body(())
+            .expect("valid request")
+            .into_parts();
+
+        let request = CacheRequest::classify(&parts).expect("cacheable request");
+        assert!(!request.headers.contains_key(http::header::IF_NONE_MATCH));
+        assert!(!request.headers.contains_key(http::header::IF_MODIFIED_SINCE));
     }
 
     #[test]
