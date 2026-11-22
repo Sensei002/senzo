@@ -10,7 +10,7 @@
 //! This keeps large cache deletion and NTFS directory traversal off the startup path.
 
 use std::path::{Path, PathBuf};
-use std::{fs, io, thread, time::SystemTime};
+use std::{fs, io, thread, time::{SystemTime, UNIX_EPOCH}};
 
 use anyhow::{Context, anyhow};
 
@@ -101,7 +101,7 @@ fn prepare_torrent_cache_under(cache_root: &Path) -> anyhow::Result<Vec<PathBuf>
 
 fn unique_stale_cache_path(cache_root: &Path) -> anyhow::Result<PathBuf> {
     let timestamp = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
+        .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
 
