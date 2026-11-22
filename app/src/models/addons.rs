@@ -310,25 +310,30 @@ pub fn setup(
                 let result = async {
                     let url = parse_manifest_url(&manifest_url)?;
 
-                    let model = rt
-                        .model()
-                        .map_err(|error| format!("Could not read the local profile: {error}"))?;
-                    if model.ctx.profile.addons_locked {
+                    // Copy the profile checks while the model read guard is scoped
+                    // locally. Never retain the RwLock guard across the manifest fetch.
+                    let (addons_locked, already_installed) = {
+                        let model = rt
+                            .model()
+                            .map_err(|error| format!("Could not read the local profile: {error}"))?;
+                        let profile = &model.ctx.profile;
+                        (
+                            profile.addons_locked,
+                            profile
+                                .addons
+                                .iter()
+                                .any(|addon| addon.transport_url == url),
+                        )
+                    };
+                    if addons_locked {
                         return Err(
                             "The add-on list is locked because its Stremio sync failed. Re-enter Guest mode or sign in and retry."
                                 .to_owned(),
                         );
                     }
-                    if model
-                        .ctx
-                        .profile
-                        .addons
-                        .iter()
-                        .any(|addon| addon.transport_url == url)
-                    {
+                    if already_installed {
                         return Err("This add-on is already installed.".to_owned());
                     }
-                    drop(model);
 
                     let request = http::Request::get(url.as_str())
                         .body(())
