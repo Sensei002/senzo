@@ -281,7 +281,19 @@ impl DesktopEnv {
 
         let url_str = parts.uri.to_string();
         let log_url = sanitized_url_for_log(&url_str);
-        tracing::debug!(method = ?parts.method, url = %log_url, "Sending Core API request");
+        let is_auth_api = matches!(
+            parts.uri.path(),
+            "/api/login"
+                | "/api/loginWithToken"
+                | "/api/authWithFacebook"
+                | "/api/authWithApple"
+                | "/api/register"
+        );
+        if is_auth_api {
+            tracing::info!(method = ?parts.method, url = %log_url, "Stremio authentication request started");
+        } else {
+            tracing::debug!(method = ?parts.method, url = %log_url, "Sending Core API request");
+        }
 
         let mut req_builder = client.request(method, &url_str);
 
@@ -307,26 +319,42 @@ impl DesktopEnv {
         })?;
 
         let elapsed = start.elapsed().as_millis();
-        if elapsed > 300 {
+        let response_status = resp.status();
+        if is_auth_api {
+            tracing::info!(
+                url = %log_url,
+                status = %response_status,
+                elapsed_ms = elapsed,
+                "Stremio authentication HTTP response received"
+            );
+        } else if elapsed > 300 {
             tracing::warn!(
                 url = %log_url,
-                status = %resp.status(),
+                status = %response_status,
                 elapsed_ms = elapsed,
                 "Core API request took longer than threshold"
             );
         } else {
             tracing::debug!(
                 url = %log_url,
-                status = %resp.status(),
+                status = %response_status,
                 elapsed_ms = elapsed,
                 "Core API request completed"
             );
         }
 
-        let val: OUT = resp
-            .json()
-            .await
-            .map_err(|error| EnvError::Fetch(error.without_url().to_string()))?;
+        let val: OUT = resp.json().await.map_err(|error| {
+            let error = error.without_url();
+            if is_auth_api {
+                tracing::error!(
+                    url = %log_url,
+                    status = %response_status,
+                    error = %error,
+                    "Stremio authentication response could not be decoded"
+                );
+            }
+            EnvError::Fetch(error.to_string())
+        })?;
 
         Ok(val)
     }
