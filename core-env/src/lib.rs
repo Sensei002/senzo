@@ -148,7 +148,7 @@ pub fn describe_reqwest_error(error: &reqwest::Error) -> String {
     let mut source = std::error::Error::source(error);
     while let Some(cause) = source {
         causes.push(cause.to_string().replace('\r', " ").replace('\n', " "));
-        source = cause.source();
+        source = std::error::Error::source(cause);
     }
 
     let cause_chain = if causes.is_empty() {
