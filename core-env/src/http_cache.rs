@@ -197,7 +197,30 @@ where
             "Stremio content response cache miss; requesting network resource"
         );
     }
-    let response = send_request_with_retry(&client, &request, None).await?;
+    let mut response = send_request_with_retry(&client, &request, None).await?;
+    if response.status == reqwest::StatusCode::NOT_MODIFIED.as_u16() || response.body.is_empty() {
+        // A cache miss must never forward caller validators. If an upstream
+        // still answers 304 (or an empty body), retry once with a clean
+        // request instead of handing an empty body to Core, which would log a
+        // new error callsite and can deadlock the async logging path.
+        tracing::debug!(
+            url = %sanitized_url_for_log(&request.url),
+            resource_kind = request.resource_kind.as_str(),
+            status = response.status,
+            "Stremio content response was bodyless; retrying without conditional headers"
+        );
+        let mut retry_request = request.clone();
+        retry_request.headers.remove(http::header::IF_NONE_MATCH);
+        retry_request
+            .headers
+            .remove(http::header::IF_MODIFIED_SINCE);
+        response = send_request_with_retry(&client, &retry_request, None).await?;
+    }
+    if response.status == reqwest::StatusCode::NOT_MODIFIED.as_u16() || response.body.is_empty() {
+        return Err(EnvError::Fetch(
+            "upstream returned a bodyless response for a cache miss".to_owned(),
+        ));
+    }
     let response_status = response.status;
     let response_bytes = response.body.len();
     let value = serde_json::from_slice::<OUT>(&response.body).map_err(|error| {
@@ -379,6 +402,15 @@ async fn send_request(
     let log_url = sanitized_url_for_log(&request.url);
     let mut builder = client.get(&request.url);
     for (name, value) in &request.headers {
+        // Conditional validation is owned by the cache entries above. Never
+        // let a cache miss inherit caller validators: that is what produces
+        // bodyless 304 responses.
+        if validators.is_none()
+            && (name == &http::header::IF_NONE_MATCH
+                || name == &http::header::IF_MODIFIED_SINCE)
+        {
+            continue;
+        }
         builder = builder.header(name.as_str(), value.as_bytes());
     }
     if let Some(validators) = validators {
@@ -767,9 +799,13 @@ struct RevalidationGuard {
 impl RevalidationGuard {
     fn acquire(cache_key: String) -> Option<Self> {
         let revalidating = REVALIDATING.get_or_init(|| Mutex::new(HashSet::new()));
-        let mut revalidating = revalidating
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut revalidating = match revalidating.try_lock() {
+            Ok(guard) => guard,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            // This lock only protects a bookkeeping set. Never park a Tokio
+            // worker on it; skip this background revalidation instead.
+            Err(std::sync::TryLockError::WouldBlock) => return None,
+        };
         revalidating
             .insert(cache_key.clone())
             .then_some(Self { cache_key })
@@ -781,10 +817,16 @@ impl Drop for RevalidationGuard {
         let Some(revalidating) = REVALIDATING.get() else {
             return;
         };
-        revalidating
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .remove(&self.cache_key);
+        match revalidating.try_lock() {
+            Ok(mut guard) => {
+                guard.remove(&self.cache_key);
+            }
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+                let mut guard = poisoned.into_inner();
+                guard.remove(&self.cache_key);
+            }
+            Err(std::sync::TryLockError::WouldBlock) => {}
+        }
     }
 }
 

@@ -1,5 +1,4 @@
 use std::io::Write;
-use tracing_subscriber::fmt::writer::MakeWriterExt;
 use tracing_subscriber::prelude::*;
 
 use crate::paths::AppPaths;
@@ -54,7 +53,7 @@ pub fn init_logger(profile: &ProfileConfig, paths: &AppPaths) -> anyhow::Result<
         .with(
             tracing_subscriber::fmt::layer()
                 .with_ansi(false)
-                .with_writer(std::io::stderr.and(file_writer))
+                .with_writer(file_writer)
                 .with_filter(tracing_subscriber::filter::filter_fn(should_record)),
         )
         .with(chrome_layer)
@@ -65,7 +64,7 @@ pub fn init_logger(profile: &ProfileConfig, paths: &AppPaths) -> anyhow::Result<
         .with(
             tracing_subscriber::fmt::layer()
                 .with_ansi(false)
-                .with_writer(std::io::stderr.and(file_writer))
+                .with_writer(file_writer)
                 .with_filter(tracing_subscriber::filter::filter_fn(should_record)),
         )
         .init();
