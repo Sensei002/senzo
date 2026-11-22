@@ -361,12 +361,15 @@ jobs:
           cargo build --locked --release --package senzo 2>&1 | tee build.log
       - name: Report build failure
         if: failure()
+        continue-on-error: true
         shell: bash
         run: |
           if [ -f build.log ]; then
-            grep -m 20 -E "^error(\[|:)" build.log | while IFS= read -r line; do
-              echo "::error title=Rust build error::${line//::/ - }"
+            tail -n 80 build.log | while IFS= read -r line; do
+              echo "::error title=Build log::${line//::/ - }"
             done
+          else
+            echo "::error title=Build log::build.log was not created"
           fi
       - name: Install cargo-deb
         uses: taiki-e/install-action@v2.85.4
