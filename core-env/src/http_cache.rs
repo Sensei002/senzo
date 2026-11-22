@@ -436,15 +436,16 @@ async fn send_request(
         .bytes()
         .await
         .map_err(|error| {
+            let error = error.without_url();
             if request.resource_kind.is_content_resource() {
                 tracing::error!(
                     url = %log_url,
                     resource_kind = request.resource_kind.as_str(),
-                    error = %error.without_url(),
+                    error = %error,
                     "Stremio content HTTP response body read failed"
                 );
             }
-            EnvError::Fetch(error.without_url().to_string())
+            EnvError::Fetch(error.to_string())
         })?
         .to_vec();
     if request.resource_kind.is_content_resource() {
