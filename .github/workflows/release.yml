@@ -364,13 +364,21 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          if [ -f build.log ]; then
-            tail -n 80 build.log | while IFS= read -r line; do
-              echo "::error title=Build log::${line//::/ - }"
-            done
-          else
+          if [ ! -f build.log ]; then
             echo "::error title=Build log::build.log was not created"
+            exit 0
           fi
+          clean=$(mktemp)
+          sed -r 's/\x1B\[[0-9;]*[mK]//g' build.log > "$clean"
+          n=$(grep -n -m1 -E '^error(\[|:)' "$clean" | cut -d: -f1 || true)
+          if [ -z "$n" ]; then
+            n=$(grep -n -m1 -E 'error(\[|:)' "$clean" | cut -d: -f1 || true)
+          fi
+          if [ -z "$n" ]; then
+            n=$(( $(wc -l < "$clean") - 40 ))
+          fi
+          msg=$(sed -n "${n},$((n+25))p" "$clean" | sed 's/::/ - /g; s/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')
+          echo "::error title=Rust build error::$msg"
       - name: Install cargo-deb
         uses: taiki-e/install-action@v2.85.4
         with:
