@@ -554,6 +554,14 @@ async fn finish_startup(
     let (runtime, rx) = Runtime::<DesktopEnv, _>::new(model, all_effects, 1000);
     let runtime = Arc::new(runtime);
 
+    // A guest choice is local to SENZO. Restore it before the first auth
+    // projection so the sign-in page is not shown again on every launch.
+    if config.guest_mode {
+        models::auth::prepare_guest_profile(&runtime);
+        ui.set_username("Guest".into());
+        ui.set_avatar_letter("G".into());
+    }
+
     {
         let ui_weak_refresh = ui_weak.clone();
         image_cache::set_refresh_callback(move |completed_urls| {

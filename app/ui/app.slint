@@ -425,6 +425,8 @@ export component MainWindow inherits Window {
     in-out property <bool> addons-community-adult-unlocked: false;
     in-out property <string> addons-community-owner-pin: "";
     in-out property <string> addons-search-query: "";
+    in-out property <string> addons-install-feedback: "";
+    in-out property <bool> addons-install-feedback-error: false;
     in-out property <bool> addons-has-next-page: false;
     in-out property <length> addons-scroll-y: 0px;
     in property <bool> addon-details-open: false;
@@ -1871,6 +1873,8 @@ export component MainWindow inherits Window {
                         has-next-page: addons-has-next-page;
                         scroll-y <=> addons-scroll-y;
                         search-query: addons-search-query;
+                        install-feedback: addons-install-feedback;
+                        install-feedback-error: addons-install-feedback-error;
                         loading: root.debug-preview-enabled && root.debug-preview-page == 3
                             ? root.debug-preview-state == "loading"
                             : loading;

@@ -265,6 +265,8 @@ export component AddonsPage inherits Rectangle {
     in-out property <string> community-owner-pin: "";
     in-out property <int> community-page: 1;
     in property <bool> loading: false;
+    in property <string> install-feedback: "";
+    in property <bool> install-feedback-error: false;
     in property <bool> has-next-page: false;
     callback install-addon(string);
     callback uninstall-addon(string);
@@ -371,6 +373,40 @@ export component AddonsPage inherits Rectangle {
 
     VerticalLayout {
         spacing: 0px;
+
+        if (root.install-feedback != "") : Rectangle {
+            width: root.width;
+            height: 3.5 * root.unit;
+            background: transparent;
+
+            Rectangle {
+                x: 1.5 * root.unit;
+                y: 0.25 * root.unit;
+                width: parent.width - 3 * root.unit;
+                height: 3 * root.unit;
+                border-radius: 0.5 * root.unit;
+                border-width: 1px;
+                border-color: root.install-feedback-error
+                    ? Theme.danger.with-alpha(0.35)
+                    : Theme.success.with-alpha(0.35);
+                background: root.install-feedback-error
+                    ? Theme.danger.with-alpha(0.10)
+                    : Theme.success.with-alpha(0.10);
+
+                Text {
+                    x: root.unit;
+                    y: 0px;
+                    width: parent.width - 2 * root.unit;
+                    height: parent.height;
+                    text: root.install-feedback;
+                    color: root.install-feedback-error ? Theme.danger : Theme.success;
+                    font-size: root.unit;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                    overflow: elide;
+                }
+            }
+        }
 
         Rectangle {
             height: 6 * root.unit;

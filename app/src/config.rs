@@ -168,6 +168,7 @@ impl Default for AppConfig {
             hover_trailer_previews_enabled: true,
             hover_trailer_preview_delay_ms: DEFAULT_HOVER_PREVIEW_DELAY_MS,
             onboarding_completed: false,
+            guest_mode: false,
             download_bandwidth_limit_bps: 0,
             region: "US".to_owned(),
             home_row_order: Vec::new(),
@@ -372,6 +373,14 @@ pub fn load_config() -> AppConfig {
     AppConfig::default()
 }
 
+pub fn set_guest_mode(enabled: bool) {
+    let mut config = load_config();
+    if config.guest_mode != enabled {
+        config.guest_mode = enabled;
+        save_config(&config);
+    }
+}
+
 pub fn with_config<R>(read: impl FnOnce(&AppConfig) -> R) -> R {
     if let Some(lock) = APP_CONFIG.get()
         && let Ok(config) = lock.read()
@@ -539,5 +548,19 @@ mod tests {
         let serialized = serde_json::to_string(&AppConfig::default()).expect("serialize config");
         assert!(serialized.contains("thumbnail_previews_enabled"));
         assert!(!serialized.contains("thumbfast_enabled"));
+    }
+
+    #[test]
+    fn guest_mode_is_persisted_and_legacy_configs_default_to_signed_out() {
+        let legacy: AppConfig = serde_json::from_str(r#"{"region":"US"}"#)
+            .expect("legacy configuration should deserialize");
+        assert!(!legacy.guest_mode);
+
+        let mut config = AppConfig::default();
+        config.guest_mode = true;
+        let serialized = serde_json::to_string(&config).expect("serialize guest config");
+        let restored: AppConfig =
+            serde_json::from_str(&serialized).expect("restore guest config");
+        assert!(restored.guest_mode);
     }
 }

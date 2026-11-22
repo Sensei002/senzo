@@ -83,6 +83,8 @@ pub fn setup(ui: &MainWindow, runtime: &Arc<Runtime<DesktopEnv, AppModel>>) {
                 }
                 return;
             }
+            crate::config::set_guest_mode(false);
+            crate::config::set_guest_mode(false);
             if let Some(ui) = ui_weak.upgrade() {
                 ui.set_loading(true);
                 ui.set_error_message("".into());
@@ -146,6 +148,7 @@ pub fn setup(ui: &MainWindow, runtime: &Arc<Runtime<DesktopEnv, AppModel>>) {
         let http_client = http_client.clone();
         let social_login_generation = social_login_generation.clone();
         move || {
+            crate::config::set_guest_mode(false);
             let attempt = social_login_generation.fetch_add(1, Ordering::SeqCst) + 1;
             let state = uuid::Uuid::new_v4().simple().to_string();
             let login_url = format!("{STREMIO_URL}/login-fb/{state}");
@@ -211,6 +214,7 @@ pub fn setup(ui: &MainWindow, runtime: &Arc<Runtime<DesktopEnv, AppModel>>) {
         let http_client = http_client.clone();
         let social_login_generation = social_login_generation.clone();
         move || {
+            crate::config::set_guest_mode(false);
             let attempt = social_login_generation.fetch_add(1, Ordering::SeqCst) + 1;
             let state = uuid::Uuid::new_v4().simple().to_string();
             let login_url = format!("{STREMIO_URL}/login-apple/{state}");
@@ -304,49 +308,87 @@ pub fn setup(ui: &MainWindow, runtime: &Arc<Runtime<DesktopEnv, AppModel>>) {
         }
     });
 
-    // Logout callback
+    // Explicit sign-out returns to the sign-in screen. Do not dispatch
+    // Stremio Logout for an already-guest profile: core Logout resets the
+    // local addon collection to its official defaults.
     ui.on_logout({
         let runtime = runtime.clone();
         let ui_weak = ui_weak.clone();
         move || {
-            let rt = runtime.clone();
-            let ui_weak = ui_weak.clone();
-            tokio::spawn(async move {
-                rt.dispatch(RuntimeAction {
+            let has_account = runtime
+                .model()
+                .ok()
+                .is_some_and(|model| model.ctx.profile.auth.is_some());
+            if has_account {
+                runtime.dispatch(RuntimeAction {
                     field: None,
                     action: Action::Ctx(ActionCtx::Logout),
                 });
-                let _ = slint::invoke_from_event_loop(move || {
-                    if let Some(ui) = ui_weak.upgrade() {
-                        ui.set_username("".into());
-                    }
-                });
-            });
+            }
+            crate::config::set_guest_mode(false);
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_username("".into());
+                ui.set_has_avatar_image(false);
+            }
         }
     });
 
-    // Continue without signing in: explicitly clear any account session and
-    // keep the current profile's data local.
+    // Move to a local-only profile. Preserve non-official add-ons when an
+    // authenticated/locked profile must be reset; never reset an already
+    // unauthenticated, unlocked guest profile.
     ui.on_guest_login({
         let runtime = runtime.clone();
         let ui_weak = ui_weak.clone();
         move || {
-            let rt = runtime.clone();
-            tokio::spawn(async move {
-                rt.dispatch(RuntimeAction {
-                    field: None,
-                    action: Action::Ctx(ActionCtx::Logout),
-                });
-            });
-            let ui_weak = ui_weak.clone();
-            let _ = slint::invoke_from_event_loop(move || {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_username("Guest".into());
-                    ui.set_avatar_letter("G".into());
-                }
-            });
+            prepare_guest_profile(&runtime);
+            crate::config::set_guest_mode(true);
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_username("Guest".into());
+                ui.set_avatar_letter("G".into());
+                ui.set_has_avatar_image(false);
+                ui.set_error_message("".into());
+                ui.set_loading(false);
+            }
         }
     });
+}
+
+/// Prepare the core profile for local guest use without needlessly issuing
+/// Logout on every startup. The core Logout action resets to official add-ons;
+/// restore user-installed descriptors after that reset when it is necessary
+/// to clear an authenticated or API-locked profile.
+pub fn prepare_guest_profile(runtime: &Runtime<DesktopEnv, AppModel>) {
+    let Some((needs_reset, local_addons)) = runtime.model().ok().map(|model| {
+        let profile = &model.ctx.profile;
+        let local_addons = profile
+            .addons
+            .iter()
+            .filter(|addon| {
+                !stremio_core::constants::OFFICIAL_ADDONS
+                    .iter()
+                    .any(|official| official.transport_url == addon.transport_url)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        (profile.auth.is_some() || profile.addons_locked, local_addons)
+    }) else {
+        return;
+    };
+
+    if needs_reset {
+        runtime.dispatch(RuntimeAction {
+            field: None,
+            action: Action::Ctx(ActionCtx::Logout),
+        });
+        for addon in local_addons {
+            runtime.dispatch(RuntimeAction {
+                field: None,
+                action: Action::Ctx(ActionCtx::InstallAddon(addon)),
+            });
+        }
+    }
+}
+
 }
 
 #[cfg(test)]

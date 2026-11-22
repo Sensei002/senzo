@@ -33,6 +33,29 @@ static ADDON_REORDER_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 const ADDON_ORDER_STORAGE_KEY: &str = "senzo-addon-order";
 const LEGACY_ADDON_ORDER_STORAGE_KEY: &str = "stremio-native-addon-order";
 
+fn parse_manifest_url(value: &str) -> Result<Url, String> {
+    let url = Url::parse(value.trim())
+        .map_err(|error| format!("Invalid manifest URL: {error}"))?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return Err("Add-on manifest URLs must use HTTP or HTTPS.".to_owned());
+    }
+    Ok(url)
+}
+
+fn publish_install_feedback(
+    ui_weak: slint::Weak<MainWindow>,
+    message: String,
+    is_error: bool,
+) {
+    let _ = slint::invoke_from_event_loop(move || {
+        if let Some(ui) = ui_weak.upgrade() {
+            ui.set_loading(false);
+            ui.set_addons_install_feedback(message.into());
+            ui.set_addons_install_feedback_error(is_error);
+        }
+    });
+}
+
 fn move_item<T>(items: &mut Vec<T>, from: i32, to: i32) -> bool {
     let (Ok(from), Ok(to)) = (usize::try_from(from), usize::try_from(to)) else {
         return false;
@@ -266,60 +289,105 @@ pub fn setup(
         }
     });
 
-    // Install addon callback
+    // Install an add-on manifest into the local profile. Stremio core persists
+    // this locally for unauthenticated users and syncs it only when an auth key
+    // exists; the guest path must not require sign-in.
     ui.on_install_addon({
         let runtime = runtime.clone();
         let ui_weak = ui_weak.clone();
         move |manifest_url| {
             if let Some(ui) = ui_weak.upgrade() {
                 ui.set_loading(true);
+                ui.set_error_message("".into());
+                ui.set_addons_install_feedback("Installing add-on…".into());
+                ui.set_addons_install_feedback_error(false);
             }
+
             let rt = runtime.clone();
-            let manifest_url = manifest_url.to_string();
             let ui_weak = ui_weak.clone();
+            let manifest_url = manifest_url.to_string();
             tokio::spawn(async move {
-                match Url::parse(&manifest_url) {
-                    Ok(url) => {
-                        let request = http::Request::get(url.as_str())
-                            .body(())
-                            .expect("request builder failed");
-                        match DesktopEnv::fetch::<(), stremio_core::types::addon::Manifest>(request)
-                            .await
-                        {
-                            Ok(manifest) => {
-                                let descriptor = Descriptor {
-                                    manifest,
-                                    transport_url: url,
-                                    flags: Default::default(),
-                                };
-                                rt.dispatch(RuntimeAction {
-                                    field: None,
-                                    action: Action::Ctx(ActionCtx::InstallAddon(descriptor)),
-                                });
-                            }
-                            Err(e) => {
-                                tracing::error!("Failed to fetch manifest: {:?}", e);
-                                let ui_weak = ui_weak.clone();
-                                let _ = slint::invoke_from_event_loop(move || {
-                                    if let Some(ui) = ui_weak.upgrade() {
-                                        ui.set_loading(false);
-                                        ui.set_error_message(
-                                            format!("Failed to fetch manifest: {:?}", e).into(),
-                                        );
-                                    }
-                                });
-                            }
-                        }
+                let result = async {
+                    let url = parse_manifest_url(&manifest_url)?;
+
+                    let model = rt
+                        .model()
+                        .map_err(|error| format!("Could not read the local profile: {error}"))?;
+                    if model.ctx.profile.addons_locked {
+                        return Err(
+                            "The add-on list is locked because its Stremio sync failed. Re-enter Guest mode or sign in and retry."
+                                .to_owned(),
+                        );
                     }
-                    Err(e) => {
-                        tracing::error!("Invalid manifest URL: {:?}", e);
-                        let ui_weak = ui_weak.clone();
-                        let _ = slint::invoke_from_event_loop(move || {
-                            if let Some(ui) = ui_weak.upgrade() {
-                                ui.set_loading(false);
-                                ui.set_error_message("Invalid URL format".into());
-                            }
+                    if model
+                        .ctx
+                        .profile
+                        .addons
+                        .iter()
+                        .any(|addon| addon.transport_url == url)
+                    {
+                        return Err("This add-on is already installed.".to_owned());
+                    }
+                    drop(model);
+
+                    let request = http::Request::get(url.as_str())
+                        .body(())
+                        .map_err(|error| format!("Could not create manifest request: {error}"))?;
+                    let manifest = DesktopEnv::fetch::<(), stremio_core::types::addon::Manifest>(
+                        request,
+                    )
+                    .await
+                    .map_err(|error| format!("Could not fetch the add-on manifest: {error}"))?;
+
+                    if manifest.behavior_hints.configuration_required {
+                        return Err(
+                            "This add-on requires configuration before it can be installed."
+                                .to_owned(),
+                        );
+                    }
+
+                    let name = manifest.name.clone();
+                    let descriptor = Descriptor {
+                        manifest,
+                        transport_url: url.clone(),
+                        flags: Default::default(),
+                    };
+                    rt.dispatch(RuntimeAction {
+                        field: None,
+                        action: Action::Ctx(ActionCtx::InstallAddon(descriptor)),
+                    });
+
+                    let installed = rt
+                        .model()
+                        .ok()
+                        .is_some_and(|model| {
+                            model
+                                .ctx
+                                .profile
+                                .addons
+                                .iter()
+                                .any(|addon| addon.transport_url == url)
                         });
+                    if installed {
+                        Ok(name)
+                    } else {
+                        Err("SENZO could not add this manifest to the local add-on list.".to_owned())
+                    }
+                }
+                .await;
+
+                match result {
+                    Ok(name) => {
+                        tracing::info!(addon = %name, "installed add-on into the local SENZO profile");
+                        publish_install_feedback(
+                            ui_weak,
+                            format!("Installed {name}."),
+                            false,
+                        );
+                    }
+                    Err(message) => {
+                        tracing::warn!(%message, "add-on installation failed");
+                        publish_install_feedback(ui_weak, message, true);
                     }
                 }
             });
@@ -734,5 +802,33 @@ mod tests {
         let mut items = vec![1, 2, 3];
 
         assert!(!move_item(&mut items, 1, 3));
+    }
+}
+
+#[cfg(test)]
+mod manifest_url_tests {
+    use super::parse_manifest_url;
+
+    #[test]
+    fn accepts_http_and_https_addon_manifest_urls() {
+        assert_eq!(
+            parse_manifest_url("https://torrentio.strem.fun/manifest.json")
+                .expect("HTTPS manifest URL")
+                .scheme(),
+            "https"
+        );
+        assert_eq!(
+            parse_manifest_url("http://127.0.0.1:7000/manifest.json")
+                .expect("local HTTP manifest URL")
+                .host_str(),
+            Some("127.0.0.1")
+        );
+    }
+
+    #[test]
+    fn rejects_non_http_manifest_urls() {
+        assert!(parse_manifest_url("file:///tmp/manifest.json").is_err());
+        assert!(parse_manifest_url("magnet:?xt=urn:btih:abc").is_err());
+        assert!(parse_manifest_url("not a URL").is_err());
     }
 }
