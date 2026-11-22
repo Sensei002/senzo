@@ -892,7 +892,7 @@ mod tests {
     #[test]
     fn cache_requests_use_only_cache_owned_conditional_validators() {
         let (parts, ()) = Request::get("https://example.com/catalog/movie/top.json")
-            .header(http::header::IF_NONE_MATCH, "\\"upstream-etag\\"")
+            .header(http::header::IF_NONE_MATCH, "\"upstream-etag\"")
             .header(
                 http::header::IF_MODIFIED_SINCE,
                 "Sat, 21 Nov 2026 12:00:00 GMT",
