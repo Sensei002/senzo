@@ -110,12 +110,12 @@ pub fn setup(ui: &MainWindow, runtime: &Arc<Runtime<DesktopEnv, AppModel>>) {
         let ui_weak = ui_weak.clone();
         move |email, password, tos, privacy, marketing| {
             if !is_valid_email(email.as_str()) {
-                crate::config::set_guest_mode(false);
-            if let Some(ui) = ui_weak.upgrade() {
+                if let Some(ui) = ui_weak.upgrade() {
                     ui.set_error_message("Please enter a valid email address".into());
                 }
                 return;
             }
+            crate::config::set_guest_mode(false);
             if let Some(ui) = ui_weak.upgrade() {
                 ui.set_loading(true);
                 ui.set_error_message("".into());
