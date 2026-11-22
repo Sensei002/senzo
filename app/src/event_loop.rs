@@ -1044,21 +1044,44 @@ pub fn start_event_loop(
 }
 
 fn handle_core_event(event: Event, ui_weak: &slint::Weak<MainWindow>) {
-    if let Event::Error { error, .. } = &event {
-        tracing::warn!("core error event received");
-        let ui_weak = ui_weak.clone();
-        let message = format!("{error:?}");
-        let _ = slint::invoke_from_event_loop(move || {
-            if let Some(ui) = ui_weak.upgrade() {
-                ui.set_error_message(message.into());
-                ui.set_loading(false);
-                ui.set_details_loading(false);
-            }
-        });
-    } else {
-        // Core event payloads can contain credentials, profile identifiers,
-        // and very large library ID lists. The state projections below provide
-        // actionable diagnostics without serializing those payloads to disk.
-        tracing::debug!("core event received");
+    match &event {
+        Event::UserAuthenticated { .. } => {
+            // The core reports successful authentication as a distinct event,
+            // not as a profile projection. Clear the login spinner here so the
+            // account dialog cannot remain stuck after a successful response.
+            tracing::info!("Stremio authentication succeeded");
+            let ui_weak = ui_weak.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(ui) = ui_weak.upgrade() {
+                    ui.set_loading(false);
+                    ui.set_error_message("".into());
+                    ui.set_details_loading(false);
+                }
+            });
+        }
+        Event::Error { error, .. } => {
+            tracing::warn!("core error event received");
+            let message = match error {
+                stremio_core::models::ctx::CtxError::API(error) => error.message.clone(),
+                stremio_core::models::ctx::CtxError::Env(error) => {
+                    format!("Stremio request failed: {error:?}")
+                }
+                stremio_core::models::ctx::CtxError::Other(error) => error.message(),
+            };
+            let ui_weak = ui_weak.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(ui) = ui_weak.upgrade() {
+                    ui.set_error_message(message.into());
+                    ui.set_loading(false);
+                    ui.set_details_loading(false);
+                }
+            });
+        }
+        _ => {
+            // Core event payloads can contain credentials, profile identifiers,
+            // and very large library ID lists. The state projections below provide
+            // actionable diagnostics without serializing those payloads to disk.
+            tracing::debug!("core event received");
+        }
     }
 }
