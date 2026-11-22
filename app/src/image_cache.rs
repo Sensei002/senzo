@@ -363,7 +363,12 @@ async fn download_with_retry(url: &str) -> Result<Vec<u8>, String> {
         let response = match client().get(url).send().await {
             Ok(response) => response,
             Err(error) => {
-                last_error = error.without_url().to_string();
+                let error = error.without_url();
+                last_error = format!(
+                    "{}; {}",
+                    error,
+                    core_env::describe_reqwest_error(&error)
+                );
                 continue;
             }
         };
@@ -405,7 +410,12 @@ async fn download_with_retry(url: &str) -> Result<Vec<u8>, String> {
                     break;
                 }
                 Err(error) => {
-                    failed = Some(error.without_url().to_string());
+                    let error = error.without_url();
+                    failed = Some(format!(
+                        "{}; {}",
+                        error,
+                        core_env::describe_reqwest_error(&error)
+                    ));
                     break;
                 }
             }

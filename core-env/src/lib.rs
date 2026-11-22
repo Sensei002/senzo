@@ -118,6 +118,58 @@ fn get_http_client() -> &'static reqwest::Client {
     })
 }
 
+
+/// Returns structured, URL-safe diagnostics for a Reqwest transport error.
+///
+/// Callers should remove the request URL first because Stremio add-on URLs may
+/// contain user configuration or credentials in their query strings.
+pub fn describe_reqwest_error(error: &reqwest::Error) -> String {
+    let category = if error.is_dns() {
+        "dns"
+    } else if error.is_connect() {
+        "connect"
+    } else if error.is_timeout() {
+        "timeout"
+    } else if error.is_body() {
+        "body"
+    } else if error.is_decode() {
+        "decode"
+    } else if error.is_redirect() {
+        "redirect"
+    } else if error.is_request() {
+        "request"
+    } else if error.is_status() {
+        "http_status"
+    } else {
+        "other"
+    };
+
+    let mut causes = Vec::new();
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        causes.push(cause.to_string().replace(['\\r', '\\n'], " "));
+        source = cause.source();
+    }
+
+    let cause_chain = if causes.is_empty() {
+        "none".to_owned()
+    } else {
+        causes.join(" -> ")
+    };
+
+    format!(
+        "category={category} timeout={} connect={} dns={} request={} body={} decode={} redirect={} status={:?} causes={cause_chain}",
+        error.is_timeout(),
+        error.is_connect(),
+        error.is_dns(),
+        error.is_request(),
+        error.is_body(),
+        error.is_decode(),
+        error.is_redirect(),
+        error.status(),
+    )
+}
+
 pub(crate) fn sanitized_url_for_log(raw: &str) -> String {
     let Ok(parsed) = url::Url::parse(raw) else {
         return "<invalid-url>".to_owned();
@@ -214,7 +266,13 @@ impl DesktopEnv {
         let start = std::time::Instant::now();
         let resp = req_builder.send().await.map_err(|error| {
             let error = error.without_url();
-            tracing::error!(url = %log_url, error = %error, "Core API request failed");
+            let diagnostics = describe_reqwest_error(&error);
+            tracing::error!(
+                url = %log_url,
+                error = %error,
+                diagnostics = %diagnostics,
+                "Core API request failed"
+            );
             EnvError::Fetch(error.to_string())
         })?;
 

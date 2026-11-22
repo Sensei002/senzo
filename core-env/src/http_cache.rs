@@ -12,7 +12,7 @@ use http::{HeaderMap, Method, request::Parts};
 use serde::Deserialize;
 use stremio_core::runtime::EnvError;
 
-use crate::{get_db_conn, sanitized_url_for_log, spawn_on_runtime};
+use crate::{describe_reqwest_error, get_db_conn, sanitized_url_for_log, spawn_on_runtime};
 
 const MAX_CACHE_BYTES: i64 = 256 * 1024 * 1024;
 const MAX_ENTRY_BYTES: usize = 8 * 1024 * 1024;
@@ -338,7 +338,13 @@ async fn send_request(
     let start = std::time::Instant::now();
     let response = builder.send().await.map_err(|error| {
         let error = error.without_url();
-        tracing::error!(url = %log_url, error = %error, "Core API request failed");
+        let diagnostics = describe_reqwest_error(&error);
+        tracing::error!(
+            url = %log_url,
+            error = %error,
+            diagnostics = %diagnostics,
+            "Core API request failed"
+        );
         EnvError::Fetch(error.to_string())
     })?;
     let elapsed = start.elapsed().as_millis();
