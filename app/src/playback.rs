@@ -73,6 +73,21 @@ pub struct DirectSelection {
     pub subtitles: Vec<String>,
 }
 
+/// A stream returned by an enabled Nuvio-compatible plugin. The plugin host
+/// has already validated the URL/hash and sanitized the display fields.
+#[derive(Clone, Debug)]
+pub struct PluginSelection {
+    pub id: String,
+    pub provider_name: String,
+    pub title: String,
+    pub description: String,
+    pub url: Option<String>,
+    pub info_hash: Option<String>,
+    pub file_idx: Option<u16>,
+    pub headers: Vec<(String, String)>,
+    pub subtitles: Vec<String>,
+}
+
 #[derive(Clone)]
 struct RegisteredSelection {
     selected: Selected,
@@ -89,6 +104,7 @@ pub struct PlaybackSelections {
     entries: RwLock<HashMap<String, RegisteredSelection>>,
     trailer_id: RwLock<Option<String>>,
     direct: RwLock<Vec<DirectSelection>>,
+    plugin: RwLock<Vec<PluginSelection>>,
     ranking_mode: AtomicU8,
     show_filtered: AtomicBool,
     source_generation: AtomicU64,
@@ -107,6 +123,10 @@ impl PlaybackSelections {
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         self.direct
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
+        self.plugin
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clear();
@@ -412,6 +432,84 @@ impl PlaybackSelections {
             });
         }
 
+        // Plugin results use the same drawer and MPV path as Direct results,
+        // but stay in their own source_system so filters remain honest.
+        let plugin_selections = self
+            .plugin
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        for selection in plugin_selections {
+            let info_hash = selection.info_hash.as_deref().and_then(parse_info_hash);
+            let source = if let Some(info_hash) = info_hash {
+                StreamSource::Torrent {
+                    info_hash,
+                    file_idx: selection.file_idx,
+                    announce: magnet_trackers(selection.url.as_deref()),
+                    file_must_include: Vec::new(),
+                }
+            } else if let Some(url) = selection.url.as_deref().and_then(|url| url::Url::parse(url).ok()) {
+                StreamSource::Url { url }
+            } else {
+                continue;
+            };
+            let headers = selection.headers.iter().fold(
+                HashMap::new(),
+                |mut headers, (name, value)| {
+                    headers.insert(name.clone(), value.clone());
+                    headers
+                },
+            );
+            let stream = Stream {
+                source,
+                name: Some(selection.title.clone()),
+                description: Some(selection.description.clone()),
+                thumbnail: None,
+                subtitles: selection
+                    .subtitles
+                    .iter()
+                    .filter_map(|subtitle| url::Url::parse(subtitle).ok())
+                    .map(|url| Subtitles {
+                        id: url.to_string(),
+                        lang: "und".to_owned(),
+                        url,
+                        label: None,
+                    })
+                    .collect(),
+                behavior_hints: StreamBehaviorHints {
+                    proxy_headers: (!headers.is_empty()).then_some(StreamProxyHeaders {
+                        request: headers,
+                        response: HashMap::new(),
+                    }),
+                    ..Default::default()
+                },
+            };
+            next_entries.insert(
+                selection.id.clone(),
+                RegisteredSelection {
+                    selected: Selected {
+                        stream,
+                        stream_request: None,
+                        meta_request: meta_request.clone(),
+                        subtitles_path: None,
+                    },
+                    stream_name: selection.title.clone(),
+                },
+            );
+            views.push(StreamSelectionView {
+                id: selection.id,
+                name: selection.title,
+                description: selection.description,
+                provider: selection.provider_name,
+                source_system: "Plugin".to_owned(),
+                thumbnail: None,
+                progress: 0.0,
+                score: 0,
+                score_reasons: Vec::new(),
+                filtered: false,
+            });
+        }
+
         match self.entries.write() {
             Ok(mut entries) => *entries = next_entries,
             Err(poisoned) => *poisoned.into_inner() = next_entries,
@@ -421,6 +519,10 @@ impl PlaybackSelections {
             Err(poisoned) => *poisoned.into_inner() = trailer_id,
         }
         views
+    }
+
+    pub fn source_generation(&self) -> u64 {
+        self.source_generation.load(Ordering::Acquire)
     }
 
     pub fn trailer_id(&self) -> Option<String> {
@@ -439,6 +541,20 @@ impl PlaybackSelections {
 
     pub fn clear_direct_results(&self) {
         self.direct
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
+    }
+
+    pub fn set_plugin_results(&self, selections: Vec<PluginSelection>) {
+        *self
+            .plugin
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = selections;
+    }
+
+    pub fn clear_plugin_results(&self) {
+        self.plugin
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clear();
@@ -652,4 +768,22 @@ mod tests {
         assert_eq!(stream_selection_id(2, 7), "stream:2:7");
         assert_ne!(stream_selection_id(1, 0), stream_selection_id(0, 1));
     }
+}
+
+fn parse_info_hash(value: &str) -> Option<[u8; 20]> {
+    let decoded = hex::decode(value.trim()).ok()?;
+    let hash: [u8; 20] = decoded.try_into().ok()?;
+    Some(hash)
+}
+
+fn magnet_trackers(value: Option<&str>) -> Vec<String> {
+    let Some(value) = value.and_then(|value| value.strip_prefix("magnet:?")) else {
+        return Vec::new();
+    };
+    url::form_urlencoded::parse(value.as_bytes())
+        .filter(|(key, _)| key.as_ref() == "tr")
+        .map(|(_, value)| value.into_owned())
+        .filter(|tracker| tracker.starts_with("http://") || tracker.starts_with("https://") || tracker.starts_with("udp://"))
+        .take(32)
+        .collect()
 }

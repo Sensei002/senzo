@@ -103,11 +103,17 @@ pub(crate) fn project_stream_selection_views(
     let has_direct = stream_links
         .iter()
         .any(|stream| stream.source_system == "Direct");
+    let has_plugin = stream_links
+        .iter()
+        .any(|stream| stream.source_system == "Plugin");
     let has_addon = stream_links
         .iter()
         .any(|stream| stream.source_system == "Add-on");
     if has_direct {
         providers.push(slint::SharedString::from("Direct Sources"));
+    }
+    if has_plugin {
+        providers.push(slint::SharedString::from("Plugins"));
     }
     if has_addon {
         providers.push(slint::SharedString::from("Add-ons"));

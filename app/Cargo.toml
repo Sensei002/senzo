@@ -39,8 +39,30 @@ url.workspace = true
 unic-langid.workspace = true
 walkdir.workspace = true
 http.workspace = true
-reqwest = { workspace = true, features = ["rustls", "charset", "http2"] }
+reqwest = { workspace = true, features = [
+    "rustls",
+    "charset",
+    "http2",
+    "blocking",
+    "gzip",
+    "brotli",
+    "deflate",
+    "zstd",
+    "cookies",
+] }
 rand.workspace = true
+base64.workspace = true
+rquickjs = "0.14"
+scraper = { version = "0.24", default-features = false }
+aes = "0.8"
+aes-gcm = "0.10"
+cbc = { version = "0.1", features = ["alloc"] }
+ecb = { version = "0.1", features = ["alloc"] }
+hmac = "0.13"
+md-5 = "0.11"
+pbkdf2 = "0.13"
+sha1 = "0.11"
+sha2 = "0.11"
 image = { workspace = true, default-features = false, features = ["webp", "png", "jpeg"] }
 moka = { workspace = true, features = ["sync", "future"] }
 notify.workspace = true
@@ -52,6 +74,7 @@ minidumper.workspace = true
 mimalloc = "0.1.52"
 arboard = { version = "3.6.1", default-features = false }
 hex = "0.4.3"
+ego-tree = "0.10"
 open = "5.4.1"
 percent-encoding.workspace = true
 self_update.workspace = true

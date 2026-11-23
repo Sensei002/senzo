@@ -2,19 +2,31 @@
 //!
 //! SENZO keeps the repository/provider metadata local. A repository is a
 //! manifest URL; its providers are individual scripts. Installing a repository
-//! never executes a script and never enables a provider automatically.
+//! never executes a script and never enables a provider automatically. Enabled
+//! providers are executed on demand in the bounded QuickJS runtime.
 
 use std::{
-    collections::HashMap,
-    sync::{Arc, OnceLock, RwLock},
-    time::Duration,
+    collections::{HashMap, HashSet},
+    sync::{
+        Arc, Mutex, OnceLock, RwLock,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::{Duration, Instant},
 };
 
+use futures::{StreamExt, stream::FuturesUnordered};
 use serde::{Deserialize, Serialize};
 use slint::ComponentHandle;
+use tokio::sync::Semaphore;
 use url::Url;
 
-use crate::{MainWindow, direct_sources::net::is_blocked_host};
+use crate::{
+    MainWindow,
+    app_model::AppModel,
+    direct_sources::net::is_blocked_host,
+    playback::{PlaybackSelections, PluginSelection},
+    plugin_runtime::{self, PluginStream, ProviderQuery, net::is_public_url},
+};
 
 pub const DEFAULT_MANIFEST_URL: &str =
     "https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json";
@@ -79,6 +91,9 @@ pub struct PluginProvider {
     pub enabled: bool,
     pub manifest_enabled: bool,
     pub has_settings: bool,
+    /// Provider-owned settings JSON. Scripts read it as SCRAPER_SETTINGS.
+    #[serde(default = "default_settings")]
+    pub settings: String,
     pub logo: String,
     pub languages: Vec<String>,
     pub formats: Vec<String>,
@@ -99,6 +114,7 @@ impl Default for PluginProvider {
             enabled: false,
             manifest_enabled: true,
             has_settings: false,
+            settings: default_settings(),
             logo: String::new(),
             languages: Vec::new(),
             formats: Vec::new(),
@@ -166,6 +182,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_settings() -> String {
+    "{}".to_owned()
+}
+
 #[derive(Clone)]
 pub struct NuvioPlugins {
     inner: Arc<Inner>,
@@ -176,6 +196,13 @@ struct Inner {
     config: RwLock<PluginsConfig>,
     status: RwLock<HashMap<String, (String, bool)>>,
     busy: RwLock<bool>,
+    runtime: Arc<stremio_core::runtime::Runtime<core_env::DesktopEnv, AppModel>>,
+    playback: Arc<PlaybackSelections>,
+    generation: AtomicU64,
+    last_query: Mutex<Option<String>>,
+    scripts: Mutex<HashMap<String, (Instant, String)>>,
+    tmdb_ids: Mutex<HashMap<String, (Instant, String)>>,
+    results: Mutex<HashMap<String, (Instant, Vec<PluginStream>)>>,
 }
 
 static MANAGER: OnceLock<NuvioPlugins> = OnceLock::new();
@@ -315,6 +342,7 @@ impl NuvioPlugins {
                     status_error: error,
                     enabled: provider.enabled,
                     has_settings: provider.has_settings,
+                    settings: provider.settings.clone().into(),
                 }
             })
             .collect::<Vec<_>>();
@@ -384,6 +412,9 @@ impl NuvioPlugins {
                         enabled: old.is_some_and(|provider| provider.enabled),
                         manifest_enabled: scraper.enabled,
                         has_settings: scraper.has_settings,
+                        settings: old
+                            .map(|provider| provider.settings.clone())
+                            .unwrap_or_else(default_settings),
                         logo: scraper.logo.unwrap_or_default(),
                         languages: scraper.content_language.unwrap_or_default(),
                         formats: scraper.formats.unwrap_or_default(),
@@ -402,6 +433,7 @@ impl NuvioPlugins {
                     .iter()
                     .filter(|provider| provider.repository_url == manifest_url)
                     .count();
+                self.invalidate_results();
                 self.replace_config(config);
                 self.set_status(manifest_url, format!("{count} providers ready"), false);
                 self.set_message(&format!("Loaded {} plugin provider(s).", count), false);
@@ -463,6 +495,7 @@ impl NuvioPlugins {
         config
             .providers
             .retain(|provider| provider.repository_url != manifest_url);
+        self.invalidate_results();
         self.replace_config(config);
         self.set_message("Plugin repository removed.", false);
         self.project();
@@ -471,7 +504,46 @@ impl NuvioPlugins {
     fn toggle_master(&self, enabled: bool) {
         let mut config = self.config();
         config.enabled = enabled;
+        self.invalidate_results();
         self.replace_config(config);
+        self.project();
+    }
+
+    fn invalidate_results(&self) {
+        self.inner
+            .results
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
+        *self
+            .inner
+            .last_query
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        self.inner
+            .scripts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
+        self.inner.generation.fetch_add(1, Ordering::AcqRel);
+    }
+
+    fn update_provider_settings(&self, key: &str, settings: &str) {
+        if !serde_json::from_str::<serde_json::Value>(settings)
+            .is_ok_and(|value| value.is_object())
+        {
+            self.set_message("Provider settings must be a JSON object.", true);
+            return;
+        }
+        let mut config = self.config();
+        let Some(provider) = config.providers.iter_mut().find(|provider| provider.key == key) else {
+            return;
+        };
+        provider.settings = settings.to_owned();
+        self.invalidate_results();
+        self.replace_config(config);
+        self.set_status(key, "Settings saved", false);
+        self.set_message("Plugin settings saved.", false);
         self.project();
     }
 
@@ -500,6 +572,7 @@ impl NuvioPlugins {
             return;
         }
         provider.enabled = enabled;
+        self.invalidate_results();
         self.replace_config(config);
         self.set_status(key, if enabled { "Enabled" } else { "Disabled" }, false);
         self.project();
@@ -518,12 +591,31 @@ impl NuvioPlugins {
         self.set_message("Fetching plugin script…", false);
         match fetch_script(&provider.source_url).await {
             Ok(source) => {
-                if source.to_lowercase().contains("getstreams") {
-                    self.set_status(key, "Ready", false);
-                    self.set_message("Plugin script loaded successfully.", false);
+                let settings = if serde_json::from_str::<serde_json::Value>(&provider.settings)
+                    .is_ok_and(|value| value.is_object())
+                {
+                    provider.settings.clone()
                 } else {
-                    self.set_status(key, "No getStreams export", true);
-                    self.set_message("The script does not expose getStreams.", true);
+                    "{}".to_owned()
+                };
+                let key_for_check = provider.key.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    plugin_runtime::validate(&key_for_check, &source, &settings)
+                })
+                .await;
+                match result {
+                    Ok(Ok(())) => {
+                        self.set_status(key, "Ready", false);
+                        self.set_message("Plugin script compiled and exported getStreams.", false);
+                    }
+                    Ok(Err(error)) => {
+                        self.set_status(key, &truncate_message(&error, 90), true);
+                        self.set_message(&error, true);
+                    }
+                    Err(_) => {
+                        self.set_status(key, "Plugin test failed", true);
+                        self.set_message("The plugin sandbox could not complete the test.", true);
+                    }
                 }
             }
             Err(error) => {
@@ -535,7 +627,7 @@ impl NuvioPlugins {
     }
 
     /// Enabled providers for a media type. Used by the stream drawer and by
-    /// the optional JavaScript runner.
+    /// the JavaScript runner.
     pub fn enabled_providers(&self, media_type: &str) -> Vec<PluginProvider> {
         let config = self.config();
         if !config.enabled {
@@ -549,13 +641,469 @@ impl NuvioPlugins {
     }
 }
 
-pub fn setup(ui: &MainWindow, config: &PluginsConfig) {
+#[derive(Clone, Debug)]
+struct DetailsQuery {
+    key: String,
+    meta_id: String,
+    media_type: String,
+    title: String,
+    year: Option<String>,
+    season: Option<u32>,
+    episode: Option<u32>,
+}
+
+/// Start a provider query when the details route or selected episode changes.
+/// This is intentionally fire-and-forget: the core details projection must not
+/// wait for third-party network responses.
+pub fn on_details_synced(
+    ui: &slint::Weak<MainWindow>,
+    meta_item: &stremio_core::types::resource::MetaItem,
+    details: &stremio_core::models::meta_details::MetaDetails,
+) {
+    let Some(manager) = manager() else {
+        return;
+    };
+    let Some(selected) = details.selected.as_ref() else {
+        return;
+    };
+    let Some(stream_path) = selected.stream_path.as_ref() else {
+        return;
+    };
+    let media_type = match selected.meta_path.r#type.as_str() {
+        "series" | "show" => "tv",
+        _ => "movie",
+    };
+    let (season, episode) = if media_type == "tv" {
+        meta_item
+            .videos
+            .iter()
+            .find(|video| video.id == stream_path.id)
+            .and_then(|video| video.series_info.as_ref())
+            .map(|info| (Some(u32::from(info.season)), Some(u32::from(info.episode))))
+            .or_else(|| parse_episode_id(&stream_path.id))
+            .unwrap_or((Some(1), Some(1)))
+    } else {
+        (None, None)
+    };
+    let year = meta_item
+        .preview
+        .released
+        .map(|date| date.format("%Y").to_string())
+        .or_else(|| {
+            meta_item
+                .preview
+                .release_info
+                .as_deref()
+                .and_then(|value| value.get(..4))
+                .map(str::to_owned)
+        });
+    let query = DetailsQuery {
+        key: format!(
+            "{}|{}|{}|{}|{}|{}|{}",
+            selected.meta_path.id,
+            stream_path.id,
+            media_type,
+            season.unwrap_or_default(),
+            episode.unwrap_or_default(),
+            manager.config().enabled,
+            manager.inner.playback.source_generation()
+        ),
+        meta_id: selected.meta_path.id.clone(),
+        media_type: media_type.to_owned(),
+        title: meta_item.preview.name.clone(),
+        year,
+        season,
+        episode,
+    };
+    {
+        let mut last = manager
+            .inner
+            .last_query
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if last.as_deref() == Some(query.key.as_str()) {
+            return;
+        }
+        *last = Some(query.key.clone());
+    }
+    let generation = manager.inner.generation.fetch_add(1, Ordering::AcqRel) + 1;
+    manager.inner.playback.clear_plugin_results();
+    {
+        let manager = manager.clone();
+        let _ = slint::invoke_from_event_loop(move || manager.rebuild_streams());
+    }
+    if !manager.config().enabled {
+        return;
+    }
+    let ui = ui.clone();
+    let manager = manager.clone();
+    tokio::spawn(async move {
+        manager.run_details_query(query, generation, ui).await;
+    });
+}
+
+fn parse_episode_id(video_id: &str) -> Option<(Option<u32>, Option<u32>)> {
+    let mut parts = video_id.rsplit(':');
+    let episode = parts.next()?.parse::<u32>().ok()?;
+    let season = parts.next()?.parse::<u32>().ok()?;
+    Some((Some(season), Some(episode)))
+}
+
+impl NuvioPlugins {
+    fn rebuild_streams(&self) {
+        let views = self
+            .inner
+            .runtime
+            .model()
+            .ok()
+            .map(|model| {
+                self.inner
+                    .playback
+                    .rebuild(&model.meta_details, &model.ctx.profile.addons)
+            })
+            .unwrap_or_default();
+        let ui = self.inner.ui.clone();
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(ui) = ui.upgrade() {
+                let weak = ui.as_weak();
+                crate::event_loop::project_stream_selection_views(&ui, &weak, views);
+            }
+        });
+    }
+
+    fn apply_plugin_results(&self, generation: u64, streams: Vec<PluginStream>) {
+        if self.inner.generation.load(Ordering::Acquire) != generation {
+            return;
+        }
+        let selections = streams
+            .into_iter()
+            .enumerate()
+            .map(|(index, stream)| PluginSelection {
+                id: format!("plugin:{}:{index}", stream.provider_key),
+                provider_name: stream.provider_name,
+                title: stream.name,
+                description: stream.description,
+                url: stream.url,
+                info_hash: stream.info_hash,
+                file_idx: stream.file_idx,
+                headers: stream.headers,
+                subtitles: stream.subtitles,
+            })
+            .collect::<Vec<_>>();
+        self.inner.playback.set_plugin_results(selections);
+        let manager = self.clone();
+        let _ = slint::invoke_from_event_loop(move || manager.rebuild_streams());
+    }
+
+    async fn script_for(&self, provider: &PluginProvider) -> Result<String, String> {
+        let cached = self
+            .inner
+            .scripts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(&provider.source_url)
+            .filter(|(at, _)| at.elapsed() < Duration::from_secs(600))
+            .map(|(_, script)| script.clone());
+        if let Some(script) = cached {
+            return Ok(script);
+        }
+        let script = fetch_script(&provider.source_url).await?;
+        let mut cache = self
+            .inner
+            .scripts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if cache.len() >= 64 {
+            cache.clear();
+        }
+        cache.insert(provider.source_url.clone(), (Instant::now(), script.clone()));
+        Ok(script)
+    }
+
+    async fn resolve_tmdb_id(&self, query: &DetailsQuery) -> Result<String, String> {
+        let raw = query.meta_id.trim();
+        if let Some(id) = raw.strip_prefix("tmdb:") {
+            if id.chars().all(|character| character.is_ascii_digit()) && !id.is_empty() {
+                return Ok(id.to_owned());
+            }
+        }
+        if raw.chars().all(|character| character.is_ascii_digit()) && !raw.is_empty() {
+            return Ok(raw.to_owned());
+        }
+        if let Some(cached) = self
+            .inner
+            .tmdb_ids
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(raw)
+            .filter(|(at, _)| at.elapsed() < Duration::from_secs(86_400))
+            .map(|(_, id)| id.clone())
+        {
+            return Ok(cached);
+        }
+
+        // If the user configured the TMDB metadata integration, use it first:
+        // it resolves IMDb ids without sending the title through search.
+        if let Ok(profile_id) = crate::profiles::active_profile_id().await
+            && let Ok(providers) = crate::integrations::enabled_metadata_providers(profile_id.as_str()).await
+        {
+            for provider in providers {
+                if provider.kind() != media_integrations::ProviderKind::Tmdb {
+                    continue;
+                }
+                if let Ok(meta) = provider.enrich(raw).await
+                    && let Some(id) = meta.external_ids.get("tmdb")
+                    && id.chars().all(|character| character.is_ascii_digit())
+                {
+                    self.cache_tmdb(raw, id);
+                    return Ok(id.clone());
+                }
+            }
+        }
+
+        let gateway_type = if query.media_type == "tv" { "tv" } else { "movie" };
+        let mut url = Url::parse("https://senzo-api.vercel.app/api/tmdb/search")
+            .map_err(|_| "The metadata gateway URL is invalid.".to_owned())?;
+        url.query_pairs_mut()
+            .append_pair("query", query.title.trim())
+            .append_pair("type", gateway_type);
+        let text = fetch_text(url.as_str(), 2 * 1024 * 1024).await?;
+        let value: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|_| "The metadata gateway returned invalid JSON.".to_owned())?;
+        let results = value
+            .get("results")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| "The metadata gateway returned no results.".to_owned())?;
+        let year = query.year.as_deref().and_then(|value| value.get(..4));
+        let selected = results
+            .iter()
+            .find(|result| {
+                let date = if gateway_type == "tv" {
+                    result.get("first_air_date").and_then(serde_json::Value::as_str)
+                } else {
+                    result.get("release_date").and_then(serde_json::Value::as_str)
+                };
+                year.is_some_and(|year| date.is_some_and(|date| date.starts_with(year)))
+            })
+            .or_else(|| results.first())
+            .ok_or_else(|| "No TMDB match was found for this title.".to_owned())?;
+        let id = selected
+            .get("id")
+            .and_then(serde_json::Value::as_u64)
+            .map(|id| id.to_string())
+            .ok_or_else(|| "The metadata gateway result had no TMDB id.".to_owned())?;
+        self.cache_tmdb(raw, &id);
+        Ok(id)
+    }
+
+    fn cache_tmdb(&self, raw: &str, id: &str) {
+        let mut cache = self
+            .inner
+            .tmdb_ids
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if cache.len() >= 256 {
+            cache.clear();
+        }
+        cache.insert(raw.to_owned(), (Instant::now(), id.to_owned()));
+    }
+
+    async fn run_details_query(
+        &self,
+        query: DetailsQuery,
+        generation: u64,
+        _ui: slint::Weak<MainWindow>,
+    ) {
+        let providers = self.enabled_providers(&query.media_type);
+        if providers.is_empty() {
+            self.set_message("No enabled plugin providers support this media type.", false);
+            return;
+        }
+        self.set_message("Resolving metadata for plugin providers…", false);
+        let tmdb_id = match self.resolve_tmdb_id(&query).await {
+            Ok(id) => id,
+            Err(error) => {
+                for provider in &providers {
+                    self.set_status(&provider.key, "No TMDB id", true);
+                }
+                self.set_message(&error, true);
+                self.project();
+                return;
+            }
+        };
+        if self.inner.generation.load(Ordering::Acquire) != generation {
+            return;
+        }
+        let cache_key = format!(
+            "{}|{}|{}|{}",
+            tmdb_id,
+            query.media_type,
+            query.season.unwrap_or_default(),
+            query.episode.unwrap_or_default()
+        );
+        let cached = self
+            .inner
+            .results
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(&cache_key)
+            .filter(|(at, _)| at.elapsed() < Duration::from_secs(300))
+            .map(|(_, streams)| streams.clone());
+        if let Some(streams) = cached {
+            let count = streams.len();
+            self.apply_plugin_results(generation, streams);
+            self.set_message(&format!("Plugin search complete: {count} cached source(s)"), false);
+            return;
+        }
+
+        let semaphore = Arc::new(Semaphore::new(8));
+        let mut tasks = FuturesUnordered::new();
+        for provider in providers.into_iter().take(12) {
+            let manager = self.clone();
+            let query = query.clone();
+            let tmdb_id = tmdb_id.clone();
+            let semaphore = semaphore.clone();
+            tasks.push(async move {
+                let _permit = semaphore.acquire_owned().await.ok()?;
+                manager.set_status(&provider.key, "Searching…", false);
+                manager.project();
+                let script = match manager.script_for(&provider).await {
+                    Ok(script) => script,
+                    Err(error) => {
+                        manager.set_status(&provider.key, &error, true);
+                        manager.project();
+                        return None;
+                    }
+                };
+                let settings = if serde_json::from_str::<serde_json::Value>(&provider.settings)
+                    .is_ok_and(|value| value.is_object())
+                {
+                    provider.settings.clone()
+                } else {
+                    "{}".to_owned()
+                };
+                let key = provider.key.clone();
+                let name = provider.name.clone();
+                let request = ProviderQuery {
+                    tmdb_id,
+                    media_type: query.media_type.clone(),
+                    season: query.season,
+                    episode: query.episode,
+                };
+                let outcome = tokio::task::spawn_blocking(move || {
+                    plugin_runtime::execute(&key, &name, &script, &settings, &request)
+                })
+                .await
+                .ok()?;
+                Some((provider, outcome))
+            });
+        }
+
+        let mut streams = Vec::new();
+        let mut seen = HashSet::new();
+        let mut errors = 0usize;
+        let mut completed = 0usize;
+        while let Some(result) = tasks.next().await {
+            let Some((provider, outcome)) = result else {
+                errors += 1;
+                continue;
+            };
+            completed += 1;
+            if let Some(error) = outcome.error {
+                errors += 1;
+                self.set_status(&provider.key, &truncate_message(&error, 90), true);
+            } else {
+                let count = outcome.streams.len();
+                for stream in outcome.streams {
+                    let dedupe = if stream.is_torrent() {
+                        stream.info_hash.clone().unwrap_or_default()
+                    } else {
+                        stream
+                            .url
+                            .clone()
+                            .unwrap_or_else(|| format!("{}:{}", stream.provider_key, stream.name))
+                    };
+                    if !seen.insert(dedupe) {
+                        continue;
+                    }
+                    streams.push(stream);
+                    if streams.len() >= 160 {
+                        break;
+                    }
+                }
+                self.set_status(
+                    &provider.key,
+                    if count == 0 {
+                        "No sources".to_owned()
+                    } else {
+                        format!("{count} source(s)")
+                    },
+                    false,
+                );
+            }
+            self.project();
+            if streams.len() >= 160 {
+                break;
+            }
+        }
+
+        if self.inner.generation.load(Ordering::Acquire) != generation {
+            return;
+        }
+        {
+            let mut cache = self
+                .inner
+                .results
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if cache.len() >= 64 {
+                cache.clear();
+            }
+            cache.insert(cache_key, (Instant::now(), streams.clone()));
+        }
+        self.apply_plugin_results(generation, streams.clone());
+        self.set_message(
+            &format!(
+                "Plugin search complete: {} source(s) from {completed} provider(s)",
+                streams.len()
+            ),
+            errors > 0 && streams.is_empty(),
+        );
+        self.project();
+    }
+}
+
+fn truncate_message(value: &str, limit: usize) -> String {
+    let mut output = String::new();
+    for character in value.chars() {
+        if output.len() + character.len_utf8() > limit {
+            break;
+        }
+        output.push(character);
+    }
+    output
+}
+
+
+pub fn setup(
+    ui: &MainWindow,
+    config: &PluginsConfig,
+    runtime: Arc<stremio_core::runtime::Runtime<core_env::DesktopEnv, AppModel>>,
+    playback: Arc<PlaybackSelections>,
+) {
     let manager = NuvioPlugins {
         inner: Arc::new(Inner {
             ui: ui.as_weak(),
             config: RwLock::new(config.clone()),
             status: RwLock::new(HashMap::new()),
             busy: RwLock::new(false),
+            runtime,
+            playback,
+            generation: AtomicU64::new(0),
+            last_query: Mutex::new(None),
+            scripts: Mutex::new(HashMap::new()),
+            tmdb_ids: Mutex::new(HashMap::new()),
+            results: Mutex::new(HashMap::new()),
         }),
     };
     let _ = MANAGER.set(manager.clone());
@@ -600,6 +1148,10 @@ pub fn setup(ui: &MainWindow, config: &PluginsConfig) {
             let key = key.to_string();
             tokio::spawn(async move { manager.test_provider(key.as_str()).await });
         }
+    });
+    ui.on_plugin_provider_settings_saved({
+        let manager = manager.clone();
+        move |key, settings| manager.update_provider_settings(key.as_str(), settings.as_str())
     });
     ui.on_plugin_refresh_all({
         let manager = manager.clone();
@@ -675,12 +1227,12 @@ fn resolve_source_url(manifest_url: &str, filename: &str) -> Result<String, ()> 
 
 async fn fetch_text(url: &str, limit: usize) -> Result<String, String> {
     let parsed = Url::parse(url).map_err(|_| "Invalid plugin URL.".to_owned())?;
-    if parsed.scheme() != "https" || is_blocked_host(&parsed) {
+    if parsed.scheme() != "https" || !is_public_url(&parsed) {
         return Err("Plugin repositories must use HTTPS on a public host.".to_owned());
     }
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() >= 5 || is_blocked_host(attempt.url()) {
+            if attempt.previous().len() >= 5 || !is_public_url(attempt.url()) {
                 attempt.stop()
             } else {
                 attempt.follow()

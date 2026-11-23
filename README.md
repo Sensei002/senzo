@@ -69,6 +69,7 @@ Built with **Rust** and **Slint**, SENZO has its own interface, visual identity,
 ### Plugins
 
 - A **Plugins** manager for Nuvio-compatible provider repositories, with per-provider on/off switches and an install box for custom repository manifests.
+- Provider scripts run in a bounded QuickJS sandbox and their results appear in the provider-grouped stream drawer with a `PLUGIN` badge.
 - Provider groups are kept separate in the stream drawer, so each repository and add-on has its own source block.
 - Direct Sources remains an internal provider subsystem; its old sidebar entry is replaced by Plugins. See [docs/PLUGINS.md](docs/PLUGINS.md) and [docs/DIRECT_SOURCES.md](docs/DIRECT_SOURCES.md).
 

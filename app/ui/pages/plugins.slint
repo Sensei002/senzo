@@ -17,6 +17,7 @@ export struct PluginProviderCard {
     status-error: bool,
     enabled: bool,
     has-settings: bool,
+    settings: string,
 }
 
 export struct PluginRepositoryCard {
@@ -96,8 +97,10 @@ component PluginProviderRow inherits Rectangle {
 
     callback toggled(string, bool);
     callback tested(string);
+    callback settings-saved(string, string);
 
-    height: 8.2 * root.unit;
+    in-out property <string> settings-draft: root.provider.settings;
+    height: root.provider.has-settings ? 13.4 * root.unit : 8.2 * root.unit;
     border-radius: Theme.border-radius;
     background: Theme.card-background;
     border-width: 1px;
@@ -179,6 +182,22 @@ component PluginProviderRow inherits Rectangle {
             color: Theme.text-secondary;
             font-size: 0.76 * root.unit;
             overflow: elide;
+        }
+
+        if (root.provider.has-settings) : HorizontalLayout {
+            spacing: 0.5 * root.unit;
+            NativeTextField {
+                horizontal-stretch: 1;
+                unit: root.unit;
+                text <=> root.settings-draft;
+                placeholder-text: "Provider settings JSON, for example {}";
+            }
+            TinyButton {
+                unit: root.unit;
+                width: 4.8 * root.unit;
+                label: "Save";
+                clicked => { root.settings-saved(root.provider.id, root.settings-draft); }
+            }
         }
 
         HorizontalLayout {
@@ -290,6 +309,7 @@ export component PluginsPage inherits Rectangle {
     callback repository-remove(string);
     callback provider-toggled(string, bool);
     callback provider-tested(string);
+    callback provider-settings-saved(string, string);
     callback refresh-all;
 
     background: Theme.background;
@@ -494,10 +514,11 @@ export component PluginsPage inherits Rectangle {
                 provider: provider;
                 toggled(id, enabled) => { root.provider-toggled(id, enabled); }
                 tested(id) => { root.provider-tested(id); }
+                settings-saved(id, settings) => { root.provider-settings-saved(id, settings); }
             }
 
             Text {
-                text: "Plugins are community-maintained scrapers. SENZO does not host their content, bypass logins or DRM, and only runs providers you explicitly enable. Install repositories you trust.";
+                text: "Plugins are community-maintained scrapers that run in a sandbox with network access. SENZO does not host their content, bypass logins or DRM, and only runs providers you explicitly enable. Install repositories and enable providers you trust.";
                 color: Theme.text-muted;
                 font-size: 0.72 * root.unit;
                 wrap: word-wrap;

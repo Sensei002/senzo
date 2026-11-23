@@ -583,6 +583,7 @@ export component DetailsPage inherits Rectangle {
                         root.active-stream-provider == "All"
                             || stream.provider == root.active-stream-provider
                             || (root.active-stream-provider == "Direct Sources" && stream.source-system == "Direct")
+                            || (root.active-stream-provider == "Plugins" && stream.source-system == "Plugin")
                             || (root.active-stream-provider == "Add-ons" && stream.source-system == "Add-on");
                     width: parent.width;
                     // The additional 0.1rem preserves the web row gap while
@@ -615,10 +616,10 @@ export component DetailsPage inherits Rectangle {
                                     ? Theme.overlay-color
                                     : Theme.overlay-color;
                                 Text {
-                                    text: stream.source-system == "Direct" ? "DIRECT" : (stream.provider-count + " SOURCES");
+                                    text: stream.source-system == "Direct" ? "DIRECT" : (stream.source-system == "Plugin" ? "PLUGIN" : (stream.provider-count + " SOURCES"));
                                     color: stream.source-system == "Direct"
                                         ? Theme.primary-accent
-                                        : Theme.text-muted;
+                                        : (stream.source-system == "Plugin" ? Theme.quaternary-accent : Theme.text-muted);
                                     font-size: 0.55 * root.unit;
                                     font-weight: 700;
                                     horizontal-alignment: center;

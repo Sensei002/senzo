@@ -1211,6 +1211,7 @@ pub fn sync(
         }
 
         sync_series_details(ui, Some(meta_item), &videos_for_active_season);
+        crate::nuvio_plugins::on_details_synced(ui_weak, meta_item, meta_details);
     }
 }
 

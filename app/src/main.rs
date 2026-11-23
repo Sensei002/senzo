@@ -59,6 +59,7 @@ pub mod metadata_enrichment;
 mod models;
 mod mpv_integration;
 pub mod network_tools;
+mod plugin_runtime;
 pub mod nuvio_plugins;
 mod paths;
 mod performance;
@@ -701,7 +702,7 @@ async fn finish_startup(
         None => ui.set_hover_preview_enabled(false),
     }
 
-    nuvio_plugins::setup(&ui, &config.plugins);
+    nuvio_plugins::setup(&ui, &config.plugins, runtime.clone(), playback_selections.clone());
 
     event_loop::start_event_loop(
         rx,

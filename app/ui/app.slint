@@ -1063,6 +1063,7 @@ export component MainWindow inherits Window {
     callback plugin-repository-remove(string);
     callback plugin-provider-toggled(string, bool);
     callback plugin-provider-tested(string);
+    callback plugin-provider-settings-saved(string, string);
     callback plugin-refresh-all;
 
     // Details callbacks
@@ -2008,6 +2009,7 @@ export component MainWindow inherits Window {
                         repository-remove(url) => { root.plugin-repository-remove(url); }
                         provider-toggled(id, enabled) => { root.plugin-provider-toggled(id, enabled); }
                         provider-tested(id) => { root.plugin-provider-tested(id); }
+                        provider-settings-saved(id, settings) => { root.plugin-provider-settings-saved(id, settings); }
                         refresh-all => { root.plugin-refresh-all(); }
                     }
 
