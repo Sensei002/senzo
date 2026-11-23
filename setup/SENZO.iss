@@ -93,7 +93,7 @@ procedure NormalizeUninstallNames(RootKey: Integer);
 var
   Names: TArrayOfString;
   Index: Integer;
-  BaseKey, SubKey, DisplayName, Publisher, InstallLocation: String;
+  BaseKey, SubKey, DisplayName, Publisher, Location: String;
 begin
   BaseKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall';
   if not RegGetSubkeyNames(RootKey, BaseKey, Names) then
@@ -106,8 +106,8 @@ begin
        and (
          (RegQueryStringValue(RootKey, SubKey, 'Publisher', Publisher)
            and (Publisher = 'SENZO Project'))
-         or (RegQueryStringValue(RootKey, SubKey, 'InstallLocation', InstallLocation)
-           and CompareText(InstallLocation, ExpandConstant('{app}')) = 0)
+         or (RegQueryStringValue(RootKey, SubKey, 'InstallLocation', Location)
+           and (Location = ExpandConstant('{app}')))
        ) then
       RegWriteStringValue(RootKey, SubKey, 'DisplayName', 'SENZO');
   end;
