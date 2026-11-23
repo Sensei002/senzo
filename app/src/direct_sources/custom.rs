@@ -85,7 +85,7 @@ async fn resolve_m3u(
         stream.title = entry.title.clone();
         stream.season = season;
         stream.episode = episode;
-        stream.quality = parse_quality(&format!("{} {}", entry.title, entry.group));
+        stream.quality = parse_quality(&format!("{} {}", entry.title, entry.group.as_deref().unwrap_or("")));
         stream.language = entry
             .language
             .as_deref()
