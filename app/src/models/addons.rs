@@ -4,7 +4,7 @@ use crate::{
     AddonItem, AppModel, AppModelField, MainWindow, NavigationController, NavigationIntent,
 };
 use core_env::DesktopEnv;
-use slint::ComponentHandle;
+use slint::{ComponentHandle, Model};
 use std::{
     collections::HashSet,
     sync::{Arc, Mutex, OnceLock},
