@@ -160,7 +160,7 @@ pub(crate) fn setup(
     ui.set_settings_update_state(SettingsUpdateState::Current as i32);
     ui.set_settings_update_version(version.as_str().into());
     ui.set_settings_update_action_kind(SettingsUpdateAction::CheckNow as i32);
-    ui.set_settings_update_action_enabled(is_stable_channel());
+    ui.set_settings_update_action_enabled(true);
     let tray_view = tray.map(tray::Tray::view);
     if let Some(tray) = tray_view.as_ref() {
         tray.set_update_state(SettingsUpdateState::Current as i32);
@@ -254,17 +254,10 @@ impl Updater {
     }
 
     async fn check(&self, views: UpdateViews, kind: CheckKind) {
-        if !is_stable_channel() {
+        if !is_stable_channel() && matches!(kind, CheckKind::Automatic) {
             tracing::info!(
                 channel = UPDATE_CHANNEL,
-                "ignoring stable update check on a development build"
-            );
-            project_settings(
-                views,
-                SettingsUpdateState::UpToDate,
-                channel_version().as_str(),
-                SettingsUpdateAction::CheckAgain,
-                false,
+                "development build: skipping the automatic stable update check"
             );
             return;
         }
@@ -331,13 +324,6 @@ impl Updater {
     }
 
     async fn install(&self, views: UpdateViews) {
-        if !is_stable_channel() {
-            tracing::info!(
-                channel = UPDATE_CHANNEL,
-                "ignoring stable update install on a development build"
-            );
-            return;
-        }
         let Some(_busy) = self.try_begin() else {
             return;
         };
@@ -401,7 +387,10 @@ fn fetch_latest_stable() -> Result<Option<AvailableUpdate>> {
     let release = latest_stable_release(releases, env!("CARGO_PKG_VERSION"));
 
     Ok(release.map(|release| AvailableUpdate {
-        can_install: has_native_installer(&release),
+        // A development build may inspect the stable feed, but it must not
+        // replace itself with an older published release. Only a stable build
+        // can hand off to the downloaded installer.
+        can_install: is_stable_channel() && has_native_installer(&release),
         release,
     }))
 }

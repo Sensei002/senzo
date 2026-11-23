@@ -14,7 +14,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-use futures::{StreamExt, stream::FuturesUnordered};
+use futures::{
+    StreamExt,
+    stream::{self, FuturesUnordered},
+};
+use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderName, HeaderValue, LOCATION, RANGE};
 use serde::{Deserialize, Serialize};
 use slint::ComponentHandle;
 use tokio::sync::Semaphore;
@@ -32,6 +36,10 @@ pub const DEFAULT_MANIFEST_URL: &str =
     "https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json";
 const MAX_MANIFEST_BYTES: usize = 4 * 1024 * 1024;
 const MAX_SCRIPT_BYTES: usize = 4 * 1024 * 1024;
+const MEDIA_PROBE_CONCURRENCY: usize = 4;
+const MEDIA_PROBE_TIMEOUT: Duration = Duration::from_secs(8);
+const MEDIA_PROBE_USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 SENZO/1.0";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -184,6 +192,158 @@ fn default_true() -> bool {
 
 fn default_settings() -> String {
     "{}".to_owned()
+}
+
+fn media_probe_client() -> &'static reqwest::blocking::Client {
+    static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::blocking::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(MEDIA_PROBE_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent(MEDIA_PROBE_USER_AGENT)
+            .build()
+            .unwrap_or_else(|_| reqwest::blocking::Client::new())
+    })
+}
+
+fn has_probe_media_extension(value: &str) -> bool {
+    [
+        ".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v", ".ts", ".m3u8", ".mpd",
+        ".flv", ".wmv",
+    ]
+    .iter()
+    .any(|extension| value.contains(extension))
+}
+
+/// Confirm that an HTTP source really serves a media object before it reaches
+/// the drawer. A provider can return a syntactically valid `.mkv` URL that is
+/// actually a 403, an HTML interstitial, or an expired link generator. The
+/// request is range-limited and the body is never read.
+fn probe_media_stream(stream: &PluginStream) -> bool {
+    if stream.is_torrent() {
+        return true;
+    }
+    let Some(raw_url) = stream.url.as_deref() else {
+        return false;
+    };
+    let Ok(mut target) = Url::parse(raw_url) else {
+        return false;
+    };
+
+    for _ in 0..=4 {
+        if !matches!(target.scheme(), "http" | "https")
+            || target.host_str().is_none()
+            || is_blocked_host(&target)
+            || !is_public_url(&target)
+        {
+            return false;
+        }
+
+        let mut request = media_probe_client()
+            .get(target.clone())
+            .header(RANGE, "bytes=0-0")
+            .header(ACCEPT, "video/*,audio/*,application/octet-stream,*/*;q=0.8");
+        for (name, value) in &stream.headers {
+            let lower = name.to_ascii_lowercase();
+            if matches!(
+                lower.as_str(),
+                "host" | "content-length" | "connection" | "range" | "accept-encoding"
+            ) {
+                continue;
+            }
+            let Ok(name) = HeaderName::from_bytes(lower.as_bytes()) else {
+                continue;
+            };
+            let Ok(value) = HeaderValue::from_str(value) else {
+                continue;
+            };
+            request = request.header(name, value);
+        }
+
+        let response = match request.send() {
+            Ok(response) => response,
+            Err(_) => return false,
+        };
+
+        if response.status().is_redirection() {
+            let Some(location) = response
+                .headers()
+                .get(LOCATION)
+                .and_then(|value| value.to_str().ok())
+            else {
+                return false;
+            };
+            let Ok(next) = target.join(location) else {
+                return false;
+            };
+            target = next;
+            continue;
+        }
+
+        let status = response.status();
+        if !(status.is_success() || status == reqwest::StatusCode::PARTIAL_CONTENT) {
+            return false;
+        }
+        let content_type = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if content_type.starts_with("text/html")
+            || content_type.starts_with("text/plain")
+            || content_type.starts_with("application/json")
+            || content_type.starts_with("application/xml")
+        {
+            return false;
+        }
+        let content_length = response
+            .headers()
+            .get(reqwest::header::CONTENT_LENGTH)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok());
+        if content_length == Some(0) {
+            return false;
+        }
+        if content_type.is_empty() {
+            return has_probe_media_extension(&target.path().to_ascii_lowercase());
+        }
+        return content_type.starts_with("video/")
+            || content_type.starts_with("audio/")
+            || content_type.contains("octet-stream")
+            || content_type.contains("mpegurl")
+            || content_type.contains("matroska")
+            || content_type.contains("mp4")
+            || content_type.contains("webm");
+    }
+    false
+}
+
+async fn verify_media_streams(streams: Vec<PluginStream>) -> Vec<PluginStream> {
+    let probes = stream::iter(streams.into_iter().enumerate().map(|(index, stream)| {
+        let probe = stream.clone();
+        async move {
+            let live = if probe.is_torrent() {
+                true
+            } else {
+                tokio::task::spawn_blocking(move || probe_media_stream(&probe))
+                    .await
+                    .unwrap_or(false)
+            };
+            (index, stream, live)
+        }
+    }))
+    .buffer_unordered(MEDIA_PROBE_CONCURRENCY)
+    .collect::<Vec<_>>()
+    .await;
+
+    let mut probes = probes;
+    probes.sort_by_key(|(index, _, _)| *index);
+    probes
+        .into_iter()
+        .filter_map(|(_, stream, live)| live.then_some(stream))
+        .collect()
 }
 
 #[derive(Clone)]
@@ -1014,12 +1174,14 @@ impl NuvioPlugins {
                 errors += 1;
                 self.set_status(&provider.key, &truncate_message(&error, 90), true);
             } else {
+                let candidates = outcome
+                    .streams
+                    .into_iter()
+                    .filter(PluginStream::is_playable)
+                    .collect::<Vec<_>>();
+                let verified = verify_media_streams(candidates).await;
                 let mut count = 0usize;
-                for stream in outcome.streams {
-                    if !stream.is_playable() {
-                        continue;
-                    }
-                    count += 1;
+                for stream in verified {
                     let dedupe = if stream.is_torrent() {
                         stream.info_hash.clone().unwrap_or_default()
                     } else {
@@ -1031,6 +1193,7 @@ impl NuvioPlugins {
                     if !seen.insert(dedupe) {
                         continue;
                     }
+                    count += 1;
                     streams.push(stream);
                     if streams.len() >= 160 {
                         break;

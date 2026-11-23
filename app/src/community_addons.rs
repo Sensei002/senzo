@@ -611,12 +611,31 @@ async fn fetch_and_project(
                 } else {
                     Vec::new()
                 };
-                items.extend(
-                    page.addons
-                        .iter()
-                        .cloned()
-                        .map(|addon| project_community_addon(addon, &ui_weak)),
-                );
+                let installed_items = {
+                    let model = ui.get_addons_list();
+                    (0..model.row_count())
+                        .filter_map(|index| model.row_data(index))
+                        .filter(|item| item.is_installed)
+                        .collect::<Vec<_>>()
+                };
+                let installed = installed_items
+                    .iter()
+                    .map(|item| {
+                        crate::models::addons::addon_identity(item.transport_url.as_str())
+                    })
+                    .collect::<std::collections::HashSet<_>>();
+                let installed_hosts = installed_items
+                    .iter()
+                    .map(|item| crate::models::addons::addon_host(item.transport_url.as_str()))
+                    .filter(|host| !host.is_empty())
+                    .collect::<std::collections::HashSet<_>>();
+                items.extend(page.addons.iter().cloned().map(|addon| {
+                    let host = crate::models::addons::addon_host(addon.manifest_url.as_str());
+                    let is_installed = installed.contains(
+                        &crate::models::addons::addon_identity(addon.manifest_url.as_str()),
+                    ) || (!host.is_empty() && installed_hosts.contains(&host));
+                    project_community_addon(addon, is_installed, &ui_weak)
+                }));
                 ui.set_addons_community_list(slint::ModelRc::new(slint::VecModel::from(items)));
                 ui.set_addons_community_available(true);
                 ui.set_addons_community_has_next_page(page.has_next_page);
@@ -642,6 +661,7 @@ async fn fetch_and_project(
 
 fn project_community_addon(
     addon: CommunityAddon,
+    is_installed: bool,
     ui_weak: &slint::Weak<crate::MainWindow>,
 ) -> crate::AddonItem {
     let logo = addon
@@ -684,7 +704,7 @@ fn project_community_addon(
         description: addon.description.into(),
         logo_url: addon.logo.unwrap_or_default().into(),
         logo: crate::image_cache::get_poster_image(&logo, ui_weak),
-        is_installed: false,
+        is_installed,
         transport_url: addon.manifest_url.into(),
         configuration_url: addon.configuration_url.unwrap_or_default().into(),
         types_label: types_label.into(),

@@ -10,45 +10,46 @@ export global Theme {
     in-out property <string> font-family: "Plus Jakarta Sans";
     in-out property <int> active-preset-idx: 0;
 
-    // SENZO midnight / cyan palette.
-    in-out property <color> background: #080D11;
-    in-out property <color> secondary-background: #0D171D;
-    in-out property <color> primary-foreground: #F3FAFC;
-    in-out property <color> secondary-foreground: #071216;
-    in-out property <color> primary-accent: #22D3EE;
-    in-out property <color> secondary-accent: #34D399;
+    // SENZO Aurora palette: deep ink, electric violet, teal and rose accents.
+    in-out property <color> background: #070A14;
+    in-out property <color> secondary-background: #0B1222;
+    in-out property <color> primary-foreground: #F6F4FF;
+    in-out property <color> secondary-foreground: #080B16;
+    in-out property <color> primary-accent: #8B5CF6;
+    in-out property <color> secondary-accent: #2DD4BF;
     in-out property <color> tertiary-accent: #FBBF24;
-    in-out property <color> quaternary-accent: #A78BFA;
-    in-out property <color> overlay-color: #FFFFFF0B;
-    in-out property <color> modal-color: #101920;
-    in-out property <color> placeholder-color: #78939C80;
+    in-out property <color> quaternary-accent: #F472B6;
+    in-out property <color> overlay-color: #FFFFFF0D;
+    in-out property <color> modal-color: #111428;
+    in-out property <color> placeholder-color: #9A96C080;
 
     // Values used directly by official reusable components.
-    in-out property <color> surface-light: #F3FAFC;
-    in-out property <color> surface-light-30: #F3FAFC4D;
-    in-out property <color> surface-light-90: #F3FAFCE6;
+    in-out property <color> surface-light: #F6F4FF;
+    in-out property <color> surface-light-30: #F6F4FF4D;
+    in-out property <color> surface-light-90: #F6F4FFE6;
     in-out property <color> background-dark-20: #00000033;
     in-out property <color> background-dark-40: #00000066;
-    in-out property <color> secondary-variant-light: #8BEAF4;
-    in-out property <color> secondary-variant-light-90: #8BEAF4E6;
-    in-out property <color> primary-light: #38BFD0;
+    in-out property <color> secondary-variant-light: #C4B5FD;
+    in-out property <color> secondary-variant-light-90: #C4B5FDE6;
+    in-out property <color> primary-light: #A78BFA;
 
     in-out property <brush> main-gradient: @linear-gradient(
         41deg,
         Theme.background 0%,
+        #12102B 58%,
         Theme.secondary-background 100%
     );
-    in-out property <color> sidebar-background: #0B151B;
+    in-out property <color> sidebar-background: #080C18;
     in-out property <color> modal-background: Theme.modal-color;
-    in-out property <color> drawer-background: Theme.background-dark-40;
+    in-out property <color> drawer-background: #0A0918EE;
     in-out property <color> control-background: Theme.overlay-color;
     in-out property <color> overlay: Theme.overlay-color;
-    in-out property <color> overlay-hover: #22D3EE14;
-    in-out property <color> overlay-pressed: #22D3EE20;
-    in-out property <color> divider: #B8DDE51A;
+    in-out property <color> overlay-hover: #8B5CF614;
+    in-out property <color> overlay-pressed: #8B5CF620;
+    in-out property <color> divider: #C9C4FF1A;
     in-out property <color> scrim: Theme.background-dark-40;
     in-out property <color> accent: Theme.primary-accent;
-    in-out property <color> accent-hover: #67E8F9;
+    in-out property <color> accent-hover: #A78BFA;
     in-out property <color> info: Theme.quaternary-accent;
     in-out property <color> facebook: #1877f1;
     in-out property <color> x-social: #000000;
@@ -59,17 +60,17 @@ export global Theme {
     in-out property <color> letterboxd: #00e054;
     in-out property <color> anilist: #02a9ff;
     in-out property <color> kitsu: #fd755c;
-    in-out property <color> card-background: #101B21;
-    in-out property <color> card-border: #1E343D;
+    in-out property <color> card-background: #101426;
+    in-out property <color> card-border: #2A2A4A;
     in-out property <color> text-primary: Theme.primary-foreground;
-    in-out property <color> text-secondary: #B8CBD1;
-    in-out property <color> text-muted: #8299A2;
+    in-out property <color> text-secondary: #C8C5DF;
+    in-out property <color> text-muted: #8E8CAE;
     
     in-out property <color> danger: #FB7185;
     in-out property <color> success: Theme.secondary-accent;
     in-out property <color> warning: #FBBF24;
     in-out property <color> focus: Theme.primary-accent;
-    in-out property <color> title-bar: #0A151A;
+    in-out property <color> title-bar: #070B16;
 
     // Official geometry. rem based values follow root-font-size; focus and
     // scrollbar widths intentionally remain device independent pixel values.
@@ -90,7 +91,7 @@ export global Theme {
     in-out property <duration> long-press-threshold: 400ms;
 
     in-out property <length> outer-glow-blur: 15px;
-    in-out property <color> outer-glow-color: #22D3EE40;
+    in-out property <color> outer-glow-color: #8B5CF640;
 
     // stremio-web placeholders are static 10% foreground surfaces. Keeping
     // this semantic token separate preserves runtime theme customization.

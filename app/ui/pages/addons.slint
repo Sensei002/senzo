@@ -185,9 +185,9 @@ component AddonCard inherits Rectangle {
                 accent-color: Theme.success;
                 surface-color: transparent;
                 hover-color: Theme.overlay;
-                outline-color: root.addon.is-installed ? Theme.text-primary : Theme.success;
-                hover-outline-color: root.addon.is-installed ? Theme.text-primary : Theme.success;
-                idle-opacity: root.addon.is-installed ? 0.35 : 1;
+                outline-color: root.addon.is-installed ? Theme.danger : Theme.success;
+                hover-outline-color: root.addon.is-installed ? Theme.danger : Theme.success;
+                idle-opacity: 1;
                 clicked => {
                     if (root.addon.is-installed) { root.uninstall(); }
                     else if (root.addon.configuration-required) { root.configure(); }
@@ -570,7 +570,8 @@ export component AddonsPage inherits Rectangle {
 
             for item[item-index] in root.visible-addons : Rectangle {
                 private property <bool> matches-filter:
-                    ((root.active-filter == "Installed") == item.is-installed)
+                    (root.active-filter == "Add-on Directory"
+                        || ((root.active-filter == "Installed") == item.is-installed))
                         && (root.active-type == "All"
                             || (root.active-type == "Movie" && item.supports-movie)
                             || (root.active-type == "Series" && item.supports-series)
@@ -694,7 +695,7 @@ export component AddonsPage inherits Rectangle {
                         unit: root.unit;
                         label: @tr("ADDON_INSTALL" => "Install");
                         primary: true;
-                        accent-color: Theme.success;
+                        accent-color: root.details-addon.is-installed ? Theme.danger : Theme.success;
                         enabled: root.manifest-url != "";
                         clicked => {
                             root.install-addon(root.manifest-url);
@@ -923,9 +924,9 @@ export component AddonsPage inherits Rectangle {
                             ? @image-url("../assets/images/icons/delete.svg")
                             : @image-url("../assets/images/icons/add.svg");
                         primary: !root.details-addon.is-installed;
-                        accent-color: Theme.success;
+                        accent-color: root.details-addon.is-installed ? Theme.danger : Theme.success;
                         surface-color: transparent;
-                        idle-opacity: root.details-addon.is-installed ? 0.35 : 1;
+                        idle-opacity: 1;
                         clicked => {
                             if (root.details-addon.is-installed) {
                                 root.uninstall-addon(root.details-addon.transport-url);

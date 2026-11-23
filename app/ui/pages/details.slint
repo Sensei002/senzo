@@ -133,8 +133,9 @@ export component DetailsPage inherits Rectangle {
     callback close;
 
     in property <length> unit: Theme.root-font-size;
-    property <length> drawer-width: 30 * root.unit;
+    property <length> drawer-width: min(40 * root.unit, root.width * 0.52);
     in-out property <bool> ranking-filter-open: false;
+    changed streams => { root.active-stream-provider = "All"; }
     private property <int> first-season: root.available-seasons.length > 0
         ? root.available-seasons[0] : root.active-season;
     private property <int> last-season: root.available-seasons.length > 0
@@ -303,6 +304,39 @@ export component DetailsPage inherits Rectangle {
             spacing: 0.75 * root.unit;
 
             if (!root.is-series || root.in-stream-view) : HorizontalLayout {
+                height: 2.1 * root.unit;
+                spacing: 0.6 * root.unit;
+
+                Rectangle {
+                    width: 0.45 * root.unit;
+                    height: 0.45 * root.unit;
+                    border-radius: self.width / 2;
+                    background: Theme.accent;
+                    y: (parent.height - self.height) / 2;
+                }
+
+                Text {
+                    text: "SENZO SOURCES";
+                    color: Theme.text-primary;
+                    font-size: 0.8 * root.unit;
+                    font-weight: 750;
+                    letter-spacing: 0.12 * root.unit;
+                    vertical-alignment: center;
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                Text {
+                    text: root.streams.length + " FILES";
+                    color: Theme.text-muted;
+                    font-size: 0.68 * root.unit;
+                    font-weight: 650;
+                    letter-spacing: 0.06 * root.unit;
+                    vertical-alignment: center;
+                }
+            }
+
+            if (!root.is-series || root.in-stream-view) : HorizontalLayout {
                 height: 2.75 * root.unit;
                 spacing: 0.75 * root.unit;
                 z: 10000;
@@ -323,6 +357,7 @@ export component DetailsPage inherits Rectangle {
                         alignment: start;
 
                         for provider in root.stream-providers : Chip {
+                            active-color: Theme.primary-accent;
                             unit: root.unit;
                             label: provider;
                             value: provider;
@@ -597,13 +632,13 @@ export component DetailsPage inherits Rectangle {
                     // The additional 0.1rem preserves the web row gap while
                     // allowing ListView to virtualize off-screen streams.
                     height: self.matches-provider
-                        ? (stream.group-start ? 8.3 * root.unit : 5.8 * root.unit)
+                        ? (stream.group-start ? 9.9 * root.unit : 7.4 * root.unit)
                         : 0px;
                     clip: true;
                     background: transparent;
 
                     if (stream.group-start && stream-delegate.matches-provider) : Rectangle {
-                        height: 2.4 * root.unit;
+                        height: 2.5 * root.unit;
                         background: transparent;
                         HorizontalLayout {
                             padding-left: 0.2 * root.unit;
@@ -641,14 +676,16 @@ export component DetailsPage inherits Rectangle {
                     StreamRow {
                         visible: stream-delegate.matches-provider;
                         x: 0px;
-                        y: stream.group-start ? 2.4 * root.unit : 0px;
+                        y: stream.group-start ? 2.5 * root.unit : 0px;
                         width: parent.width;
-                        height: 5.6 * root.unit;
+                        height: 7.4 * root.unit;
                         unit: root.unit;
                         name: stream.name;
                         description: stream.description;
                         source-system: stream.source-system;
-                        score-label: root.ranking-mode == "Original" ? "" : (stream.score >= 0 ? "+" + stream.score : "" + stream.score);
+                        score-label: root.ranking-mode == "Original" || stream.score == 0
+                            ? ""
+                            : (stream.score > 0 ? "+" + stream.score : "" + stream.score);
                         score-details: stream.score-summary;
                         seeders: stream.seeders;
                         filtered: stream.filtered;

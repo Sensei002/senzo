@@ -109,46 +109,46 @@ impl Default for ThemeConfig {
         Self {
             active_preset_idx: 0,
             font_family: "Plus Jakarta Sans".to_string(),
-            background: "#080d11".to_string(),
-            secondary_background: "#0d171d".to_string(),
-            sidebar_background: "#0b151b".to_string(),
-            modal_background: "#101920".to_string(),
-            drawer_background: "#00000066".to_string(),
-            control_background: "#ffffff0b".to_string(),
-            overlay: "#ffffff0b".to_string(),
-            overlay_hover: "#22d3ee14".to_string(),
-            overlay_pressed: "#22d3ee20".to_string(),
-            divider: "#b8dde51a".to_string(),
+            background: "#070a14".to_string(),
+            secondary_background: "#0b1222".to_string(),
+            sidebar_background: "#080c18".to_string(),
+            modal_background: "#111428".to_string(),
+            drawer_background: "#0a0918ee".to_string(),
+            control_background: "#ffffff0d".to_string(),
+            overlay: "#ffffff0d".to_string(),
+            overlay_hover: "#8b5cf614".to_string(),
+            overlay_pressed: "#8b5cf620".to_string(),
+            divider: "#c9c4ff1a".to_string(),
             scrim: "#00000066".to_string(),
-            accent: "#22d3ee".to_string(),
-            accent_hover: "#67e8f9".to_string(),
-            success: "#34d399".to_string(),
+            accent: "#8b5cf6".to_string(),
+            accent_hover: "#a78bfa".to_string(),
+            success: "#2dd4bf".to_string(),
             warning: "#fbbf24".to_string(),
-            info: "#a78bfa".to_string(),
+            info: "#f472b6".to_string(),
             danger: "#fb7185".to_string(),
-            focus: "#22d3ee".to_string(),
-            title_bar: "#0a151a".to_string(),
-            card_background: "#101b21".to_string(),
-            card_border: "#1e343d".to_string(),
-            text_primary: "#f3fafc".to_string(),
-            text_secondary: "#b8cbd1".to_string(),
-            text_muted: "#8299a2".to_string(),
+            focus: "#8b5cf6".to_string(),
+            title_bar: "#070b16".to_string(),
+            card_background: "#101426".to_string(),
+            card_border: "#2a2a4a".to_string(),
+            text_primary: "#f6f4ff".to_string(),
+            text_secondary: "#c8c5df".to_string(),
+            text_muted: "#8e8cae".to_string(),
             skeleton_base: "#ffffff1a".to_string(),
             skeleton_shimmer: "#ffffff26".to_string(),
             saved_colors: [
-                "#22d3ee", "#34d399", "#fbbf24", "#a78bfa", "#fb7185", "#67e8f9", "#0d171d",
-                "#1e343d", "#8299a2",
+                "#8b5cf6", "#2dd4bf", "#fbbf24", "#f472b6", "#fb7185", "#a78bfa", "#0b1222",
+                "#2a2a4a", "#8e8cae",
             ]
             .iter()
             .map(|hex| hex.to_string())
             .collect(),
             saved_gradients: vec![
-                saved_gradient(135.0, "#22d3ee", "#0d171d"),
-                saved_gradient(135.0, "#34d399", "#0a151a"),
-                saved_gradient(135.0, "#fbbf24", "#101920"),
-                saved_gradient(135.0, "#a78bfa", "#080d11"),
-                saved_gradient(135.0, "#fb7185", "#1e343d"),
-                saved_gradient(135.0, "#67e8f9", "#0b151b"),
+                saved_gradient(135.0, "#8b5cf6", "#0b1222"),
+                saved_gradient(135.0, "#2dd4bf", "#070a14"),
+                saved_gradient(135.0, "#fbbf24", "#111428"),
+                saved_gradient(135.0, "#f472b6", "#080c18"),
+                saved_gradient(135.0, "#fb7185", "#2a2a4a"),
+                saved_gradient(135.0, "#a78bfa", "#12102b"),
             ],
         }
     }
@@ -157,7 +157,7 @@ impl Default for ThemeConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            config_version: 6,
+            config_version: 7,
             server_url: "http://127.0.0.1:11470".to_string(),
             active_tab: 0,
             auto_launch_player: true,
@@ -343,6 +343,97 @@ impl AppConfig {
             }
             self.config_version = 6;
         }
+        if self.config_version < 7 {
+            // SENZO Aurora replaces the previous cyan/green palette. Match
+            // each old shipped value independently so deliberate custom colors
+            // survive while untouched defaults move to the new identity.
+            let shipped = [
+                ("background", "#080d11", "#070a14"),
+                ("secondary_background", "#0d171d", "#0b1222"),
+                ("sidebar_background", "#0b151b", "#080c18"),
+                ("modal_background", "#101920", "#111428"),
+                ("drawer_background", "#00000066", "#0a0918ee"),
+                ("control_background", "#ffffff0b", "#ffffff0d"),
+                ("overlay", "#ffffff0b", "#ffffff0d"),
+                ("overlay_hover", "#22d3ee14", "#8b5cf614"),
+                ("overlay_pressed", "#22d3ee20", "#8b5cf620"),
+                ("divider", "#b8dde51a", "#c9c4ff1a"),
+                ("accent", "#22d3ee", "#8b5cf6"),
+                ("accent_hover", "#67e8f9", "#a78bfa"),
+                ("success", "#34d399", "#2dd4bf"),
+                ("info", "#a78bfa", "#f472b6"),
+                ("focus", "#22d3ee", "#8b5cf6"),
+                ("title_bar", "#0a151a", "#070b16"),
+                ("card_background", "#101b21", "#101426"),
+                ("card_border", "#1e343d", "#2a2a4a"),
+                ("text_primary", "#f3fafc", "#f6f4ff"),
+                ("text_secondary", "#b8cbd1", "#c8c5df"),
+                ("text_muted", "#8299a2", "#8e8cae"),
+            ];
+            for (field, old, new) in shipped {
+                let value = match field {
+                    "background" => &mut self.theme.background,
+                    "secondary_background" => &mut self.theme.secondary_background,
+                    "sidebar_background" => &mut self.theme.sidebar_background,
+                    "modal_background" => &mut self.theme.modal_background,
+                    "drawer_background" => &mut self.theme.drawer_background,
+                    "control_background" => &mut self.theme.control_background,
+                    "overlay" => &mut self.theme.overlay,
+                    "overlay_hover" => &mut self.theme.overlay_hover,
+                    "overlay_pressed" => &mut self.theme.overlay_pressed,
+                    "divider" => &mut self.theme.divider,
+                    "accent" => &mut self.theme.accent,
+                    "accent_hover" => &mut self.theme.accent_hover,
+                    "success" => &mut self.theme.success,
+                    "info" => &mut self.theme.info,
+                    "focus" => &mut self.theme.focus,
+                    "title_bar" => &mut self.theme.title_bar,
+                    "card_background" => &mut self.theme.card_background,
+                    "card_border" => &mut self.theme.card_border,
+                    "text_primary" => &mut self.theme.text_primary,
+                    "text_secondary" => &mut self.theme.text_secondary,
+                    "text_muted" => &mut self.theme.text_muted,
+                    _ => unreachable!(),
+                };
+                if value.eq_ignore_ascii_case(old) {
+                    *value = new.to_owned();
+                }
+            }
+            let previous_saved_colors = [
+                "#22d3ee", "#34d399", "#fbbf24", "#a78bfa", "#fb7185", "#67e8f9", "#0d171d",
+                "#1e343d", "#8299a2",
+            ]
+            .iter()
+            .map(|color| color.to_string())
+            .collect::<Vec<_>>();
+            if self.theme.saved_colors == previous_saved_colors {
+                self.theme.saved_colors = ThemeConfig::default().saved_colors;
+            }
+            let previous_gradients = [
+                (135.0, "#22d3ee", "#0d171d"),
+                (135.0, "#34d399", "#0a151a"),
+                (135.0, "#fbbf24", "#101920"),
+                (135.0, "#a78bfa", "#080d11"),
+                (135.0, "#fb7185", "#1e343d"),
+                (135.0, "#67e8f9", "#0b151b"),
+            ];
+            let gradients_match_previous_defaults = self.theme.saved_gradients.len()
+                == previous_gradients.len()
+                && self
+                    .theme
+                    .saved_gradients
+                    .iter()
+                    .zip(previous_gradients)
+                    .all(|(gradient, (angle, start, end))| {
+                        gradient.angle == angle
+                            && gradient.start.eq_ignore_ascii_case(start)
+                            && gradient.end.eq_ignore_ascii_case(end)
+                    });
+            if gradients_match_previous_defaults {
+                self.theme.saved_gradients = ThemeConfig::default().saved_gradients;
+            }
+            self.config_version = 7;
+        }
         self.config_version != original_version
     }
 }
@@ -501,10 +592,10 @@ mod tests {
         let mut config = legacy_config();
 
         assert!(config.migrate());
-        assert_eq!(config.config_version, 6);
-        assert_eq!(config.theme.background, "#080d11");
-        assert_eq!(config.theme.secondary_background, "#0d171d");
-        assert_eq!(config.theme.success, "#34d399");
+        assert_eq!(config.config_version, 7);
+        assert_eq!(config.theme.background, "#070a14");
+        assert_eq!(config.theme.secondary_background, "#0b1222");
+        assert_eq!(config.theme.success, "#2dd4bf");
     }
 
     #[test]
@@ -513,8 +604,8 @@ mod tests {
         config.theme.accent = "#ff3366".to_string();
 
         assert!(config.migrate());
-        assert_eq!(config.config_version, 6);
-        assert_eq!(config.theme.background, "#080d11");
+        assert_eq!(config.config_version, 7);
+        assert_eq!(config.theme.background, "#070a14");
         assert_eq!(config.theme.accent, "#ff3366");
     }
 
@@ -529,7 +620,7 @@ mod tests {
         };
 
         assert!(config.migrate());
-        assert_eq!(config.config_version, 6);
+        assert_eq!(config.config_version, 7);
         assert_eq!(
             config.hover_trailer_preview_delay_ms,
             DEFAULT_HOVER_PREVIEW_DELAY_MS

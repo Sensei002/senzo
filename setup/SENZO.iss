@@ -12,6 +12,7 @@
 
 #define AppName "SENZO"
 #define AppExeName "senzo.exe"
+#define UninstallGuid "{9B7477C6-8E3D-4EA7-A128-EB249D052C6C}"
 
 [Setup]
 AppId={{9B7477C6-8E3D-4EA7-A128-EB249D052C6C}
@@ -86,3 +87,46 @@ Root: HKCU; Subkey: "Software\Classes\magnet\shell\open\command"; ValueType: str
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Launch SENZO"; WorkingDir: "{app}"; Flags: nowait postinstall
+
+[Code]
+procedure NormalizeUninstallNames(RootKey: Integer);
+var
+  Names: TArrayOfString;
+  Index: Integer;
+  BaseKey, SubKey, DisplayName, Publisher, InstallLocation: String;
+begin
+  BaseKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall';
+  if not RegGetSubkeyNames(RootKey, BaseKey, Names) then
+    exit;
+  for Index := 0 to GetArrayLength(Names) - 1 do
+  begin
+    SubKey := BaseKey + '\' + Names[Index];
+    if RegQueryStringValue(RootKey, SubKey, 'DisplayName', DisplayName)
+       and (Pos('Stremio', DisplayName) = 1)
+       and (
+         (RegQueryStringValue(RootKey, SubKey, 'Publisher', Publisher)
+           and (Publisher = 'SENZO Project'))
+         or (RegQueryStringValue(RootKey, SubKey, 'InstallLocation', InstallLocation)
+           and CompareText(InstallLocation, ExpandConstant('{app}')) = 0)
+       ) then
+      RegWriteStringValue(RootKey, SubKey, 'DisplayName', 'SENZO');
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  UninstallKey: String;
+begin
+  if CurStep <> ssDone then
+    exit;
+
+  // Older SENZO installers carried the legacy Stremio display string. Inno
+  // keeps that value when upgrading an existing per-user install, so rewrite
+  // both the active key and any stale SENZO-owned copy left behind.
+  UninstallKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#UninstallGuid}_is1';
+  RegWriteStringValue(HKA, UninstallKey, 'DisplayName', 'SENZO');
+  RegWriteStringValue(HKA, UninstallKey, 'DisplayVersion', '{#AppVersion}');
+  RegWriteStringValue(HKA, UninstallKey, 'Publisher', 'SENZO Project');
+  NormalizeUninstallNames(HKCU);
+  NormalizeUninstallNames(HKLM);
+end;

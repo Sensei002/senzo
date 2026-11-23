@@ -19,9 +19,20 @@ export component StreamRow inherits Rectangle {
     callback play;
     callback context-requested(length, length);
 
-    height: 5.6 * root.unit;
+    height: 7.4 * root.unit;
     border-radius: Theme.border-radius;
     background: root.selected || area.has-hover ? Theme.overlay-hover : transparent;
+
+    animate background { duration: Theme.motion-fast; easing: ease-out; }
+
+    if (root.selected || area.has-hover) : Rectangle {
+        x: 0px;
+        y: (parent.height - self.height) / 2;
+        width: 0.18 * root.unit;
+        height: 64%;
+        border-radius: self.width / 2;
+        background: Theme.accent;
+    }
 
     accessible-role: button;
     accessible-label: root.name + " " + root.description + " " + root.score-details;
@@ -44,8 +55,8 @@ export component StreamRow inherits Rectangle {
         alignment: center;
 
         stream-info := Rectangle {
-            width: 7.5 * root.unit;
-            height: 4.2 * root.unit;
+            width: root.has-thumbnail ? 7.5 * root.unit : 2.8 * root.unit;
+            height: 4.6 * root.unit;
             border-radius: 0.35 * root.unit;
             background: Theme.overlay-color;
             clip: true;
@@ -67,18 +78,15 @@ export component StreamRow inherits Rectangle {
                 }
             }
 
-            if (!root.has-thumbnail) : Text {
-                x: 0.65 * root.unit;
-                width: parent.width - 1.3 * root.unit;
-                height: parent.height;
-                text: root.name;
-                color: Theme.text-primary;
-                opacity: 0.88;
-                font-size: 0.9 * root.unit;
-                font-weight: 600;
-                overflow: elide;
-                vertical-alignment: center;
-                horizontal-alignment: center;
+            if (!root.has-thumbnail) : Image {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 1.35 * root.unit;
+                height: 1.35 * root.unit;
+                source: @image-url("../assets/images/icons/link.svg");
+                colorize: Theme.primary-accent;
+                opacity: 0.75;
+                image-fit: contain;
             }
 
             if (root.progress > 0) : Rectangle {
@@ -98,39 +106,54 @@ export component StreamRow inherits Rectangle {
         VerticalLayout {
             horizontal-stretch: 1;
             alignment: center;
-            spacing: 0.2 * root.unit;
+            spacing: 0.25 * root.unit;
+
+            Text {
+                text: root.name;
+                height: 1.65 * root.unit;
+                color: Theme.text-primary;
+                opacity: 0.96;
+                font-size: 0.98 * root.unit;
+                font-weight: 650;
+                overflow: elide;
+                vertical-alignment: center;
+            }
 
             Text {
                 text: root.description;
-                color: Theme.text-primary;
-                opacity: 0.88;
-                font-size: 0.95 * root.unit;
+                height: 2.7 * root.unit;
+                color: Theme.text-secondary;
+                opacity: 0.72;
+                font-size: 0.82 * root.unit;
                 wrap: word-wrap;
                 overflow: elide;
+                vertical-alignment: top;
             }
         }
 
         if (root.seeders > 0) : Rectangle {
-            width: 4.2 * root.unit;
-            height: 1.55 * root.unit;
+            width: 5.4 * root.unit;
+            height: 2.05 * root.unit;
             border-radius: self.height / 2;
-            background: Theme.overlay-color;
+            background: Theme.success.with-alpha(0.14);
+            border-width: 1px;
+            border-color: Theme.success.with-alpha(0.28);
 
             Text {
                 width: parent.width;
                 height: parent.height;
                 text: "👤 " + root.seeders;
-                color: Theme.text-secondary;
-                font-size: 0.62 * root.unit;
-                font-weight: 650;
+                color: Theme.success;
+                font-size: 0.76 * root.unit;
+                font-weight: 700;
                 horizontal-alignment: center;
                 vertical-alignment: center;
             }
         }
 
         if (root.source-system != "") : Rectangle {
-            width: 4.4 * root.unit;
-            height: 1.55 * root.unit;
+            width: 4.2 * root.unit;
+            height: 1.75 * root.unit;
             border-radius: self.height / 2;
             background: root.source-system == "Direct"
                 ? Theme.overlay-hover
@@ -150,7 +173,7 @@ export component StreamRow inherits Rectangle {
             }
         }
 
-        if (root.score-label != "") : Rectangle {
+        if (root.score-label != "" && root.score-label != "+0") : Rectangle {
             width: 3.75 * root.unit;
             height: 1.8 * root.unit;
             border-radius: self.height / 2;

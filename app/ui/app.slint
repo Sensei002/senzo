@@ -1350,7 +1350,15 @@ export component MainWindow inherits Window {
                     Rectangle {
                         width: Theme.vertical-nav-bar-size;
                         height: Theme.horizontal-nav-bar-size;
-                        background: transparent;
+                        background: Theme.sidebar-background;
+
+                        Rectangle {
+                            x: parent.width - 1px;
+                            y: 0px;
+                            width: 1px;
+                            height: 100%;
+                            background: Theme.divider;
+                        }
                     }
 
                     // Search bar in top navbar

@@ -119,6 +119,35 @@ fn hash_addon(fingerprint: &mut Fingerprint, descriptor: &Descriptor, installed:
     fingerprint.bool(descriptor.manifest.behavior_hints.p2p);
 }
 
+pub(crate) fn addon_identity(value: &str) -> String {
+    let Ok(mut url) = Url::parse(value) else {
+        return value.trim().trim_end_matches('/').to_ascii_lowercase();
+    };
+    url.set_query(None);
+    url.set_fragment(None);
+    url.as_str().trim_end_matches('/').to_ascii_lowercase()
+}
+
+/// Community directory entries use the base manifest URL, while a configured
+/// add-on (Torrentio, for example) stores the same manifest under a
+/// configuration-specific path. The host is the stable identity in that case.
+pub(crate) fn addon_host(value: &str) -> String {
+    let Ok(url) = Url::parse(value) else {
+        return String::new();
+    };
+    url.host_str()
+        .map(|host| host.trim_end_matches('.').to_ascii_lowercase())
+        .unwrap_or_default()
+}
+
+fn addon_matches(left: &str, right: &str) -> bool {
+    if addon_identity(left) == addon_identity(right) {
+        return true;
+    }
+    let left_host = addon_host(left);
+    !left_host.is_empty() && left_host == addon_host(right)
+}
+
 fn addon_types_label(descriptor: &Descriptor) -> String {
     let types = &descriptor.manifest.types;
     match types.as_slice() {
@@ -322,7 +351,9 @@ pub fn setup(
                             profile
                                 .addons
                                 .iter()
-                                .any(|addon| addon.transport_url == url),
+                                .any(|addon| {
+                                    addon_matches(addon.transport_url.as_str(), url.as_str())
+                                }),
                         )
                     };
                     if addons_locked {
@@ -371,9 +402,16 @@ pub fn setup(
                                 .profile
                                 .addons
                                 .iter()
-                                .any(|addon| addon.transport_url == url)
+                                .any(|addon| addon_matches(addon.transport_url.as_str(), url.as_str()))
                         });
                     if installed {
+                        let installed_ui = ui_weak.clone();
+                        let installed_url = url.to_string();
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = installed_ui.upgrade() {
+                                set_community_install_flag(&ui, &installed_url, true);
+                            }
+                        });
                         Ok(name)
                     } else {
                         Err("SENZO could not add this manifest to the local add-on list.".to_owned())
@@ -409,6 +447,7 @@ pub fn setup(
             }
             let rt = runtime.clone();
             let transport_url = transport_url.to_string();
+            let flag_weak = ui_weak.clone();
             tokio::spawn(async move {
                 let model = rt.model().expect("model read failed");
                 if let Ok(url) = Url::parse(&transport_url)
@@ -417,10 +456,19 @@ pub fn setup(
                         .profile
                         .addons
                         .iter()
-                        .find(|a| a.transport_url == url)
+                        .find(|a| {
+                            addon_matches(a.transport_url.as_str(), url.as_str())
+                        })
                 {
                     let descriptor = descriptor.clone();
                     drop(model);
+                    let removed_url = url.to_string();
+                    let removed_ui = flag_weak.clone();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(ui) = removed_ui.upgrade() {
+                            set_community_install_flag(&ui, &removed_url, false);
+                        }
+                    });
                     rt.dispatch(RuntimeAction {
                         field: None,
                         action: Action::Ctx(ActionCtx::UninstallAddon(descriptor)),
@@ -787,11 +835,94 @@ pub fn sync(
 
     let addons_model = slint::VecModel::from(slint_addons);
     ui.set_addons_list(slint::ModelRc::new(addons_model));
+
+    let installed_identities = installed
+        .iter()
+        .map(|addon| addon_identity(addon.transport_url.as_str()))
+        .collect::<HashSet<_>>();
+    let installed_hosts = installed
+        .iter()
+        .map(|addon| addon_host(addon.transport_url.as_str()))
+        .filter(|host| !host.is_empty())
+        .collect::<HashSet<_>>();
+    sync_community_install_flags(ui, &installed_identities, &installed_hosts);
+}
+
+fn set_community_install_flag(ui: &MainWindow, manifest_url: &str, installed: bool) {
+    let identity = addon_identity(manifest_url);
+    let host = addon_host(manifest_url);
+    let model = ui.get_addons_community_list();
+    let mut items = (0..model.row_count())
+        .filter_map(|index| model.row_data(index))
+        .collect::<Vec<AddonItem>>();
+    let mut changed = false;
+    for item in &mut items {
+        let same_addon = addon_identity(item.transport_url.as_str()) == identity
+            || (!host.is_empty() && addon_host(item.transport_url.as_str()) == host);
+        if same_addon && item.is_installed != installed {
+            item.is_installed = installed;
+            changed = true;
+        }
+    }
+    if changed {
+        ui.set_addons_community_list(slint::ModelRc::new(slint::VecModel::from(items)));
+    }
+}
+
+fn sync_community_install_flags(
+    ui: &MainWindow,
+    installed: &HashSet<String>,
+    installed_hosts: &HashSet<String>,
+) {
+    let model = ui.get_addons_community_list();
+    let mut items = (0..model.row_count())
+        .filter_map(|index| model.row_data(index))
+        .collect::<Vec<AddonItem>>();
+    if items.is_empty() {
+        return;
+    }
+    let mut changed = false;
+    for item in &mut items {
+        let host = addon_host(item.transport_url.as_str());
+        let is_installed = installed.contains(&addon_identity(item.transport_url.as_str()))
+            || (!host.is_empty() && installed_hosts.contains(&host));
+        if item.is_installed != is_installed {
+            item.is_installed = is_installed;
+            changed = true;
+        }
+    }
+    if changed {
+        ui.set_addons_community_list(slint::ModelRc::new(slint::VecModel::from(items)));
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::move_item;
+    use super::{addon_host, addon_identity, addon_matches, move_item};
+
+    #[test]
+    fn addon_identity_ignores_configuration_queries_and_trailing_slashes() {
+        assert_eq!(
+            addon_identity("https://torrentio.strem.fun/manifest.json"),
+            addon_identity("https://torrentio.strem.fun/manifest.json?debrid=realdebrid")
+        );
+        assert_eq!(
+            addon_identity("https://Torrentio.Strem.Fun/manifest.json/"),
+            addon_identity("https://torrentio.strem.fun/manifest.json")
+        );
+    }
+
+    #[test]
+    fn configured_manifest_matches_its_community_catalog_entry() {
+        assert_eq!(
+            addon_host("https://torrentio.strem.fun/realdebrid=abc/manifest.json"),
+            "torrentio.strem.fun"
+        );
+        assert!(addon_matches(
+            "https://torrentio.strem.fun/realdebrid=abc/manifest.json",
+            "https://torrentio.strem.fun/manifest.json"
+        ));
+    }
 
     #[test]
     fn move_item_places_the_source_at_the_requested_index() {
