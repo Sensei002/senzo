@@ -13,6 +13,7 @@ export struct DirectProviderCard {
     languages: string,
     formats: string,
     status: string,
+    status-error: bool,
     enabled: bool,
     builtin: bool,
     configurable: bool,
@@ -102,6 +103,7 @@ component ProviderCard inherits Rectangle {
     in property <string> languages;
     in property <string> formats;
     in property <string> status;
+    in property <bool> status-error: false;
     in property <bool> enabled;
     in property <bool> builtin;
     in property <bool> configurable;
@@ -200,7 +202,7 @@ component ProviderCard inherits Rectangle {
             Text {
                 horizontal-stretch: 1;
                 text: root.status;
-                color: root.status.starts-with("Error") ? Theme.danger : Theme.text-muted;
+                color: root.status-error ? Theme.danger : Theme.text-muted;
                 font-size: 0.78 * root.unit;
                 vertical-alignment: center;
                 overflow: elide;
@@ -380,6 +382,7 @@ export component DirectSourcesPage inherits Rectangle {
                 languages: provider.languages;
                 formats: provider.formats;
                 status: provider.status;
+                status-error: provider.status-error;
                 enabled: provider.enabled;
                 builtin: provider.builtin;
                 configurable: provider.configurable;
@@ -542,6 +545,7 @@ export component DirectSourcesPage inherits Rectangle {
                 languages: provider.languages;
                 formats: provider.formats;
                 status: provider.status;
+                status-error: provider.status-error;
                 enabled: provider.enabled;
                 builtin: provider.builtin;
                 configurable: provider.configurable;

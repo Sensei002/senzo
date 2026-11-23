@@ -1082,6 +1082,9 @@ fn project_page(
                     .map(|health| health.status.clone())
                     .unwrap_or_else(|| "Not checked".to_owned())
                     .into(),
+                status_error: health
+                    .get(definition.id)
+                    .is_some_and(|health| health.status.starts_with("Error")),
                 enabled,
                 builtin: true,
                 configurable: definition.configurable,
@@ -1103,6 +1106,9 @@ fn project_page(
                 .map(|health| health.status.clone())
                 .unwrap_or_else(|| "Not checked".to_owned())
                 .into(),
+            status_error: health
+                .get(&source.id)
+                .is_some_and(|health| health.status.starts_with("Error")),
             enabled: source.enabled,
             builtin: false,
             configurable: true,
