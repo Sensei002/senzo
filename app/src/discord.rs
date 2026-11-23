@@ -4,9 +4,41 @@ use std::{
     time::{Duration, Instant},
 };
 
-const DISCORD_APP_ID: &str = "1452620752263319665";
+/// Discord application used for Rich Presence.
+///
+/// This must be a SENZO-owned application from the Discord Developer Portal.
+/// The build sets `SENZO_DISCORD_APP_ID`; an unset value disables presence
+/// instead of borrowing another application's identity.
+const DISCORD_APP_ID: Option<&str> = option_env!("SENZO_DISCORD_APP_ID");
+
+/// Uploaded Rich Presence asset key, or an external HTTPS image. The
+/// fallback is intentionally SENZO-branded; `stremio_logo` was removed.
+const SENZO_FALLBACK_IMAGE: &str = match option_env!("SENZO_DISCORD_FALLBACK_IMAGE") {
+    Some(image) => image,
+    None => DEFAULT_SENZO_FALLBACK_IMAGE,
+};
+const DEFAULT_SENZO_FALLBACK_IMAGE: &str =
+    "https://raw.githubusercontent.com/Sensei002/senzo/development/app/ui/assets/images/senzo-logo.png";
+
+fn fallback_image() -> &'static str {
+    let configured = SENZO_FALLBACK_IMAGE.trim();
+    if configured.is_empty() {
+        DEFAULT_SENZO_FALLBACK_IMAGE
+    } else {
+        configured
+    }
+}
+
 const INITIAL_RETRY_DELAY: Duration = Duration::from_secs(2);
 const MAX_RETRY_DELAY: Duration = Duration::from_secs(30);
+
+fn configured_app_id() -> Option<&'static str> {
+    const STREMIO_APP_ID: &str = "1452620752263319665";
+    DISCORD_APP_ID.filter(|&app_id| {
+        let app_id = app_id.trim();
+        !app_id.is_empty() && app_id != STREMIO_APP_ID
+    })
+}
 
 #[derive(Clone)]
 struct ActivityState {
@@ -30,6 +62,8 @@ struct DiscordWorker {
     desired_activity: Option<ActivityState>,
     next_retry_at: Instant,
     retry_delay: Duration,
+    failure_logged: bool,
+    configuration_logged: bool,
 }
 
 impl DiscordWorker {
@@ -40,6 +74,8 @@ impl DiscordWorker {
             desired_activity: None,
             next_retry_at: Instant::now(),
             retry_delay: INITIAL_RETRY_DELAY,
+            failure_logged: false,
+            configuration_logged: false,
         }
     }
 
@@ -48,6 +84,7 @@ impl DiscordWorker {
             DiscordCommand::Connect => {
                 let was_enabled = self.enabled;
                 self.enabled = true;
+                self.failure_logged = false;
                 if !was_enabled {
                     self.next_retry_at = Instant::now();
                 }
@@ -91,24 +128,45 @@ impl DiscordWorker {
             return;
         }
 
-        let mut next_client = DiscordIpcClient::new(DISCORD_APP_ID);
+        let Some(app_id) = configured_app_id() else {
+            if !self.configuration_logged {
+                self.configuration_logged = true;
+                tracing::warn!(
+                    "Discord Rich Presence is disabled: SENZO_DISCORD_APP_ID is not configured with a SENZO application ID"
+                );
+            }
+            self.enabled = false;
+            return;
+        };
+
+        let mut next_client = DiscordIpcClient::new(app_id);
         match next_client.connect() {
             Ok(()) => {
                 tracing::info!("Discord RPC connected successfully");
                 self.client = Some(next_client);
                 self.retry_delay = INITIAL_RETRY_DELAY;
                 self.next_retry_at = Instant::now();
+                self.failure_logged = false;
                 if let Some(activity) = self.desired_activity.clone() {
                     self.publish_activity(&activity);
                 }
             }
             Err(error) => {
                 let retry_delay = self.schedule_retry();
-                tracing::warn!(
-                    %error,
-                    retry_in_seconds = retry_delay.as_secs(),
-                    "Discord RPC connection unavailable; retry scheduled"
-                );
+                if !self.failure_logged {
+                    self.failure_logged = true;
+                    tracing::warn!(
+                        %error,
+                        retry_in_seconds = retry_delay.as_secs(),
+                        "Discord RPC connection unavailable; retry scheduled"
+                    );
+                } else {
+                    tracing::debug!(
+                        %error,
+                        retry_in_seconds = retry_delay.as_secs(),
+                        "Discord RPC connection still unavailable"
+                    );
+                }
             }
         }
     }
@@ -128,7 +186,7 @@ impl DiscordWorker {
                     activity_state
                         .large_image
                         .as_deref()
-                        .unwrap_or("stremio_logo"),
+                        .unwrap_or(fallback_image()),
                 )
                 .large_text("SENZO"),
         );
@@ -168,6 +226,7 @@ impl DiscordWorker {
         self.next_retry_at = Instant::now();
         if let Some(mut current_client) = self.client.take() {
             tracing::info!("Discord RPC disconnecting");
+            let _ = current_client.clear_activity();
             if let Err(error) = current_client.close() {
                 tracing::error!(%error, "Discord RPC disconnect failed");
             }
@@ -247,5 +306,11 @@ impl DiscordRpc {
         self.commands
             .send(command)
             .map_err(|e| format!("Failed to send Discord command: {e}"))
+    }
+}
+
+impl Drop for DiscordRpc {
+    fn drop(&mut self) {
+        let _ = self.commands.send(DiscordCommand::Disconnect);
     }
 }

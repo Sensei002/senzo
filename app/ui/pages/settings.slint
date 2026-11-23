@@ -540,7 +540,7 @@ export component SettingsPage inherits Rectangle {
                     SettingsOption {
                         unit: root.unit;
                         label: @tr("SETTINGS_DISCORD" => "Show watching activity on Discord");
-                        description: @tr("Show what you are watching in your Discord profile.");
+                        description: @tr("Share the current media title and whether playback is paused with Discord. Stream links, tokens, and account details are never shared.");
                         ToggleSwitch {
                             unit: root.unit;
                             checked: root.discord-rpc-enabled;

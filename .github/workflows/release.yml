@@ -18,6 +18,9 @@ env:
   # Stable releases come from main or a version tag. Branch builds must never
   # offer the last stable release through the in-app updater.
   SENZO_UPDATE_CHANNEL: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/main') && 'stable' || 'development' }}
+  # Must be a SENZO-owned Discord application. Never use Stremio's app id.
+  SENZO_DISCORD_APP_ID: ${{ vars.SENZO_DISCORD_APP_ID }}
+  SENZO_DISCORD_FALLBACK_IMAGE: ${{ vars.SENZO_DISCORD_FALLBACK_IMAGE }}
 
 jobs:
   windows:

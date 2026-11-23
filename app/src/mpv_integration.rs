@@ -33,7 +33,7 @@ use stremio_core::{
     },
     types::{
         addon::ResourcePath,
-        resource::{StreamSource, Subtitles},
+        resource::{MetaItem, StreamSource, Subtitles},
         streaming_server::StatisticsRequest,
         streams::{AudioTrack, StreamItemState, StreamsBucket, StreamsItemKey, SubtitleTrack},
     },
@@ -3279,6 +3279,18 @@ fn format_discord_time(seconds: i64) -> String {
     }
 }
 
+/// Discord caps activity fields at 128 characters. Truncate on a UTF-8
+/// character boundary so non-Latin titles cannot panic the player thread.
+fn truncate_discord_field(value: &str) -> String {
+    const LIMIT: usize = 128;
+    if value.chars().count() <= LIMIT {
+        return value.to_owned();
+    }
+    let mut truncated = value.chars().take(LIMIT - 1).collect::<String>();
+    truncated.push('…');
+    truncated
+}
+
 struct TidbRequest {
     video_key: String,
     id_type: &'static str,
@@ -3290,6 +3302,8 @@ struct TidbRequest {
 
 struct DiscordMedia {
     title: String,
+    discord_details: String,
+    discord_episode: Option<String>,
     image: Option<String>,
     /// Next-best cover candidate (e.g. the background) used only by the OS media
     /// session, so a broken poster URL still yields a thumbnail. Discord fetches
@@ -3302,6 +3316,66 @@ struct CorePlaybackProjection {
     media: Option<DiscordMedia>,
     tidb_request: Option<TidbRequest>,
     resolved_video_hash: Option<Option<String>>,
+}
+
+/// Builds the title used by the OS media session plus the two fields Discord
+/// shows. Discord details stay as the movie/series name; episode identity and
+/// the Watching/Paused status are added to the state line by the caller.
+fn discord_media_fields(
+    meta_item: Option<&MetaItem>,
+    selected: Option<&Selected>,
+) -> (String, String, Option<String>) {
+    let Some(selected) = selected else {
+        return ("Unknown".to_owned(), "Unknown".to_owned(), None);
+    };
+    let Some(meta_item) = meta_item else {
+        let name = selected
+            .stream
+            .name
+            .clone()
+            .unwrap_or_else(|| "Unknown".to_owned());
+        return (name.clone(), name, None);
+    };
+    let preview_name = meta_item.preview.name.clone();
+    let video = selected.stream_request.as_ref().and_then(|request| {
+        meta_item
+            .videos
+            .iter()
+            .find(|video| video.id == request.path.id)
+    });
+    match video {
+        Some(video) if meta_item.preview.behavior_hints.default_video_id.is_none() => {
+            match &video.series_info {
+                Some(series_info) => {
+                    let code = format!(
+                        "S{:02}E{:02}",
+                        series_info.season, series_info.episode
+                    );
+                    let episode = if video.title.trim().is_empty() {
+                        code.clone()
+                    } else {
+                        format!("{code} · {}", video.title.trim())
+                    };
+                    let title = if video.title.trim().is_empty() {
+                        format!("{preview_name} ({code})")
+                    } else {
+                        format!(
+                            "{preview_name} - {} ({}x{})",
+                            video.title, series_info.season, series_info.episode
+                        )
+                    };
+                    (title, preview_name, Some(episode))
+                }
+                None if !video.title.trim().is_empty() && video.title != preview_name => (
+                    format!("{preview_name} - {}", video.title),
+                    preview_name,
+                    None,
+                ),
+                None => (preview_name.clone(), preview_name, None),
+            }
+        }
+        _ => (preview_name.clone(), preview_name, None),
+    }
 }
 
 #[cfg_attr(feature = "profiling", hotpath::measure)]
@@ -3362,39 +3436,10 @@ fn project_core_playback_state(
     // Discord on its own cadence. Gating the Discord case on `discord_enabled`
     // here keeps this off the hot path when Discord is disabled.
     let media = (needs_media_meta || (needs_discord_media && discord_enabled)).then(|| {
-        let title = model
-            .player
-            .selected
-            .as_ref()
-            .and_then(|selected| {
-                meta_item
-                    .zip(selected.stream_request.as_ref())
-                    .map(|(meta_item, stream_request)| {
-                        match meta_item
-                            .videos
-                            .iter()
-                            .find(|video| video.id == stream_request.path.id)
-                        {
-                            Some(video)
-                                if meta_item.preview.behavior_hints.default_video_id.is_none() =>
-                            {
-                                match &video.series_info {
-                                    Some(series_info) => format!(
-                                        "{} - {} ({}x{})",
-                                        meta_item.preview.name,
-                                        video.title,
-                                        series_info.season,
-                                        series_info.episode
-                                    ),
-                                    None => format!("{} - {}", meta_item.preview.name, video.title),
-                                }
-                            }
-                            _ => meta_item.preview.name.to_owned(),
-                        }
-                    })
-                    .or_else(|| selected.stream.name.to_owned())
-            })
-            .unwrap_or_else(|| "Unknown".to_owned());
+        let (title, discord_details, discord_episode) = discord_media_fields(
+            meta_item,
+            model.player.selected.as_ref(),
+        );
         // Ordered cover candidates: poster first, then background, then the
         // library poster. `image` is the primary; the OS media session falls
         // through to the next when an earlier URL cannot be fetched or decoded.
@@ -3427,6 +3472,8 @@ fn project_core_playback_state(
         }
         DiscordMedia {
             title,
+            discord_details,
+            discord_episode,
             image: candidates.first().cloned(),
             image_fallback: candidates.get(1).cloned(),
         }
@@ -3572,31 +3619,35 @@ fn dispatch_state_to_core(
             .as_ref()
             .and_then(|projection| projection.media.as_ref())
         {
-            let discord_state = if state.paused {
-                if duration_secs > 0 {
-                    format!(
-                        "Paused at {} / {}",
-                        format_discord_time(current_time_secs),
-                        format_discord_time(duration_secs)
-                    )
-                } else {
-                    "Paused".to_owned()
-                }
-            } else {
-                "Watching".to_owned()
-            };
+            let status = if state.paused { "Paused" } else { "Watching" };
+            let playback_time = (state.paused && duration_secs > 0).then(|| {
+                format!(
+                    "{} / {}",
+                    format_discord_time(current_time_secs),
+                    format_discord_time(duration_secs)
+                )
+            });
+            let mut state_parts = vec![status.to_owned()];
+            if let Some(episode) = media.discord_episode.as_deref() {
+                state_parts.push(episode.to_owned());
+            }
+            if let Some(playback_time) = playback_time {
+                state_parts.push(playback_time);
+            }
+            let discord_state = truncate_discord_field(&state_parts.join(" · "));
             let (start_timestamp, end_timestamp) = if state.paused {
                 (None, None)
             } else {
                 let now_unix = chrono::Utc::now().timestamp();
+                let remaining = (duration_secs - current_time_secs).max(0);
                 (
                     Some(now_unix - current_time_secs),
-                    (duration_secs > 0).then_some(now_unix + (duration_secs - current_time_secs)),
+                    (duration_secs > 0).then_some(now_unix + remaining),
                 )
             };
             let activity = DiscordActivity {
                 state: discord_state,
-                details: media.title.clone(),
+                details: truncate_discord_field(&media.discord_details),
                 image: media.image.clone(),
                 start_timestamp,
                 end_timestamp,
