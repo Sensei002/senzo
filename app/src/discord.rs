@@ -17,8 +17,7 @@ const SENZO_FALLBACK_IMAGE: &str = match option_env!("SENZO_DISCORD_FALLBACK_IMA
     Some(image) => image,
     None => DEFAULT_SENZO_FALLBACK_IMAGE,
 };
-const DEFAULT_SENZO_FALLBACK_IMAGE: &str =
-    "https://raw.githubusercontent.com/Sensei002/senzo/development/app/ui/assets/images/senzo-logo.png";
+const DEFAULT_SENZO_FALLBACK_IMAGE: &str = "https://raw.githubusercontent.com/Sensei002/senzo/development/app/ui/assets/images/senzo-logo.png";
 
 fn fallback_image() -> &'static str {
     let configured = SENZO_FALLBACK_IMAGE.trim();
@@ -34,10 +33,12 @@ const MAX_RETRY_DELAY: Duration = Duration::from_secs(30);
 
 fn configured_app_id() -> Option<&'static str> {
     const STREMIO_APP_ID: &str = "1452620752263319665";
-    DISCORD_APP_ID.filter(|&app_id| {
-        let app_id = app_id.trim();
-        !app_id.is_empty() && app_id != STREMIO_APP_ID
-    })
+    let app_id = DISCORD_APP_ID?.trim();
+    if app_id.is_empty() || app_id == STREMIO_APP_ID {
+        None
+    } else {
+        Some(app_id)
+    }
 }
 
 #[derive(Clone)]

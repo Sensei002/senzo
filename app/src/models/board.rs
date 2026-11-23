@@ -364,7 +364,7 @@ pub fn sync(
     // 2. Sync the cinematic hero from the same ready catalogue pages. The
     // Board model remains the single source of truth; the hero is a bounded
     // projection (at most six titles) rather than a second network pipeline.
-    {
+    let hero_visible = {
         let _span = tracing::info_span!("sync_hero_slides").entered();
         let mut slides: Vec<HeroSlide> = Vec::new();
         let mut seen = std::collections::HashSet::new();
@@ -388,11 +388,7 @@ pub fn sync(
                     id: item.id.as_str().into(),
                     media_type: item.r#type.as_str().into(),
                     title: item.name.as_str().into(),
-                    description: item
-                        .description
-                        .as_deref()
-                        .unwrap_or_default()
-                        .into(),
+                    description: item.description.as_deref().unwrap_or_default().into(),
                     background_url: item
                         .background
                         .as_ref()
@@ -407,11 +403,7 @@ pub fn sync(
                         .unwrap_or_default()
                         .into(),
                     logo: crate::image_cache::get_cached_image(&item.logo),
-                    release_info: item
-                        .release_info
-                        .as_deref()
-                        .unwrap_or_default()
-                        .into(),
+                    release_info: item.release_info.as_deref().unwrap_or_default().into(),
                     imdb_rating: item
                         .links
                         .iter()
@@ -432,15 +424,33 @@ pub fn sync(
                 crate::image_cache::request_image(slide.logo_url.as_str());
             }
         }
+        let visible = !slides.is_empty();
         ui.set_hero_slides(slint::ModelRc::new(slint::VecModel::from(slides)));
-    }
+        visible
+    };
 
     // 3. Sync Board Sections
     let board_sections = {
         let _span = tracing::info_span!("sync_board_sections").entered();
         let catalog_names = catalog_name_index(addons);
-        let mut board_sections =
-            Vec::with_capacity(board.catalogs.len() + if has_continue_watching { 1 } else { 0 });
+        let mut board_sections = Vec::with_capacity(
+            board.catalogs.len() + usize::from(hero_visible) + usize::from(has_continue_watching),
+        );
+        if hero_visible {
+            board_sections.push(BoardSection {
+                title: "".into(),
+                r_type: "".into(),
+                catalog_id: "".into(),
+                addon_base: "".into(),
+                catalog_index: -1,
+                loading: false,
+                error_message: "".into(),
+                items: slint::ModelRc::new(slint::VecModel::from(Vec::<MediaCardItem>::new())),
+                is_continue_watching: false,
+                poster_shape: "poster".into(),
+                is_hero: true,
+            });
+        }
         if has_continue_watching {
             board_sections.push(BoardSection {
                 title: "Continue watching".into(),
@@ -453,6 +463,7 @@ pub fn sync(
                 items: continue_watching_model,
                 is_continue_watching: true,
                 poster_shape: "poster".into(),
+                is_hero: false,
             });
         }
         for (catalog_index, catalog) in board.catalogs.iter().enumerate() {
@@ -512,6 +523,7 @@ fn section_data_fingerprint(section: &BoardSection) -> SyncFingerprint {
     fp.bool(section.loading);
     fp.str(section.error_message.as_str());
     fp.bool(section.is_continue_watching);
+    fp.bool(section.is_hero);
     fp.str(section.poster_shape.as_str());
     let items = &section.items;
     fp.usize(items.row_count());

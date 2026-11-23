@@ -18,6 +18,9 @@ export struct BoardSection {
     items: [MediaCardItem],
     is-continue-watching: bool,
     poster-shape: string,
+    // The synthetic first row owns the cinematic carousel. It is a normal
+    // ListView item so the hero scrolls away with the shelves underneath.
+    is-hero: bool,
 }
 
 component StreamingServerWarning inherits Rectangle {
@@ -108,29 +111,14 @@ export component BoardPage inherits Rectangle {
     property <length> hero-height: root.hero-slides.length > 0
         ? min(40 * root.unit, max(24 * root.unit, root.height * 0.58))
         : 0px;
-    property <length> shelf-offset: root.hero-slides.length > 0 ? root.hero-height + 0.5 * root.unit : 0px;
 
     background: transparent;
 
-    // The feature carousel is fixed above the vertical shelf viewport. Keeping
-    // the shelves virtualized matters more than scrolling the hero out of view,
-    // and the hero itself still advances on its own timer.
-    if (root.hero-slides.length > 0) : HeroCarousel {
-        x: 0px;
-        y: 0px;
-        width: parent.width;
-        height: root.hero-height;
-        unit: root.unit;
-        slides: root.hero-slides;
-        play-requested(id, media-type) => { root.hero-play-requested(id, media-type); }
-        details-requested(id, media-type) => { root.hero-details-requested(id, media-type); }
-    }
-
     if (root.loading && root.sections.length == 0) : ListView {
         x: root.unit;
-        y: root.shelf-offset;
+        y: 0px;
         width: max(0px, root.width - 2 * root.unit);
-        height: max(0px, parent.height - root.shelf-offset);
+        height: parent.height;
         horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
 
         for _catalog in [0, 1, 2] : MetaRowPlaceholder {
@@ -142,7 +130,7 @@ export component BoardPage inherits Rectangle {
 
     if (!root.loading && root.sections.length == 0) : EmptyState {
         x: root.unit;
-        y: root.shelf-offset;
+        y: 0px;
         width: max(0px, root.width - 2 * root.unit);
         height: 20 * root.unit;
         unit: root.unit;
@@ -155,9 +143,9 @@ export component BoardPage inherits Rectangle {
     // every off-screen catalogue from becoming part of the active image set.
     if (root.sections.length > 0) : ListView {
         x: root.unit;
-        y: root.shelf-offset;
+        y: 0px;
         width: max(0px, root.width - 2 * root.unit);
-        height: max(0px, parent.height - root.shelf-offset);
+        height: parent.height;
         horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
 
         for section in root.sections : Rectangle {
@@ -169,16 +157,29 @@ export component BoardPage inherits Rectangle {
                     : root.card-height);
 
             width: parent.width;
-            height: 3 * root.unit + section-card-height + 2 * root.unit;
+            height: section.is-hero
+                ? root.hero-height + 0.5 * root.unit
+                : 3 * root.unit + section-card-height + 2 * root.unit;
             background: transparent;
 
             init => {
-                if (section.catalog-index >= 0) {
+                if (!section.is-hero && section.catalog-index >= 0) {
                     root.catalog-visible(section.catalog-index);
                 }
             }
 
-            MediaCatalogRow {
+            if (section.is-hero) : HeroCarousel {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: root.hero-height;
+                unit: root.unit;
+                slides: root.hero-slides;
+                play-requested(id, media-type) => { root.hero-play-requested(id, media-type); }
+                details-requested(id, media-type) => { root.hero-details-requested(id, media-type); }
+            }
+
+            if (!section.is-hero) : MediaCatalogRow {
                 width: parent.width;
                 height: parent.height;
                 unit: root.unit;

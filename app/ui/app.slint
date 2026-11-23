@@ -16,6 +16,7 @@ import { ActionsGroup } from "components/action_group.slint";
 import { HorizontalScroll } from "components/horizontal_scroll.slint";
 import { FallbackImage } from "components/fallback_image.slint";
 import { DelayedRenderer, VisibilityTransition } from "components/transition.slint";
+import { BootScreen } from "components/boot_screen.slint";
 import { HorizontalNavBar, HorizontalNavButton, NavMenuPanel } from "components/horizontal_nav.slint";
 import { KeyCap, ShortcutComboView, ShortcutCombosView, ShortcutsGroup } from "components/shortcuts.slint";
 import { SharePrompt } from "components/share_prompt.slint";
@@ -30,7 +31,8 @@ import { HeroSlide } from "components/hero_carousel.slint";
 import { DiscoverPage, DiscoverRow, DiscoverFilterOption } from "pages/discover.slint";
 import { LibraryPage, LibraryRow } from "pages/library.slint";
 import { AddonsPage, AddonItem } from "pages/addons.slint";
-import { DirectSourcesPage, DirectProviderCard, DirectDiscoveryResult } from "pages/direct_sources.slint";
+import { PluginsPage, PluginProviderCard, PluginRepositoryCard } from "pages/plugins.slint";
+import { DirectProviderCard, DirectDiscoveryResult } from "pages/direct_sources.slint";
 import { DetailsPage, StreamLink, EpisodeItem } from "pages/details.slint";
 import { SettingsPage, OmniphonyAudioSettings } from "pages/settings.slint";
 import { ThemePage } from "pages/theme.slint";
@@ -94,7 +96,7 @@ component GuideSectionTitle inherits Text {
 }
 
 export { ColorUtils, ParsedColor, CursorSample, SavedGradient }
-export { Theme, IconData, MediaCardItem, StreamLink, EpisodeItem, CastDevice, BoardSection, HeroSlide, DiscoverRow, LibraryRow, AddonItem, CalendarRow, CalendarCell, CalendarMediaItem, SearchSuggestion, DownloadItem, HotkeyItem, DirectProviderCard, DirectDiscoveryResult }
+export { Theme, IconData, MediaCardItem, StreamLink, EpisodeItem, CastDevice, BoardSection, HeroSlide, DiscoverRow, LibraryRow, AddonItem, CalendarRow, CalendarCell, CalendarMediaItem, SearchSuggestion, DownloadItem, HotkeyItem, PluginProviderCard, PluginRepositoryCard, DirectProviderCard, DirectDiscoveryResult }
 
 // Windows drives the notification area itself and renders this panel instead of
 // the platform menu; see `tray/windows.rs`.
@@ -383,9 +385,19 @@ export component MainWindow inherits Window {
     in-out property <string> avatar-letter: "U";
     in-out property <image> avatar-image;
     in-out property <bool> has-avatar-image: false;
-    in property <image> default-avatar-icon: @image-url("assets/images/default_avatar.png");
-    in property <image> anonymous-icon: @image-url("assets/images/anonymous.png");
+    in property <image> default-avatar-icon: @image-url("assets/images/anon-spirit.svg");
+    in property <image> anonymous-icon: @image-url("assets/images/anon-spirit.svg");
     in-out property <bool> loading: false;
+    // Cold-start cover. It hides as soon as the first identity is projected,
+    // or after a bounded fallback when the user is signed out.
+    in-out property <bool> boot-loading: true;
+    private property <float> boot-opacity: 1.0;
+    animate boot-opacity { duration: 420ms; easing: ease-out; }
+    changed boot-loading => {
+        if (!boot-loading) {
+            root.boot-opacity = 0.0;
+        }
+    }
     in-out property <string> error-message: "";
 
     // Plugin system
@@ -438,7 +450,7 @@ export component MainWindow inherits Window {
     in-out property <string> addon-details-error: "";
     in-out property <bool> addon-details-configurable: false;
     in-out property <bool> addon-details-configuration-required: false;
-    // Direct Sources is intentionally separate from the add-on list.
+    // Retained for the Direct Sources subsystem; the sidebar entry is replaced by Plugins.
     in-out property <bool> direct-master-enabled: true;
     in-out property <bool> direct-busy: false;
     in-out property <string> direct-status: "";
@@ -456,6 +468,15 @@ export component MainWindow inherits Window {
     in-out property <bool> direct-form-enabled: true;
     in-out property <string> direct-form-error: "";
     in-out property <string> direct-discover-domain: "";
+    // Nuvio-compatible plugin repositories and providers.
+    in-out property <bool> plugins-master-enabled: true;
+    in-out property <bool> plugins-group-by-repository: false;
+    in-out property <bool> plugins-busy: false;
+    in-out property <string> plugins-status: "";
+    in-out property <bool> plugins-status-error: false;
+    in-out property <[PluginRepositoryCard]> plugin-repositories: [];
+    in-out property <[PluginProviderCard]> plugin-providers: [];
+    in-out property <string> plugins-repository-url: "";
     in-out property <[StreamLink]> stream-links: [];
     in-out property <[string]> detail-stream-providers: ["All"];
     in-out property <int> detail-stream-loading-count: 0;
@@ -1018,7 +1039,7 @@ export component MainWindow inherits Window {
     callback addons-community-unlock-adult(string, string, string, string, string);
     callback addons-community-open-directory;
 
-    // Direct Sources callbacks (independent provider manager).
+    // Direct Sources callbacks (retained for the provider subsystem).
     callback direct-master-changed(bool);
     callback direct-provider-toggled(string, bool);
     callback direct-provider-validate(string);
@@ -1033,6 +1054,16 @@ export component MainWindow inherits Window {
     callback direct-export;
     callback direct-cancel;
     callback direct-retry;
+
+    // Plugin repository manager callbacks.
+    callback plugins-master-changed(bool);
+    callback plugins-group-changed(bool);
+    callback plugin-repository-add(string);
+    callback plugin-repository-refresh(string);
+    callback plugin-repository-remove(string);
+    callback plugin-provider-toggled(string, bool);
+    callback plugin-provider-tested(string);
+    callback plugin-refresh-all;
 
     // Details callbacks
     callback details-toggle-library();
@@ -1958,43 +1989,26 @@ export component MainWindow inherits Window {
                         community-open-directory => { addons-community-open-directory(); }
                     }
 
-                    if (root.effective-active-tab == 12) : DirectSourcesPage {
+                    if (root.effective-active-tab == 12) : PluginsPage {
                         width: parent.width;
                         height: parent.height;
                         unit: root.ui-unit;
-                        master-enabled <=> root.direct-master-enabled;
-                        busy: root.direct-busy;
-                        status: root.direct-status;
-                        status-error: root.direct-status-error;
-                        builtin-providers: root.direct-builtin-providers;
-                        custom-providers: root.direct-custom-providers;
-                        discoveries: root.direct-discoveries;
-                        form-open <=> root.direct-form-open;
-                        form-id <=> root.direct-form-id;
-                        form-name <=> root.direct-form-name;
-                        form-url <=> root.direct-form-url;
-                        form-type <=> root.direct-form-type;
-                        form-content-types <=> root.direct-form-content-types;
-                        form-formats <=> root.direct-form-formats;
-                        form-enabled <=> root.direct-form-enabled;
-                        form-error <=> root.direct-form-error;
-                        discover-domain <=> root.direct-discover-domain;
-                        master-changed(enabled) => { root.direct-master-changed(enabled); }
-                        provider-toggled(id, enabled) => { root.direct-provider-toggled(id, enabled); }
-                        provider-validated(id) => { root.direct-provider-validate(id); }
-                        source-add => { root.direct-source-add(); }
-                        source-edit(id) => { root.direct-source-edit(id); }
-                        source-remove(id) => { root.direct-source-remove(id); }
-                        source-save(id, name, url, kind, content-types, formats, enabled) => {
-                            root.direct-source-save(id, name, url, kind, content-types, formats, enabled);
-                        }
-                        source-cancel => { root.direct-source-cancel(); }
-                        discover(domain) => { root.direct-discover(domain); }
-                        discovery-add(id) => { root.direct-discovery-add(id); }
-                        import-sources => { root.direct-import(); }
-                        export-sources => { root.direct-export(); }
-                        cancel => { root.direct-cancel(); }
-                        retry => { root.direct-retry(); }
+                        master-enabled: root.plugins-master-enabled;
+                        group-by-repository: root.plugins-group-by-repository;
+                        repositories: root.plugin-repositories;
+                        providers: root.plugin-providers;
+                        busy: root.plugins-busy;
+                        status: root.plugins-status;
+                        status-error: root.plugins-status-error;
+                        repository-url <=> root.plugins-repository-url;
+                        master-changed(enabled) => { root.plugins-master-changed(enabled); }
+                        group-changed(grouped) => { root.plugins-group-changed(grouped); }
+                        repository-add(url) => { root.plugin-repository-add(url); }
+                        repository-refresh(url) => { root.plugin-repository-refresh(url); }
+                        repository-remove(url) => { root.plugin-repository-remove(url); }
+                        provider-toggled(id, enabled) => { root.plugin-provider-toggled(id, enabled); }
+                        provider-tested(id) => { root.plugin-provider-tested(id); }
+                        refresh-all => { root.plugin-refresh-all(); }
                     }
 
                     if (root.effective-active-tab == 4) : SettingsPage {
@@ -3082,6 +3096,28 @@ export component MainWindow inherits Window {
             }
         }
 
+    }
+
+    changed username => {
+        if (username != "") {
+            root.boot-loading = false;
+        }
+    }
+
+
+    boot-fallback-timer := Timer {
+        interval: 3.2s;
+        running: root.boot-loading;
+        triggered => { root.boot-loading = false; }
+    }
+
+    if (root.boot-loading || root.boot-opacity > 0.01) : BootScreen {
+        width: 100%;
+        height: 100%;
+        z: 500;
+        unit: root.ui-unit;
+        active: root.boot-loading;
+        opacity: root.boot-opacity;
     }
 
     if (root.debug-preview-enabled) : AppDebugMenu {

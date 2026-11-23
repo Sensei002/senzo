@@ -1,8 +1,12 @@
 # SENZO Direct Sources
 
+> **Note:** In current builds the sidebar entry is **Plugins**, which installs
+> Nuvio-compatible provider repositories. The Direct Sources provider
+> subsystem described here remains in the codebase but is no longer mounted as
+> a separate tab. See [PLUGINS.md](PLUGINS.md).
+
 Direct Sources is an independent provider subsystem that runs beside the
-existing Stremio add-on system. It has its own navigation entry, provider
-manager, stream results and filters. It does not install, modify, replace or
+existing Stremio add-on system. It keeps its own provider manager, stream results and filters. It does not install, modify, replace or
 proxy Stremio add-ons. Torrentio remains an optional, separately installed
 Stremio add-on and is never imported as a Direct Source.
 

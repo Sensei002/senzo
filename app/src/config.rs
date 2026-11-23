@@ -44,6 +44,8 @@ pub struct AppConfig {
     /// Independent Direct Sources subsystem. Kept separate from installed
     /// Stremio add-ons and Torrentio.
     pub direct_sources: crate::direct_sources::types::DirectSourcesConfig,
+    /// Nuvio-compatible plugin repositories and provider toggles.
+    pub plugins: crate::nuvio_plugins::PluginsConfig,
 }
 
 fn default_font_family() -> String {
@@ -155,7 +157,7 @@ impl Default for ThemeConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            config_version: 5,
+            config_version: 6,
             server_url: "http://127.0.0.1:11470".to_string(),
             active_tab: 0,
             auto_launch_player: true,
@@ -178,6 +180,7 @@ impl Default for AppConfig {
             region: "US".to_owned(),
             home_row_order: Vec::new(),
             direct_sources: crate::direct_sources::types::DirectSourcesConfig::default(),
+            plugins: crate::nuvio_plugins::PluginsConfig::default(),
         }
     }
 }
@@ -305,14 +308,18 @@ impl AppConfig {
                 (135.0, "#a855f7", "#121212"),
                 (135.0, "#f97316", "#431407"),
             ];
-            let gradients_match_previous_defaults = self.theme.saved_gradients.len() == previous_gradients.len()
-                && self.theme.saved_gradients.iter().zip(previous_gradients).all(
-                    |(gradient, (angle, start, end))| {
+            let gradients_match_previous_defaults = self.theme.saved_gradients.len()
+                == previous_gradients.len()
+                && self
+                    .theme
+                    .saved_gradients
+                    .iter()
+                    .zip(previous_gradients)
+                    .all(|(gradient, (angle, start, end))| {
                         gradient.angle == angle
                             && gradient.start.eq_ignore_ascii_case(start)
                             && gradient.end.eq_ignore_ascii_case(end)
-                    },
-                );
+                    });
             if gradients_match_previous_defaults {
                 self.theme.saved_gradients = ThemeConfig::default().saved_gradients;
             }
@@ -325,6 +332,16 @@ impl AppConfig {
             // that was disabled is never re-enabled here.
             self.direct_sources.ensure_builtin_defaults();
             self.config_version = 5;
+        }
+        if self.config_version < 6 {
+            // Plugin repositories arrived in version 6; providers stay off
+            // until the user explicitly enables them.
+            if self.plugins.repositories.is_empty() {
+                self.plugins
+                    .repositories
+                    .push(crate::nuvio_plugins::PluginRepository::default());
+            }
+            self.config_version = 6;
         }
         self.config_version != original_version
     }
@@ -484,7 +501,7 @@ mod tests {
         let mut config = legacy_config();
 
         assert!(config.migrate());
-        assert_eq!(config.config_version, 5);
+        assert_eq!(config.config_version, 6);
         assert_eq!(config.theme.background, "#080d11");
         assert_eq!(config.theme.secondary_background, "#0d171d");
         assert_eq!(config.theme.success, "#34d399");
@@ -496,7 +513,7 @@ mod tests {
         config.theme.accent = "#ff3366".to_string();
 
         assert!(config.migrate());
-        assert_eq!(config.config_version, 5);
+        assert_eq!(config.config_version, 6);
         assert_eq!(config.theme.background, "#080d11");
         assert_eq!(config.theme.accent, "#ff3366");
     }
@@ -512,7 +529,7 @@ mod tests {
         };
 
         assert!(config.migrate());
-        assert_eq!(config.config_version, 5);
+        assert_eq!(config.config_version, 6);
         assert_eq!(
             config.hover_trailer_preview_delay_ms,
             DEFAULT_HOVER_PREVIEW_DELAY_MS
@@ -573,8 +590,7 @@ mod tests {
         let mut config = AppConfig::default();
         config.guest_mode = true;
         let serialized = serde_json::to_string(&config).expect("serialize guest config");
-        let restored: AppConfig =
-            serde_json::from_str(&serialized).expect("restore guest config");
+        let restored: AppConfig = serde_json::from_str(&serialized).expect("restore guest config");
         assert!(restored.guest_mode);
     }
 }

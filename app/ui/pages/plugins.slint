@@ -1,0 +1,507 @@
+import { Theme } from "../theme.slint";
+import { ScrollView } from "std-widgets.slint";
+import { PillButton, ButtonSurface } from "../components/button.slint";
+import { NativeTextField } from "../components/text_input.slint";
+import { ToggleSwitch } from "../components/toggle.slint";
+
+export struct PluginProviderCard {
+    id: string,
+    name: string,
+    description: string,
+    repository: string,
+    version: string,
+    content-types: string,
+    languages: string,
+    formats: string,
+    status: string,
+    status-error: bool,
+    enabled: bool,
+    has-settings: bool,
+}
+
+export struct PluginRepositoryCard {
+    url: string,
+    name: string,
+    version: string,
+    provider-count: int,
+    status: string,
+    status-error: bool,
+}
+
+component SectionHeading inherits Rectangle {
+    in property <length> unit: Theme.root-font-size;
+    in property <string> title;
+    in property <string> description;
+    in property <string> trailing;
+
+    height: 3.2 * root.unit;
+    background: transparent;
+
+    HorizontalLayout {
+        spacing: root.unit;
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 0.2 * root.unit;
+            Text {
+                text: root.title;
+                color: Theme.text-primary;
+                font-size: 1.05 * root.unit;
+                font-weight: 700;
+            }
+            Text {
+                text: root.description;
+                color: Theme.text-muted;
+                font-size: 0.8 * root.unit;
+                overflow: elide;
+            }
+        }
+        Text {
+            text: root.trailing;
+            color: Theme.text-muted;
+            font-size: 0.76 * root.unit;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component TinyButton inherits ButtonSurface {
+    in property <length> unit: Theme.root-font-size;
+    in property <string> label;
+    in property <bool> danger: false;
+
+    height: 2.1 * root.unit;
+    border-radius: self.height / 2;
+    background: self.has-hover
+        ? (root.danger ? Theme.danger : Theme.overlay-hover)
+        : Theme.overlay-color;
+    accessible-name: root.label;
+
+    Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.label;
+        color: root.danger && root.has-hover ? Theme.background : Theme.text-primary;
+        font-size: 0.72 * root.unit;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+component PluginProviderRow inherits Rectangle {
+    in property <length> unit: Theme.root-font-size;
+    in property <PluginProviderCard> provider;
+
+    callback toggled(string, bool);
+    callback tested(string);
+
+    height: 8.2 * root.unit;
+    border-radius: Theme.border-radius;
+    background: Theme.card-background;
+    border-width: 1px;
+    border-color: Theme.card-border;
+
+    VerticalLayout {
+        padding: 1.1 * root.unit;
+        spacing: 0.5 * root.unit;
+
+        HorizontalLayout {
+            spacing: 0.8 * root.unit;
+
+            Rectangle {
+                width: 2.8 * root.unit;
+                height: 2.8 * root.unit;
+                border-radius: 0.8 * root.unit;
+                background: Theme.overlay-color;
+
+                Image {
+                    width: 1.45 * root.unit;
+                    height: 1.45 * root.unit;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    source: @image-url("../assets/images/icons/plugins.svg");
+                    colorize: root.provider.enabled ? Theme.primary-accent : Theme.text-muted;
+                    image-fit: contain;
+                }
+            }
+
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 0.15 * root.unit;
+                alignment: center;
+
+                HorizontalLayout {
+                    spacing: 0.5 * root.unit;
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.provider.name;
+                        color: Theme.text-primary;
+                        font-size: 0.96 * root.unit;
+                        font-weight: 700;
+                        overflow: elide;
+                    }
+                    if (root.provider.has-settings) : Rectangle {
+                        height: 1.25 * root.unit;
+                        width: 4.4 * root.unit;
+                        border-radius: self.height / 2;
+                        background: Theme.overlay-hover;
+                        Text {
+                            text: "SETTINGS";
+                            color: Theme.primary-accent;
+                            font-size: 0.55 * root.unit;
+                            font-weight: 700;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                Text {
+                    text: root.provider.repository + "  ·  v" + root.provider.version;
+                    color: Theme.text-muted;
+                    font-size: 0.7 * root.unit;
+                    overflow: elide;
+                }
+            }
+
+            ToggleSwitch {
+                checked: root.provider.enabled;
+                unit: root.unit;
+                active-color: Theme.primary-accent;
+                toggled => { root.toggled(root.provider.id, self.checked); }
+            }
+        }
+
+        Text {
+            text: root.provider.description;
+            color: Theme.text-secondary;
+            font-size: 0.76 * root.unit;
+            overflow: elide;
+        }
+
+        HorizontalLayout {
+            spacing: 0.6 * root.unit;
+            Text {
+                horizontal-stretch: 1;
+                text: root.provider.content-types + "  ·  " + root.provider.formats;
+                color: Theme.text-muted;
+                font-size: 0.7 * root.unit;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            Text {
+                text: root.provider.status;
+                color: root.provider.status-error ? Theme.danger : Theme.success;
+                font-size: 0.7 * root.unit;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            TinyButton {
+                unit: root.unit;
+                width: 4.8 * root.unit;
+                label: "Test";
+                clicked => { root.tested(root.provider.id); }
+            }
+        }
+    }
+}
+
+component RepositoryRow inherits Rectangle {
+    in property <length> unit: Theme.root-font-size;
+    in property <PluginRepositoryCard> repository;
+
+    callback refreshed(string);
+    callback removed(string);
+
+    height: 7.2 * root.unit;
+    border-radius: Theme.border-radius;
+    background: Theme.card-background;
+    border-width: 1px;
+    border-color: Theme.card-border;
+
+    VerticalLayout {
+        padding: 1.1 * root.unit;
+        spacing: 0.35 * root.unit;
+
+        HorizontalLayout {
+            spacing: 0.7 * root.unit;
+            Text {
+                horizontal-stretch: 1;
+                text: root.repository.name;
+                color: Theme.text-primary;
+                font-size: 1.1 * root.unit;
+                font-weight: 700;
+                overflow: elide;
+            }
+            Text {
+                text: "v" + root.repository.version;
+                color: Theme.text-muted;
+                font-size: 0.78 * root.unit;
+                vertical-alignment: center;
+            }
+            TinyButton {
+                unit: root.unit;
+                width: 4.8 * root.unit;
+                label: "Refresh";
+                clicked => { root.refreshed(root.repository.url); }
+            }
+            TinyButton {
+                unit: root.unit;
+                width: 4.4 * root.unit;
+                label: "Delete";
+                danger: true;
+                clicked => { root.removed(root.repository.url); }
+            }
+        }
+
+        Text {
+            text: root.repository.url;
+            color: Theme.text-muted;
+            font-size: 0.7 * root.unit;
+            overflow: elide;
+        }
+
+        Text {
+            text: root.repository.provider-count + " providers  ·  " + root.repository.status;
+            color: root.repository.status-error ? Theme.danger : Theme.text-secondary;
+            font-size: 0.72 * root.unit;
+            overflow: elide;
+        }
+    }
+}
+
+export component PluginsPage inherits Rectangle {
+    in property <length> unit: Theme.root-font-size;
+    in property <bool> master-enabled: true;
+    in property <bool> group-by-repository: false;
+    in property <[PluginRepositoryCard]> repositories: [];
+    in property <[PluginProviderCard]> providers: [];
+    in property <bool> busy: false;
+    in property <string> status: "";
+    in property <bool> status-error: false;
+    in-out property <string> repository-url: "";
+
+    callback master-changed(bool);
+    callback group-changed(bool);
+    callback repository-add(string);
+    callback repository-refresh(string);
+    callback repository-remove(string);
+    callback provider-toggled(string, bool);
+    callback provider-tested(string);
+    callback refresh-all;
+
+    background: Theme.background;
+
+    ScrollView {
+        width: parent.width;
+        height: parent.height;
+        viewport-width: root.width;
+
+        VerticalLayout {
+            x: 0px;
+            y: 0px;
+            width: 100%;
+            padding-left: 2 * root.unit;
+            padding-right: 2 * root.unit;
+            padding-top: 1.5 * root.unit;
+            padding-bottom: 2 * root.unit;
+            spacing: 1.1 * root.unit;
+
+            HorizontalLayout {
+                spacing: root.unit;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 0.25 * root.unit;
+                    Text {
+                        text: "Plugins";
+                        color: Theme.text-primary;
+                        font-size: 1.9 * root.unit;
+                        font-weight: 800;
+                    }
+                    Text {
+                        text: "Install provider repositories and choose which scrapers run when you open a title.";
+                        color: Theme.text-muted;
+                        font-size: 0.88 * root.unit;
+                        wrap: word-wrap;
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 0.25 * root.unit;
+                    Text {
+                        text: root.master-enabled ? "ENABLED" : "DISABLED";
+                        color: root.master-enabled ? Theme.success : Theme.text-muted;
+                        font-size: 0.62 * root.unit;
+                        font-weight: 700;
+                        horizontal-alignment: right;
+                    }
+                    ToggleSwitch {
+                        checked: root.master-enabled;
+                        unit: root.unit;
+                        active-color: Theme.primary-accent;
+                        toggled => { root.master-changed(self.checked); }
+                    }
+                }
+            }
+
+            if (root.status != "") : Rectangle {
+                height: 2.5 * root.unit;
+                border-radius: Theme.border-radius;
+                background: root.status-error ? Theme.danger : Theme.overlay-color;
+                border-width: 1px;
+                border-color: root.status-error ? Theme.danger : Theme.card-border;
+                Text {
+                    x: root.unit;
+                    width: parent.width - 2 * root.unit;
+                    height: parent.height;
+                    text: root.status;
+                    color: root.status-error ? Theme.danger : Theme.text-secondary;
+                    font-size: 0.8 * root.unit;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+
+            Rectangle {
+                height: 7.4 * root.unit;
+                border-radius: Theme.border-radius;
+                background: Theme.card-background;
+                border-width: 1px;
+                border-color: Theme.card-border;
+
+                VerticalLayout {
+                    padding: 1 * root.unit;
+                    spacing: 0.35 * root.unit;
+
+                    HorizontalLayout {
+                        spacing: 0.35 * root.unit;
+                        Text {
+                            text: root.repositories.length + " repositories";
+                            color: Theme.primary-accent;
+                            font-size: 0.7 * root.unit;
+                            font-weight: 700;
+                        }
+                        Text {
+                            text: root.providers.length + " providers";
+                            color: Theme.quaternary-accent;
+                            font-size: 0.7 * root.unit;
+                            font-weight: 700;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 0.7 * root.unit;
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 0.1 * root.unit;
+                            Text {
+                                text: "Sort providers by repository";
+                                color: Theme.text-primary;
+                                font-size: 0.85 * root.unit;
+                                font-weight: 600;
+                            }
+                            Text {
+                                text: "Keep providers from the same manifest together in the installed list.";
+                                color: Theme.text-muted;
+                                font-size: 0.72 * root.unit;
+                                overflow: elide;
+                            }
+                        }
+                        ToggleSwitch {
+                            checked: root.group-by-repository;
+                            unit: root.unit;
+                            active-color: Theme.primary-accent;
+                            toggled => { root.group-changed(self.checked); }
+                        }
+                    }
+                }
+            }
+
+            SectionHeading {
+                unit: root.unit;
+                title: "Add repository";
+                description: "Install a Nuvio-compatible plugin manifest. The manifest lists provider scripts hosted by that repository.";
+                trailing: root.busy ? "Working…" : "";
+            }
+
+            HorizontalLayout {
+                spacing: 0.7 * root.unit;
+                NativeTextField {
+                    horizontal-stretch: 1;
+                    unit: root.unit;
+                    text <=> root.repository-url;
+                    placeholder-text: "https://example.com/manifest.json";
+                    accepted => { root.repository-add(root.repository-url); }
+                }
+                PillButton {
+                    unit: root.unit;
+                    label: "Install Plugin Repository";
+                    primary: true;
+                    enabled: root.repository-url != "" && !root.busy;
+                    clicked => { root.repository-add(root.repository-url); }
+                }
+            }
+
+            SectionHeading {
+                unit: root.unit;
+                title: "Installed repositories";
+                description: "Refresh a repository to discover new providers without losing your enabled choices.";
+                trailing: root.repositories.length + " installed";
+            }
+
+            if (root.repositories.length == 0) : Text {
+                text: "No plugin repositories installed yet. Paste a manifest URL above to add one.";
+                color: Theme.text-muted;
+                font-size: 0.82 * root.unit;
+                wrap: word-wrap;
+            }
+
+            for repository in root.repositories : RepositoryRow {
+                unit: root.unit;
+                repository: repository;
+                refreshed(url) => { root.repository-refresh(url); }
+                removed(url) => { root.repository-remove(url); }
+            }
+
+            HorizontalLayout {
+                spacing: 0.7 * root.unit;
+                SectionHeading {
+                    horizontal-stretch: 1;
+                    unit: root.unit;
+                    title: "Providers";
+                    description: "Turn individual plugin providers on or off. Disabled providers are not queried.";
+                    trailing: root.providers.length + " available";
+                }
+                PillButton {
+                    unit: root.unit;
+                    label: "Refresh all";
+                    enabled: !root.busy;
+                    clicked => { root.refresh-all(); }
+                }
+            }
+
+            if (root.providers.length == 0) : Text {
+                text: "No providers loaded. Install a repository and refresh it to fetch its provider manifest.";
+                color: Theme.text-muted;
+                font-size: 0.82 * root.unit;
+                wrap: word-wrap;
+            }
+
+            for provider in root.providers : PluginProviderRow {
+                unit: root.unit;
+                provider: provider;
+                toggled(id, enabled) => { root.provider-toggled(id, enabled); }
+                tested(id) => { root.provider-tested(id); }
+            }
+
+            Text {
+                text: "Plugins are community-maintained scrapers. SENZO does not host their content, bypass logins or DRM, and only runs providers you explicitly enable. Install repositories you trust.";
+                color: Theme.text-muted;
+                font-size: 0.72 * root.unit;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

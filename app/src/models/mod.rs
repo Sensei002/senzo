@@ -218,7 +218,10 @@ pub(crate) fn spawn_catalog_visibility_loader(
                 (selected, catalog_count, range)
             });
             let Some((selected, catalog_count, range)) = snapshot else {
-                tracing::error!(?scope, "could not read Core model while loading visible catalog rows");
+                tracing::error!(
+                    ?scope,
+                    "could not read Core model while loading visible catalog rows"
+                );
                 continue;
             };
             tracing::info!(
@@ -401,6 +404,7 @@ pub(crate) fn project_catalog_section(
         items: ModelRc::new(slint::VecModel::from(cards)),
         is_continue_watching: false,
         poster_shape: poster_shape.into(),
+        is_hero: false,
     })
 }
 

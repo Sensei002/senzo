@@ -59,6 +59,7 @@ pub mod metadata_enrichment;
 mod models;
 mod mpv_integration;
 pub mod network_tools;
+pub mod nuvio_plugins;
 mod paths;
 mod performance;
 mod playback;
@@ -74,9 +75,9 @@ mod shaders;
 mod shortcuts;
 mod single_instance;
 mod taskbar_media;
-mod torrent_cache_cleanup;
 mod theme_studio;
 mod thumbnail_preview;
+mod torrent_cache_cleanup;
 mod tray;
 mod window_events;
 mod window_hooks;
@@ -700,12 +701,7 @@ async fn finish_startup(
         None => ui.set_hover_preview_enabled(false),
     }
 
-    direct_sources::setup(
-        &ui,
-        runtime.clone(),
-        playback_selections.clone(),
-        &config.direct_sources,
-    );
+    nuvio_plugins::setup(&ui, &config.plugins);
 
     event_loop::start_event_loop(
         rx,
@@ -2118,6 +2114,8 @@ fn sync_tab_from_model(
             }
         }
         Tab::Downloads => {}
-        Tab::DirectSources => {}
+        Tab::Plugins => {
+            crate::nuvio_plugins::ensure_loaded();
+        }
     }
 }

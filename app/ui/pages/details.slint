@@ -24,6 +24,8 @@ export struct StreamLink {
     score-reasons: [string],
     score-summary: string,
     filtered: bool,
+    group-start: bool,
+    provider-count: int,
 }
 
 export struct EpisodeItem {
@@ -585,14 +587,52 @@ export component DetailsPage inherits Rectangle {
                     width: parent.width;
                     // The additional 0.1rem preserves the web row gap while
                     // allowing ListView to virtualize off-screen streams.
-                    height: self.matches-provider ? 5.8 * root.unit : 0px;
+                    height: self.matches-provider
+                        ? (stream.group-start ? 8.3 * root.unit : 5.8 * root.unit)
+                        : 0px;
                     clip: true;
                     background: transparent;
+
+                    if (stream.group-start && stream-delegate.matches-provider) : Rectangle {
+                        height: 2.4 * root.unit;
+                        background: transparent;
+                        HorizontalLayout {
+                            padding-left: 0.2 * root.unit;
+                            padding-right: 0.2 * root.unit;
+                            spacing: 0.6 * root.unit;
+                            Text {
+                                text: stream.provider;
+                                color: Theme.text-primary;
+                                font-size: 0.85 * root.unit;
+                                font-weight: 700;
+                                vertical-alignment: center;
+                            }
+                            Rectangle {
+                                height: 1.35 * root.unit;
+                                width: 5.6 * root.unit;
+                                border-radius: self.height / 2;
+                                background: stream.source-system == "Direct"
+                                    ? Theme.overlay-color
+                                    : Theme.overlay-color;
+                                Text {
+                                    text: stream.source-system == "Direct" ? "DIRECT" : (stream.provider-count + " SOURCES");
+                                    color: stream.source-system == "Direct"
+                                        ? Theme.primary-accent
+                                        : Theme.text-muted;
+                                    font-size: 0.55 * root.unit;
+                                    font-weight: 700;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+                    }
 
                     StreamRow {
                         visible: stream-delegate.matches-provider;
                         x: 0px;
-                        y: 0px;
+                        y: stream.group-start ? 2.4 * root.unit : 0px;
                         width: parent.width;
                         height: 5.6 * root.unit;
                         unit: root.unit;

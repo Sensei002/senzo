@@ -39,7 +39,7 @@ pub(crate) fn project_stream_selection_views(
     ui_weak: &slint::Weak<MainWindow>,
     stream_selection_views: Vec<crate::playback::StreamSelectionView>,
 ) {
-    let stream_links: Vec<StreamLink> = stream_selection_views
+    let mut stream_links: Vec<StreamLink> = stream_selection_views
         .into_iter()
         .map(|link| {
             let score_summary = link.score_reasons.join(", ");
@@ -66,9 +66,39 @@ pub(crate) fn project_stream_selection_views(
                 )),
                 score_summary: score_summary.into(),
                 filtered: link.filtered,
+                group_start: false,
+                provider_count: 0,
             }
         })
         .collect();
+    // Keep every provider in one contiguous block so the drawer can render a
+    // heading per source group. Ranking still decides the order inside a group.
+    stream_links.sort_by(|left, right| {
+        left.provider
+            .to_lowercase()
+            .cmp(&right.provider.to_lowercase())
+            .then_with(|| left.source_system.cmp(&right.source_system))
+    });
+    let mut counts: std::collections::HashMap<(String, String), i32> =
+        std::collections::HashMap::new();
+    for stream in &stream_links {
+        *counts
+            .entry((
+                stream.provider.to_string(),
+                stream.source_system.to_string(),
+            ))
+            .or_default() += 1;
+    }
+    let mut previous_group: Option<(String, String)> = None;
+    for stream in &mut stream_links {
+        let group = (
+            stream.provider.to_string(),
+            stream.source_system.to_string(),
+        );
+        stream.provider_count = counts.get(&group).copied().unwrap_or(0);
+        stream.group_start = previous_group.as_ref() != Some(&group);
+        previous_group = Some(group);
+    }
     let mut providers = vec![slint::SharedString::from("All")];
     let has_direct = stream_links
         .iter()
@@ -367,7 +397,8 @@ pub fn start_event_loop(
                             discover_selectable_types = model.discover.selectable.types.len(),
                             discover_selectable_catalogs = model.discover.selectable.catalogs.len(),
                             remote_addons_selected = model.remote_addons.selected.is_some(),
-                            remote_addons_selectable_catalogs = model.remote_addons.selectable.catalogs.len(),
+                            remote_addons_selectable_catalogs =
+                                model.remote_addons.selectable.catalogs.len(),
                             "Core content state update received by SENZO event loop"
                         );
                     }
