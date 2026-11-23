@@ -16,6 +16,7 @@ export struct StreamLink {
     name: string,
     description: string,
     provider: string,
+    source-system: string,
     thumbnail-url: string,
     thumbnail: image,
     progress: float,
@@ -578,7 +579,9 @@ export component DetailsPage inherits Rectangle {
                 for stream in root.streams : stream-delegate := Rectangle {
                     private property <bool> matches-provider:
                         root.active-stream-provider == "All"
-                            || stream.provider == root.active-stream-provider;
+                            || stream.provider == root.active-stream-provider
+                            || (root.active-stream-provider == "Direct Sources" && stream.source-system == "Direct")
+                            || (root.active-stream-provider == "Add-ons" && stream.source-system == "Add-on");
                     width: parent.width;
                     // The additional 0.1rem preserves the web row gap while
                     // allowing ListView to virtualize off-screen streams.
@@ -595,6 +598,7 @@ export component DetailsPage inherits Rectangle {
                         unit: root.unit;
                         name: stream.name;
                         description: stream.description;
+                        source-system: stream.source-system;
                         score-label: root.ranking-mode == "Original" ? "" : (stream.score >= 0 ? "+" + stream.score : "" + stream.score);
                         score-details: stream.score-summary;
                         filtered: stream.filtered;

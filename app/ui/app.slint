@@ -30,6 +30,7 @@ import { HeroSlide } from "components/hero_carousel.slint";
 import { DiscoverPage, DiscoverRow, DiscoverFilterOption } from "pages/discover.slint";
 import { LibraryPage, LibraryRow } from "pages/library.slint";
 import { AddonsPage, AddonItem } from "pages/addons.slint";
+import { DirectSourcesPage, DirectProviderCard, DirectDiscoveryResult } from "pages/direct_sources.slint";
 import { DetailsPage, StreamLink, EpisodeItem } from "pages/details.slint";
 import { SettingsPage, OmniphonyAudioSettings } from "pages/settings.slint";
 import { ThemePage } from "pages/theme.slint";
@@ -93,7 +94,7 @@ component GuideSectionTitle inherits Text {
 }
 
 export { ColorUtils, ParsedColor, CursorSample, SavedGradient }
-export { Theme, IconData, MediaCardItem, StreamLink, EpisodeItem, CastDevice, BoardSection, HeroSlide, DiscoverRow, LibraryRow, AddonItem, CalendarRow, CalendarCell, CalendarMediaItem, SearchSuggestion, DownloadItem, HotkeyItem }
+export { Theme, IconData, MediaCardItem, StreamLink, EpisodeItem, CastDevice, BoardSection, HeroSlide, DiscoverRow, LibraryRow, AddonItem, CalendarRow, CalendarCell, CalendarMediaItem, SearchSuggestion, DownloadItem, HotkeyItem, DirectProviderCard, DirectDiscoveryResult }
 
 // Windows drives the notification area itself and renders this panel instead of
 // the platform menu; see `tray/windows.rs`.
@@ -437,6 +438,24 @@ export component MainWindow inherits Window {
     in-out property <string> addon-details-error: "";
     in-out property <bool> addon-details-configurable: false;
     in-out property <bool> addon-details-configuration-required: false;
+    // Direct Sources is intentionally separate from the add-on list.
+    in-out property <bool> direct-master-enabled: true;
+    in-out property <bool> direct-busy: false;
+    in-out property <string> direct-status: "";
+    in-out property <bool> direct-status-error: false;
+    in-out property <[DirectProviderCard]> direct-builtin-providers: [];
+    in-out property <[DirectProviderCard]> direct-custom-providers: [];
+    in-out property <[DirectDiscoveryResult]> direct-discoveries: [];
+    in-out property <bool> direct-form-open: false;
+    in-out property <string> direct-form-id: "";
+    in-out property <string> direct-form-name: "";
+    in-out property <string> direct-form-url: "";
+    in-out property <string> direct-form-type: "M3U playlist";
+    in-out property <string> direct-form-content-types: "movie, series";
+    in-out property <string> direct-form-formats: "m3u8, mp4";
+    in-out property <bool> direct-form-enabled: true;
+    in-out property <string> direct-form-error: "";
+    in-out property <string> direct-discover-domain: "";
     in-out property <[StreamLink]> stream-links: [];
     in-out property <[string]> detail-stream-providers: ["All"];
     in-out property <int> detail-stream-loading-count: 0;
@@ -999,6 +1018,22 @@ export component MainWindow inherits Window {
     callback addons-community-unlock-adult(string, string, string, string, string);
     callback addons-community-open-directory;
 
+    // Direct Sources callbacks (independent provider manager).
+    callback direct-master-changed(bool);
+    callback direct-provider-toggled(string, bool);
+    callback direct-provider-validate(string);
+    callback direct-source-add;
+    callback direct-source-edit(string);
+    callback direct-source-remove(string);
+    callback direct-source-save(string, string, string, string, string, string, bool);
+    callback direct-source-cancel;
+    callback direct-discover(string);
+    callback direct-discovery-add(string);
+    callback direct-import;
+    callback direct-export;
+    callback direct-cancel;
+    callback direct-retry;
+
     // Details callbacks
     callback details-toggle-library();
     callback details-toggle-watched();
@@ -1277,21 +1312,13 @@ export component MainWindow inherits Window {
                     padding-right: root.ui-unit;
                     alignment: space-between;
 
-                    // Left Block: Logo symbol
+                    // The sidebar owns the single large SENZO brand mark. Keep
+                    // this slot as an alignment spacer instead of repeating a
+                    // second, smaller logo in the top navigation bar.
                     Rectangle {
                         width: Theme.vertical-nav-bar-size;
                         height: Theme.horizontal-nav-bar-size;
-                        
-                        Image {
-                            source: @image-url("assets/images/senzo-logo.png");
-                            width: 2.5 * root.ui-unit;
-                            height: 2.5 * root.ui-unit;
-                            x: (parent.width - self.width) / 2;
-                            y: (parent.height - self.height) / 2;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                            opacity: 0.9;
-                        }
+                        background: transparent;
                     }
 
                     // Search bar in top navbar
@@ -1929,6 +1956,45 @@ export component MainWindow inherits Window {
                             addons-community-unlock-adult(pin, media-type, sort, category, query);
                         }
                         community-open-directory => { addons-community-open-directory(); }
+                    }
+
+                    if (root.effective-active-tab == 12) : DirectSourcesPage {
+                        width: parent.width;
+                        height: parent.height;
+                        unit: root.ui-unit;
+                        master-enabled <=> root.direct-master-enabled;
+                        busy: root.direct-busy;
+                        status: root.direct-status;
+                        status-error: root.direct-status-error;
+                        builtin-providers: root.direct-builtin-providers;
+                        custom-providers: root.direct-custom-providers;
+                        discoveries: root.direct-discoveries;
+                        form-open <=> root.direct-form-open;
+                        form-id <=> root.direct-form-id;
+                        form-name <=> root.direct-form-name;
+                        form-url <=> root.direct-form-url;
+                        form-type <=> root.direct-form-type;
+                        form-content-types <=> root.direct-form-content-types;
+                        form-formats <=> root.direct-form-formats;
+                        form-enabled <=> root.direct-form-enabled;
+                        form-error <=> root.direct-form-error;
+                        discover-domain <=> root.direct-discover-domain;
+                        master-changed(enabled) => { root.direct-master-changed(enabled); }
+                        provider-toggled(id, enabled) => { root.direct-provider-toggled(id, enabled); }
+                        provider-validated(id) => { root.direct-provider-validate(id); }
+                        source-add => { root.direct-source-add(); }
+                        source-edit(id) => { root.direct-source-edit(id); }
+                        source-remove(id) => { root.direct-source-remove(id); }
+                        source-save(id, name, url, kind, content-types, formats, enabled) => {
+                            root.direct-source-save(id, name, url, kind, content-types, formats, enabled);
+                        }
+                        source-cancel => { root.direct-source-cancel(); }
+                        discover(domain) => { root.direct-discover(domain); }
+                        discovery-add(id) => { root.direct-discovery-add(id); }
+                        import-sources => { root.direct-import(); }
+                        export-sources => { root.direct-export(); }
+                        cancel => { root.direct-cancel(); }
+                        retry => { root.direct-retry(); }
                     }
 
                     if (root.effective-active-tab == 4) : SettingsPage {

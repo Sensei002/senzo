@@ -41,6 +41,9 @@ pub struct AppConfig {
     pub download_bandwidth_limit_bps: u64,
     pub region: String,
     pub home_row_order: Vec<String>,
+    /// Independent Direct Sources subsystem. Kept separate from installed
+    /// Stremio add-ons and Torrentio.
+    pub direct_sources: crate::direct_sources::types::DirectSourcesConfig,
 }
 
 fn default_font_family() -> String {
@@ -152,7 +155,7 @@ impl Default for ThemeConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            config_version: 4,
+            config_version: 5,
             server_url: "http://127.0.0.1:11470".to_string(),
             active_tab: 0,
             auto_launch_player: true,
@@ -174,6 +177,7 @@ impl Default for AppConfig {
             download_bandwidth_limit_bps: 0,
             region: "US".to_owned(),
             home_row_order: Vec::new(),
+            direct_sources: crate::direct_sources::types::DirectSourcesConfig::default(),
         }
     }
 }
@@ -313,6 +317,14 @@ impl AppConfig {
                 self.theme.saved_gradients = ThemeConfig::default().saved_gradients;
             }
             self.config_version = 4;
+        }
+        if self.config_version < 5 {
+            // Direct Sources arrived in version 5. New installs start with the
+            // subsystem and its vetted built-ins enabled; an existing profile
+            // keeps every explicit provider state it already has. A provider
+            // that was disabled is never re-enabled here.
+            self.direct_sources.ensure_builtin_defaults();
+            self.config_version = 5;
         }
         self.config_version != original_version
     }
@@ -472,7 +484,7 @@ mod tests {
         let mut config = legacy_config();
 
         assert!(config.migrate());
-        assert_eq!(config.config_version, 4);
+        assert_eq!(config.config_version, 5);
         assert_eq!(config.theme.background, "#080d11");
         assert_eq!(config.theme.secondary_background, "#0d171d");
         assert_eq!(config.theme.success, "#34d399");
@@ -484,7 +496,7 @@ mod tests {
         config.theme.accent = "#ff3366".to_string();
 
         assert!(config.migrate());
-        assert_eq!(config.config_version, 4);
+        assert_eq!(config.config_version, 5);
         assert_eq!(config.theme.background, "#080d11");
         assert_eq!(config.theme.accent, "#ff3366");
     }
@@ -500,7 +512,7 @@ mod tests {
         };
 
         assert!(config.migrate());
-        assert_eq!(config.config_version, 3);
+        assert_eq!(config.config_version, 5);
         assert_eq!(
             config.hover_trailer_preview_delay_ms,
             DEFAULT_HOVER_PREVIEW_DELAY_MS

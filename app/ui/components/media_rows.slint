@@ -7,6 +7,7 @@ export component StreamRow inherits Rectangle {
     in property <length> unit: 16px;
     in property <string> name;
     in property <string> description;
+    in property <string> source-system: "";
     in property <string> score-label: "";
     in property <string> score-details: "";
     in property <bool> filtered: false;
@@ -105,6 +106,26 @@ export component StreamRow inherits Rectangle {
                 font-size: 0.95 * root.unit;
                 wrap: word-wrap;
                 overflow: elide;
+            }
+        }
+
+        if (root.source-system != "") : Rectangle {
+            width: 4.4 * root.unit;
+            height: 1.55 * root.unit;
+            border-radius: self.height / 2;
+            background: root.source-system == "Direct"
+                ? Theme.overlay-hover
+                : Theme.overlay-color;
+
+            Text {
+                width: parent.width;
+                height: parent.height;
+                text: root.source-system == "Direct" ? "DIRECT" : "ADD-ON";
+                color: root.source-system == "Direct" ? Theme.primary-accent : Theme.text-muted;
+                font-size: 0.58 * root.unit;
+                font-weight: 700;
+                horizontal-alignment: center;
+                vertical-alignment: center;
             }
         }
 

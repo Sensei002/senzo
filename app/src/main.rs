@@ -46,6 +46,7 @@ pub mod customization;
 pub mod db;
 mod deep_link;
 pub mod diagnostics;
+pub mod direct_sources;
 pub mod downloads;
 mod gpu_prewarm;
 pub mod image_cache;
@@ -698,6 +699,13 @@ async fn finish_startup(
         }
         None => ui.set_hover_preview_enabled(false),
     }
+
+    direct_sources::setup(
+        &ui,
+        runtime.clone(),
+        playback_selections.clone(),
+        &config.direct_sources,
+    );
 
     event_loop::start_event_loop(
         rx,
@@ -2110,5 +2118,6 @@ fn sync_tab_from_model(
             }
         }
         Tab::Downloads => {}
+        Tab::DirectSources => {}
     }
 }

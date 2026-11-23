@@ -15,6 +15,7 @@ pub enum Tab {
     Shows,
     Anime,
     Kids,
+    DirectSources,
 }
 
 impl Tab {
@@ -31,6 +32,7 @@ impl Tab {
             Self::Shows => 9,
             Self::Anime => 10,
             Self::Kids => 11,
+            Self::DirectSources => 12,
         }
     }
 
@@ -58,6 +60,7 @@ impl TryFrom<i32> for Tab {
             9 => Ok(Self::Shows),
             10 => Ok(Self::Anime),
             11 => Ok(Self::Kids),
+            12 => Ok(Self::DirectSources),
             invalid => Err(invalid),
         }
     }

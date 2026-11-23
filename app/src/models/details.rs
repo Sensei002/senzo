@@ -874,6 +874,9 @@ pub fn sync(
         .unwrap_or_default();
     drop(_span);
     ui.set_details_loading(false);
+    // Direct Sources is an independent provider system. It observes the same
+    // TMDB/IMDb identity as the details model and never touches add-on state.
+    crate::direct_sources::on_details_synced(meta_details);
 
     // Keep the underlying details state current even while Discover renders
     // the compact preview. Trailer playback and the Show action both reuse

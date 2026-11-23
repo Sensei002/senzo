@@ -9,9 +9,11 @@ use std::{
 use stremio_core::{
     models::{common::Loadable, meta_details::MetaDetails, player::Selected},
     types::{
-        addon::{Descriptor, ResourcePath},
+        addon::{Descriptor, ResourcePath, ResourceRequest},
         profile::Settings,
-        resource::{MetaItemPreview, Stream},
+        resource::{
+            MetaItemPreview, Stream, StreamBehaviorHints, StreamProxyHeaders, StreamSource, Subtitles,
+        },
     },
 };
 
@@ -45,11 +47,30 @@ pub struct StreamSelectionView {
     pub name: String,
     pub description: String,
     pub provider: String,
+    /// `Direct` or `Add-on`. The details drawer groups filters by this value so
+    /// the two source systems stay distinct without duplicating either list.
+    pub source_system: String,
     pub thumbnail: Option<String>,
     pub progress: f32,
     pub score: i32,
     pub score_reasons: Vec<String>,
     pub filtered: bool,
+}
+
+/// A Direct Sources result retained in the native playback selection table.
+/// The URL has already passed provider validation and is re-validated by the
+/// player path. Headers are authorized provider headers and are never logged.
+#[derive(Clone, Debug)]
+pub struct DirectSelection {
+    pub id: String,
+    pub provider_name: String,
+    pub title: String,
+    pub description: String,
+    pub media_type: String,
+    pub video_id: Option<String>,
+    pub url: String,
+    pub headers: std::collections::BTreeMap<String, String>,
+    pub subtitles: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -67,6 +88,7 @@ fn stream_selection_id(resource_index: usize, stream_index: usize) -> String {
 pub struct PlaybackSelections {
     entries: RwLock<HashMap<String, RegisteredSelection>>,
     trailer_id: RwLock<Option<String>>,
+    direct: RwLock<Vec<DirectSelection>>,
     ranking_mode: AtomicU8,
     show_filtered: AtomicBool,
     source_generation: AtomicU64,
@@ -84,6 +106,10 @@ impl PlaybackSelections {
             .trailer_id
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        self.direct
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
         self.debrid_availability
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -243,6 +269,7 @@ impl PlaybackSelections {
                                 .unwrap_or("Addon")
                                 .to_owned()
                         }),
+                    source_system: "Add-on".to_owned(),
                     score: 0,
                     score_reasons: Vec::new(),
                     filtered: false,
@@ -303,6 +330,88 @@ impl PlaybackSelections {
                 .unwrap_or(usize::MAX)
         });
 
+        // Direct Sources are appended after the ranked add-on list. They keep
+        // their provider order and are never mixed into torrent ranking: the
+        // two systems answer different questions and are filtered separately.
+        let direct_selections = self
+            .direct
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        for selection in direct_selections {
+            let Ok(url) = url::Url::parse(&selection.url) else {
+                continue;
+            };
+            let stream_request = selection.video_id.as_ref().and_then(|video_id| {
+                url::Url::parse("https://direct.senzo.local/")
+                    .ok()
+                    .map(|base| ResourceRequest {
+                        base,
+                        path: ResourcePath {
+                            resource: "stream".to_owned(),
+                            r#type: selection.media_type.clone(),
+                            id: video_id.clone(),
+                            extra: Vec::new(),
+                        },
+                    })
+            });
+            let headers = selection.headers.iter().fold(
+                HashMap::new(),
+                |mut headers, (name, value)| {
+                    headers.insert(name.clone(), value.clone());
+                    headers
+                },
+            );
+            let stream = Stream {
+                source: StreamSource::Url { url },
+                name: Some(selection.title.clone()),
+                description: Some(selection.description.clone()),
+                thumbnail: None,
+                subtitles: selection
+                    .subtitles
+                    .iter()
+                    .filter_map(|subtitle| url::Url::parse(subtitle).ok())
+                    .map(|url| Subtitles {
+                        id: url.to_string(),
+                        lang: "und".to_owned(),
+                        url,
+                        label: None,
+                    })
+                    .collect(),
+                behavior_hints: StreamBehaviorHints {
+                    proxy_headers: (!headers.is_empty()).then_some(StreamProxyHeaders {
+                        request: headers,
+                        response: HashMap::new(),
+                    }),
+                    ..Default::default()
+                },
+            };
+            next_entries.insert(
+                selection.id.clone(),
+                RegisteredSelection {
+                    selected: Selected {
+                        stream,
+                        stream_request,
+                        meta_request: meta_request.clone(),
+                        subtitles_path: None,
+                    },
+                    stream_name: selection.title.clone(),
+                },
+            );
+            views.push(StreamSelectionView {
+                id: selection.id,
+                name: selection.title,
+                description: selection.description,
+                provider: selection.provider_name,
+                source_system: "Direct".to_owned(),
+                thumbnail: None,
+                progress: 0.0,
+                score: 0,
+                score_reasons: Vec::new(),
+                filtered: false,
+            });
+        }
+
         match self.entries.write() {
             Ok(mut entries) => *entries = next_entries,
             Err(poisoned) => *poisoned.into_inner() = next_entries,
@@ -319,6 +428,20 @@ impl PlaybackSelections {
             Ok(id) => id.clone(),
             Err(poisoned) => poisoned.into_inner().clone(),
         }
+    }
+
+    pub fn set_direct_results(&self, selections: Vec<DirectSelection>) {
+        *self
+            .direct
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = selections;
+    }
+
+    pub fn clear_direct_results(&self) {
+        self.direct
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
     }
 
     pub fn set_ranking_mode(&self, mode: stream_ranking::RankingMode) {

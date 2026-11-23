@@ -48,6 +48,7 @@ pub(crate) fn project_stream_selection_views(
                 name: link.name.into(),
                 description: link.description.into(),
                 provider: link.provider.into(),
+                source_system: link.source_system.into(),
                 thumbnail: link
                     .thumbnail
                     .as_deref()
@@ -69,6 +70,18 @@ pub(crate) fn project_stream_selection_views(
         })
         .collect();
     let mut providers = vec![slint::SharedString::from("All")];
+    let has_direct = stream_links
+        .iter()
+        .any(|stream| stream.source_system == "Direct");
+    let has_addon = stream_links
+        .iter()
+        .any(|stream| stream.source_system == "Add-on");
+    if has_direct {
+        providers.push(slint::SharedString::from("Direct Sources"));
+    }
+    if has_addon {
+        providers.push(slint::SharedString::from("Add-ons"));
+    }
     for stream in &stream_links {
         if !providers
             .iter()

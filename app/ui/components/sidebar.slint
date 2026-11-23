@@ -156,6 +156,16 @@ export component Sidebar inherits Rectangle {
         NavTabButton {
             x: (parent.width - self.width) / 2;
             unit: root.unit;
+            label: @tr("Direct Sources" => "Direct Sources");
+            icon-source: @image-url("../assets/images/icons/channels-outline.svg");
+            active-icon-source: @image-url("../assets/images/icons/channels.svg");
+            selected: root.active-tab == 12;
+            clicked => { root.change-tab(12); }
+            double-clicked => { root.tab-double-clicked(12); }
+        }
+        NavTabButton {
+            x: (parent.width - self.width) / 2;
+            unit: root.unit;
             label: @tr("DOWNLOADS_TITLE" => "Downloads");
             icon-source: @image-url("../assets/images/icons/download.svg");
             active-icon-source: @image-url("../assets/images/icons/download.svg");

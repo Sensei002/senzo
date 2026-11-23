@@ -51,6 +51,7 @@ VersionInfoProductVersion={#AppVersion}
 Type: files; Name: "{app}\stremio-native.exe"
 Type: files; Name: "{group}\Stremio Native.lnk"
 Type: filesandordirs; Name: "{userprograms}\Stremio Native"
+Type: filesandordirs; Name: "{localappdata}\Programs\Stremio Native"
 Type: files; Name: "{autodesktop}\Stremio Native.lnk"
 Type: files; Name: "{userstartup}\Stremio Native.lnk"
 

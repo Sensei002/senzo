@@ -66,6 +66,12 @@ Built with **Rust** and **Slint**, SENZO has its own interface, visual identity,
 - Native localization resources for English, Portuguese, and Arabic.
 - Configurable playback, subtitle, audio, and application preferences.
 
+### Direct Sources
+
+- A separate **Direct Sources** manager with vetted built-in providers, your own authorized M3U/JSON sources, and domain-restricted discovery.
+- Direct results appear alongside add-on streams with a clear `DIRECT` tag and a separate source filter, then play through the existing native MPV pipeline.
+- Direct Sources is independent of Stremio add-ons. Torrentio is never imported or enabled by it; see [docs/DIRECT_SOURCES.md](docs/DIRECT_SOURCES.md) for the source formats and security model.
+
 ### Integrations
 
 - Compatibility with Stremio-compatible catalogs and community add-ons.
