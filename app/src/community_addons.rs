@@ -211,7 +211,7 @@ impl CommunityAddonClient {
                     ?category,
                     has_query,
                     page = page_number,
-                    "Stremio Addons directory request started"
+                    "Add-on directory request started"
                 );
                 let response = self
                     .client
@@ -221,7 +221,7 @@ impl CommunityAddonClient {
                     .map_err(|error| {
                         tracing::error!(
                             error = %error.without_url(),
-                            "Stremio Addons directory request failed"
+                            "Add-on directory request failed"
                         );
                         CommunityAddonError::Unavailable
                     })?;
@@ -229,7 +229,7 @@ impl CommunityAddonClient {
                 tracing::info!(
                     %status,
                     elapsed_ms = request_started.elapsed().as_millis(),
-                    "Stremio Addons directory HTTP response received"
+                    "Add-on directory HTTP response received"
                 );
                 if !status.is_success() {
                     return Err(CommunityAddonError::Unavailable);
@@ -254,12 +254,12 @@ impl CommunityAddonClient {
                 addon_count = page.addons.len(),
                 has_next_page = page.has_next_page,
                 elapsed_ms = started.elapsed().as_millis(),
-                "Stremio Addons directory results parsed"
+                "Add-on directory results parsed"
             ),
             Err(error) => tracing::warn!(
                 %error,
                 elapsed_ms = started.elapsed().as_millis(),
-                "Stremio Addons directory load failed"
+                "Add-on directory load failed"
             ),
         }
         result
@@ -627,7 +627,7 @@ async fn fetch_and_project(
                 ui.set_addons_community_has_next_page(false);
                 ui.set_addons_community_loading(false);
                 ui.set_error_message(
-                    format!("The Stremio Addons directory is unavailable: {error}").into(),
+                    format!("The add-on directory is unavailable: {error}").into(),
                 );
             }
         }
@@ -635,7 +635,7 @@ async fn fetch_and_project(
     if let Err(error) = projection_result {
         tracing::error!(
             %error,
-            "could not project Stremio Addons directory results to the Slint UI"
+            "could not project Add-on directory results to the Slint UI"
         );
     }
 }

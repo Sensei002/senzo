@@ -327,7 +327,7 @@ pub fn setup(
                     };
                     if addons_locked {
                         return Err(
-                            "The add-on list is locked because its Stremio sync failed. Re-enter Guest mode or sign in and retry."
+                            "The add-on list is locked because its account sync failed. Re-enter Guest mode or sign in and retry."
                                 .to_owned(),
                         );
                     }

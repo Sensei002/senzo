@@ -289,7 +289,7 @@ pub fn setup_ui_callbacks(
                     .upgrade()
                     .map(|ui| ui.get_player_title().to_string())
                     .filter(|title| !title.is_empty())
-                    .unwrap_or_else(|| "Stremio download".to_owned());
+                    .unwrap_or_else(|| "SENZO download".to_owned());
                 enqueue_player_source(
                     manager.clone(),
                     weak.clone(),
@@ -312,7 +312,7 @@ pub fn setup_ui_callbacks(
                     .upgrade()
                     .map(|ui| ui.get_player_title().to_string())
                     .filter(|title| !title.is_empty())
-                    .unwrap_or_else(|| "Stremio subtitles".to_owned());
+                    .unwrap_or_else(|| "SENZO subtitles".to_owned());
                 enqueue_player_source(
                     manager.clone(),
                     weak.clone(),

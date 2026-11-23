@@ -9450,7 +9450,7 @@ dependencies = [
 
 [[package]]
 name = "senzo"
-version = "1.0.6"
+version = "0.1.0"
 dependencies = [
  "aes 0.8.4",
  "aes-gcm",

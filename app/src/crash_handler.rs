@@ -21,7 +21,7 @@ use chrono::Utc;
 use minidumper::{Client, LoopAction, MinidumpBinary, Server, ServerHandler, SocketName};
 use uuid::Uuid;
 
-const REPORTER_MODE: &str = "--stremio-crash-reporter";
+const REPORTER_MODE: &str = "--senzo-crash-reporter";
 const METADATA_MESSAGE_KIND: u32 = 1;
 const REPORTER_START_TIMEOUT: Duration = Duration::from_secs(5);
 const REPORTER_STOP_TIMEOUT: Duration = Duration::from_millis(250);
@@ -277,7 +277,7 @@ fn process_metadata(log_dir: &Path) -> String {
         std::env::consts::OS,
         std::env::consts::ARCH,
         executable,
-        log_dir.join("stremio.log").display(),
+        log_dir.join("senzo.log").display(),
     )
 }
 
@@ -438,7 +438,7 @@ fn append_crash_log(
 fn crash_dialog_message(log_dir: &Path, report: &CrashReport) -> String {
     match (&report.dump_path, &report.error) {
         (Some(path), None) => format!(
-            "SENZO closed unexpectedly.\n\nA diagnostic minidump was saved to:\n{}\n\nPlease include this file and stremio.log when reporting the issue.\n\nOpen the crash reports folder?",
+            "SENZO closed unexpectedly.\n\nA diagnostic minidump was saved to:\n{}\n\nPlease include this file and senzo.log when reporting the issue.\n\nOpen the crash reports folder?",
             path.display()
         ),
         _ => format!(
@@ -499,7 +499,7 @@ fn show_crash_dialog(
 
         dialog.set_app_version(env!("CARGO_PKG_VERSION").into());
         dialog.set_build_version(env!("SENZO_BUILD_VERSION").into());
-        let log_path_str = log_dir.join("stremio.log").display().to_string();
+        let log_path_str = log_dir.join("senzo.log").display().to_string();
         dialog.set_log_path(log_path_str.clone().into());
 
         let dump_path_str = report

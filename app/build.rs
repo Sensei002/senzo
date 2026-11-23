@@ -56,14 +56,14 @@ fn escape_po_string(s: &str) -> String {
 fn normalize_build_version(value: &str) -> Option<String> {
     let value = value.trim();
     (!value.is_empty()
-        && value
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric()))
-    .then(|| value.chars().take(12).collect())
+        && value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '+')
+        }))
+    .then(|| value.chars().take(32).collect())
 }
 
 fn build_version() -> String {
-    ["SENZO_BUILD_VERSION", "GITHUB_SHA", "CI_COMMIT_SHA"]
+    let revision = ["SENZO_BUILD_VERSION", "GITHUB_SHA", "CI_COMMIT_SHA"]
         .into_iter()
         .find_map(|name| {
             std::env::var(name)
@@ -80,7 +80,17 @@ fn build_version() -> String {
                 .and_then(|output| String::from_utf8(output.stdout).ok())
                 .and_then(|value| normalize_build_version(&value))
         })
-        .unwrap_or_else(|| "development".to_owned())
+        .unwrap_or_else(|| "development".to_owned());
+    let package_version = env!("CARGO_PKG_VERSION");
+    if revision == package_version
+        || revision.starts_with(&format!("{package_version}-"))
+        || revision.starts_with(&format!("{package_version}+"))
+        || revision.starts_with(&format!("{package_version}."))
+    {
+        revision
+    } else {
+        format!("{package_version}-{revision}")
+    }
 }
 
 fn translation_paths(translations_src_dir: &Path) -> std::io::Result<Vec<PathBuf>> {

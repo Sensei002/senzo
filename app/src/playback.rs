@@ -55,6 +55,7 @@ pub struct StreamSelectionView {
     pub score: i32,
     pub score_reasons: Vec<String>,
     pub filtered: bool,
+    pub seeders: u32,
 }
 
 /// A Direct Sources result retained in the native playback selection table.
@@ -86,6 +87,7 @@ pub struct PluginSelection {
     pub file_idx: Option<u16>,
     pub headers: Vec<(String, String)>,
     pub subtitles: Vec<String>,
+    pub seeders: u32,
 }
 
 #[derive(Clone)]
@@ -293,6 +295,7 @@ impl PlaybackSelections {
                     score: 0,
                     score_reasons: Vec::new(),
                     filtered: false,
+                    seeders: seeders.unwrap_or_default(),
                 });
                 rank_inputs.push(stream_ranking::RankInput {
                     id,
@@ -429,6 +432,7 @@ impl PlaybackSelections {
                 score: 0,
                 score_reasons: Vec::new(),
                 filtered: false,
+                seeders: 0,
             });
         }
 
@@ -507,6 +511,7 @@ impl PlaybackSelections {
                 score: 0,
                 score_reasons: Vec::new(),
                 filtered: false,
+                seeders: selection.seeders,
             });
         }
 

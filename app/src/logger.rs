@@ -17,7 +17,7 @@ pub struct LoggerGuards {
 }
 
 pub fn init_logger(profile: &ProfileConfig, paths: &AppPaths) -> anyhow::Result<LoggerGuards> {
-    let log_path = paths.logs().join("stremio.log");
+    let log_path = paths.logs().join("senzo.log");
     // A fixed, truncated file makes each report correspond to exactly one run.
     let log_file = std::fs::File::create(&log_path)?;
     let (file_writer, file_guard) = tracing_appender::non_blocking(log_file);

@@ -1,6 +1,8 @@
 import { ScrollView, ListView } from "std-widgets.slint";
 import { Theme, IconData } from "../theme.slint";
 import { ButtonSurface, ChevronTextButton, IconAction, PillButton } from "../components/button.slint";
+import { Chip } from "../components/chip.slint";
+import { HorizontalScroll } from "../components/horizontal_scroll.slint";
 import { EmptyState, SkeletonBlock } from "../components/feedback.slint";
 import { StreamRow, Video, VideoPlaceholder } from "../components/media_rows.slint";
 import { MetaPreview, MetaPreviewPlaceholder } from "../components/meta_preview.slint";
@@ -26,6 +28,7 @@ export struct StreamLink {
     filtered: bool,
     group-start: bool,
     provider-count: int,
+    seeders: int,
 }
 
 export struct EpisodeItem {
@@ -131,7 +134,6 @@ export component DetailsPage inherits Rectangle {
 
     in property <length> unit: Theme.root-font-size;
     property <length> drawer-width: 30 * root.unit;
-    in-out property <bool> stream-filter-open: false;
     in-out property <bool> ranking-filter-open: false;
     private property <int> first-season: root.available-seasons.length > 0
         ? root.available-seasons[0] : root.active-season;
@@ -305,25 +307,34 @@ export component DetailsPage inherits Rectangle {
                 spacing: 0.75 * root.unit;
                 z: 10000;
 
-                Rectangle {
+                provider-scroll := HorizontalScroll {
                     horizontal-stretch: 1;
+                    height: 2.75 * root.unit;
+                    unit: root.unit;
+                    content-width: max(self.width, provider-row.preferred-width);
+                    content-height: self.height;
+                    show-edge-fades: true;
+                    fade-surface-color: Theme.drawer-background;
 
-                    SelectField {
-                        unit: root.unit;
-                        field-width: parent.width;
-                        value: root.active-stream-provider;
-                        options: root.stream-providers;
-                        open: root.stream-filter-open;
-                        toggle => { root.stream-filter-open = !root.stream-filter-open; }
-                        selected(provider) => {
-                            root.active-stream-provider = provider;
-                            root.stream-filter-open = false;
+                    provider-row := HorizontalLayout {
+                        width: self.preferred-width;
+                        height: parent.height;
+                        spacing: 0.6 * root.unit;
+                        alignment: start;
+
+                        for provider in root.stream-providers : Chip {
+                            unit: root.unit;
+                            label: provider;
+                            value: provider;
+                            active: provider == root.active-stream-provider;
+                            interactive: true;
+                            selected(value) => { root.active-stream-provider = value; }
                         }
                     }
                 }
 
                 Rectangle {
-                    horizontal-stretch: 1;
+                    width: 8.5 * root.unit;
 
                     SelectField {
                         unit: root.unit;
@@ -581,10 +592,7 @@ export component DetailsPage inherits Rectangle {
                 for stream in root.streams : stream-delegate := Rectangle {
                     private property <bool> matches-provider:
                         root.active-stream-provider == "All"
-                            || stream.provider == root.active-stream-provider
-                            || (root.active-stream-provider == "Direct Sources" && stream.source-system == "Direct")
-                            || (root.active-stream-provider == "Plugins" && stream.source-system == "Plugin")
-                            || (root.active-stream-provider == "Add-ons" && stream.source-system == "Add-on");
+                            || stream.provider == root.active-stream-provider;
                     width: parent.width;
                     // The additional 0.1rem preserves the web row gap while
                     // allowing ListView to virtualize off-screen streams.
@@ -642,6 +650,7 @@ export component DetailsPage inherits Rectangle {
                         source-system: stream.source-system;
                         score-label: root.ranking-mode == "Original" ? "" : (stream.score >= 0 ? "+" + stream.score : "" + stream.score);
                         score-details: stream.score-summary;
+                        seeders: stream.seeders;
                         filtered: stream.filtered;
                         thumbnail: stream.thumbnail;
                         progress: stream.progress;

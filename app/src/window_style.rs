@@ -77,7 +77,7 @@ fn apply_windows_caption(window: &winit::window::Window) -> bool {
         );
         false
     } else {
-        tracing::info!("official Stremio title-bar colors applied");
+        tracing::info!("title-bar colors applied");
         true
     }
 }

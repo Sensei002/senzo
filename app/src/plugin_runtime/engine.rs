@@ -562,6 +562,9 @@ fn parse_streams(provider_key: &str, provider_name: &str, raw: &str) -> Result<V
             _ => "Plugin source".to_owned(),
         };
         let description = title.unwrap_or_else(|| display_name.clone());
+        let seeders = number_field(object, &["seeders", "seeds", "peers"])
+            .or_else(|| seeders_from_text(&description))
+            .or_else(|| seeders_from_text(&display_name));
         if streams.iter().any(|stream: &PluginStream| {
             (stream.url.is_some() && stream.url == url)
                 || (stream.info_hash.is_some() && stream.info_hash == info_hash)
@@ -578,6 +581,7 @@ fn parse_streams(provider_key: &str, provider_name: &str, raw: &str) -> Result<V
             file_idx,
             headers,
             subtitles,
+            seeders,
         });
         if streams.len() >= MAX_RESULT_STREAMS {
             break;
@@ -604,6 +608,37 @@ fn first_magnet(object: &serde_json::Map<String, Value>) -> Option<String> {
                         .map(str::to_owned)
                 })
         })
+}
+
+fn number_field(object: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<u32> {
+    keys.iter().find_map(|key| {
+        let value = object.get(*key)?;
+        value
+            .as_u64()
+            .and_then(|value| u32::try_from(value).ok())
+            .or_else(|| value.as_str().and_then(|value| value.trim().parse().ok()))
+    })
+}
+
+fn seeders_from_text(value: &str) -> Option<u32> {
+    for marker in ["👤", "Seeders:", "Seeders", "Seeds:", "Seeds"] {
+        let mut search = 0usize;
+        while let Some(relative) = value[search..].find(marker) {
+            let start = search + relative + marker.len();
+            let tail = value[start..].trim_start_matches(|character: char| {
+                character.is_whitespace() || matches!(character, ':' | '=')
+            });
+            let digits = tail
+                .chars()
+                .take_while(|character| character.is_ascii_digit())
+                .collect::<String>();
+            if let Ok(seeders) = digits.parse() {
+                return Some(seeders);
+            }
+            search = start;
+        }
+    }
+    None
 }
 
 fn is_info_hash(hash: &str) -> bool {
@@ -729,12 +764,13 @@ mod tests {
     #[test]
     fn parses_http_and_torrent_results() {
         let raw = r#"[
-          {"name":"1080p","title":"Movie","url":"https://example.com/video.mp4","quality":"1080p","headers":{"Referer":"https://example.com/"}},
+          {"name":"1080p","title":"Movie","url":"https://example.com/video.mp4","quality":"1080p","seeders":12,"headers":{"Referer":"https://example.com/"}},
           {"name":"Torrent","infoHash":"0123456789abcdef0123456789abcdef01234567","fileIdx":1,"url":""}
         ]"#;
         let streams = parse_streams("provider", "Provider", raw).unwrap();
         assert_eq!(streams.len(), 2);
         assert_eq!(streams[0].headers.len(), 1);
+        assert_eq!(streams[0].seeders, Some(12));
         assert_eq!(streams[1].file_idx, Some(1));
     }
 

@@ -116,11 +116,11 @@ mod windows_impl {
 
         let button_created_msg = unsafe { RegisterWindowMessageW(w!("TaskbarButtonCreated")) };
         UPDATE_MSG.store(
-            unsafe { RegisterWindowMessageW(w!("StremioNativeTaskbarButtonUpdate")) },
+            unsafe { RegisterWindowMessageW(w!("SENZONativeTaskbarButtonUpdate")) },
             Ordering::Relaxed,
         );
         PROGRESS_MSG.store(
-            unsafe { RegisterWindowMessageW(w!("StremioNativeTaskbarProgress")) },
+            unsafe { RegisterWindowMessageW(w!("SENZONativeTaskbarProgress")) },
             Ordering::Relaxed,
         );
 

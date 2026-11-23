@@ -788,6 +788,7 @@ impl NuvioPlugins {
                 file_idx: stream.file_idx,
                 headers: stream.headers,
                 subtitles: stream.subtitles,
+                seeders: stream.seeders.unwrap_or_default(),
             })
             .collect::<Vec<_>>();
         self.inner.playback.set_plugin_results(selections);
@@ -1013,8 +1014,12 @@ impl NuvioPlugins {
                 errors += 1;
                 self.set_status(&provider.key, &truncate_message(&error, 90), true);
             } else {
-                let count = outcome.streams.len();
+                let mut count = 0usize;
                 for stream in outcome.streams {
+                    if !stream.is_playable() {
+                        continue;
+                    }
+                    count += 1;
                     let dedupe = if stream.is_torrent() {
                         stream.info_hash.clone().unwrap_or_default()
                     } else {

@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "1.0.5"
+  #define AppVersion "0.1.0"
 #endif
 
 #ifndef BuildRoot
@@ -16,7 +16,7 @@
 [Setup]
 AppId={{9B7477C6-8E3D-4EA7-A128-EB249D052C6C}
 AppName={#AppName}
-AppVerName={#AppName} {#AppVersion}
+AppVerName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher=SENZO Project
 AppPublisherURL=https://github.com/Sensei002/senzo

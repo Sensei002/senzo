@@ -213,7 +213,7 @@ fn parse_stremio(url: Url) -> anyhow::Result<DeepLink> {
         "error" => Ok(DeepLink::Error(
             query_value(&url, "message").unwrap_or_else(|| "The link reported an error".to_owned()),
         )),
-        unknown => Err(anyhow::anyhow!("unsupported Stremio route {unknown:?}")),
+        unknown => Err(anyhow::anyhow!("unsupported deep link route {unknown:?}")),
     }
 }
 
@@ -480,7 +480,7 @@ fn open_player(
         .as_deref()
         .or(player.selected.stream.name.as_deref())
         .or(player.media_id.as_deref())
-        .unwrap_or("Stremio stream");
+        .unwrap_or("SENZO stream");
     let stream_name = player
         .selected
         .stream

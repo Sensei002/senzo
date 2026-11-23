@@ -108,7 +108,7 @@ pub async fn create_backup(
         if let Some(parent) = destination.parent() {
             std::fs::create_dir_all(parent).map_err(|_| BackupError::Filesystem)?;
         }
-        let temporary = destination.with_extension("stremio-backup.tmp");
+        let temporary = destination.with_extension("senzo-backup.tmp");
         let file = File::create(&temporary).map_err(|_| BackupError::Filesystem)?;
         let mut archive = ZipWriter::new(file);
         let options = SimpleFileOptions::default()

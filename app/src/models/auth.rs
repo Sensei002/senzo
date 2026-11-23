@@ -98,7 +98,7 @@ pub fn setup(ui: &MainWindow, runtime: &Arc<Runtime<DesktopEnv, AppModel>>) {
             let watchdog_generation = email_login_generation.clone();
             let watchdog_ui_weak = ui_weak.clone();
             tokio::spawn(async move {
-                tracing::info!("email/password authentication dispatched to Stremio Core");
+                tracing::info!("email/password authentication dispatched to the account core");
                 rt.dispatch(RuntimeAction {
                     field: None,
                     action: Action::Ctx(ActionCtx::Authenticate(AuthRequest::Login {
@@ -325,7 +325,7 @@ pub fn setup(ui: &MainWindow, runtime: &Arc<Runtime<DesktopEnv, AppModel>>) {
             let mut reset_url = match url::Url::parse(&format!("{STREMIO_URL}/reset-password/")) {
                 Ok(url) => url,
                 Err(error) => {
-                    tracing::error!(%error, "invalid Stremio password-reset base URL");
+                    tracing::error!(%error, "invalid password-reset base URL");
                     return;
                 }
             };

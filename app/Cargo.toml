@@ -1,6 +1,6 @@
 [package]
 name = "senzo"
-version = "1.0.6"
+version = "0.1.0"
 authors = ["perpetus <perpetus.github@gmail.com>"]
 edition = "2024"
 license = "GPL-3.0-only"

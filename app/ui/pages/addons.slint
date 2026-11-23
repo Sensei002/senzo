@@ -311,7 +311,7 @@ export component AddonsPage inherits Rectangle {
             && root.search-query == "";
     private property <int> pagination-content-length: root.visible-addons.length;
     private property <[AddonItem]> visible-addons:
-        root.active-filter == "Stremio Addons"
+        root.active-filter == "Add-on Directory"
             ? root.community-addons : root.addons;
     changed pagination-content-length => { root.pagination-latched = false; }
     changed has-next-page => {
@@ -325,7 +325,7 @@ export component AddonsPage inherits Rectangle {
         }
     }
     function request-next-page() {
-        if (root.active-filter == "Stremio Addons"
+        if (root.active-filter == "Add-on Directory"
                 && root.community-has-next-page
                 && !root.pagination-latched) {
             root.pagination-latched = true;
@@ -422,7 +422,7 @@ export component AddonsPage inherits Rectangle {
                     unit: root.unit;
                     field-width: 12 * root.unit;
                     value: root.active-filter;
-                    options: ["Installed", "Community", "Stremio Addons"];
+                    options: ["Installed", "Community", "Add-on Directory"];
                     open: root.filter-open;
                     toggle => {
                         root.filter-open = !root.filter-open;
@@ -431,7 +431,7 @@ export component AddonsPage inherits Rectangle {
                     selected(value) => {
                         root.active-filter = value;
                         root.filter-open = false;
-                        if (value == "Stremio Addons") {
+                        if (value == "Add-on Directory") {
                             root.community-page = 1;
                             root.community-filters-changed(root.active-type, root.community-sort, root.community-category, root.search-query);
                         }
@@ -451,14 +451,14 @@ export component AddonsPage inherits Rectangle {
                     selected(value) => {
                         root.active-type = value;
                         root.type-open = false;
-                        if (root.active-filter == "Stremio Addons") {
+                        if (root.active-filter == "Add-on Directory") {
                             root.community-page = 1;
                             root.community-filters-changed(value, root.community-sort, root.community-category, root.search-query);
                         }
                     }
                 }
 
-                if (root.active-filter == "Stremio Addons") : SelectField {
+                if (root.active-filter == "Add-on Directory") : SelectField {
                     unit: root.unit;
                     field-width: 10 * root.unit;
                     value: root.community-sort;
@@ -473,7 +473,7 @@ export component AddonsPage inherits Rectangle {
                     }
                 }
 
-                if (root.active-filter == "Stremio Addons") : SelectField {
+                if (root.active-filter == "Add-on Directory") : SelectField {
                     unit: root.unit;
                     field-width: 12 * root.unit;
                     value: root.community-category;
@@ -515,7 +515,7 @@ export component AddonsPage inherits Rectangle {
                     text <=> root.search-query;
                     edited => {
                         root.search-changed(root.search-query);
-                        if (root.active-filter == "Stremio Addons") {
+                        if (root.active-filter == "Add-on Directory") {
                             root.community-page = 1;
                             root.community-filters-changed(root.active-type, root.community-sort, root.community-category, root.search-query);
                         }
@@ -526,7 +526,7 @@ export component AddonsPage inherits Rectangle {
 
 
 
-        if (root.loading || (root.active-filter == "Stremio Addons" && root.community-loading)) : ScrollView {
+        if (root.loading || (root.active-filter == "Add-on Directory" && root.community-loading)) : ScrollView {
             vertical-stretch: 1;
             viewport-width: root.width;
             horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
@@ -546,7 +546,7 @@ export component AddonsPage inherits Rectangle {
         }
 
         if (!root.loading
-                && !(root.active-filter == "Stremio Addons" && root.community-loading)
+                && !(root.active-filter == "Add-on Directory" && root.community-loading)
                 && root.visible-addons.length == 0) : EmptyState {
             vertical-stretch: 1;
             unit: root.unit;
@@ -556,7 +556,7 @@ export component AddonsPage inherits Rectangle {
         }
 
         if (!root.loading
-                && !(root.active-filter == "Stremio Addons" && root.community-loading)
+                && !(root.active-filter == "Add-on Directory" && root.community-loading)
                 && root.visible-addons.length > 0) : addons-scroll := ListView {
             vertical-stretch: 1;
             viewport-y <=> root.scroll-y;

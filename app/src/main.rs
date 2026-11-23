@@ -223,7 +223,7 @@ async fn run_app(
     tracing::info!(
         start_hidden,
         shell_ready_ms = startup_started.elapsed().as_millis(),
-        "Stremio client shell is ready"
+        "SENZO client shell is ready"
     );
     if !start_hidden {
         ui.show()?;

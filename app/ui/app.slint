@@ -2401,8 +2401,6 @@ export component MainWindow inherits Window {
             stream-loading-count: root.debug-preview-enabled && root.debug-preview-page == 7
                 ? (root.debug-preview-state == "series-stream-loading" ? 2 : 0)
                 : detail-stream-loading-count;
-            stream-filter-open: root.debug-preview-enabled && root.debug-preview-page == 7
-                && root.debug-preview-state == "movie-filter";
             loading: root.debug-preview-enabled && root.debug-preview-page == 7
                 ? root.debug-preview-state == "details-loading"
                 : details-loading;

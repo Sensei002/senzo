@@ -241,7 +241,7 @@ pub(crate) fn spawn_catalog_visibility_loader(
                 ?scope,
                 range_start = range.start,
                 range_end_exclusive = range.end,
-                "dispatching visible catalog range to Stremio Core"
+                "dispatching visible catalog range"
             );
             runtime.dispatch(RuntimeAction {
                 field: Some(scope.field()),

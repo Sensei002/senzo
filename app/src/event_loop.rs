@@ -68,6 +68,7 @@ pub(crate) fn project_stream_selection_views(
                 filtered: link.filtered,
                 group_start: false,
                 provider_count: 0,
+                seeders: link.seeders.min(i32::MAX as u32) as i32,
             }
         })
         .collect();
@@ -100,24 +101,6 @@ pub(crate) fn project_stream_selection_views(
         previous_group = Some(group);
     }
     let mut providers = vec![slint::SharedString::from("All")];
-    let has_direct = stream_links
-        .iter()
-        .any(|stream| stream.source_system == "Direct");
-    let has_plugin = stream_links
-        .iter()
-        .any(|stream| stream.source_system == "Plugin");
-    let has_addon = stream_links
-        .iter()
-        .any(|stream| stream.source_system == "Add-on");
-    if has_direct {
-        providers.push(slint::SharedString::from("Direct Sources"));
-    }
-    if has_plugin {
-        providers.push(slint::SharedString::from("Plugins"));
-    }
-    if has_addon {
-        providers.push(slint::SharedString::from("Add-ons"));
-    }
     for stream in &stream_links {
         if !providers
             .iter()
@@ -1131,7 +1114,7 @@ fn handle_core_event(event: Event, ui_weak: &slint::Weak<MainWindow>) {
             // The core reports successful authentication as a distinct event,
             // not as a profile projection. Clear the login spinner here so the
             // account dialog cannot remain stuck after a successful response.
-            tracing::info!("Stremio authentication succeeded");
+            tracing::info!("Account authentication succeeded");
             let ui_weak = ui_weak.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = ui_weak.upgrade() {
@@ -1146,7 +1129,7 @@ fn handle_core_event(event: Event, ui_weak: &slint::Weak<MainWindow>) {
             let message = match error {
                 stremio_core::models::ctx::CtxError::API(error) => error.message.clone(),
                 stremio_core::models::ctx::CtxError::Env(error) => {
-                    format!("Stremio request failed: {error:?}")
+                    format!("Account request failed: {error:?}")
                 }
                 stremio_core::models::ctx::CtxError::Other(error) => error.message(),
             };

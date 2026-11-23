@@ -51,7 +51,7 @@ const NIN_KEYSELECT: u32 = WM_USER + 1;
 const EDGE_MARGIN: i32 = 8;
 /// The icon resource embedded by `build.rs` through `winres`.
 const ICON_RESOURCE: &str = "MAINICON";
-const WINDOW_CLASS: &str = "StremioTrayHost";
+const WINDOW_CLASS: &str = "SENZOTrayHost";
 
 thread_local! {
     /// The popup, reachable from the `WNDPROC` that has no user context.

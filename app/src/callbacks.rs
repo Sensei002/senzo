@@ -344,7 +344,7 @@ pub fn setup_ui_callbacks(
                             .selected
                             .as_ref()
                             .map(|selected| selected.meta_path.id.clone())
-                            .unwrap_or_else(|| "Stremio download".to_owned()),
+                            .unwrap_or_else(|| "SENZO download".to_owned()),
                     )
                 };
 

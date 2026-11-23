@@ -12,6 +12,7 @@ export component StreamRow inherits Rectangle {
     in property <string> score-details: "";
     in property <bool> filtered: false;
     in property <image> thumbnail;
+    in property <int> seeders: 0;
     in property <bool> has-thumbnail: root.thumbnail.width > 0;
     in property <float> progress: 0;
     in property <bool> selected: false;
@@ -109,6 +110,24 @@ export component StreamRow inherits Rectangle {
             }
         }
 
+        if (root.seeders > 0) : Rectangle {
+            width: 4.2 * root.unit;
+            height: 1.55 * root.unit;
+            border-radius: self.height / 2;
+            background: Theme.overlay-color;
+
+            Text {
+                width: parent.width;
+                height: parent.height;
+                text: "👤 " + root.seeders;
+                color: Theme.text-secondary;
+                font-size: 0.62 * root.unit;
+                font-weight: 650;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
         if (root.source-system != "") : Rectangle {
             width: 4.4 * root.unit;
             height: 1.55 * root.unit;
@@ -120,8 +139,10 @@ export component StreamRow inherits Rectangle {
             Text {
                 width: parent.width;
                 height: parent.height;
-                text: root.source-system == "Direct" ? "DIRECT" : "ADD-ON";
-                color: root.source-system == "Direct" ? Theme.primary-accent : Theme.text-muted;
+                text: root.source-system == "Direct" ? "DIRECT" : (root.source-system == "Plugin" ? "PLUGIN" : "ADD-ON");
+                color: root.source-system == "Direct"
+                    ? Theme.primary-accent
+                    : (root.source-system == "Plugin" ? Theme.quaternary-accent : Theme.text-muted);
                 font-size: 0.58 * root.unit;
                 font-weight: 700;
                 horizontal-alignment: center;
