@@ -5,12 +5,12 @@
 
 use std::collections::BTreeMap;
 
-use serde::Deserialize;
 use crate::direct_sources::{
     matching::{format_from_url, is_playable_format, parse_quality, titles_match, years_match},
     net::{NetError, SafeHttp},
     types::{DirectRequest, DirectStream, WIKIMEDIA_COMMONS},
 };
+use serde::Deserialize;
 
 const PROVIDER_NAME: &str = "Wikimedia Commons";
 const API_ENDPOINT: &str = "https://commons.wikimedia.org/w/api.php";
@@ -167,4 +167,3 @@ pub async fn validate(http: &SafeHttp) -> Result<String, NetError> {
     }
     Ok(format!("{} freely licensed file(s) found", results.len()))
 }
-
