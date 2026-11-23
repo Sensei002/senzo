@@ -435,9 +435,9 @@ jobs:
 
           package() {
               install -Dm755 "\$srcdir/senzo" "\$pkgdir/usr/bin/senzo"
-              install -Dm644 "\$srcdir/assets/linux/senzo.desktop" "\$pkgdir/usr/share/applications/senzo.desktop"
-              install -Dm644 "\$srcdir/assets/linux/com.senzo.SENZO.metainfo.xml" "\$pkgdir/usr/share/metainfo/com.senzo.SENZO.metainfo.xml"
-              install -Dm644 "\$srcdir/assets/app_icon.png" "\$pkgdir/usr/share/icons/hicolor/512x512/apps/senzo.png"
+              install -Dm644 "\$startdir/assets/linux/senzo.desktop" "\$pkgdir/usr/share/applications/senzo.desktop"
+              install -Dm644 "\$startdir/assets/linux/com.senzo.SENZO.metainfo.xml" "\$pkgdir/usr/share/metainfo/com.senzo.SENZO.metainfo.xml"
+              install -Dm644 "\$startdir/assets/app_icon.png" "\$pkgdir/usr/share/icons/hicolor/512x512/apps/senzo.png"
           }
           EOF
           cp target/release/senzo pkg/senzo
