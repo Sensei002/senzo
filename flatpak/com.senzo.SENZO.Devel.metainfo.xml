@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.senzo.SENZO.Devel</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <name>SENZO (Development)</name>
+  <summary>Native media center for Stremio add-ons</summary>
+  <developer_name>SENZO Project</developer_name>
+  <update_contact>https://github.com/Sensei002/senzo/issues</update_contact>
+  <description>
+    <p>
+      SENZO is a fast, native desktop media center built with Rust and Slint.
+      It connects to the Stremio add-on ecosystem, plays torrents through the
+      bundled streaming server and MPV, and keeps your library and playback
+      progress in a local database.
+    </p>
+    <p>
+      This is a development build. It intentionally does not use the stable
+      in-app update feed.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.senzo.SENZO.Devel.desktop</launchable>
+  <provides>
+    <binary>senzo</binary>
+  </provides>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Video</category>
+    <category>Player</category>
+  </categories>
+  <url type="homepage">https://github.com/Sensei002/senzo</url>
+  <url type="bugtracker">https://github.com/Sensei002/senzo/issues</url>
+  <releases>
+    <release version="1.0.6" date="2026-07-19"/>
+  </releases>
+</component>

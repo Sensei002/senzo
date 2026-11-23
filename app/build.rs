@@ -177,17 +177,37 @@ fn embed_windows_resources() -> Result<(), Box<dyn std::error::Error>> {
     resources.set_icon_with_id("assets/app.ico", "MAINICON");
     resources.set("FileDescription", "SENZO");
     resources.set("ProductName", "SENZO");
+    resources.set("CompanyName", "SENZO Project");
+    resources.set("LegalCopyright", "Copyright (C) 2026 SENZO Project");
+    resources.set("FileVersion", env!("CARGO_PKG_VERSION"));
+    resources.set("ProductVersion", env!("CARGO_PKG_VERSION"));
     resources.set("OriginalFilename", "senzo.exe");
     resources.compile()?;
     Ok(())
 }
 
+fn update_channel() -> &'static str {
+    match std::env::var("SENZO_UPDATE_CHANNEL") {
+        Ok(value) if value.eq_ignore_ascii_case("stable") => "stable",
+        Ok(value) if value.eq_ignore_ascii_case("development") => "development",
+        Ok(value) if !value.trim().is_empty() => {
+            println!(
+                "cargo:warning=unknown SENZO_UPDATE_CHANNEL {value:?}; using development"
+            );
+            "development"
+        }
+        _ => "development",
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-env-changed=SENZO_BUILD_VERSION");
+    println!("cargo:rerun-if-env-changed=SENZO_UPDATE_CHANNEL");
     println!("cargo:rerun-if-env-changed=GITHUB_SHA");
     println!("cargo:rerun-if-env-changed=CI_COMMIT_SHA");
     println!("cargo:rerun-if-changed=../.git/HEAD");
     println!("cargo:rustc-env=SENZO_BUILD_VERSION={}", build_version());
+    println!("cargo:rustc-env=SENZO_UPDATE_CHANNEL={}", update_channel());
     embed_windows_resources()?;
 
     // 1. Generate Slint imports file for imported_fonts.slint

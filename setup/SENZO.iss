@@ -16,8 +16,12 @@
 [Setup]
 AppId={{9B7477C6-8E3D-4EA7-A128-EB249D052C6C}
 AppName={#AppName}
+AppVerName={#AppName} {#AppVersion}
 AppVersion={#AppVersion}
 AppPublisher=SENZO Project
+AppPublisherURL=https://github.com/Sensei002/senzo
+AppSupportURL=https://github.com/Sensei002/senzo/issues
+AppUpdatesURL=https://github.com/Sensei002/senzo/releases
 DefaultDirName={localappdata}\Programs\SENZO
 DefaultGroupName=SENZO
 DisableProgramGroupPage=yes
@@ -33,8 +37,12 @@ WizardStyle=modern
 OutputDir={#ArtifactsDir}
 OutputBaseFilename=SENZO-Setup-v{#AppVersion}-x64
 SetupIconFile=..\app\assets\app.ico
+UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExeName}
 VersionInfoVersion={#AppVersion}
+VersionInfoCompany=SENZO Project
+VersionInfoDescription={#AppName} Installer
+VersionInfoCopyright=Copyright (C) 2026 SENZO Project
 VersionInfoProductName={#AppName}
 VersionInfoProductVersion={#AppVersion}
 
@@ -42,6 +50,7 @@ VersionInfoProductVersion={#AppVersion}
 ; Remove obsolete Stremio Native files and shortcuts when upgrading this install.
 Type: files; Name: "{app}\stremio-native.exe"
 Type: files; Name: "{group}\Stremio Native.lnk"
+Type: filesandordirs; Name: "{userprograms}\Stremio Native"
 Type: files; Name: "{autodesktop}\Stremio Native.lnk"
 Type: files; Name: "{userstartup}\Stremio Native.lnk"
 

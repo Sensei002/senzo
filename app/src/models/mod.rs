@@ -523,6 +523,25 @@ pub(crate) fn refresh_cached_media_images(ui: &MainWindow, urls: &[String]) -> u
     let mut updated = 0;
 
     updated += patch_cards(&ui.get_board_continue_watching(), &images);
+    let hero = ui.get_hero_slides();
+    for index in 0..hero.row_count() {
+        if let Some(mut slide) = hero.row_data(index) {
+            let mut changed = 0;
+            if let Some(background) = images.get(slide.background_url.as_str()) {
+                slide.background = background.clone();
+                changed += 1;
+            }
+            if let Some(logo) = images.get(slide.logo_url.as_str()) {
+                slide.logo = logo.clone();
+                changed += 1;
+            }
+            if changed > 0 {
+                hero.set_row_data(index, slide);
+                updated += changed;
+            }
+        }
+    }
+
     let sections = ui.get_board_sections();
     for index in 0..sections.row_count() {
         if let Some(section) = sections.row_data(index) {

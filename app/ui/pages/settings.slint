@@ -453,6 +453,14 @@ export component SettingsPage inherits Rectangle {
                     font-size: 0.8 * root.unit;
                     overflow: elide;
                 }
+                Text {
+                    height: 2.6 * root.unit;
+                    text: "Made with love by Xoy \"Sensei\" Fawkes";
+                    color: Theme.text-muted;
+                    font-size: 0.75 * root.unit;
+                    wrap: word-wrap;
+                    vertical-alignment: bottom;
+                }
             }
         }
 
@@ -638,7 +646,9 @@ export component SettingsPage inherits Rectangle {
                     SettingsLink {
                         unit: root.unit;
                         label: @tr("SETTINGS_SUPPORT" => "Contact support");
-                        clicked => { root.open-external-url("https://stremio.zendesk.com/hc/en-us"); }
+                        // Kept visible for layout parity with the original
+                        // Stremio surface; this SENZO build has no support desk.
+                        clicked => { }
                     }
                     SettingsLink {
                         unit: root.unit;
@@ -648,12 +658,12 @@ export component SettingsPage inherits Rectangle {
                     SettingsLink {
                         unit: root.unit;
                         label: @tr("TERMS_OF_SERVICE" => "Terms of Service");
-                        clicked => { root.open-external-url("https://www.stremio.com/tos"); }
+                        clicked => { }
                     }
                     SettingsLink {
                         unit: root.unit;
                         label: @tr("PRIVACY_POLICY" => "Privacy Policy");
-                        clicked => { root.open-external-url("https://www.stremio.com/privacy"); }
+                        clicked => { }
                     }
                     SettingsLink {
                         unit: root.unit;

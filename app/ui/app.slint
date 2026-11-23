@@ -26,6 +26,7 @@ import { TrailerHoverPopup } from "components/trailer_popup.slint";
 import { MetaActionButton, MetaLinkChip, MetaLinks, MetaPreview, MetaPreviewPlaceholder } from "components/meta_preview.slint";
 import { AuthPage } from "pages/auth.slint";
 import { BoardPage, BoardSection } from "pages/board.slint";
+import { HeroSlide } from "components/hero_carousel.slint";
 import { DiscoverPage, DiscoverRow, DiscoverFilterOption } from "pages/discover.slint";
 import { LibraryPage, LibraryRow } from "pages/library.slint";
 import { AddonsPage, AddonItem } from "pages/addons.slint";
@@ -92,7 +93,7 @@ component GuideSectionTitle inherits Text {
 }
 
 export { ColorUtils, ParsedColor, CursorSample, SavedGradient }
-export { Theme, IconData, MediaCardItem, StreamLink, EpisodeItem, CastDevice, BoardSection, DiscoverRow, LibraryRow, AddonItem, CalendarRow, CalendarCell, CalendarMediaItem, SearchSuggestion, DownloadItem, HotkeyItem }
+export { Theme, IconData, MediaCardItem, StreamLink, EpisodeItem, CastDevice, BoardSection, HeroSlide, DiscoverRow, LibraryRow, AddonItem, CalendarRow, CalendarCell, CalendarMediaItem, SearchSuggestion, DownloadItem, HotkeyItem }
 
 // Windows drives the notification area itself and renders this panel instead of
 // the platform menu; see `tray/windows.rs`.
@@ -397,6 +398,7 @@ export component MainWindow inherits Window {
     // Data lists
     in-out property <[MediaCardItem]> board-continue-watching: [];
     in-out property <[BoardSection]> board-sections: [];
+    in-out property <[HeroSlide]> hero-slides: [];
     in-out property <bool> board-show-server-warning: false;
     in-out property <[BoardSection]> search-sections: [];
     in-out property <[SearchSuggestion]> search-suggestions: [];
@@ -1554,7 +1556,6 @@ export component MainWindow inherits Window {
                             icon-source: @image-url("assets/images/icons/help.svg");
                             clicked => {
                                 root.profile-menu-open = false;
-                                root.open-external-url("https://stremio.zendesk.com/");
                             }
                         }
 
@@ -1566,7 +1567,6 @@ export component MainWindow inherits Window {
                             show-icon: false;
                             clicked => {
                                 root.profile-menu-open = false;
-                                root.open-external-url("https://www.stremio.com/tos");
                             }
                         }
                         MenuButton {
@@ -1575,7 +1575,6 @@ export component MainWindow inherits Window {
                             show-icon: false;
                             clicked => {
                                 root.profile-menu-open = false;
-                                root.open-external-url("https://www.stremio.com/privacy");
                             }
                         }
                         if (username != "" && username != "Guest") : MenuButton {
@@ -1687,6 +1686,10 @@ export component MainWindow inherits Window {
                                 || root.debug-preview-state == "loading"
                                 || root.debug-preview-state == "continue-only")
                             ? [] : board-sections;
+                        hero-slides: root.debug-preview-enabled && root.debug-preview-page == 0
+                            && (root.debug-preview-state == "empty"
+                                || root.debug-preview-state == "loading")
+                            ? [] : root.hero-slides;
                         loading: root.debug-preview-enabled && root.debug-preview-page == 0
                             ? root.debug-preview-state == "loading"
                             : loading;
@@ -1696,6 +1699,12 @@ export component MainWindow inherits Window {
                         }
                         play-clicked(id) => {
                             board-play-clicked(id);
+                        }
+                        hero-play-requested(id, media-type) => {
+                            board-item-selected(id, media-type, "");
+                        }
+                        hero-details-requested(id, media-type) => {
+                            board-item-selected(id, media-type, "");
                         }
                         remove-continue-watching(id) => { remove-continue-watching(id); }
                         see-all-continue-watching() => {

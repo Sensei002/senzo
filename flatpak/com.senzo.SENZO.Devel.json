@@ -1,5 +1,5 @@
 {
-    "app-id": "com.stremio.StremioNative.Devel",
+    "app-id": "com.senzo.SENZO.Devel",
     "runtime": "org.gnome.Platform",
     "runtime-version": "50",
     "sdk": "org.gnome.Sdk",
@@ -20,7 +20,7 @@
             "enable-if": "have-intel-gpu"
         }
     },
-    "command": "stremio-native",
+    "command": "senzo",
     "finish-args": [
         "--socket=wayland",
         "--socket=fallback-x11",
@@ -28,12 +28,12 @@
         "--share=ipc",
         "--share=network",
         "--device=dri",
-        "--persist=.stremio-native",
+        "--persist=.senzo",
         "--filesystem=xdg-download",
         "--filesystem=xdg-run/pipewire-0:ro",
         "--talk-name=org.kde.StatusNotifierWatcher",
-        "--own-name=com.stremio.StremioNative.Devel",
-        "--own-name=org.mpris.MediaPlayer2.StremioNative",
+        "--own-name=com.senzo.SENZO.Devel",
+        "--own-name=org.mpris.MediaPlayer2.SENZO",
         "--env=LC_NUMERIC=C",
         "--env=LD_LIBRARY_PATH=/app/lib:/app/lib64",
         "--env=RUST_LOG=info"
@@ -172,23 +172,23 @@
             ]
         },
         {
-            "name": "stremio-native",
+            "name": "senzo",
             "buildsystem": "simple",
             "build-options": {
                 "env": {
-                    "CARGO_HOME": "/run/build/stremio-native/cargo",
+                    "CARGO_HOME": "/run/build/senzo/cargo",
                     "RUSTFLAGS": "-L /app/lib -L /app/lib64 -C link-arg=-Wl,-rpath-link=/app/lib -C link-arg=-Wl,-rpath-link=/app/lib64"
                 }
             },
             "build-commands": [
                 "cargo --offline fetch --manifest-path Cargo.toml --verbose",
-                "cargo --offline build --release --package stremio-native --verbose"
+                "cargo --offline build --release --package senzo --verbose"
             ],
             "post-install": [
-                "install -Dm755 target/release/stremio-native /app/bin/stremio-native",
-                "install -Dm644 flatpak/com.stremio.StremioNative.Devel.desktop /app/share/applications/com.stremio.StremioNative.Devel.desktop",
-                "install -Dm644 app/ui/assets/images/stremio-logo.svg /app/share/icons/hicolor/scalable/apps/com.stremio.StremioNative.Devel.svg",
-                "install -Dm644 flatpak/com.stremio.StremioNative.Devel.metainfo.xml /app/share/metainfo/com.stremio.StremioNative.Devel.metainfo.xml",
+                "install -Dm755 target/release/senzo /app/bin/senzo",
+                "install -Dm644 flatpak/com.senzo.SENZO.Devel.desktop /app/share/applications/com.senzo.SENZO.Devel.desktop",
+                "install -Dm644 app/ui/assets/images/app_icon.png /app/share/icons/hicolor/512x512/apps/com.senzo.SENZO.Devel.png",
+                "install -Dm644 flatpak/com.senzo.SENZO.Devel.metainfo.xml /app/share/metainfo/com.senzo.SENZO.Devel.metainfo.xml",
                 "mkdir -p /app/lib/codecs-extra",
                 "mkdir -p /app/lib/intel-vaapi-driver"
             ],

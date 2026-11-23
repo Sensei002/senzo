@@ -19,6 +19,22 @@ use crate::{MainWindow, tray};
 
 const REPOSITORY_OWNER: &str = "Sensei002";
 const REPOSITORY_NAME: &str = "senzo";
+// Injected by build.rs from CI. `development` builds are intentionally kept
+// away from the stable GitHub release feed: a branch build must never replace
+// itself with the last published `main` release.
+const UPDATE_CHANNEL: &str = env!("SENZO_UPDATE_CHANNEL");
+
+fn is_stable_channel() -> bool {
+    UPDATE_CHANNEL == "stable"
+}
+
+fn channel_version() -> String {
+    if is_stable_channel() {
+        env!("CARGO_PKG_VERSION").to_owned()
+    } else {
+        format!("{}-dev", env!("CARGO_PKG_VERSION"))
+    }
+}
 #[cfg(target_os = "windows")]
 const WINDOWS_ASSET_IDENTIFIER: &str = "senzo";
 #[cfg(target_os = "windows")]
@@ -140,14 +156,15 @@ pub(crate) fn setup(
     tray: Option<&tray::Tray>,
     installer_request: InstallerRequest,
 ) -> UpdaterHandle {
+    let version = channel_version();
     ui.set_settings_update_state(SettingsUpdateState::Current as i32);
-    ui.set_settings_update_version(env!("CARGO_PKG_VERSION").into());
+    ui.set_settings_update_version(version.as_str().into());
     ui.set_settings_update_action_kind(SettingsUpdateAction::CheckNow as i32);
-    ui.set_settings_update_action_enabled(true);
+    ui.set_settings_update_action_enabled(is_stable_channel());
     let tray_view = tray.map(tray::Tray::view);
     if let Some(tray) = tray_view.as_ref() {
         tray.set_update_state(SettingsUpdateState::Current as i32);
-        tray.set_update_version(env!("CARGO_PKG_VERSION").into());
+        tray.set_update_version(version.as_str().into());
         tray.set_update_can_install(false);
         tray.set_update_installing(false);
     }
@@ -196,6 +213,14 @@ pub(crate) fn setup(
     let scheduled_updater = updater;
     let scheduled_views = views;
     let scheduled_check = tokio::spawn(async move {
+        if !is_stable_channel() {
+            tracing::info!(
+                channel = UPDATE_CHANNEL,
+                version = %channel_version(),
+                "development build: stable update feed is disabled"
+            );
+            return;
+        }
         // Avoid adding network work to first paint and stream-server startup.
         tokio::time::sleep(Duration::from_secs(20)).await;
         scheduled_updater
@@ -229,6 +254,21 @@ impl Updater {
     }
 
     async fn check(&self, views: UpdateViews, kind: CheckKind) {
+        if !is_stable_channel() {
+            tracing::info!(
+                channel = UPDATE_CHANNEL,
+                "ignoring stable update check on a development build"
+            );
+            project_settings(
+                views,
+                SettingsUpdateState::UpToDate,
+                channel_version().as_str(),
+                SettingsUpdateAction::CheckAgain,
+                false,
+            );
+            return;
+        }
+
         let Some(_busy) = self.try_begin() else {
             return;
         };
@@ -291,6 +331,13 @@ impl Updater {
     }
 
     async fn install(&self, views: UpdateViews) {
+        if !is_stable_channel() {
+            tracing::info!(
+                channel = UPDATE_CHANNEL,
+                "ignoring stable update install on a development build"
+            );
+            return;
+        }
         let Some(_busy) = self.try_begin() else {
             return;
         };
@@ -616,6 +663,11 @@ mod tests {
     fn updater_targets_the_published_repository() {
         assert_eq!(REPOSITORY_OWNER, "Sensei002");
         assert_eq!(REPOSITORY_NAME, "senzo");
+    }
+
+    #[test]
+    fn update_channel_is_an_explicit_build_setting() {
+        assert!(matches!(UPDATE_CHANNEL, "stable" | "development"));
     }
 
     #[test]

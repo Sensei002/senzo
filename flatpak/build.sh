@@ -1,6 +1,6 @@
 #!/bin/sh
 
-app_id="com.stremio.StremioNative.Devel"
+app_id="com.senzo.SENZO.Devel"
 cwd="flatpak"
 
 # Generate cargo dependencies sources list for offline flatpak builds

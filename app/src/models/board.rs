@@ -5,7 +5,7 @@ use crate::models::{
     spawn_catalog_visibility_loader, sync_fingerprint_changed,
 };
 use crate::{AppModel, MainWindow, NavigationController};
-use crate::{BoardSection, MediaCardItem};
+use crate::{BoardSection, HeroSlide, MediaCardItem};
 use core_env::DesktopEnv;
 use slint::{ComponentHandle, Model};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -13,7 +13,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 static SECTION_FINGERPRINTS: OnceLock<Mutex<Vec<SyncFingerprint>>> = OnceLock::new();
 use stremio_core::{
     models::{
-        catalogs_with_extra::CatalogsWithExtra, continue_watching_preview::ContinueWatchingPreview,
+        catalogs_with_extra::CatalogsWithExtra, common::Loadable,
+        continue_watching_preview::ContinueWatchingPreview,
     },
     runtime::{
         Runtime, RuntimeAction,
@@ -360,7 +361,81 @@ pub fn sync(
         slint::ModelRc::new(slint::VecModel::from(continue_watching_items));
     ui.set_board_continue_watching(continue_watching_model.clone());
 
-    // 2. Sync Board Sections
+    // 2. Sync the cinematic hero from the same ready catalogue pages. The
+    // Board model remains the single source of truth; the hero is a bounded
+    // projection (at most six titles) rather than a second network pipeline.
+    {
+        let _span = tracing::info_span!("sync_hero_slides").entered();
+        let mut slides: Vec<HeroSlide> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        'catalogs: for catalog in &board.catalogs {
+            let Some(page) = catalog.first() else {
+                continue;
+            };
+            let Some(items) = page.content.as_ref().and_then(Loadable::ready) else {
+                continue;
+            };
+            for item in items {
+                if slides.len() >= 6 {
+                    break 'catalogs;
+                }
+                // Wide artwork is what makes the carousel cinematic. Titles
+                // without a backdrop stay in the poster shelves only.
+                if item.background.is_none() || !seen.insert(item.id.to_string()) {
+                    continue;
+                }
+                slides.push(HeroSlide {
+                    id: item.id.as_str().into(),
+                    media_type: item.r#type.as_str().into(),
+                    title: item.name.as_str().into(),
+                    description: item
+                        .description
+                        .as_deref()
+                        .unwrap_or_default()
+                        .into(),
+                    background_url: item
+                        .background
+                        .as_ref()
+                        .map(Url::as_str)
+                        .unwrap_or_default()
+                        .into(),
+                    background: crate::image_cache::get_cached_image(&item.background),
+                    logo_url: item
+                        .logo
+                        .as_ref()
+                        .map(Url::as_str)
+                        .unwrap_or_default()
+                        .into(),
+                    logo: crate::image_cache::get_cached_image(&item.logo),
+                    release_info: item
+                        .release_info
+                        .as_deref()
+                        .unwrap_or_default()
+                        .into(),
+                    imdb_rating: item
+                        .links
+                        .iter()
+                        .find(|link| link.category == "imdb")
+                        .map(|link| link.name.clone())
+                        .unwrap_or_default()
+                        .into(),
+                });
+            }
+        }
+
+        // The hero delegates image loading to the shared cache and asks for
+        // misses up front, so the first slide is never a blank rectangle on a
+        // cold start. The cache refresh patches these images back in place.
+        for slide in &slides {
+            crate::image_cache::request_image(slide.background_url.as_str());
+            if !slide.logo_url.is_empty() {
+                crate::image_cache::request_image(slide.logo_url.as_str());
+            }
+        }
+        ui.set_hero_slides(slint::ModelRc::new(slint::VecModel::from(slides)));
+    }
+
+    // 3. Sync Board Sections
     let board_sections = {
         let _span = tracing::info_span!("sync_board_sections").entered();
         let catalog_names = catalog_name_index(addons);

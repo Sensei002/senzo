@@ -95,6 +95,14 @@ export component Sidebar inherits Rectangle {
         padding-top: 0.8 * root.unit;
         spacing: 0.6 * root.unit;
 
+        Image {
+            width: parent.width - 0.8 * root.unit;
+            height: 3.2 * root.unit;
+            source: @image-url("../assets/images/senzo-logo.png");
+            image-fit: contain;
+            opacity: 0.95;
+        }
+
         NavTabButton {
             x: (parent.width - self.width) / 2;
             unit: root.unit;

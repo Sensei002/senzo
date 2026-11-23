@@ -245,7 +245,7 @@ unsafe fn notification_icon_data(host: HWND, icon: Option<HICON>) -> NOTIFYICOND
         hIcon: icon.unwrap_or_default(),
         ..Default::default()
     };
-    let tip = wide("Stremio");
+    let tip = wide("SENZO");
     data.szTip[..tip.len()].copy_from_slice(&tip);
     data
 }

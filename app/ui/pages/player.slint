@@ -429,7 +429,10 @@ export component PlayerPage inherits Rectangle {
     in-out property <length> context-menu-y: root.height * 0.48;
     in-out property <bool> controls-visible: true;
     property <bool> buffer-pulse: false;
-    property <length> buffer-logo-size: min(240px, min(root.width / 3, root.height / 3));
+    // The canonical SENZO artwork is 3:2. Keep that ratio so the transparent
+    // mark is never stretched while the progress fill sweeps across it.
+    property <length> buffer-logo-width: min(440px, min(root.width / 2, root.height / 2));
+    property <length> buffer-logo-height: root.buffer-logo-width / 1.5;
     property <float> buffer-visual-progress: stream-progress > 0.0
         ? stream-progress
         : buffering-percent;
@@ -793,9 +796,10 @@ export component PlayerPage inherits Rectangle {
 
 
 
-    // Match the web player: buffering is a transparent, pulsing Stremio mark.
-    // The foreground fill follows torrent/cache progress while the faded mark
-    // remains visible behind it. Video is never covered by an opaque scrim.
+    // Buffering uses the original transparent SENZO mark instead of the
+    // Stremio symbol. The foreground copy is revealed left-to-right by the
+    // torrent/cache progress, and the mark breathes underneath it. The video
+    // surface is never covered by an opaque scrim.
     if (!has-video-frame) : Rectangle {
         width: 100%;
         height: 100%;
@@ -803,12 +807,12 @@ export component PlayerPage inherits Rectangle {
         z: 20;
 
         buffer-mark := Rectangle {
-            width: buffer-pulse ? buffer-logo-size * 1.05 : buffer-logo-size;
-            height: buffer-pulse ? buffer-logo-size * 1.05 : buffer-logo-size;
+            width: buffer-pulse ? buffer-logo-width * 1.04 : buffer-logo-width;
+            height: buffer-pulse ? buffer-logo-height * 1.04 : buffer-logo-height;
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             background: transparent;
-            opacity: buffer-pulse ? 1.0 : 0.4;
+            opacity: buffer-pulse ? 1.0 : 0.52;
 
             animate width { duration: 1s; easing: ease-in-out; }
             animate height { duration: 1s; easing: ease-in-out; }
@@ -817,9 +821,9 @@ export component PlayerPage inherits Rectangle {
             Image {
                 width: 100%;
                 height: 100%;
-                source: @image-url("../assets/images/stremio_symbol.png");
+                source: @image-url("../assets/images/senzo-logo.png");
                 image-fit: contain;
-                opacity: 0.2;
+                opacity: 0.22;
             }
 
             Rectangle {
@@ -831,7 +835,7 @@ export component PlayerPage inherits Rectangle {
                 Image {
                     width: buffer-mark.width;
                     height: buffer-mark.height;
-                    source: @image-url("../assets/images/stremio_symbol.png");
+                    source: @image-url("../assets/images/senzo-logo.png");
                     image-fit: contain;
                 }
             }

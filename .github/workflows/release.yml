@@ -15,6 +15,9 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_NET_RETRY: 10
   CARGO_HTTP_MULTIPLEXING: false
+  # Stable releases come from main or a version tag. Branch builds must never
+  # offer the last stable release through the in-app updater.
+  SENZO_UPDATE_CHANNEL: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/main') && 'stable' || 'development' }}
 
 jobs:
   windows:
@@ -432,9 +435,16 @@ jobs:
 
           package() {
               install -Dm755 "\$srcdir/senzo" "\$pkgdir/usr/bin/senzo"
+              install -Dm644 "\$srcdir/assets/linux/senzo.desktop" "\$pkgdir/usr/share/applications/senzo.desktop"
+              install -Dm644 "\$srcdir/assets/linux/com.senzo.SENZO.metainfo.xml" "\$pkgdir/usr/share/metainfo/com.senzo.SENZO.metainfo.xml"
+              install -Dm644 "\$srcdir/assets/app_icon.png" "\$pkgdir/usr/share/icons/hicolor/512x512/apps/senzo.png"
           }
           EOF
           cp target/release/senzo pkg/senzo
+          mkdir -p pkg/assets/linux
+          cp assets/linux/senzo.desktop pkg/assets/linux/
+          cp assets/linux/com.senzo.SENZO.metainfo.xml pkg/assets/linux/
+          cp app/ui/assets/images/app_icon.png pkg/assets/
       - name: Build package
         run: |
           cd pkg
@@ -482,6 +492,9 @@ jobs:
           pkgver=$(grep -m1 'version = ' app/Cargo.toml | cut -d '"' -f2)
           mkdir -p rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
           cp target/release/senzo rpmbuild/SOURCES/
+          cp assets/linux/senzo.desktop rpmbuild/SOURCES/
+          cp assets/linux/com.senzo.SENZO.metainfo.xml rpmbuild/SOURCES/
+          cp app/ui/assets/images/app_icon.png rpmbuild/SOURCES/senzo.png
           cat > rpmbuild/SPECS/senzo.spec << 'SPEC'
           Name:           senzo
           Version:        __VERSION__
@@ -499,9 +512,15 @@ jobs:
           rm -rf %{buildroot}
           mkdir -p %{buildroot}%{_bindir}
           install -p -m 755 %{_sourcedir}/senzo %{buildroot}%{_bindir}/senzo
+          install -Dm644 %{_sourcedir}/senzo.desktop %{buildroot}%{_datadir}/applications/senzo.desktop
+          install -Dm644 %{_sourcedir}/com.senzo.SENZO.metainfo.xml %{buildroot}%{_datadir}/metainfo/com.senzo.SENZO.metainfo.xml
+          install -Dm644 %{_sourcedir}/senzo.png %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/senzo.png
 
           %files
           %{_bindir}/senzo
+          %{_datadir}/applications/senzo.desktop
+          %{_datadir}/metainfo/com.senzo.SENZO.metainfo.xml
+          %{_datadir}/icons/hicolor/512x512/apps/senzo.png
 
           %changelog
           * Sun Jul 19 2026 perpetus <perpetus.github@gmail.com> - __VERSION__-1

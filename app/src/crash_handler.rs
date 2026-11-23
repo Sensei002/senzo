@@ -438,11 +438,11 @@ fn append_crash_log(
 fn crash_dialog_message(log_dir: &Path, report: &CrashReport) -> String {
     match (&report.dump_path, &report.error) {
         (Some(path), None) => format!(
-            "Stremio closed unexpectedly.\n\nA diagnostic minidump was saved to:\n{}\n\nPlease include this file and stremio.log when reporting the issue.\n\nOpen the crash reports folder?",
+            "SENZO closed unexpectedly.\n\nA diagnostic minidump was saved to:\n{}\n\nPlease include this file and stremio.log when reporting the issue.\n\nOpen the crash reports folder?",
             path.display()
         ),
         _ => format!(
-            "Stremio closed unexpectedly.\n\nThe crash reporter could not finish writing a minidump. Details were saved to:\n{}\n\nOpen the crash reports folder?",
+            "SENZO closed unexpectedly.\n\nThe crash reporter could not finish writing a minidump. Details were saved to:\n{}\n\nOpen the crash reports folder?",
             log_dir.join("crash.log").display()
         ),
     }
@@ -531,7 +531,7 @@ fn show_crash_dialog(
             let error_str = error_detail;
             move || {
                 let report_text = format!(
-                    "### Stremio Crash Report\n- **Version**: {}\n- **Build**: {}\n- **Minidump**: `{}`\n- **Log**: `{}`\n- **Capture status**: {}\n\n**Process metadata**:\n```\n{}\n```\n",
+                    "### SENZO Crash Report\n- **Version**: {}\n- **Build**: {}\n- **Minidump**: `{}`\n- **Log**: `{}`\n- **Capture status**: {}\n\n**Process metadata**:\n```\n{}\n```\n",
                     env!("CARGO_PKG_VERSION"),
                     env!("SENZO_BUILD_VERSION"),
                     dump_str,
@@ -585,7 +585,7 @@ fn show_fallback_dialog(message: &str, crash_dir: &Path) {
         core::PCWSTR,
     };
 
-    let title = "Stremio closed unexpectedly";
+    let title = "SENZO closed unexpectedly";
     let title_w = title
         .encode_utf16()
         .chain(std::iter::once(0))
@@ -613,7 +613,7 @@ fn show_fallback_dialog(message: &str, crash_dir: &Path) {
 #[cfg(target_os = "macos")]
 fn show_fallback_dialog(message: &str, crash_dir: &Path) {
     const SCRIPT: &str = r#"on run argv
-set dialogResult to display alert "Stremio closed unexpectedly" message (item 1 of argv) as critical buttons {"Close", "Open Reports"} default button "Open Reports" cancel button "Close"
+set dialogResult to display alert "SENZO closed unexpectedly" message (item 1 of argv) as critical buttons {"Close", "Open Reports"} default button "Open Reports" cancel button "Close"
 return button returned of dialogResult
 end run"#;
 
@@ -634,7 +634,7 @@ fn show_fallback_dialog(message: &str, crash_dir: &Path) {
     let zenity = Command::new("zenity")
         .arg("--question")
         .arg("--no-markup")
-        .arg("--title=Stremio closed unexpectedly")
+        .arg("--title=SENZO closed unexpectedly")
         .arg("--icon-name=dialog-error")
         .arg("--ok-label=Open Reports")
         .arg("--cancel-label=Close")
@@ -647,7 +647,7 @@ fn show_fallback_dialog(message: &str, crash_dir: &Path) {
             .arg("--yesno")
             .arg(message)
             .arg("--title")
-            .arg("Stremio closed unexpectedly")
+            .arg("SENZO closed unexpectedly")
             .status()
             .is_ok_and(|status| status.success()),
         Err(error) => {

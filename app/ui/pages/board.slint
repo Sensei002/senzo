@@ -5,6 +5,7 @@ import { MediaCatalogRow } from "../components/media_carousel.slint";
 import { MetaRowPlaceholder } from "../components/meta_row.slint";
 import { EmptyState } from "../components/feedback.slint";
 import { PillButton } from "../components/button.slint";
+import { HeroCarousel, HeroSlide } from "../components/hero_carousel.slint";
 
 export struct BoardSection {
     title: string,
@@ -79,6 +80,7 @@ component StreamingServerWarning inherits Rectangle {
 export component BoardPage inherits Rectangle {
     in property <[MediaCardItem]> continue-watching: [];
     in property <[BoardSection]> sections: [];
+    in property <[HeroSlide]> hero-slides: [];
     in property <bool> loading: false;
     in property <bool> show-server-warning: false;
 
@@ -89,6 +91,8 @@ export component BoardPage inherits Rectangle {
     callback hover-preview-dismissed();
     callback item-selected(string, string, string);
     callback play-clicked(string);
+    callback hero-play-requested(string, string);
+    callback hero-details-requested(string, string);
     callback remove-continue-watching(string);
     callback see-all-continue-watching;
     callback see-all-clicked(int);
@@ -101,12 +105,32 @@ export component BoardPage inherits Rectangle {
     in property <length> unit: Theme.root-font-size;
     property <length> card-width: 12 * root.unit;
     property <length> card-height: (root.card-width - 2 * root.unit) * Theme.poster-shape-ratio + 6 * root.unit;
+    property <length> hero-height: root.hero-slides.length > 0
+        ? min(40 * root.unit, max(24 * root.unit, root.height * 0.58))
+        : 0px;
+    property <length> shelf-offset: root.hero-slides.length > 0 ? root.hero-height + 0.5 * root.unit : 0px;
 
     background: transparent;
 
+    // The feature carousel is fixed above the vertical shelf viewport. Keeping
+    // the shelves virtualized matters more than scrolling the hero out of view,
+    // and the hero itself still advances on its own timer.
+    if (root.hero-slides.length > 0) : HeroCarousel {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: root.hero-height;
+        unit: root.unit;
+        slides: root.hero-slides;
+        play-requested(id, media-type) => { root.hero-play-requested(id, media-type); }
+        details-requested(id, media-type) => { root.hero-details-requested(id, media-type); }
+    }
+
     if (root.loading && root.sections.length == 0) : ListView {
         x: root.unit;
+        y: root.shelf-offset;
         width: max(0px, root.width - 2 * root.unit);
+        height: max(0px, parent.height - root.shelf-offset);
         horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
 
         for _catalog in [0, 1, 2] : MetaRowPlaceholder {
@@ -118,6 +142,7 @@ export component BoardPage inherits Rectangle {
 
     if (!root.loading && root.sections.length == 0) : EmptyState {
         x: root.unit;
+        y: root.shelf-offset;
         width: max(0px, root.width - 2 * root.unit);
         height: 20 * root.unit;
         unit: root.unit;
@@ -130,7 +155,9 @@ export component BoardPage inherits Rectangle {
     // every off-screen catalogue from becoming part of the active image set.
     if (root.sections.length > 0) : ListView {
         x: root.unit;
+        y: root.shelf-offset;
         width: max(0px, root.width - 2 * root.unit);
+        height: max(0px, parent.height - root.shelf-offset);
         horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
 
         for section in root.sections : Rectangle {
