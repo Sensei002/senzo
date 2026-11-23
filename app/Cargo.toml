@@ -115,7 +115,7 @@ section = "video"
 priority = "optional"
 assets = [
     ["target/release/senzo", "usr/bin/senzo", "755"],
-    ["assets/linux/senzo.desktop", "usr/share/applications/senzo.desktop", "644"],
-    ["assets/linux/com.senzo.SENZO.metainfo.xml", "usr/share/metainfo/com.senzo.SENZO.metainfo.xml", "644"],
-    ["app/ui/assets/images/app_icon.png", "usr/share/icons/hicolor/512x512/apps/senzo.png", "644"],
+    ["../assets/linux/senzo.desktop", "usr/share/applications/senzo.desktop", "644"],
+    ["../assets/linux/com.senzo.SENZO.metainfo.xml", "usr/share/metainfo/com.senzo.SENZO.metainfo.xml", "644"],
+    ["ui/assets/images/app_icon.png", "usr/share/icons/hicolor/512x512/apps/senzo.png", "644"],
 ]
