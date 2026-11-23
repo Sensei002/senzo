@@ -22,10 +22,9 @@ use std::{
 
 use chrono::Datelike;
 use serde::{Deserialize, Serialize};
+use slint::ComponentHandle;
 use stremio_core::{
-    models::meta_details::MetaDetails,
-    runtime::Runtime,
-    types::resource::MetaItem,
+    models::meta_details::MetaDetails, runtime::Runtime, types::resource::MetaItem,
 };
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -480,7 +479,9 @@ impl DirectSources {
     }
 
     fn cancel(&self) {
-        self.inner.discovery_generation.fetch_add(1, Ordering::AcqRel);
+        self.inner
+            .discovery_generation
+            .fetch_add(1, Ordering::AcqRel);
         self.cancel_current();
         self.set_busy(false);
         self.set_status("Direct source request cancelled", false);
@@ -491,7 +492,11 @@ impl DirectSources {
     }
 
     fn discover(&self, domain: &str) {
-        let generation = self.inner.discovery_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        let generation = self
+            .inner
+            .discovery_generation
+            .fetch_add(1, Ordering::AcqRel)
+            + 1;
         self.set_busy(true);
         self.set_status("Checking the domain and its robots.txt…", false);
         let manager = self.clone();
