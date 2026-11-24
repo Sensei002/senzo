@@ -1,0 +1,370 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { ButtonSurface } from "button.slint";
+
+// Shared popup select. Its label and option geometry follow the official
+// Multiselect, while the string model preserves the native page API.
+export component SelectField inherits Rectangle {
+    in property <length> unit: Theme.root-font-size;
+    in-out property <string> value;
+    in property <string> placeholder: @tr("SELECT" => "Select");
+    in property <[string]> options: [];
+    // Empty keeps every option enabled, preserving existing callers.
+    in property <[bool]> option-enabled: [];
+    in-out property <bool> open: false;
+    in property <bool> enabled: true;
+    in property <length> field-width: 15 * root.unit;
+    in property <brush> surface-color: Theme.overlay-color;
+    callback toggle;
+    callback opened;
+    callback closed;
+    callback selected(string);
+
+    width: root.field-width;
+    height: 2.75 * root.unit;
+    border-radius: root.height / 2;
+    background: root.surface-color;
+    z: root.open ? 10000 : 0;
+
+    pure function translate-option(val: string) -> string {
+        return val == "All" ? @tr("ALL" => "All") :
+               val == "Movies" ? @tr("Movies" => "Movies") :
+               val == "Series" ? @tr("TYPE_series" => "Series") :
+               val == "Others" ? @tr("TYPE_other_PL" => "Others") :
+               val == "Movie" ? @tr("TYPE_movie" => "Movie") :
+               val == "Channel" ? @tr("TYPE_channel" => "Channel") :
+               val == "TV channel" ? @tr("TYPE_tv" => "TV channel") :
+               val == "Other" ? @tr("TYPE_other" => "Other") :
+               val == "Last Watched" ? @tr("SORT_LASTWATCHED" => "last watched") :
+               val == "A–Z" ? @tr("SORT_NAME" => "a-z") :
+               val == "A-Z" ? @tr("SORT_NAME" => "a-z") :
+               val == "Z–A" ? @tr("SORT_NAMEREVERSE" => "z-a") :
+               val == "Z-a" ? @tr("SORT_NAMEREVERSE" => "z-a") :
+               val == "Most Watched" ? @tr("SORT_TIMESWATCHED" => "most watched") :
+               val == "Watched" ? @tr("SORT_WATCHED" => "watched") :
+               val == "Not Watched" ? @tr("SORT_NOTWATCHED" => "not watched") :
+               val == "Type" ? @tr("TYPE" => "Type") :
+               val == "Catalog" ? @tr("CATALOG" => "Catalog") :
+               val == "Genre" ? @tr("GENRE" => "Genre") :
+               val == "Select" ? @tr("SELECT" => "Select") :
+               val == "Popular" ? @tr("CATALOG_com_linvo_cinemeta_top" => "Popular") :
+               val == "Featured" ? @tr("CATALOG_com_linvo_cinemeta_imdbRating" => "Featured") :
+               val == "New" ? @tr("CATALOG_com_linvo_cinemeta_year" => "New") :
+               val == "Public Domain Movies" ? @tr("CATALOG_org_stremio_pubdomainmovies_publicdomainmovies" => "Public Domain Movies") :
+               val == "YouTube" ? "YouTube" :
+               val == "Action" ? @tr("Action" => "Action") :
+               val == "Adventure" ? @tr("Adventure" => "Adventure") :
+               val == "Animation" ? @tr("Animation" => "Animation") :
+               val == "Biography" ? @tr("Biography" => "Biography") :
+               val == "Comedy" ? @tr("COMEDY" => "Comedy") :
+               val == "Crime" ? @tr("Crime" => "Crime") :
+               val == "Documentary" ? @tr("Documentary" => "Documentary") :
+               val == "Drama" ? @tr("Drama" => "Drama") :
+               val == "Family" ? @tr("Family" => "Family") :
+               val == "Fantasy" ? @tr("Fantasy" => "Fantasy") :
+               val == "Film-Noir" ? @tr("Film-Noir" => "Film-Noir") :
+               val == "History" ? @tr("History" => "History") :
+               val == "Horror" ? @tr("Horror" => "Horror") :
+               val == "Music" ? @tr("MUSIC" => "Music") :
+               val == "Musical" ? @tr("Musical" => "Musical") :
+               val == "Mystery" ? @tr("Mystery" => "Mystery") :
+               val == "News" ? @tr("NEWS" => "News") :
+               val == "Romance" ? @tr("Romance" => "Romance") :
+               val == "Sci-Fi" ? @tr("Sci-Fi" => "Sci-Fi") :
+               val == "Sport" ? @tr("Sport" => "Sport") :
+               val == "Thriller" ? @tr("Thriller" => "Thriller") :
+               val == "War" ? @tr("War" => "War") :
+               val == "Western" ? @tr("Western" => "Western") :
+               val == "Installed" ? @tr("ADDON_INSTALLED" => "Installed") :
+               val == "Community" ? @tr("WEBSITE_COMMUNITY" => "Community") :
+               val == "Anime" ? "Anime" :
+               val == "TV Channel" ? @tr("TYPE_tv" => "TV channel") :
+               val == "Special" ? @tr("SPECIAL" => "Special") : val;
+    }
+
+    label-button := ButtonSurface {
+        width: parent.width;
+        height: parent.height;
+        border-radius: parent.border-radius;
+        enabled: root.enabled;
+        accessible-name: root.value == "" ? translate-option(root.placeholder) : translate-option(root.value);
+        clicked => {
+            root.open = !root.open;
+            root.toggle();
+            if (!root.open) {
+                popup.close();
+                root.closed();
+            } else {
+                popup.show();
+                root.opened();
+            }
+        }
+
+        HorizontalLayout {
+            padding-left: 1.5 * root.unit;
+            padding-right: 1.5 * root.unit;
+            spacing: root.unit;
+
+            Text {
+                horizontal-stretch: 1;
+                text: root.value == "" ? translate-option(root.placeholder) : translate-option(root.value);
+                color: Theme.primary-foreground;
+                opacity: root.value == "" ? 0.6 : 1;
+                font-size: root.unit;
+                font-weight: 500;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            // A wrapper that stretches on the cross axis keeps the caret
+            // centered. Giving the image a fixed height directly in a
+            // HorizontalLayout otherwise places it at the layout's top edge.
+            Rectangle {
+                width: 1.5 * root.unit;
+                background: transparent;
+
+                Image {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: root.unit;
+                    height: root.unit;
+                    source: root.open
+                        ? @image-url("../assets/images/icons/caret-up.svg")
+                        : @image-url("../assets/images/icons/caret-down.svg");
+                    colorize: Theme.primary-foreground;
+                    opacity: 0.4;
+                    image-fit: contain;
+                }
+            }
+        }
+    }
+
+    popup := PopupWindow {
+        x: 0px;
+        y: root.height + 2px;
+        width: root.width;
+        height: root.options.length == 0
+            ? 3 * root.unit
+            : min(root.options.length, 7) * 2.5 * root.unit;
+
+        menu := Rectangle {
+            width: 100%;
+            height: 100%;
+            border-radius: Theme.border-radius;
+            background: Theme.modal-color;
+            drop-shadow-blur: Theme.outer-glow-blur;
+            drop-shadow-color: Theme.outer-glow-color;
+            clip: true;
+
+            if (root.options.length == 0) : Text {
+                width: parent.width;
+                height: parent.height;
+                text: @tr("No options");
+                color: Theme.surface-light-90;
+                font-size: 1.2 * root.unit;
+                font-weight: 500;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            if (root.options.length > 0) : ScrollView {
+                width: parent.width;
+                height: parent.height;
+
+                VerticalLayout {
+                    x: 0px;
+                    y: 0px;
+                    width: 100%;
+                    spacing: 0px;
+
+                    for option[index] in root.options : option-button := ButtonSurface {
+                        horizontal-stretch: 1;
+                        height: 2.5 * root.unit;
+                        enabled: root.option-enabled.length == 0
+                            ? true
+                            : (index < root.option-enabled.length ? root.option-enabled[index] : true);
+                        accessible-name: translate-option(option);
+                        background: self.has-hover || self.has-focus
+                            ? Theme.overlay-color
+                            : transparent;
+                        clicked => {
+                            root.value = option;
+                            root.open = false;
+                            root.selected(option);
+                            popup.close();
+                        }
+
+                        HorizontalLayout {
+                            padding-left: root.unit;
+                            padding-right: root.unit;
+                            padding-top: 0.5 * root.unit;
+                            padding-bottom: 0.5 * root.unit;
+                            spacing: root.unit;
+
+                            Text {
+                                horizontal-stretch: 1;
+                                text: translate-option(option);
+                                color: Theme.primary-foreground;
+                                font-size: root.unit;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+
+                            if (option == root.value) : Rectangle {
+                                width: 0.5 * root.unit;
+                                height: 0.5 * root.unit;
+                                border-radius: self.width / 2;
+                                background: Theme.secondary-accent;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component SeasonSelectField inherits Rectangle {
+    in property <length> unit: Theme.root-font-size;
+    in-out property <int> value;
+    in property <[int]> options: [];
+    in-out property <bool> open: false;
+    in property <bool> enabled: true;
+    // Floor width. The web's season pill is `flex: 0 1 auto`, so it grows with
+    // its label rather than clipping it; `field-width` only sets the minimum.
+    in property <length> field-width: 15 * root.unit;
+    in property <brush> surface-color: Theme.overlay-color;
+    callback toggle;
+    callback opened;
+    callback closed;
+    callback selected(int);
+
+    // 1.5u padding on each side, plus the 1.5u caret column and its 1u gap.
+    width: max(root.field-width, season-label.preferred-width + 5.5 * root.unit);
+    height: 2.75 * root.unit;
+    border-radius: root.height / 2;
+    background: root.surface-color;
+    z: 10000;
+
+    label-button := ButtonSurface {
+        width: parent.width;
+        height: parent.height;
+        border-radius: parent.border-radius;
+        enabled: root.enabled;
+        accessible-name: root.value > 0 ? @tr("SEASON_NUMBER" => "Season {}", root.value) : @tr("SPECIAL" => "Special");
+        clicked => {
+            root.toggle();
+            if (root.open) {
+                root.opened();
+            } else {
+                root.closed();
+            }
+        }
+
+        HorizontalLayout {
+            padding-left: 1.5 * root.unit;
+            padding-right: 1.5 * root.unit;
+            spacing: root.unit;
+
+            season-label := Text {
+                horizontal-stretch: 1;
+                text: root.value > 0 ? @tr("SEASON_NUMBER" => "Season {}", root.value) : @tr("SPECIAL" => "Special");
+                color: Theme.primary-foreground;
+                font-size: root.unit;
+                font-weight: 500;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            Rectangle {
+                width: 1.5 * root.unit;
+                background: transparent;
+
+                Image {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: root.unit;
+                    height: root.unit;
+                    source: root.open
+                        ? @image-url("../assets/images/icons/caret-up.svg")
+                        : @image-url("../assets/images/icons/caret-down.svg");
+                    colorize: Theme.primary-foreground;
+                    opacity: 0.4;
+                    image-fit: contain;
+                }
+            }
+        }
+    }
+
+    if (root.open) : menu := Rectangle {
+        x: 0px;
+        y: root.height;
+        width: root.width;
+        height: root.options.length == 0
+            ? 3 * root.unit
+            : min(root.options.length, 7) * 2.5 * root.unit;
+        border-radius: Theme.border-radius;
+        background: Theme.modal-color;
+        drop-shadow-blur: Theme.outer-glow-blur;
+        drop-shadow-color: Theme.outer-glow-color;
+        clip: true;
+        z: 10001;
+
+        if (root.options.length == 0) : Text {
+            width: parent.width;
+            height: parent.height;
+            text: @tr("No seasons");
+            color: Theme.surface-light-90;
+            font-size: 1.2 * root.unit;
+            font-weight: 500;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+
+        if (root.options.length > 0) : ScrollView {
+            width: parent.width;
+            height: parent.height;
+
+            VerticalLayout {
+                x: 0px;
+                y: 0px;
+                width: 100%;
+                spacing: 0px;
+
+                for option in root.options : option-button := ButtonSurface {
+                    horizontal-stretch: 1;
+                    height: 2.5 * root.unit;
+                    accessible-name: option > 0 ? @tr("SEASON_NUMBER" => "Season {}", option) : @tr("SPECIAL" => "Special");
+                    background: self.has-hover || self.has-focus
+                        ? Theme.overlay-color
+                        : transparent;
+                    clicked => { root.selected(option); }
+
+                    HorizontalLayout {
+                        padding-left: root.unit;
+                        padding-right: root.unit;
+                        padding-top: 0.5 * root.unit;
+                        padding-bottom: 0.5 * root.unit;
+                        spacing: root.unit;
+
+                        Text {
+                            horizontal-stretch: 1;
+                            text: option > 0 ? @tr("SEASON_NUMBER" => "Season {}", option) : @tr("SPECIAL" => "Special");
+                            color: Theme.primary-foreground;
+                            font-size: root.unit;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+
+                        if (option == root.value) : Rectangle {
+                            width: 0.5 * root.unit;
+                            height: 0.5 * root.unit;
+                            border-radius: self.width / 2;
+                            background: Theme.secondary-accent;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
