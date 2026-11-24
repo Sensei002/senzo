@@ -1,0 +1,20 @@
+[package]
+name = "server-connector"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+stream-server.workspace = true
+reqwest = { workspace = true, features = ["json", "rustls", "charset", "http2"] }
+http.workspace = true
+axum.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+async-trait.workspace = true
+anyhow.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tower = { workspace = true, features = ["util"] }
+
+[features]
+default = []
+in-process = []

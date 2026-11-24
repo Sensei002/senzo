@@ -1,0 +1,659 @@
+import { Theme } from "../theme.slint";
+import { ScrollView } from "std-widgets.slint";
+import { ButtonSurface, PillButton } from "../components/button.slint";
+import { NativeTextField } from "../components/text_input.slint";
+import { SelectField } from "../components/select.slint";
+import { ToggleSwitch } from "../components/toggle.slint";
+
+export struct DirectProviderCard {
+    id: string,
+    name: string,
+    description: string,
+    content-types: string,
+    languages: string,
+    formats: string,
+    status: string,
+    status-error: bool,
+    enabled: bool,
+    builtin: bool,
+    configurable: bool,
+}
+
+export struct DirectDiscoveryResult {
+    id: string,
+    name: string,
+    domain: string,
+    method: string,
+    content-types: string,
+    formats: string,
+    status: string,
+    required-config: string,
+    can-add: bool,
+}
+
+component SectionHeading inherits Rectangle {
+    in property <length> unit: Theme.root-font-size;
+    in property <string> title;
+    in property <string> description;
+    in property <string> trailing;
+
+    height: 3.4 * root.unit;
+    background: transparent;
+
+    HorizontalLayout {
+        spacing: root.unit;
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 0.25 * root.unit;
+            Text {
+                text: root.title;
+                color: Theme.text-primary;
+                font-size: 1.15 * root.unit;
+                font-weight: 700;
+            }
+            Text {
+                text: root.description;
+                color: Theme.text-muted;
+                font-size: 0.85 * root.unit;
+                overflow: elide;
+            }
+        }
+
+        Text {
+            text: root.trailing;
+            color: Theme.text-muted;
+            font-size: 0.8 * root.unit;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component SmallButton inherits ButtonSurface {
+    in property <length> unit: Theme.root-font-size;
+    in property <string> label;
+    in property <bool> danger: false;
+
+    height: 2.2 * root.unit;
+    border-radius: self.height / 2;
+    background: self.has-hover
+        ? (root.danger ? Theme.danger : Theme.overlay-hover)
+        : Theme.overlay-color;
+    accessible-name: root.label;
+
+    Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.label;
+        color: root.danger && root.has-hover ? Theme.background : Theme.text-primary;
+        font-size: 0.78 * root.unit;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+component ProviderCard inherits Rectangle {
+    in property <length> unit: Theme.root-font-size;
+    in property <string> provider-id;
+    in property <string> name;
+    in property <string> description;
+    in property <string> content-types;
+    in property <string> languages;
+    in property <string> formats;
+    in property <string> status;
+    in property <bool> status-error: false;
+    in property <bool> enabled;
+    in property <bool> builtin;
+    in property <bool> configurable;
+    callback toggled(string, bool);
+    callback validated(string);
+    callback edited(string);
+    callback removed(string);
+
+    height: 9.2 * root.unit;
+    border-radius: Theme.border-radius;
+    background: Theme.card-background;
+    border-width: 1px;
+    border-color: Theme.card-border;
+
+    VerticalLayout {
+        padding: 1.25 * root.unit;
+        spacing: 0.7 * root.unit;
+
+        HorizontalLayout {
+            spacing: root.unit;
+
+            Rectangle {
+                width: 3 * root.unit;
+                height: 3 * root.unit;
+                border-radius: 0.9 * root.unit;
+                background: Theme.overlay-color;
+
+                Image {
+                    width: 1.5 * root.unit;
+                    height: 1.5 * root.unit;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    source: @image-url("../assets/images/icons/channels.svg");
+                    colorize: Theme.primary-accent;
+                    image-fit: contain;
+                }
+            }
+
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 0.25 * root.unit;
+                alignment: center;
+
+                HorizontalLayout {
+                    spacing: 0.5 * root.unit;
+                    Text {
+                        text: root.name;
+                        color: Theme.text-primary;
+                        font-size: 1.05 * root.unit;
+                        font-weight: 700;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+                    Rectangle {
+                        height: 1.35 * root.unit;
+                        width: 4.3 * root.unit;
+                        border-radius: self.height / 2;
+                        background: root.builtin ? Theme.overlay-color : Theme.overlay-hover;
+                        Text {
+                            text: root.builtin ? "BUILT-IN" : "MY SOURCE";
+                            color: root.builtin ? Theme.text-muted : Theme.primary-accent;
+                            font-size: 0.62 * root.unit;
+                            font-weight: 700;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                Text {
+                    text: root.description;
+                    color: Theme.text-muted;
+                    font-size: 0.78 * root.unit;
+                    overflow: elide;
+                }
+            }
+
+            ToggleSwitch {
+                checked: root.enabled;
+                unit: root.unit;
+                active-color: Theme.primary-accent;
+                toggled => { root.toggled(root.provider-id, self.checked); }
+            }
+        }
+
+        Text {
+            text: "Types: " + root.content-types + "   ·   Languages: " + root.languages + "   ·   Formats: " + root.formats;
+            color: Theme.text-secondary;
+            font-size: 0.78 * root.unit;
+            overflow: elide;
+        }
+
+        HorizontalLayout {
+            spacing: 0.75 * root.unit;
+
+            Text {
+                horizontal-stretch: 1;
+                text: root.status;
+                color: root.status-error ? Theme.danger : Theme.text-muted;
+                font-size: 0.78 * root.unit;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            SmallButton {
+                unit: root.unit;
+                width: 5.8 * root.unit;
+                label: "Validate";
+                clicked => { root.validated(root.provider-id); }
+            }
+
+            if (root.configurable) : SmallButton {
+                unit: root.unit;
+                width: 4.6 * root.unit;
+                label: "Edit";
+                clicked => { root.edited(root.provider-id); }
+            }
+
+            if (!root.builtin) : SmallButton {
+                unit: root.unit;
+                width: 5.4 * root.unit;
+                label: "Remove";
+                danger: true;
+                clicked => { root.removed(root.provider-id); }
+            }
+        }
+    }
+}
+
+export component DirectSourcesPage inherits Rectangle {
+    in property <length> unit: Theme.root-font-size;
+    in property <bool> master-enabled: true;
+    in property <bool> busy: false;
+    in property <string> status: "";
+    in property <bool> status-error: false;
+    in property <[DirectProviderCard]> builtin-providers: [];
+    in property <[DirectProviderCard]> custom-providers: [];
+    in property <[DirectDiscoveryResult]> discoveries: [];
+
+    in-out property <bool> form-open: false;
+    in-out property <string> form-id: "";
+    in-out property <string> form-name: "";
+    in-out property <string> form-url: "";
+    in-out property <string> form-type: "M3U playlist";
+    in-out property <string> form-content-types: "movie, series";
+    in-out property <string> form-formats: "m3u8, mp4";
+    in-out property <bool> form-enabled: true;
+    in-out property <string> form-error: "";
+    in-out property <string> discover-domain: "";
+
+    callback master-changed(bool);
+    callback provider-toggled(string, bool);
+    callback provider-validated(string);
+    callback source-add;
+    callback source-edit(string);
+    callback source-remove(string);
+    callback source-save(string, string, string, string, string, string, bool);
+    callback source-cancel;
+    callback discover(string);
+    callback discovery-add(string);
+    callback import-sources;
+    callback export-sources;
+    callback cancel;
+    callback retry;
+
+    background: Theme.background;
+
+    ScrollView {
+        width: parent.width;
+        height: parent.height;
+        viewport-width: root.width;
+
+        VerticalLayout {
+            x: 0px;
+            y: 0px;
+            width: 100%;
+            padding-left: 2 * root.unit;
+            padding-right: 2 * root.unit;
+            padding-top: 1.5 * root.unit;
+            padding-bottom: 2 * root.unit;
+            spacing: 1.4 * root.unit;
+
+            HorizontalLayout {
+                spacing: root.unit;
+
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 0.3 * root.unit;
+                    Text {
+                        text: "Direct Sources";
+                        color: Theme.text-primary;
+                        font-size: 1.8 * root.unit;
+                        font-weight: 800;
+                    }
+                    Text {
+                        text: "An independent source system for authorized direct media. Direct Sources never installs or replaces third-party add-ons.";
+                        color: Theme.text-muted;
+                        font-size: 0.9 * root.unit;
+                        wrap: word-wrap;
+                    }
+                }
+
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 0.3 * root.unit;
+                    Text {
+                        text: root.master-enabled ? "ON" : "OFF";
+                        color: root.master-enabled ? Theme.success : Theme.text-muted;
+                        font-size: 0.7 * root.unit;
+                        font-weight: 700;
+                        horizontal-alignment: right;
+                    }
+                    ToggleSwitch {
+                        checked: root.master-enabled;
+                        unit: root.unit;
+                        active-color: Theme.primary-accent;
+                        toggled => { root.master-changed(self.checked); }
+                    }
+                }
+            }
+
+            if (root.status != "") : Rectangle {
+                height: 2.6 * root.unit;
+                border-radius: Theme.border-radius;
+                background: root.status-error ? Theme.danger : Theme.overlay-color;
+                border-width: 1px;
+                border-color: root.status-error ? Theme.danger : Theme.card-border;
+                Text {
+                    x: root.unit;
+                    width: parent.width - 2 * root.unit;
+                    height: parent.height;
+                    text: root.status;
+                    color: root.status-error ? Theme.danger : Theme.text-secondary;
+                    font-size: 0.82 * root.unit;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+
+            if (root.busy) : HorizontalLayout {
+                spacing: 0.75 * root.unit;
+                Text {
+                    horizontal-stretch: 1;
+                    text: "Working…";
+                    color: Theme.primary-accent;
+                    font-size: 0.85 * root.unit;
+                    vertical-alignment: center;
+                }
+                PillButton {
+                    unit: root.unit;
+                    label: "Cancel";
+                    clicked => { root.cancel(); }
+                }
+            }
+
+            if (root.status-error && !root.busy) : PillButton {
+                unit: root.unit;
+                label: "Retry";
+                primary: true;
+                clicked => { root.retry(); }
+            }
+
+            SectionHeading {
+                unit: root.unit;
+                title: "Built-in Sources";
+                description: "Vetted providers that use official public APIs and open media.";
+                trailing: root.builtin-providers.length + " providers";
+            }
+
+            for provider in root.builtin-providers : ProviderCard {
+                unit: root.unit;
+                provider-id: provider.id;
+                name: provider.name;
+                description: provider.description;
+                content-types: provider.content-types;
+                languages: provider.languages;
+                formats: provider.formats;
+                status: provider.status;
+                status-error: provider.status-error;
+                enabled: provider.enabled;
+                builtin: provider.builtin;
+                configurable: provider.configurable;
+                toggled(id, enabled) => { root.provider-toggled(id, enabled); }
+                validated(id) => { root.provider-validated(id); }
+                edited(id) => { root.source-edit(id); }
+                removed(id) => { root.source-remove(id); }
+            }
+
+            SectionHeading {
+                unit: root.unit;
+                title: "My Sources";
+                description: "Authorized M3U playlists and declarative JSON feeds that you control.";
+                trailing: root.custom-providers.length + " sources";
+            }
+
+            HorizontalLayout {
+                spacing: 0.75 * root.unit;
+                PillButton {
+                    unit: root.unit;
+                    label: "Add Source";
+                    primary: true;
+                    clicked => { root.source-add(); }
+                }
+                PillButton {
+                    unit: root.unit;
+                    label: "Import";
+                    clicked => { root.import-sources(); }
+                }
+                PillButton {
+                    unit: root.unit;
+                    label: "Export";
+                    clicked => { root.export-sources(); }
+                }
+            }
+
+            if (root.form-open) : Rectangle {
+                height: root.form-error == "" ? 30 * root.unit : 33 * root.unit;
+                border-radius: Theme.border-radius;
+                background: Theme.card-background;
+                border-width: 1px;
+                border-color: Theme.primary-accent;
+
+                VerticalLayout {
+                    padding: 1.25 * root.unit;
+                    spacing: 0.7 * root.unit;
+
+                    Text {
+                        text: root.form-id == "" ? "Add a source" : "Edit source";
+                        color: Theme.text-primary;
+                        font-size: 1.05 * root.unit;
+                        font-weight: 700;
+                    }
+
+                    NativeTextField {
+                        unit: root.unit;
+                        text <=> root.form-name;
+                        placeholder-text: "Source name";
+                    }
+
+                    NativeTextField {
+                        unit: root.unit;
+                        text <=> root.form-url;
+                        placeholder-text: "https://example.com/authorized-playlist.m3u";
+                    }
+
+                    HorizontalLayout {
+                        spacing: root.unit;
+
+                        SelectField {
+                            unit: root.unit;
+                            value <=> root.form-type;
+                            options: ["M3U playlist", "JSON feed"];
+                            field-width: 12 * root.unit;
+                        }
+
+                        Text {
+                            text: "Content types";
+                            color: Theme.text-muted;
+                            font-size: 0.8 * root.unit;
+                            vertical-alignment: center;
+                        }
+
+                        NativeTextField {
+                            horizontal-stretch: 1;
+                            unit: root.unit;
+                            text <=> root.form-content-types;
+                            placeholder-text: "movie, series";
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: root.unit;
+                        Text {
+                            text: "Formats";
+                            color: Theme.text-muted;
+                            font-size: 0.8 * root.unit;
+                            vertical-alignment: center;
+                        }
+                        NativeTextField {
+                            horizontal-stretch: 1;
+                            unit: root.unit;
+                            text <=> root.form-formats;
+                            placeholder-text: "m3u8, mp4";
+                        }
+                        ToggleSwitch {
+                            checked: root.form-enabled;
+                            unit: root.unit;
+                            active-color: Theme.primary-accent;
+                            toggled => { root.form-enabled = self.checked; }
+                        }
+                        Text {
+                            text: "Enabled";
+                            color: Theme.text-muted;
+                            font-size: 0.8 * root.unit;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    if (root.form-error != "") : Text {
+                        text: root.form-error;
+                        color: Theme.danger;
+                        font-size: 0.8 * root.unit;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 0.75 * root.unit;
+                        alignment: end;
+                        PillButton {
+                            unit: root.unit;
+                            label: "Save";
+                            primary: true;
+                            clicked => {
+                                root.source-save(
+                                    root.form-id,
+                                    root.form-name,
+                                    root.form-url,
+                                    root.form-type,
+                                    root.form-content-types,
+                                    root.form-formats,
+                                    root.form-enabled,
+                                );
+                            }
+                        }
+                        PillButton {
+                            unit: root.unit;
+                            label: "Cancel";
+                            clicked => { root.source-cancel(); }
+                        }
+                    }
+                }
+            }
+
+            for provider in root.custom-providers : ProviderCard {
+                unit: root.unit;
+                provider-id: provider.id;
+                name: provider.name;
+                description: provider.description;
+                content-types: provider.content-types;
+                languages: provider.languages;
+                formats: provider.formats;
+                status: provider.status;
+                status-error: provider.status-error;
+                enabled: provider.enabled;
+                builtin: provider.builtin;
+                configurable: provider.configurable;
+                toggled(id, enabled) => { root.provider-toggled(id, enabled); }
+                validated(id) => { root.provider-validated(id); }
+                edited(id) => { root.source-edit(id); }
+                removed(id) => { root.source-remove(id); }
+            }
+
+            if (root.custom-providers.length == 0 && !root.form-open) : Text {
+                text: "No custom sources yet. Add an authorized M3U playlist or JSON feed, or inspect a domain in Discover.";
+                color: Theme.text-muted;
+                font-size: 0.85 * root.unit;
+                wrap: word-wrap;
+            }
+
+            SectionHeading {
+                unit: root.unit;
+                title: "Discover";
+                description: "Inspect one domain at a time. Discovery obeys robots.txt and never executes remote plugin code.";
+                trailing: root.discoveries.length + " results";
+            }
+
+            HorizontalLayout {
+                spacing: 0.75 * root.unit;
+                NativeTextField {
+                    horizontal-stretch: 1;
+                    unit: root.unit;
+                    text <=> root.discover-domain;
+                    placeholder-text: "provider.example";
+                }
+                PillButton {
+                    unit: root.unit;
+                    label: "Inspect Domain";
+                    primary: true;
+                    clicked => { root.discover(root.discover-domain); }
+                }
+            }
+
+            for candidate in root.discoveries : Rectangle {
+                height: 8.4 * root.unit;
+                border-radius: Theme.border-radius;
+                background: Theme.card-background;
+                border-width: 1px;
+                border-color: Theme.card-border;
+
+                VerticalLayout {
+                    padding: 1 * root.unit;
+                    spacing: 0.5 * root.unit;
+
+                    HorizontalLayout {
+                        spacing: root.unit;
+                        Text {
+                            horizontal-stretch: 1;
+                            text: candidate.name;
+                            color: Theme.text-primary;
+                            font-size: 0.95 * root.unit;
+                            font-weight: 700;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: candidate.domain;
+                            color: Theme.text-muted;
+                            font-size: 0.75 * root.unit;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    Text {
+                        text: candidate.method + " · " + candidate.status;
+                        color: Theme.text-secondary;
+                        font-size: 0.78 * root.unit;
+                        overflow: elide;
+                    }
+
+                    Text {
+                        text: "Types: " + candidate.content-types + "   ·   Formats: " + candidate.formats;
+                        color: Theme.text-muted;
+                        font-size: 0.75 * root.unit;
+                        overflow: elide;
+                    }
+
+                    Text {
+                        text: "Configuration: " + candidate.required-config;
+                        color: Theme.text-muted;
+                        font-size: 0.75 * root.unit;
+                        overflow: elide;
+                    }
+
+                    HorizontalLayout {
+                        alignment: end;
+                        PillButton {
+                            unit: root.unit;
+                            label: candidate.can-add ? "Add Source" : "Not Supported";
+                            enabled: candidate.can-add;
+                            primary: candidate.can-add;
+                            clicked => { root.discovery-add(candidate.id); }
+                        }
+                    }
+                }
+            }
+
+            Text {
+                text: "Direct Sources respects robots.txt and provider terms. It does not bypass logins, paywalls, DRM, or CAPTCHAs, and it does not run downloaded JavaScript. Only add sources you are authorized to use.";
+                color: Theme.text-muted;
+                font-size: 0.75 * root.unit;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

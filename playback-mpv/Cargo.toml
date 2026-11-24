@@ -1,0 +1,19 @@
+[package]
+name = "playback-mpv"
+version = "0.1.0"
+edition = "2024"
+links = "mpv"
+
+[dependencies]
+glow.workspace = true
+libloading = "0.8.9"
+thiserror.workspace = true
+tracing.workspace = true
+
+[build-dependencies]
+pkg-config = "0.3.34"
+reqwest = { workspace = true, features = ["blocking", "rustls"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2 = "0.11.0"
+sevenz-rust = "0.6.1"

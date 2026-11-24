@@ -1,0 +1,127 @@
+[workspace]
+resolver = "2"
+members = [
+    "app",
+    "credential-store",
+    "debrid",
+    "media-integrations",
+    "core-env",
+    "playback-mpv",
+    "server-connector",
+    "stream-ranking",
+]
+exclude = ["vendor/i-slint-renderer-skia", "vendor/i-slint-core"]
+
+[workspace.package]
+authors = ["perpetus <perpetus.github@gmail.com>"]
+repository = "https://github.com/Sensei002/senzo"
+license = "GPL-3.0-only"
+
+[workspace.dependencies]
+anyhow = "1.0.104"
+argon2 = "0.5.3"
+async-trait = "0.1.92"
+axum = "0.8.9"
+base64 = "0.23.1"
+blake3 = "1.8.6"
+chrono = "0.4.45"
+chacha20poly1305 = "0.11.0"
+crash-handler = "0.8.0"
+dirs = "6.0.0"
+futures = "0.3.34"
+fluent-bundle = "0.16.0"
+glow = "0.18.0"
+http = "1.5.0"
+image = { version = "0.25.10", default-features = false }
+moka = "0.12.16"
+notify = "8.2.0"
+percent-encoding = "2.3.2"
+reqwest = { version = "0.13.4", default-features = false }
+rand = "0.10.2"
+serde = "1.0.229"
+serde_json = "1.0.151"
+self_update = { version = "0.44.0", default-features = false, features = ["reqwest", "rustls", "archive-zip", "compression-zip-deflate"] }
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+slint = { version = "1.17.1", default-features = false }
+slint-build = "1.17.1"
+stremio-core = { git = "https://github.com/perpetus/stremio-core.git", rev = "4562b37be8ea788801e12c608a6aa3e43c646123", features = ["derive", "analytics", "env-future-send"] }
+enginefs = { git = "https://github.com/stremio-native/stream-server.git", rev = "f585ab6eda9b1411034548c131bb0dc30c6f5f9e" }
+stream-server = { git = "https://github.com/stremio-native/stream-server.git", rev = "f585ab6eda9b1411034548c131bb0dc30c6f5f9e", package = "server" }
+sys-locale = "0.3.2"
+thiserror = "2.0.20"
+tokio = "1.53.1"
+tokio-util = "0.7.19"
+tower = "0.5.3"
+tracing = { version = "0.1.44", features = ["release_max_level_info"] }
+tracing-appender = "0.2.5"
+tracing-chrome = "0.7.2"
+tracing-subscriber = "0.3.23"
+url = "2.5.8"
+unic-langid = "0.9.6"
+walkdir = "2.5.0"
+discord-rich-presence = "1.1.0"
+# Pure-Rust zbus backend so Linux builds need no system libdbus. The Windows
+# (SMTC) and macOS (MediaRemote) backends ignore this feature.
+souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
+keepawake = "0.6.0"
+keyring = { version = "3.6.3", default-features = false, features = ["windows-native", "sync-secret-service", "vendored"] }
+mlua = { version = "0.12.0", features = ["lua54", "vendored", "serialize"] }
+minidump-writer = "0.13.0"
+minidumper = "0.11.0"
+turso = { version = "0.7.2", default-features = false }
+
+[patch.crates-io]
+# Slint 1.17 asks glutin for OpenGL without a version, which glutin maps to
+# exactly 3.3. Keep Slint's public unversioned policy while negotiating the
+# newest desktop context that each driver actually supports.
+i-slint-renderer-skia = { path = "vendor/i-slint-renderer-skia" }
+# Slint's Flickable ships desktop-unfriendly scroll physics (180ms quadratic
+# wheel steps, 2000px/s^2 fling). Retune them to browser values. This has to
+# live in the engine because ListView rewrites viewport-y mid-animation, so
+# only Slint's incremental physics animations survive virtualized scrolling.
+# See vendor/i-slint-core/PATCHES.md.
+i-slint-core = { path = "vendor/i-slint-core" }
+
+[profile.release]
+opt-level = 3
+# ThinLTO instead of `true` (fat). Fat LTO merges the whole program into one
+# module and optimizes it on a single thread, which is the dominant cost of a
+# release build here. ThinLTO keeps cross-crate inlining through summaries and
+# runs in parallel. `codegen-units = 1` existed to compensate for the lack of
+# cross-unit optimization; ThinLTO restores that across units, so the serial
+# codegen bottleneck is no longer buying anything.
+lto = "thin"
+codegen-units = 16
+panic = "abort"
+strip = true
+
+# Build scripts, proc macros and their dependencies never ship in the binary,
+# so optimizing them cannot affect the app's runtime. They are not left at
+# opt-level 0 either: this tree runs real work at build time -- the Slint
+# compiler over ui/app.slint and the cxx bridge -- and an unoptimized compiler
+# is slow enough to cost more than the build saves. opt-level 1 is the point
+# where that work is close to full speed while compiling far faster than 3.
+[profile.release.build-override]
+opt-level = 1
+
+[profile.dev]
+opt-level = 0
+# Keep file/line information for backtraces and crash reports without emitting
+# full variable/type debug data for every workspace crate.
+debug = "line-tables-only"
+incremental = true
+split-debuginfo = "unpacked"
+
+# Dependencies dominate this workspace's debug artifact size. Their symbols
+# remain available through the opt-in `debugging` profile below when needed.
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.build-override]
+opt-level = 1
+
+# Use `cargo build --profile debugging` when a full source-level debugging
+# session is more important than build time and disk usage.
+[profile.debugging]
+inherits = "dev"
+debug = "full"

@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 3,
+  "channel": "git",
+  "linkage": "dynamic",
+  "release": "20261111",
+  "mpv": {
+    "version": "0.42.0.38-gbcde6b93c",
+    "revision": "bcde6b93cca4d128d84e1a60d1a6db2cd81c889e",
+    "repository": "https://github.com/mpv-player/mpv"
+  },
+  "clientApi": {
+    "major": 2,
+    "minor": 5
+  },
+  "distribution": {
+    "provider": "shinchiro/mpv-winbuild-cmake",
+    "repository": "https://github.com/shinchiro/mpv-winbuild-cmake",
+    "release": "20261111",
+    "asset": "mpv-dev-x86_64-v3-20261111-git-bcde6b93cc.7z",
+    "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261111/mpv-dev-x86_64-v3-20261111-git-bcde6b93cc.7z",
+    "sha256": "19d9bb4c5f8249f48c2413a0b7c473116552b8cf55404a67a5a568b2d8b09bcb"
+  },
+  "headers": {
+    "client.h": {
+      "file": "include/mpv/client.h",
+      "sha256": null
+    },
+    "render.h": {
+      "file": "include/mpv/render.h",
+      "sha256": null
+    },
+    "render_gl.h": {
+      "file": "include/mpv/render_gl.h",
+      "sha256": null
+    },
+    "stream_cb.h": {
+      "file": "include/mpv/stream_cb.h",
+      "sha256": null
+    }
+  },
+  "licenses": {
+    "LICENSE.GPL": {
+      "url": "https://raw.githubusercontent.com/mpv-player/mpv/bcde6b93cca4d128d84e1a60d1a6db2cd81c889e/LICENSE.GPL",
+      "sha256": "edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6"
+    },
+    "LICENSE.LGPL": {
+      "url": "https://raw.githubusercontent.com/mpv-player/mpv/bcde6b93cca4d128d84e1a60d1a6db2cd81c889e/LICENSE.LGPL",
+      "sha256": "72b672113d642cbb8ef5dcc76938db801983c56e50b1400ab930f1a64d6dc8d9"
+    }
+  },
+  "artifacts": {
+    "windows-x86_64-v3-dynamic": {
+      "directory": "dist/mpv/windows-x86_64-v3-dynamic",
+      "target": "x86_64-pc-windows-msvc",
+      "architecture": "x86_64",
+      "cpuBaseline": "x86-64-v3",
+      "linkName": "mpv",
+      "runtimeLibrary": {
+        "file": "bin/libmpv-2.dll",
+        "sha256": null
+      },
+      "importLibrary": {
+        "file": "lib/mpv.lib",
+        "sha256": null
+      },
+      "sdkManifest": {
+        "file": "runtime-sdk.json",
+        "sha256": null
+      },
+      "sourceNotice": {
+        "file": "SOURCE.txt",
+        "sha256": null
+      }
+    }
+  },
+  "verifiedAt": "2026-11-21"
+}

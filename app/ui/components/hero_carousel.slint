@@ -1,0 +1,225 @@
+import { Theme } from "../theme.slint";
+import { PillButton } from "button.slint";
+
+// A cinematic, automatically advancing feature shelf. The artwork and title
+// logo come from the same catalogue metadata as the poster rows, so the hero
+// never invents content or blocks the Board on an extra request.
+export struct HeroSlide {
+    id: string,
+    media-type: string,
+    title: string,
+    description: string,
+    background-url: string,
+    background: image,
+    logo-url: string,
+    logo: image,
+    release-info: string,
+    imdb-rating: string,
+}
+
+export component HeroCarousel inherits Rectangle {
+    in property <[HeroSlide]> slides: [];
+    in property <length> unit: Theme.root-font-size;
+    in-out property <int> active-index: 0;
+
+    callback play-requested(string, string);
+    callback details-requested(string, string);
+
+    background: transparent;
+    clip: true;
+
+    property <bool> fading: false;
+    property <int> next-index: 0;
+    property <HeroSlide> current: root.slides.length > 0
+        ? root.slides[min(max(root.active-index, 0), root.slides.length - 1)]
+        : {
+            id: "",
+            media-type: "",
+            title: "",
+            description: "",
+            background-url: "",
+            background: @image-url("../assets/images/background_1.svg"),
+            logo-url: "",
+            logo: @image-url("../assets/images/background_1.svg"),
+            release-info: "",
+            imdb-rating: "",
+        };
+
+    // Eight seconds is long enough to read the synopsis, but short enough that
+    // the home page keeps moving for someone who never touches the dots.
+    advance-timer := Timer {
+        interval: 8s;
+        running: root.slides.length > 1 && !root.fading;
+        triggered => {
+            root.next-index = Math.mod(root.active-index + 1, root.slides.length);
+            root.fading = true;
+            fade-timer.start();
+        }
+    }
+
+    fade-timer := Timer {
+        interval: 280ms;
+        running: false;
+        triggered => {
+            self.stop();
+            root.active-index = root.next-index;
+            root.fading = false;
+        }
+    }
+
+    if (root.slides.length > 0) : Image {
+        width: 100%;
+        height: 100%;
+        source: root.current.background;
+        image-fit: cover;
+        opacity: root.fading ? 0.45 : 1.0;
+        animate opacity { duration: 280ms; easing: ease-in-out; }
+    }
+
+    // Two scrims keep the artwork readable without flattening it into an
+    // opaque card: a left-to-right wash for the copy and a bottom fade that
+    // blends the hero into the first poster shelf.
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: @linear-gradient(90deg, #080D11F7 0%, #080D11C7 38%, #080D1110 78%, #080D1100 100%);
+    }
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: @linear-gradient(0deg, Theme.background 0%, #080D1100 42%);
+    }
+
+    VerticalLayout {
+        x: 4 * root.unit;
+        y: (parent.height - self.height) / 2;
+        width: min(46 * root.unit, parent.width * 0.56);
+        height: min(30 * root.unit, parent.height - 5 * root.unit);
+        alignment: center;
+        spacing: 1.15 * root.unit;
+        opacity: root.fading ? 0.0 : 1.0;
+        animate opacity { duration: 240ms; easing: ease-out; }
+
+        if (root.current.logo.width > 0) : Image {
+            width: min(30 * root.unit, parent.width);
+            height: min(9 * root.unit, parent.height * 0.36);
+            source: root.current.logo;
+            image-fit: contain;
+            horizontal-alignment: left;
+        }
+
+        if (root.current.logo.width == 0) : Text {
+            width: 100%;
+            height: min(11 * root.unit, parent.height * 0.4);
+            text: root.current.title;
+            color: Theme.text-primary;
+            font-size: 3.1 * root.unit;
+            font-weight: 800;
+            vertical-alignment: center;
+            overflow: elide;
+            wrap: word-wrap;
+        }
+
+        HorizontalLayout {
+            height: 1.6 * root.unit;
+            spacing: 0.8 * root.unit;
+            alignment: start;
+
+            if (root.current.release-info != "") : Text {
+                text: root.current.release-info;
+                color: Theme.text-secondary;
+                font-size: 0.95 * root.unit;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+            if (root.current.imdb-rating != "") : Text {
+                text: "IMDb " + root.current.imdb-rating;
+                color: Theme.warning;
+                font-size: 0.95 * root.unit;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+            Text {
+                text: root.current.media-type == "series" ? "Series" : "Film";
+                color: Theme.primary-accent;
+                font-size: 0.8 * root.unit;
+                font-weight: 700;
+                letter-spacing: 0.08 * root.unit;
+                vertical-alignment: center;
+            }
+        }
+
+        Text {
+            width: 100%;
+            height: min(6.4 * root.unit, parent.height * 0.28);
+            text: root.current.description;
+            color: Theme.text-secondary;
+            font-size: 1.0 * root.unit;
+            wrap: word-wrap;
+            overflow: elide;
+            vertical-alignment: top;
+        }
+
+        HorizontalLayout {
+            height: 3.5 * root.unit;
+            spacing: 0.8 * root.unit;
+            alignment: start;
+
+            PillButton {
+                width: 10 * root.unit;
+                height: 3.5 * root.unit;
+                unit: root.unit;
+                label: "Play";
+                show-icon: true;
+                icon-source: @image-url("../assets/images/icons/play.svg");
+                primary: true;
+                foreground-color: Theme.background;
+                hover-foreground-color: Theme.background;
+                clicked => { root.play-requested(root.current.id, root.current.media-type); }
+            }
+            PillButton {
+                width: 12 * root.unit;
+                height: 3.5 * root.unit;
+                unit: root.unit;
+                label: "More info";
+                outlined: true;
+                surface-color: transparent;
+                hover-color: Theme.overlay-hover;
+                foreground-color: Theme.text-primary;
+                hover-foreground-color: Theme.text-primary;
+                clicked => { root.details-requested(root.current.id, root.current.media-type); }
+            }
+        }
+    }
+
+    // Progress dots double as direct navigation. They sit over the artwork's
+    // lower-right corner where the bottom scrim is already dark.
+    HorizontalLayout {
+        x: parent.width - self.width - 3.5 * root.unit;
+        y: parent.height - 3.4 * root.unit;
+        width: root.slides.length * 1.35 * root.unit;
+        height: 1.4 * root.unit;
+        spacing: 0.45 * root.unit;
+        alignment: end;
+
+        for index in root.slides.length : Rectangle {
+            width: index == root.active-index ? 1.7 * root.unit : 0.55 * root.unit;
+            height: 0.55 * root.unit;
+            border-radius: self.height / 2;
+            background: index == root.active-index ? Theme.primary-accent : Theme.surface-light-30;
+            animate width { duration: Theme.motion-control; easing: ease-out; }
+            animate background { duration: Theme.motion-control; }
+
+            TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => {
+                    if (index != root.active-index) {
+                        root.next-index = index;
+                        root.fading = true;
+                        fade-timer.start();
+                    }
+                }
+            }
+        }
+    }
+}
