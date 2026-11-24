@@ -200,6 +200,8 @@ SENZO does not host or supply media streams. Catalogs, add-ons, metadata provide
 
 ### Attribution
 
+SENZO's product direction and media-center experience were inspired by the [Stremio](https://github.com/Stremio) and [Nuvio](https://github.com/NuvioMedia) projects. We credit the Stremio team and the Nuvio team, together with their contributors, for their work on open media discovery, add-ons, and provider tooling. SENZO remains an independent project and is not affiliated with either team.
+
 The timeline preview scheduler uses interaction and seek strategies based on [ThumbFast](https://github.com/po5/thumbfast), licensed under the Mozilla Public License 2.0. The source notice, referenced Lua snapshot hash, and license are recorded in [licenses/thumbfast/NOTICE.md](licenses/thumbfast/NOTICE.md).
 
 SENZO is distributed under the [GNU General Public License v3.0](LICENSE).

@@ -1,14 +1,40 @@
 #[cfg(target_os = "windows")]
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+#[cfg(target_os = "windows")]
 use slint::winit_030::winit;
 
 #[cfg(target_os = "windows")]
-pub fn apply(window: &winit::window::Window) -> bool {
-    apply_windows_caption(window)
+static CAPTION_HWND: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(target_os = "windows")]
+pub fn apply(window: &winit::window::Window, caption: slint::Color) -> bool {
+    let Some(hwnd) = window_hwnd(window) else {
+        tracing::warn!("failed to obtain the native window handle for caption styling");
+        return false;
+    };
+    CAPTION_HWND.store(hwnd, Ordering::Relaxed);
+    apply_caption(hwnd, caption)
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn apply(_window: &slint::winit_030::winit::window::Window) -> bool {
+pub fn apply(_window: &slint::winit_030::winit::window::Window, _caption: slint::Color) -> bool {
     true
+}
+
+/// Re-apply the native caption colour after a live theme edit.
+pub fn refresh_caption(caption: slint::Color) {
+    #[cfg(target_os = "windows")]
+    {
+        let hwnd = CAPTION_HWND.load(Ordering::Relaxed);
+        if hwnd != 0 {
+            let _ = apply_caption(hwnd, caption);
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = caption;
+    }
 }
 
 /// The native `HWND` as a `usize`, for handing to OS integrations (media
@@ -30,56 +56,84 @@ pub fn window_hwnd(_window: &slint::winit_030::winit::window::Window) -> Option<
 }
 
 #[cfg(target_os = "windows")]
-fn apply_windows_caption(window: &winit::window::Window) -> bool {
+fn apply_caption(hwnd: usize, caption: slint::Color) -> bool {
     use std::{ffi::c_void, mem::size_of};
 
     use windows_sys::Win32::Graphics::Dwm::{
-        DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR, DwmSetWindowAttribute,
-    };
-    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-
-    let Ok(window_handle) = window.window_handle() else {
-        tracing::warn!("failed to obtain the native window handle for caption styling");
-        return false;
-    };
-    let RawWindowHandle::Win32(window_handle) = window_handle.as_raw() else {
-        return false;
+        DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE,
+        DwmSetWindowAttribute,
     };
 
-    const CAPTION_COLOR: u32 = colorref(0x0a, 0x15, 0x1a);
-    const TEXT_COLOR: u32 = colorref(0xff, 0xff, 0xff);
-    let hwnd = window_handle.hwnd.get() as *mut c_void;
+    let red = caption.red() as f32 / 255.0;
+    let green = caption.green() as f32 / 255.0;
+    let blue = caption.blue() as f32 / 255.0;
+    let luminance = red * 0.299 + green * 0.587 + blue * 0.114;
+    let light_caption = luminance > 0.6;
+    let caption_color = colorref(
+        caption.red() as u32,
+        caption.green() as u32,
+        caption.blue() as u32,
+    );
+    let text_color = if light_caption {
+        colorref(0x00, 0x00, 0x00)
+    } else {
+        colorref(0xff, 0xff, 0xff)
+    };
+    let dark_caption: i32 = if light_caption { 0 } else { 1 };
+    let hwnd = hwnd as *mut c_void;
 
-    // SAFETY: `hwnd` comes from the live winit window and both attributes point
-    // to correctly sized COLORREF values for the duration of each call.
-    let (caption_result, text_result) = unsafe {
+    // SAFETY: `hwnd` comes from the live winit window and every attribute
+    // points to a correctly sized value for the duration of its call.
+    let (caption_result, border_result, text_result, dark_result) = unsafe {
         (
             DwmSetWindowAttribute(
                 hwnd,
                 DWMWA_CAPTION_COLOR as u32,
-                &CAPTION_COLOR as *const u32 as *const c_void,
+                &caption_color as *const u32 as *const c_void,
+                size_of::<u32>() as u32,
+            ),
+            DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_BORDER_COLOR as u32,
+                &caption_color as *const u32 as *const c_void,
                 size_of::<u32>() as u32,
             ),
             DwmSetWindowAttribute(
                 hwnd,
                 DWMWA_TEXT_COLOR as u32,
-                &TEXT_COLOR as *const u32 as *const c_void,
+                &text_color as *const u32 as *const c_void,
                 size_of::<u32>() as u32,
+            ),
+            DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_USE_IMMERSIVE_DARK_MODE as u32,
+                &dark_caption as *const i32 as *const c_void,
+                size_of::<i32>() as u32,
             ),
         )
     };
 
-    if caption_result < 0 || text_result < 0 {
+    if caption_result < 0 {
         tracing::warn!(
             caption_result,
-            text_result,
-            "Windows rejected one or more title-bar color attributes"
+            "Windows rejected the title-bar caption color"
         );
-        false
-    } else {
-        tracing::info!("title-bar colors applied");
-        true
+        return false;
     }
+    if border_result < 0 {
+        tracing::debug!(border_result, "Windows rejected the title-bar border color");
+    }
+    if text_result < 0 {
+        tracing::debug!(text_result, "Windows rejected the title-bar text color");
+    }
+    if dark_result < 0 {
+        tracing::debug!(
+            dark_result,
+            "Windows rejected the immersive dark title-bar mode"
+        );
+    }
+    tracing::info!(?caption, "title-bar colors applied");
+    true
 }
 
 #[cfg(target_os = "windows")]

@@ -747,6 +747,7 @@ export component ThemePage inherits Rectangle {
         Theme.primary-accent = accent;
         Theme.accent = accent;
         Theme.background = bg;
+        Theme.title-bar = bg;
         Theme.secondary-background = sec_bg;
         Theme.main-gradient = @linear-gradient(41deg, Theme.background 0%, Theme.secondary-background 100%);
         Theme.card-background = card_bg;
@@ -875,8 +876,8 @@ export component ThemePage inherits Rectangle {
                         icon-source: @image-url("../assets/images/icons/reset.svg");
                         outlined: true;
                         clicked => {
-                            root.selected-preset-idx = 0;
-                            root.apply-theme(#22D3EE, #080D11, #0D171D, #101B21, #1E343D, #F3FAFC);
+                            root.selected-preset-idx = 13;
+                            root.apply-theme(#a855f7, #000000, #121212, #181818, #282828, #ffffff);
                             root.reset-theme();
                         }
                     }

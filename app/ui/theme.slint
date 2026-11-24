@@ -8,20 +8,20 @@ export global Theme {
     // contract so a custom palette can replace the official defaults at run time.
     in-out property <length> root-font-size: 16px;
     in-out property <string> font-family: "Plus Jakarta Sans";
-    in-out property <int> active-preset-idx: 0;
+    in-out property <int> active-preset-idx: 13;
 
-    // SENZO Aurora palette: deep ink, electric violet, teal and rose accents.
-    in-out property <color> background: #070A14;
-    in-out property <color> secondary-background: #0B1222;
-    in-out property <color> primary-foreground: #F6F4FF;
+    // SENZO OLED Pitch Black: true black depth with a violet accent.
+    in-out property <color> background: #000000;
+    in-out property <color> secondary-background: #121212;
+    in-out property <color> primary-foreground: #FFFFFF;
     in-out property <color> secondary-foreground: #080B16;
-    in-out property <color> primary-accent: #8B5CF6;
+    in-out property <color> primary-accent: #A855F7;
     in-out property <color> secondary-accent: #2DD4BF;
     in-out property <color> tertiary-accent: #FBBF24;
     in-out property <color> quaternary-accent: #F472B6;
-    in-out property <color> overlay-color: #FFFFFF0D;
-    in-out property <color> modal-color: #111428;
-    in-out property <color> placeholder-color: #9A96C080;
+    in-out property <color> overlay-color: #FFFFFF14;
+    in-out property <color> modal-color: #181818;
+    in-out property <color> placeholder-color: #FFFFFF80;
 
     // Values used directly by official reusable components.
     in-out property <color> surface-light: #F6F4FF;
@@ -36,17 +36,16 @@ export global Theme {
     in-out property <brush> main-gradient: @linear-gradient(
         41deg,
         Theme.background 0%,
-        #12102B 58%,
         Theme.secondary-background 100%
     );
-    in-out property <color> sidebar-background: #080C18;
+    in-out property <color> sidebar-background: #181818D9;
     in-out property <color> modal-background: Theme.modal-color;
-    in-out property <color> drawer-background: #0A0918EE;
+    in-out property <color> drawer-background: #121212EE;
     in-out property <color> control-background: Theme.overlay-color;
     in-out property <color> overlay: Theme.overlay-color;
-    in-out property <color> overlay-hover: #8B5CF614;
-    in-out property <color> overlay-pressed: #8B5CF620;
-    in-out property <color> divider: #C9C4FF1A;
+    in-out property <color> overlay-hover: #FFFFFF24;
+    in-out property <color> overlay-pressed: #FFFFFF29;
+    in-out property <color> divider: #FFFFFF1F;
     in-out property <color> scrim: Theme.background-dark-40;
     in-out property <color> accent: Theme.primary-accent;
     in-out property <color> accent-hover: #A78BFA;
@@ -60,17 +59,17 @@ export global Theme {
     in-out property <color> letterboxd: #00e054;
     in-out property <color> anilist: #02a9ff;
     in-out property <color> kitsu: #fd755c;
-    in-out property <color> card-background: #101426;
-    in-out property <color> card-border: #2A2A4A;
+    in-out property <color> card-background: #181818;
+    in-out property <color> card-border: #282828;
     in-out property <color> text-primary: Theme.primary-foreground;
-    in-out property <color> text-secondary: #C8C5DF;
-    in-out property <color> text-muted: #8E8CAE;
+    in-out property <color> text-secondary: #FFFFFFB3;
+    in-out property <color> text-muted: #FFFFFF80;
     
     in-out property <color> danger: #FB7185;
     in-out property <color> success: Theme.secondary-accent;
     in-out property <color> warning: #FBBF24;
     in-out property <color> focus: Theme.primary-accent;
-    in-out property <color> title-bar: #070B16;
+    in-out property <color> title-bar: #000000;
 
     // Official geometry. rem based values follow root-font-size; focus and
     // scrollbar widths intentionally remain device independent pixel values.

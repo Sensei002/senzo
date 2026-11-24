@@ -360,6 +360,7 @@ fn apply_theme(ui: &MainWindow, config: &config::AppConfig) {
     set_color!(&config.theme.divider, set_divider);
     set_color!(&config.theme.scrim, set_scrim);
     set_color!(&config.theme.accent, set_accent);
+    set_color!(&config.theme.accent, set_primary_accent);
     set_color!(&config.theme.accent_hover, set_accent_hover);
     set_color!(&config.theme.success, set_success);
     set_color!(&config.theme.warning, set_warning);
@@ -378,6 +379,7 @@ fn apply_theme(ui: &MainWindow, config: &config::AppConfig) {
         theme.set_font_family(config.theme.font_family.as_str().into());
     }
     theme.set_active_preset_idx(config.theme.active_preset_idx);
+    crate::window_style::refresh_caption(theme.get_title_bar());
 }
 
 async fn finish_startup(

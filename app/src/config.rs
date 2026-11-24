@@ -107,48 +107,55 @@ fn saved_gradient(angle: f32, start: &str, end: &str) -> SavedGradientConfig {
 impl Default for ThemeConfig {
     fn default() -> Self {
         Self {
-            active_preset_idx: 0,
+            active_preset_idx: 13,
             font_family: "Plus Jakarta Sans".to_string(),
-            background: "#070a14".to_string(),
-            secondary_background: "#0b1222".to_string(),
-            sidebar_background: "#080c18".to_string(),
-            modal_background: "#111428".to_string(),
-            drawer_background: "#0a0918ee".to_string(),
-            control_background: "#ffffff0d".to_string(),
-            overlay: "#ffffff0d".to_string(),
-            overlay_hover: "#8b5cf614".to_string(),
-            overlay_pressed: "#8b5cf620".to_string(),
-            divider: "#c9c4ff1a".to_string(),
+            background: "#000000".to_string(),
+            secondary_background: "#121212".to_string(),
+            sidebar_background: "#181818d9".to_string(),
+            modal_background: "#181818".to_string(),
+            drawer_background: "#121212ee".to_string(),
+            control_background: "#ffffff14".to_string(),
+            overlay: "#ffffff14".to_string(),
+            overlay_hover: "#ffffff24".to_string(),
+            overlay_pressed: "#ffffff29".to_string(),
+            divider: "#ffffff1f".to_string(),
             scrim: "#00000066".to_string(),
-            accent: "#8b5cf6".to_string(),
+            accent: "#a855f7".to_string(),
             accent_hover: "#a78bfa".to_string(),
             success: "#2dd4bf".to_string(),
             warning: "#fbbf24".to_string(),
             info: "#f472b6".to_string(),
             danger: "#fb7185".to_string(),
-            focus: "#8b5cf6".to_string(),
-            title_bar: "#070b16".to_string(),
-            card_background: "#101426".to_string(),
-            card_border: "#2a2a4a".to_string(),
-            text_primary: "#f6f4ff".to_string(),
-            text_secondary: "#c8c5df".to_string(),
-            text_muted: "#8e8cae".to_string(),
+            focus: "#a855f7".to_string(),
+            title_bar: "#000000".to_string(),
+            card_background: "#181818".to_string(),
+            card_border: "#282828".to_string(),
+            text_primary: "#ffffff".to_string(),
+            text_secondary: "#ffffffb3".to_string(),
+            text_muted: "#ffffff80".to_string(),
             skeleton_base: "#ffffff1a".to_string(),
             skeleton_shimmer: "#ffffff26".to_string(),
             saved_colors: [
-                "#8b5cf6", "#2dd4bf", "#fbbf24", "#f472b6", "#fb7185", "#a78bfa", "#0b1222",
-                "#2a2a4a", "#8e8cae",
+                "#a855f7",
+                "#2dd4bf",
+                "#fbbf24",
+                "#f472b6",
+                "#fb7185",
+                "#a78bfa",
+                "#121212",
+                "#282828",
+                "#ffffff80",
             ]
             .iter()
             .map(|hex| hex.to_string())
             .collect(),
             saved_gradients: vec![
-                saved_gradient(135.0, "#8b5cf6", "#0b1222"),
-                saved_gradient(135.0, "#2dd4bf", "#070a14"),
-                saved_gradient(135.0, "#fbbf24", "#111428"),
-                saved_gradient(135.0, "#f472b6", "#080c18"),
-                saved_gradient(135.0, "#fb7185", "#2a2a4a"),
-                saved_gradient(135.0, "#a78bfa", "#12102b"),
+                saved_gradient(135.0, "#a855f7", "#121212"),
+                saved_gradient(135.0, "#2dd4bf", "#000000"),
+                saved_gradient(135.0, "#fbbf24", "#181818"),
+                saved_gradient(135.0, "#f472b6", "#121212"),
+                saved_gradient(135.0, "#fb7185", "#282828"),
+                saved_gradient(135.0, "#a78bfa", "#000000"),
             ],
         }
     }
@@ -157,7 +164,7 @@ impl Default for ThemeConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            config_version: 7,
+            config_version: 8,
             server_url: "http://127.0.0.1:11470".to_string(),
             active_tab: 0,
             auto_launch_player: true,
@@ -434,6 +441,37 @@ impl AppConfig {
             }
             self.config_version = 7;
         }
+        if self.config_version < 8 {
+            // Version 7 shipped the Aurora palette. Move untouched installs to
+            // the OLED Pitch Black default while preserving genuinely custom
+            // themes and the colour picker's saved swatches.
+            let shipped_aurora = self.theme.active_preset_idx == 0
+                && self.theme.background.eq_ignore_ascii_case("#070a14")
+                && self
+                    .theme
+                    .secondary_background
+                    .eq_ignore_ascii_case("#0b1222")
+                && self.theme.card_background.eq_ignore_ascii_case("#101426")
+                && self.theme.card_border.eq_ignore_ascii_case("#2a2a4a")
+                && self.theme.text_primary.eq_ignore_ascii_case("#f6f4ff")
+                && self.theme.accent.eq_ignore_ascii_case("#8b5cf6")
+                && self.theme.title_bar.eq_ignore_ascii_case("#070b16");
+            if shipped_aurora {
+                let saved_colors = std::mem::take(&mut self.theme.saved_colors);
+                let saved_gradients = std::mem::take(&mut self.theme.saved_gradients);
+                self.theme = ThemeConfig::default();
+                self.theme.saved_colors = saved_colors;
+                self.theme.saved_gradients = saved_gradients;
+            }
+            // Profiles created before the native caption followed the theme
+            // still carry the navy default. Align them with OLED black.
+            if self.theme.active_preset_idx == 13
+                && self.theme.title_bar.eq_ignore_ascii_case("#070b16")
+            {
+                self.theme.title_bar = "#000000".to_string();
+            }
+            self.config_version = 8;
+        }
         self.config_version != original_version
     }
 }
@@ -592,9 +630,9 @@ mod tests {
         let mut config = legacy_config();
 
         assert!(config.migrate());
-        assert_eq!(config.config_version, 7);
-        assert_eq!(config.theme.background, "#070a14");
-        assert_eq!(config.theme.secondary_background, "#0b1222");
+        assert_eq!(config.config_version, 8);
+        assert_eq!(config.theme.background, "#000000");
+        assert_eq!(config.theme.secondary_background, "#121212");
         assert_eq!(config.theme.success, "#2dd4bf");
     }
 
@@ -604,7 +642,7 @@ mod tests {
         config.theme.accent = "#ff3366".to_string();
 
         assert!(config.migrate());
-        assert_eq!(config.config_version, 7);
+        assert_eq!(config.config_version, 8);
         assert_eq!(config.theme.background, "#070a14");
         assert_eq!(config.theme.accent, "#ff3366");
     }
@@ -620,7 +658,7 @@ mod tests {
         };
 
         assert!(config.migrate());
-        assert_eq!(config.config_version, 7);
+        assert_eq!(config.config_version, 8);
         assert_eq!(
             config.hover_trailer_preview_delay_ms,
             DEFAULT_HOVER_PREVIEW_DELAY_MS
@@ -654,8 +692,8 @@ mod tests {
 
         assert_eq!(config.theme.background, "#111111");
         assert_eq!(config.theme.accent, "#abcdef");
-        assert_eq!(config.theme.drawer_background, "#00000066");
-        assert_eq!(config.theme.text_muted, "#ffffff66");
+        assert_eq!(config.theme.drawer_background, "#121212ee");
+        assert_eq!(config.theme.text_muted, "#ffffff80");
     }
 
     #[test]

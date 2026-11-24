@@ -15,6 +15,9 @@ pub fn install(ui: &MainWindow) {
         if !assign(&mut current.theme, key.as_str(), value) {
             return;
         }
+        if key.as_str() == "title_bar" {
+            crate::window_style::refresh_caption(value);
+        }
         config::save_config(&current);
     });
 
@@ -28,6 +31,7 @@ pub fn install(ui: &MainWindow) {
         let theme = &mut current.theme;
         theme.accent = hex(accent);
         theme.background = hex(background);
+        theme.title_bar = hex(background);
         theme.secondary_background = hex(secondary);
         theme.card_background = hex(card);
         theme.card_border = hex(border);
@@ -41,6 +45,7 @@ pub fn install(ui: &MainWindow) {
         theme.overlay_hover = hex(text.with_alpha(0.14));
         theme.divider = hex(text.with_alpha(0.12));
         config::save_config(&current);
+        crate::window_style::refresh_caption(background);
     });
 
     let handle = ui.as_weak();

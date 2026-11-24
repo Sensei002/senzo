@@ -14,7 +14,7 @@ use slint::{
     winit_030::{EventResult, WinitWindowAccessor, winit},
 };
 
-use crate::{MainWindow, media_session::MediaSession};
+use crate::{MainWindow, Theme, media_session::MediaSession};
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -667,8 +667,12 @@ pub fn install_platform_shortcuts(ui: &MainWindow, media_session: Arc<MediaSessi
 
     crate::window_hooks::register(ui, move |window, event| {
         if !native_window_style_applied {
+            let caption = weak_ui
+                .upgrade()
+                .map(|ui| ui.global::<Theme>().get_title_bar())
+                .unwrap_or_else(|| slint::Color::from_rgb_u8(0, 0, 0));
             native_window_style_applied = window
-                .with_winit_window(crate::window_style::apply)
+                .with_winit_window(|window| crate::window_style::apply(window, caption))
                 .unwrap_or(false);
         }
         if !media_controls_attached
