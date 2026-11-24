@@ -855,6 +855,9 @@ export component MainWindow inherits Window {
     // the sidebar so navigation stays reachable until a full top nav exists.
     private property <bool> console-shell-active: root.settings-living-room-mode
         && root.effective-active-tab == 0 && !root.effective-show-details;
+    // Never steal arrows or Enter while the search field is being typed in.
+    private property <bool> console-keys-enabled: root.console-shell-active
+        && !root.effective-show-player && !search-input.has-focus;
     private property <int> console-move-token: 0;
     private property <int> console-move-dx: 0;
     private property <int> console-move-dy: 0;
@@ -1301,27 +1304,27 @@ export component MainWindow inherits Window {
         // focus and therefore their own arrow/Enter behaviour.
         KeyBinding {
             keys: @keys(LeftArrow);
-            enabled: root.console-shell-active && !root.effective-show-player;
+            enabled: root.console-keys-enabled;
             activated => { root.console-move-dx = -1; root.console-move-dy = 0; root.console-move-token += 1; }
         }
         KeyBinding {
             keys: @keys(RightArrow);
-            enabled: root.console-shell-active && !root.effective-show-player;
+            enabled: root.console-keys-enabled;
             activated => { root.console-move-dx = 1; root.console-move-dy = 0; root.console-move-token += 1; }
         }
         KeyBinding {
             keys: @keys(UpArrow);
-            enabled: root.console-shell-active && !root.effective-show-player;
+            enabled: root.console-keys-enabled;
             activated => { root.console-move-dx = 0; root.console-move-dy = -1; root.console-move-token += 1; }
         }
         KeyBinding {
             keys: @keys(DownArrow);
-            enabled: root.console-shell-active && !root.effective-show-player;
+            enabled: root.console-keys-enabled;
             activated => { root.console-move-dx = 0; root.console-move-dy = 1; root.console-move-token += 1; }
         }
         KeyBinding {
             keys: @keys(Return);
-            enabled: root.console-shell-active && !root.effective-show-player;
+            enabled: root.console-keys-enabled;
             activated => { root.console-activate-token += 1; }
         }
     }
