@@ -71,18 +71,6 @@ export component DetailsPage inherits Rectangle {
     in property <[StreamLink]> streams: [];
     in property <[string]> stream-providers: ["All"];
     in property <int> stream-loading-count: 0;
-    property <angle> sources-spin-angle: 0deg;
-
-    Timer {
-        interval: 16ms;
-        running: root.stream-loading-count > 0;
-        triggered => {
-            root.sources-spin-angle += 5deg;
-            if (root.sources-spin-angle >= 360deg) {
-                root.sources-spin-angle -= 360deg;
-            }
-        }
-    }
 
     in-out property <string> active-stream-provider: "All";
     in-out property <string> ranking-mode: "Smart";
@@ -148,6 +136,7 @@ export component DetailsPage inherits Rectangle {
     in property <length> unit: Theme.root-font-size;
     property <length> drawer-width: min(40 * root.unit, root.width * 0.52);
     in-out property <bool> ranking-filter-open: false;
+    in-out property <bool> provider-filter-open: false;
     changed streams => { root.active-stream-provider = "All"; }
     private property <int> first-season: root.available-seasons.length > 0
         ? root.available-seasons[0] : root.active-season;
@@ -320,7 +309,27 @@ export component DetailsPage inherits Rectangle {
                 height: 2.1 * root.unit;
                 spacing: 0.6 * root.unit;
 
-                Rectangle {
+                // The leading status mark doubles as the provider spinner.
+                // animation-tick() is driven by the renderer, so the ring keeps
+                // turning even while the provider workers are busy.
+                if (root.stream-loading-count > 0) : Rectangle {
+                    width: 0.9 * root.unit;
+                    height: 2.1 * root.unit;
+
+                    Image {
+                        x: 0px;
+                        y: (parent.height - self.height) / 2;
+                        width: parent.width;
+                        height: parent.width;
+                        source: @image-url("../assets/images/icons/spinner-ring.svg");
+                        colorize: Theme.primary-accent;
+                        image-fit: contain;
+                        transform-origin: { x: self.width / 2, y: self.height / 2 };
+                        transform-rotation: (mod(animation-tick(), 900ms) / 900ms) * 360deg;
+                    }
+                }
+
+                if (root.stream-loading-count <= 0) : Rectangle {
                     width: 0.45 * root.unit;
                     height: 0.45 * root.unit;
                     border-radius: self.width / 2;
@@ -337,29 +346,13 @@ export component DetailsPage inherits Rectangle {
                     vertical-alignment: center;
                 }
 
-                if (root.stream-loading-count > 0) : HorizontalLayout {
+                if (root.stream-loading-count > 0) : Text {
+                    text: @tr("PLUGINS_ARE_LOADING" => "Plugins are loading");
+                    color: Theme.text-muted;
+                    font-size: 0.68 * root.unit;
+                    font-weight: 600;
                     height: 2.1 * root.unit;
-                    spacing: 0.35 * root.unit;
-                    alignment: center;
-
-                    Image {
-                        width: 0.8 * root.unit;
-                        vertical-stretch: 1;
-                        source: @image-url("../assets/images/icons/spinner-ring.svg");
-                        colorize: Theme.primary-accent;
-                        image-fit: contain;
-                        transform-origin: { x: self.width / 2, y: self.height / 2 };
-                        transform-rotation: root.sources-spin-angle;
-                    }
-
-                    Text {
-                        text: @tr("PLUGINS_ARE_LOADING" => "Plugins are loading");
-                        color: Theme.text-muted;
-                        font-size: 0.68 * root.unit;
-                        font-weight: 600;
-                        vertical-alignment: center;
-                        vertical-stretch: 1;
-                    }
+                    vertical-alignment: center;
                 }
 
                 Rectangle { horizontal-stretch: 1; }
@@ -379,7 +372,34 @@ export component DetailsPage inherits Rectangle {
                 spacing: 0.75 * root.unit;
                 z: 10000;
 
-                provider-scroll := HorizontalScroll {
+                // Chips are the quickest filter for a handful of providers.
+                // Once the installed add-on list outgrows the drawer, a compact
+                // selector keeps every provider reachable without a cramped,
+                // barely-discoverable horizontal strip.
+                if (root.stream-providers.length > 5) : Rectangle {
+                    width: 13 * root.unit;
+                    height: parent.height;
+
+                    SelectField {
+                        unit: root.unit;
+                        field-width: parent.width;
+                        value: root.active-stream-provider;
+                        options: root.stream-providers;
+                        open: root.provider-filter-open;
+                        toggle => {
+                            root.provider-filter-open = !root.provider-filter-open;
+                            if (root.provider-filter-open) {
+                                root.ranking-filter-open = false;
+                            }
+                        }
+                        selected(provider) => {
+                            root.active-stream-provider = provider;
+                            root.provider-filter-open = false;
+                        }
+                    }
+                }
+
+                if (root.stream-providers.length <= 5) : provider-scroll := HorizontalScroll {
                     horizontal-stretch: 1;
                     height: 2.75 * root.unit;
                     unit: root.unit;
@@ -406,8 +426,10 @@ export component DetailsPage inherits Rectangle {
                     }
                 }
 
+                if (root.stream-providers.length > 5) : Rectangle { horizontal-stretch: 1; }
+
                 Rectangle {
-                    width: 8.5 * root.unit;
+                    width: 10.5 * root.unit;
 
                     SelectField {
                         unit: root.unit;
@@ -415,7 +437,12 @@ export component DetailsPage inherits Rectangle {
                         value: root.ranking-mode;
                         options: ["Smart", "Quality", "Smallest", "Seeders", "Original"];
                         open: root.ranking-filter-open;
-                        toggle => { root.ranking-filter-open = !root.ranking-filter-open; }
+                        toggle => {
+                            root.ranking-filter-open = !root.ranking-filter-open;
+                            if (root.ranking-filter-open) {
+                                root.provider-filter-open = false;
+                            }
+                        }
                         selected(mode) => {
                             root.ranking-mode = mode;
                             root.ranking-filter-open = false;

@@ -2,6 +2,14 @@
 
 This file records notable changes to SENZO relative to the initial source snapshot.
 
+## 0.1.2 - 2026-11-24
+
+### Sources
+
+- Fixed the plugin loading ring so it rotates continuously from the renderer clock instead of a short UI timer.
+- Replaced the cramped provider chip strip with a compact, scrollable source selector when more than five providers are installed.
+- Widened the ranking selector so labels such as "Seeders" are no longer truncated.
+
 ## 0.1.1 - 2026-11-24
 
 ### UI and shortcuts
