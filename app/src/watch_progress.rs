@@ -64,10 +64,11 @@ pub(crate) fn initialize(profile_id: &str) {
         store.last_flush = Instant::now();
         return;
     }
+    let entries = load_entries(&path);
     let store = Store {
         path,
         profile_id: profile_id.to_owned(),
-        entries: load_entries(&path),
+        entries,
         last_flush: Instant::now(),
         dirty: false,
     };

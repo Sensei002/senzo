@@ -534,9 +534,24 @@ pub fn start_event_loop(
                     // mount. Keep an explicit pending flag for the whole
                     // provider round-trip and release it only once the meta
                     // and every stream resource have settled.
-                    let details_meta_loading =
-                        matches!(&model.meta_details.meta, Loadable::Loading);
-                    let details_meta_failed = matches!(&model.meta_details.meta, Loadable::Err(_));
+                    let selected_details_meta_id = model
+                        .meta_details
+                        .selected
+                        .as_ref()
+                        .map(|selected| selected.meta_path.id.as_str());
+                    let selected_meta_resource = selected_details_meta_id.and_then(|id| {
+                        model
+                            .meta_details
+                            .meta_items
+                            .iter()
+                            .find(|resource| resource.request.path.id == id)
+                    });
+                    let details_meta_loading = selected_meta_resource.is_some_and(|resource| {
+                        matches!(&resource.content, Some(Loadable::Loading))
+                    });
+                    let details_meta_failed = selected_meta_resource.is_some_and(|resource| {
+                        matches!(&resource.content, Some(Loadable::Err(_)))
+                    });
                     let details_has_streams = !model.meta_details.streams.is_empty();
                     let details_streams_loading = model
                         .meta_details
