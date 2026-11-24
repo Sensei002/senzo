@@ -2,6 +2,14 @@
 
 This file records notable changes to SENZO relative to the initial source snapshot.
 
+## 0.1.1 - 2026-11-24
+
+### UI and shortcuts
+
+- Fixed the Skip Recap button so its chevron and label share the same optical centre line.
+- Moved the fullscreen shortcut from F to F11, with automatic migration for existing hotkey configurations, so typing "f" in search or other text fields no longer toggles fullscreen.
+- Added an animated "Plugins are loading" indicator beside the SENZO Sources heading while provider plugins are still resolving.
+
 ## 0.1.0 - 2026-11-24
 
 ### First release

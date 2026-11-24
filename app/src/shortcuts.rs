@@ -128,7 +128,7 @@ pub enum HotkeyValidationError {
 }
 
 impl HotkeyConfig {
-    const VERSION: u32 = 1;
+    const VERSION: u32 = 2;
 
     pub fn defaults() -> Self {
         let player = |action, chord| HotkeyBinding {
@@ -141,7 +141,7 @@ impl HotkeyConfig {
             HotkeyBinding {
                 action: HotkeyAction::ToggleFullscreen,
                 context: HotkeyContext::Global,
-                chord: KeyChord::new("f"),
+                chord: KeyChord::new("f11"),
                 behavior: HotkeyBehavior::Press,
             },
             player(HotkeyAction::TogglePause, KeyChord::new("k")),
@@ -186,6 +186,25 @@ impl HotkeyConfig {
             version: Self::VERSION,
             bindings,
         }
+    }
+
+    /// Version 1 used a bare F key for fullscreen. That made it impossible to
+    /// type "f" into text fields, so move only the untouched default binding
+    /// to F11 and leave every other user customization intact.
+    fn migrate_v1(mut self) -> Self {
+        if self.version != 1 {
+            return self;
+        }
+        for binding in &mut self.bindings {
+            if binding.action == HotkeyAction::ToggleFullscreen
+                && binding.context == HotkeyContext::Global
+                && binding.chord == KeyChord::new("f")
+            {
+                binding.chord = KeyChord::new("f11");
+            }
+        }
+        self.version = Self::VERSION;
+        self
     }
 
     pub fn validate(&self) -> Result<(), HotkeyValidationError> {
@@ -276,12 +295,14 @@ fn load_config() -> HotkeyConfig {
         .ok()
         .and_then(|bytes| serde_json::from_slice::<HotkeyConfig>(&bytes).ok());
     match config {
-        Some(config) if config.version == HotkeyConfig::VERSION && config.validate().is_ok() => {
-            config
-        }
-        Some(_) => {
-            tracing::warn!(path = %path.display(), "invalid hotkey configuration; using defaults");
-            HotkeyConfig::defaults()
+        Some(config) => {
+            let config = config.migrate_v1();
+            if config.version == HotkeyConfig::VERSION && config.validate().is_ok() {
+                config
+            } else {
+                tracing::warn!(path = %path.display(), "invalid hotkey configuration; using defaults");
+                HotkeyConfig::defaults()
+            }
         }
         None => HotkeyConfig::defaults(),
     }
@@ -449,6 +470,7 @@ fn normalized_key(key: &winit::keyboard::Key) -> Option<String> {
                 NamedKey::ArrowUp => "arrow-up",
                 NamedKey::ArrowDown => "arrow-down",
                 NamedKey::F4 => "f4",
+                NamedKey::F11 => "f11",
                 NamedKey::Delete => "delete",
                 NamedKey::MediaPlayPause => "media-play-pause",
                 NamedKey::MediaPlay => "media-play",
@@ -1005,6 +1027,38 @@ mod tests {
         assert_eq!(
             dispatcher.take_active_action(&key),
             Some(HotkeyAction::SeekForwardShort)
+        );
+    }
+
+    #[test]
+    fn legacy_f_fullscreen_chord_migrates_to_f11() {
+        let mut config = HotkeyConfig::defaults();
+        config.version = 1;
+        let fullscreen = config
+            .bindings
+            .iter_mut()
+            .find(|binding| binding.action == HotkeyAction::ToggleFullscreen)
+            .expect("fullscreen binding");
+        fullscreen.chord = KeyChord::new("f");
+
+        let config = config.migrate_v1();
+        let fullscreen = config
+            .bindings
+            .iter()
+            .find(|binding| binding.action == HotkeyAction::ToggleFullscreen)
+            .expect("fullscreen binding");
+
+        assert_eq!(config.version, HotkeyConfig::VERSION);
+        assert_eq!(fullscreen.chord, KeyChord::new("f11"));
+    }
+
+    #[test]
+    fn f11_normalizes_to_the_fullscreen_chord() {
+        use winit::keyboard::{Key, NamedKey};
+
+        assert_eq!(
+            normalized_key(&Key::Named(NamedKey::F11)),
+            Some("f11".to_owned())
         );
     }
 
