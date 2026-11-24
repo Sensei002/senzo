@@ -856,8 +856,9 @@ export component MainWindow inherits Window {
     private property <bool> console-shell-active: root.settings-living-room-mode
         && root.effective-active-tab == 0 && !root.effective-show-details;
     // Never steal arrows or Enter while the search field is being typed in.
+    in-out property <bool> search-field-focused: false;
     private property <bool> console-keys-enabled: root.console-shell-active
-        && !root.effective-show-player && !search-input.has-focus;
+        && !root.effective-show-player && !root.search-field-focused;
     private property <int> console-move-token: 0;
     private property <int> console-move-dx: 0;
     private property <int> console-move-dy: 0;
@@ -1485,6 +1486,9 @@ export component MainWindow inherits Window {
                             unit: root.ui-unit;
                             text <=> root.search-query;
                             suggestions: root.search-suggestions;
+                            changed has-focus => {
+                                root.search-field-focused = self.has-focus;
+                            }
                             edited(value) => {
                                 global-search-edited(value);
                                 if (root.effective-active-tab == 1
