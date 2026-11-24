@@ -80,6 +80,7 @@ mod theme_studio;
 mod thumbnail_preview;
 mod torrent_cache_cleanup;
 mod tray;
+mod watch_progress;
 mod window_events;
 mod window_hooks;
 mod window_style;
@@ -408,6 +409,7 @@ async fn finish_startup(
         .context("could not load local profiles")?;
     let active_profile_id = select_startup_profile(&ui, local_profiles, active_profile_id).await?;
     core_env::set_active_profile_scope(active_profile_id.as_str());
+    watch_progress::initialize(active_profile_id.as_str());
     config::init_config().await;
     let mut config = config::load_config();
     download_manager.set_bandwidth_limit(
@@ -424,6 +426,8 @@ async fn finish_startup(
             .context("could not remove a migrated provider key from local storage")?;
     }
     apply_theme(&ui, &config);
+    ui.set_settings_living_room_mode(config.living_room_mode);
+    ui.set_settings_esc_exit_fullscreen(config.esc_exit_fullscreen);
     ui.set_settings_hardware_acceleration(config.hardware_acceleration);
     ui.set_settings_thumbnail_previews(config.thumbnail_previews_enabled);
     ui.set_settings_tidb_api_key(if secure_settings::has_tidb_api_key() {
@@ -862,10 +866,12 @@ fn setup_live_profile_switch(
                     .unwrap_or_default();
                 profiles::set_active_profile(&target_id).await?;
                 core_env::set_active_profile_scope(target_id.as_str());
+                watch_progress::initialize(target_id.as_str());
                 if let Err(error) =
                     secure_settings::activate_profile(target_id.as_str(), None).await
                 {
                     core_env::set_active_profile_scope(previous_id.as_str());
+                    watch_progress::initialize(previous_id.as_str());
                     profiles::set_active_profile(&previous_id).await?;
                     let _ = secure_settings::activate_profile(previous_id.as_str(), None).await;
                     return Err(anyhow::anyhow!(error.to_string()));
@@ -1879,6 +1885,7 @@ async fn select_startup_profile(
             }
             Err(error) => {
                 core_env::set_active_profile_scope(active_profile.as_str());
+                watch_progress::initialize(active_profile.as_str());
                 ui.set_profile_picker_error(
                     format!("{error}. Retry or select another profile.").into(),
                 );
@@ -1910,6 +1917,7 @@ fn profile_items(profiles: &[profiles::LocalProfile]) -> Vec<ProfileItem> {
 
 async fn preflight_profile(profile_id: &profiles::ProfileId) -> anyhow::Result<()> {
     core_env::set_active_profile_scope(profile_id.as_str());
+    watch_progress::initialize(profile_id.as_str());
     DesktopEnv::get_storage::<stremio_core::types::profile::Profile>(PROFILE_STORAGE_KEY)
         .await
         .map(|_| ())

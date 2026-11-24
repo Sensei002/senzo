@@ -480,6 +480,7 @@ export component MainWindow inherits Window {
     in-out property <[StreamLink]> stream-links: [];
     in-out property <[string]> detail-stream-providers: ["All"];
     in-out property <int> detail-stream-loading-count: 0;
+    in-out property <bool> detail-sources-loading: false;
     in-out property <string> detail-ranking-mode: "Smart";
     in-out property <bool> detail-show-filtered: false;
     in-out property <int> calendar-selected-year: 0;
@@ -848,6 +849,16 @@ export component MainWindow inherits Window {
     in-out property <string> settings-streaming-transcode-profile: "Disabled";
     in-out property <bool> settings-pause-on-minimize: false;
     in-out property <bool> settings-quit-on-close: true;
+    in-out property <bool> settings-living-room-mode: true;
+    in-out property <bool> settings-esc-exit-fullscreen: true;
+    // Console shell is the keyboard-first Board presentation. Other tabs keep
+    // the sidebar so navigation stays reachable until a full top nav exists.
+    private property <bool> console-shell-active: root.settings-living-room-mode
+        && root.effective-active-tab == 0 && !root.effective-show-details;
+    private property <int> console-move-token: 0;
+    private property <int> console-move-dx: 0;
+    private property <int> console-move-dy: 0;
+    private property <int> console-activate-token: 0;
     in-out property <bool> settings-export-loading: false;
     in-out property <int> settings-export-state: 0;
     in-out property <string> settings-export-detail: "";
@@ -923,6 +934,8 @@ export component MainWindow inherits Window {
     callback settings-change-streaming-transcode-profile(string);
     callback settings-change-pause-on-minimize(bool);
     callback settings-change-quit-on-close(bool);
+    callback settings-change-living-room-mode(bool);
+    callback settings-change-esc-exit-fullscreen(bool);
     in-out property <length> library-scroll-y: 0px;
 
     // Icons from Rust Iconflow
@@ -1153,6 +1166,7 @@ export component MainWindow inherits Window {
     callback player-play-saved-episode(string);
     callback player-toggle-fullscreen();
     callback player-close();
+    callback player-visibility-changed(bool);
     callback player-activity();
     callback profile-picker-selected(string, string);
     callback profile-manager-create(string, string, string, string);
@@ -1226,6 +1240,7 @@ export component MainWindow inherits Window {
             app-shortcuts.focus();
         } else {
             root.close-player-menus();
+            root.player-visibility-changed(false);
         }
     }
 
@@ -1279,6 +1294,35 @@ export component MainWindow inherits Window {
                 root.gamepad-modal-open = false;
                 app-shortcuts.focus();
             }
+        }
+
+        // Living-room board navigation. The scope owns the keys only while the
+        // console shell is visible; search fields and dialogs keep their own
+        // focus and therefore their own arrow/Enter behaviour.
+        KeyBinding {
+            keys: @keys(LeftArrow);
+            enabled: root.console-shell-active && !root.effective-show-player;
+            activated => { root.console-move-dx = -1; root.console-move-dy = 0; root.console-move-token += 1; }
+        }
+        KeyBinding {
+            keys: @keys(RightArrow);
+            enabled: root.console-shell-active && !root.effective-show-player;
+            activated => { root.console-move-dx = 1; root.console-move-dy = 0; root.console-move-token += 1; }
+        }
+        KeyBinding {
+            keys: @keys(UpArrow);
+            enabled: root.console-shell-active && !root.effective-show-player;
+            activated => { root.console-move-dx = 0; root.console-move-dy = -1; root.console-move-token += 1; }
+        }
+        KeyBinding {
+            keys: @keys(DownArrow);
+            enabled: root.console-shell-active && !root.effective-show-player;
+            activated => { root.console-move-dx = 0; root.console-move-dy = 1; root.console-move-token += 1; }
+        }
+        KeyBinding {
+            keys: @keys(Return);
+            enabled: root.console-shell-active && !root.effective-show-player;
+            activated => { root.console-activate-token += 1; }
         }
     }
 
@@ -1348,7 +1392,7 @@ export component MainWindow inherits Window {
                     // this slot as an alignment spacer instead of repeating a
                     // second, smaller logo in the top navigation bar.
                     Rectangle {
-                        width: Theme.vertical-nav-bar-size;
+                        width: root.console-shell-active ? 0px : Theme.vertical-nav-bar-size;
                         height: Theme.horizontal-nav-bar-size;
                         background: Theme.sidebar-background;
 
@@ -1358,6 +1402,64 @@ export component MainWindow inherits Window {
                             width: 1px;
                             height: 100%;
                             background: Theme.divider;
+                        }
+                    }
+
+                    // Compact console tab strip replaces the sidebar while the
+                    // living-room board is on screen, so navigation never
+                    // becomes keyboard-only or hidden.
+                    if (root.console-shell-active) : HorizontalLayout {
+                        spacing: 0.4 * root.ui-unit;
+                        padding-left: 1 * root.ui-unit;
+                        alignment: start;
+
+                        PillButton {
+                            width: 6.2 * root.ui-unit;
+                            height: 3.1 * root.ui-unit;
+                            unit: root.ui-unit;
+                            label: @tr("Board");
+                            primary: root.effective-active-tab == 0;
+                            clicked => { root.tab-changed(0); app-shortcuts.focus(); }
+                        }
+                        PillButton {
+                            width: 6.2 * root.ui-unit;
+                            height: 3.1 * root.ui-unit;
+                            unit: root.ui-unit;
+                            label: @tr("Discover" => "Discover");
+                            primary: root.effective-active-tab == 1;
+                            clicked => { root.tab-changed(1); app-shortcuts.focus(); }
+                        }
+                        PillButton {
+                            width: 6.2 * root.ui-unit;
+                            height: 3.1 * root.ui-unit;
+                            unit: root.ui-unit;
+                            label: @tr("Library" => "Library");
+                            primary: root.effective-active-tab == 2;
+                            clicked => {
+                                root.library-continue-watching-mode = false;
+                                root.tab-changed(2);
+                                app-shortcuts.focus();
+                            }
+                        }
+                        PillButton {
+                            width: 6.2 * root.ui-unit;
+                            height: 3.1 * root.ui-unit;
+                            unit: root.ui-unit;
+                            label: @tr("ADDONS" => "Addons");
+                            primary: root.effective-active-tab == 3;
+                            clicked => { root.tab-changed(3); app-shortcuts.focus(); }
+                        }
+                        PillButton {
+                            width: 6.2 * root.ui-unit;
+                            height: 3.1 * root.ui-unit;
+                            unit: root.ui-unit;
+                            label: @tr("SETTINGS" => "Settings");
+                            primary: root.effective-active-tab == 4 || root.effective-active-tab == 10;
+                            clicked => {
+                                root.settings-active-category = 0;
+                                root.tab-changed(4);
+                                app-shortcuts.focus();
+                            }
                         }
                     }
 
@@ -1704,7 +1806,7 @@ export component MainWindow inherits Window {
 
                 Sidebar {
                     unit: root.ui-unit;
-                    visible: !root.effective-show-details
+                    visible: !root.effective-show-details && !root.console-shell-active
                         && (root.home-layout-preset == "Side Rail" || root.home-layout-preset == "Classic Home");
                     active-tab: root.effective-active-tab;
                     server-status: server-status;
@@ -1727,6 +1829,7 @@ export component MainWindow inherits Window {
                             root.library-continue-watching-mode = false;
                         }
                         root.tab-changed(tab);
+                        app-shortcuts.focus();
                     }
                     logout => { logout(); }
                 }
@@ -1742,7 +1845,12 @@ export component MainWindow inherits Window {
                     if (root.effective-active-tab == 0) : BoardPage {
                         width: parent.width;
                         height: parent.height;
-                        unit: root.ui-unit;
+                        unit: root.console-shell-active ? root.ui-unit * 1.12 : root.ui-unit;
+                        console-mode: root.console-shell-active;
+                        console-move-token: root.console-move-token;
+                        console-move-dx: root.console-move-dx;
+                        console-move-dy: root.console-move-dy;
+                        console-activate-token: root.console-activate-token;
                         continue-watching: root.debug-preview-enabled && root.debug-preview-page == 0
                             && (root.debug-preview-state == "empty"
                                 || root.debug-preview-state == "loading"
@@ -2084,6 +2192,8 @@ export component MainWindow inherits Window {
                         trakt-authenticated: settings-trakt-authenticated;
                         pause-on-minimize: settings-pause-on-minimize;
                         quit-on-close: settings-quit-on-close;
+                        living-room-mode: settings-living-room-mode;
+                        esc-exit-fullscreen: settings-esc-exit-fullscreen;
                         export-loading: root.debug-preview-enabled && root.debug-preview-page == 4
                             ? root.debug-preview-state == "exporting"
                             : settings-export-loading;
@@ -2200,6 +2310,14 @@ export component MainWindow inherits Window {
                         change-streaming-transcode-profile(val) => { settings-change-streaming-transcode-profile(val); }
                         change-pause-on-minimize(val) => { settings-change-pause-on-minimize(val); }
                         change-quit-on-close(val) => { settings-change-quit-on-close(val); }
+                        change-living-room-mode(val) => {
+                            root.settings-living-room-mode = val;
+                            settings-change-living-room-mode(val);
+                        }
+                        change-esc-exit-fullscreen(val) => {
+                            root.settings-esc-exit-fullscreen = val;
+                            settings-change-esc-exit-fullscreen(val);
+                        }
                         open-external-url(url) => { root.open-external-url(url); }
                         open-theme-studio => { root.theme-studio-open = true; }
                     }
@@ -2409,6 +2527,10 @@ export component MainWindow inherits Window {
             stream-loading-count: root.debug-preview-enabled && root.debug-preview-page == 7
                 ? (root.debug-preview-state == "series-stream-loading" ? 2 : 0)
                 : detail-stream-loading-count;
+            sources-loading-pending: root.debug-preview-enabled && root.debug-preview-page == 7
+                ? (root.debug-preview-state == "series-stream-loading"
+                    || root.debug-preview-state == "details-loading")
+                : root.detail-sources-loading;
             loading: root.debug-preview-enabled && root.debug-preview-page == 7
                 ? root.debug-preview-state == "details-loading"
                 : details-loading;

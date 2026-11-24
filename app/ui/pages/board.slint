@@ -106,11 +106,168 @@ export component BoardPage inherits Rectangle {
     callback open-server-settings;
 
     in property <length> unit: Theme.root-font-size;
-    property <length> card-width: 12 * root.unit;
+    // Console mode is the keyboard-first living-room layout. It is an overlay
+    // on the same board model, not a second page, so search, mouse clicks and
+    // every existing catalogue keep working.
+    in-out property <bool> console-mode: false;
+    // Token-driven entry points keep the app shell from reaching into a
+    // conditionally instantiated page by id.
+    in-out property <int> console-move-token: 0;
+    in property <int> console-move-dx: 0;
+    in property <int> console-move-dy: 0;
+    in-out property <int> console-activate-token: 0;
+    private property <bool> focus-active: false;
+    private property <int> focus-row: 0;
+    private property <int> focus-col: 0;
+    private property <int> hero-step-token: 0;
+    private property <int> hero-step-dx: 0;
+    private property <int> hero-activate-token: 0;
+
+    property <length> card-width: root.console-mode ? 13 * root.unit : 12 * root.unit;
     property <length> card-height: (root.card-width - 2 * root.unit) * Theme.poster-shape-ratio + 6 * root.unit;
     property <length> hero-height: root.hero-slides.length > 0
-        ? min(40 * root.unit, max(24 * root.unit, root.height * 0.58))
+        ? (root.console-mode
+            ? min(36 * root.unit, max(22 * root.unit, root.height * 0.52))
+            : min(40 * root.unit, max(24 * root.unit, root.height * 0.58)))
         : 0px;
+
+    private function card-height-for(shape: string) -> length {
+        if (shape == "landscape") {
+            return (root.card-width - 2 * root.unit) * Theme.landscape-shape-ratio + 6 * root.unit;
+        }
+        if (shape == "square") {
+            return (root.card-width - 2 * root.unit) + 6 * root.unit;
+        }
+        return (root.card-width - 2 * root.unit) * Theme.poster-shape-ratio + 6 * root.unit;
+    }
+
+    private function section-height(index: int) -> length {
+        if (index >= 0 && index < root.sections.length) {
+            return root.sections[index].is-hero
+                ? root.hero-height + 0.5 * root.unit
+                : 3 * root.unit + root.card-height-for(root.sections[index].poster-shape) + 2 * root.unit;
+        }
+        return 0px;
+    }
+
+    private function section-item-count(index: int) -> int {
+        if (index < 0 || index >= root.sections.length) {
+            return 0;
+        }
+        return root.sections[index].is-hero
+            ? root.hero-slides.length
+            : root.sections[index].items.length;
+    }
+
+    private function row-has-items(index: int) -> bool {
+        if (index < 0 || index >= root.sections.length) {
+            return false;
+        }
+        return root.section-item-count(index) > 0;
+    }
+
+    // Look a few slots ahead so empty/loading shelves are skipped without an
+    // unbounded loop in the declarative language.
+    private function next-filled-row(start: int, delta: int) -> int {
+        if (root.row-has-items(start + delta)) { return start + delta; }
+        if (root.row-has-items(start + delta * 2)) { return start + delta * 2; }
+        if (root.row-has-items(start + delta * 3)) { return start + delta * 3; }
+        if (root.row-has-items(start + delta * 4)) { return start + delta * 4; }
+        return -1;
+    }
+
+    public function console-reset() {
+        root.focus-active = false;
+        root.focus-row = 0;
+        root.focus-col = 0;
+        sections-view.viewport-y = 0px;
+    }
+
+    public function console-move(dx: int, dy: int) {
+        if (!root.console-mode || root.sections.length == 0) {
+            return;
+        }
+        root.focus-row = min(max(root.focus-row, 0), root.sections.length - 1);
+        if (root.section-item-count(root.focus-row) > 0) {
+            root.focus-col = min(max(root.focus-col, 0), root.section-item-count(root.focus-row) - 1);
+        }
+        if (!root.focus-active) {
+            root.focus-active = true;
+            root.focus-row = root.row-has-items(0) ? 0 : max(0, root.next-filled-row(0, 1));
+            root.focus-col = 0;
+        }
+        if (dy != 0) {
+            if (dy > 0 && root.next-filled-row(root.focus-row, 1) >= 0) {
+                sections-view.viewport-y = sections-view.viewport-y - root.section-height(root.focus-row);
+                root.focus-row = root.next-filled-row(root.focus-row, 1);
+                root.focus-col = max(0, min(root.focus-col, root.section-item-count(root.focus-row) - 1));
+            }
+            if (dy < 0 && root.next-filled-row(root.focus-row, -1) >= 0) {
+                root.focus-row = root.next-filled-row(root.focus-row, -1);
+                sections-view.viewport-y = min(0px, sections-view.viewport-y + root.section-height(root.focus-row));
+                root.focus-col = max(0, min(root.focus-col, root.section-item-count(root.focus-row) - 1));
+            }
+            return;
+        }
+        if (dx != 0) {
+            if (root.sections[root.focus-row].is-hero) {
+                root.hero-step-dx = dx;
+                root.hero-step-token += 1;
+            } else if (root.section-item-count(root.focus-row) > 0) {
+                root.focus-col = max(
+                    0,
+                    min(root.focus-col + dx, root.section-item-count(root.focus-row) - 1)
+                );
+            }
+        }
+    }
+
+    public function console-activate() {
+        if (!root.console-mode || root.sections.length == 0) {
+            return;
+        }
+        root.focus-active = true;
+        root.focus-row = min(max(root.focus-row, 0), root.sections.length - 1);
+        if (root.sections[root.focus-row].is-hero) {
+            root.hero-activate-token += 1;
+            return;
+        }
+        if (root.section-item-count(root.focus-row) <= 0) {
+            return;
+        }
+        root.focus-col = min(max(root.focus-col, 0), root.section-item-count(root.focus-row) - 1);
+        root.item-selected(
+            root.sections[root.focus-row].items[root.focus-col].id,
+            root.sections[root.focus-row].items[root.focus-col].media-type,
+            root.sections[root.focus-row].items[root.focus-col].video-id
+        );
+    }
+
+    changed console-move-token => {
+        root.console-move(root.console-move-dx, root.console-move-dy);
+    }
+
+    changed console-activate-token => {
+        if (root.console-activate-token > 0) {
+            root.console-activate();
+        }
+    }
+
+    changed console-mode => {
+        if (!root.console-mode) {
+            root.console-reset();
+        }
+    }
+
+    changed sections => {
+        if (root.focus-row >= root.sections.length) {
+            root.focus-row = max(0, root.sections.length - 1);
+            root.focus-col = 0;
+        }
+        if (root.focus-active && root.focus-row < root.sections.length) {
+            root.focus-col = max(0, min(root.focus-col, root.section-item-count(root.focus-row) - 1));
+        }
+    }
 
     background: transparent;
 
@@ -139,16 +296,28 @@ export component BoardPage inherits Rectangle {
         message: @tr("Your recommendations and continue-watching items will appear here.");
     }
 
+    // A faint console ambience sits behind the shelves without competing with
+    // poster artwork or reducing text contrast.
+    if (root.console-mode) : Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: min(parent.height, root.hero-height + 6 * root.unit);
+        background: @linear-gradient(118deg, Theme.primary-accent 0%, #00000000 42%, Theme.primary-accent 100%);
+        opacity: 0.045;
+    }
+
     // Board rows are virtualized vertically. This prevents every poster in
     // every off-screen catalogue from becoming part of the active image set.
-    if (root.sections.length > 0) : ListView {
+    sections-view := ListView {
         x: root.unit;
         y: 0px;
         width: max(0px, root.width - 2 * root.unit);
-        height: parent.height;
+        height: root.sections.length > 0 ? parent.height : 0px;
+        visible: root.sections.length > 0;
         horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
 
-        for section in root.sections : Rectangle {
+        for section[index] in root.sections : Rectangle {
             property <string> p-shape: section.poster-shape != "" ? section.poster-shape : "poster";
             property <length> section-card-height: p-shape == "landscape"
                 ? (root.card-width - 2 * root.unit) * Theme.landscape-shape-ratio + 6 * root.unit
@@ -175,6 +344,10 @@ export component BoardPage inherits Rectangle {
                 height: root.hero-height;
                 unit: root.unit;
                 slides: root.hero-slides;
+                console-focused: root.console-mode && root.focus-active && root.focus-row == index;
+                console-step-token: root.hero-step-token;
+                console-step-dx: root.hero-step-dx;
+                console-activate-token: root.hero-activate-token;
                 play-requested(id, media-type) => { root.hero-play-requested(id, media-type); }
                 details-requested(id, media-type) => { root.hero-details-requested(id, media-type); }
             }
@@ -193,6 +366,8 @@ export component BoardPage inherits Rectangle {
                 card-width: root.card-width;
                 card-height: section-card-height;
                 items: section.items;
+                focus-index: root.console-mode && root.focus-active && root.focus-row == index
+                    ? root.focus-col : -1;
                 show-close-button: section.is-continue-watching;
                 show-play-button: section.is-continue-watching;
                 library-context-menu: section.is-continue-watching;
@@ -240,5 +415,34 @@ export component BoardPage inherits Rectangle {
         dismiss => { root.dismiss-server-warning(); }
         reload => { root.reload-server(); }
         open-settings => { root.open-server-settings(); }
+    }
+
+    if (root.console-mode && !root.show-server-warning) : Rectangle {
+        x: max(root.unit, parent.width - min(31 * root.unit, parent.width - 2 * root.unit) - root.unit);
+        y: parent.height - 3.2 * root.unit;
+        width: min(31 * root.unit, parent.width - 2 * root.unit);
+        height: 2.1 * root.unit;
+        border-radius: self.height / 2;
+        background: Theme.modal-background;
+        border-width: 1px;
+        border-color: Theme.card-border;
+        opacity: 0.94;
+        z: 40;
+
+        Text {
+            x: 0.9 * root.unit;
+            width: parent.width - 1.8 * root.unit;
+            height: parent.height;
+            text: root.focus-active
+                ? @tr("CONSOLE_HINT" => "← →  Move     ↑ ↓  Shelf     Enter  Open     Esc  Back")
+                : @tr("CONSOLE_HINT_IDLE" => "Arrow keys to browse  ·  Enter to open");
+            color: Theme.text-muted;
+            font-size: 0.62 * root.unit;
+            font-weight: 600;
+            letter-spacing: 0.03 * root.unit;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
     }
 }

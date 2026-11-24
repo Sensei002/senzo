@@ -40,7 +40,9 @@ use stremio_core::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::{AppModel, AppModelField, MainWindow, NavigationController, NavigationIntent};
+use crate::{
+    AppModel, AppModelField, MainWindow, NavigationController, NavigationIntent, watch_progress,
+};
 use crate::{
     EpisodeItem,
     models::{Fingerprint, SyncFingerprint},
@@ -1548,7 +1550,7 @@ impl NativePlaybackBridge {
             return;
         };
 
-        let resume_at = resume_time(player);
+        let resume_at = best_resume_time(player);
         let pending_load = {
             let mut session = lock_session(&self.session);
             if navigation.snapshot().revision != route_revision || !navigation.is_player_visible() {
@@ -2647,6 +2649,27 @@ impl NativePlaybackBridge {
             }
         });
 
+        ui.on_player_visibility_changed({
+            let weak = ui.as_weak();
+            let autohide_task = self.autohide_task.clone();
+            move |visible| {
+                if visible {
+                    return;
+                }
+                let Some(ui) = weak.upgrade() else {
+                    return;
+                };
+                set_player_cursor_hidden(&ui, false);
+                if let Some(handle) = lock_autohide_task(&autohide_task).take() {
+                    handle.abort();
+                }
+                if ui.window().is_fullscreen() {
+                    ui.window().set_fullscreen(false);
+                    ui.set_is_fullscreen(false);
+                }
+            }
+        });
+
         ui.on_player_close({
             let controller = self.controller.clone();
             let core = core.clone();
@@ -2666,6 +2689,14 @@ impl NativePlaybackBridge {
                 media_session.clear();
                 crate::taskbar_media::set_state(crate::taskbar_media::ButtonState::Hidden);
                 if let Some(ui) = weak.upgrade() {
+                    // Reset pointer and timer state before the visibility guard:
+                    // alternate exits can hide the player without taking the
+                    // normal close path, and a stale OS cursor must never leak
+                    // onto the rest of the application.
+                    set_player_cursor_hidden(&ui, false);
+                    if let Some(handle) = lock_autohide_task(&autohide_task).take() {
+                        handle.abort();
+                    }
                     if !navigation.is_player_visible() {
                         return;
                     }
@@ -2675,8 +2706,6 @@ impl NativePlaybackBridge {
                     ui.set_player_pip_active(false);
                     navigation.dispatch_and_project(&ui, NavigationIntent::Back);
                     ui.invoke_close_player_menus();
-                    // Never leave the player with the pointer hidden after exit.
-                    set_player_cursor_hidden(&ui, false);
                     ui.set_player_loading(false);
                     ui.set_player_buffering(false);
                     ui.set_player_has_video_frame(false);
@@ -2686,9 +2715,6 @@ impl NativePlaybackBridge {
                         ui.window().set_fullscreen(false);
                         ui.set_is_fullscreen(false);
                     }
-                }
-                if let Some(handle) = lock_autohide_task(&autohide_task).take() {
-                    handle.abort();
                 }
                 let torrent_hash = core.model().ok().and_then(|model| {
                     model.player.selected.as_ref().and_then(|selected| {
@@ -2758,6 +2784,8 @@ impl NativePlaybackBridge {
         ui.on_player_toggle_fullscreen({
             let weak = ui.as_weak();
             let pip_controller = pip_controller.clone();
+            let autohide_task = self.autohide_task.clone();
+            let runtime_handle = self.runtime_handle.clone();
             move || {
                 if let Some(ui) = weak.upgrade() {
                     if pip_controller.borrow().is_active() {
@@ -2769,6 +2797,13 @@ impl NativePlaybackBridge {
                     let fs = !ui.window().is_fullscreen();
                     ui.window().set_fullscreen(fs);
                     ui.set_is_fullscreen(fs);
+                    if !fs {
+                        // Leaving fullscreen with the idle pointer hidden made
+                        // the mouse appear to vanish over the windowed player.
+                        // Treat the transition as activity so the controls and
+                        // OS cursor are both restored immediately.
+                        reset_autohide_timer(&ui, &autohide_task, &runtime_handle);
+                    }
                 }
             }
         });
@@ -3510,6 +3545,14 @@ fn dispatch_state_to_core(
     let now = Instant::now();
     let current_time_secs = state.time.round().max(0.0) as i64;
     let duration_secs = state.duration.round().max(0.0) as i64;
+    if state.loaded
+        && current_time_secs > 0
+        && duration_secs > 0
+        && let Ok(model) = core.model()
+        && let Some((meta_id, video_id)) = player_progress_key(&model.player)
+    {
+        watch_progress::record(&meta_id, &video_id, current_time_secs, duration_secs);
+    }
     let (needs_tidb_request, needs_discord_media, needs_media_meta, needs_video_hash) = {
         let current = lock_session(session);
         (
@@ -4679,6 +4722,38 @@ fn resume_time(player: &Player) -> Option<f64> {
         .then_some(item.state.time_offset as f64)
 }
 
+/// The core library only knows about progress for library items. Direct
+/// sources and previews need a local ledger keyed by the same meta/video pair
+/// so they resume after the application is restarted.
+fn player_progress_key(player: &Player) -> Option<(String, String)> {
+    let selected = player.selected.as_ref()?;
+    let video_id = selected.stream_request.as_ref()?.path.id.to_string();
+    let meta_id = player
+        .meta_item
+        .as_ref()?
+        .content
+        .as_ref()
+        .and_then(Loadable::ready)?
+        .preview
+        .id
+        .to_string();
+    (!meta_id.is_empty() && !video_id.is_empty()).then_some((meta_id, video_id))
+}
+
+fn best_resume_time(player: &Player) -> Option<f64> {
+    // The local ledger is updated every second by this process, so when it has
+    // an entry it is newer than whatever the core library last persisted. Even
+    // an entry inside the start/end guard is authoritative, otherwise a stale
+    // library offset would jump the viewer into the middle of a fresh rewatch.
+    let Some((meta_id, video_id)) = player_progress_key(player) else {
+        return resume_time(player);
+    };
+    if watch_progress::has_entry(&meta_id, &video_id) {
+        return watch_progress::resume_position(&meta_id, &video_id);
+    }
+    resume_time(player)
+}
+
 fn play_next(core: &Arc<Runtime<DesktopEnv, AppModel>>) -> bool {
     let selected = core.model().ok().and_then(|model| {
         let current = model.player.selected.as_ref()?;
@@ -5134,6 +5209,7 @@ fn unload_player(
     discord_rpc: &Arc<crate::discord::DiscordRpc>,
     thumbnails: &crate::thumbnail_preview::ThumbnailPreview,
 ) {
+    watch_progress::flush();
     cancel_statistics_poll(statistics_poll);
     let mut current = lock_session(session);
     if let Some(task) = current.tidb_task.take() {
@@ -5185,6 +5261,11 @@ static PLAYER_CURSOR_HIDDEN: AtomicBool = AtomicBool::new(false);
 /// thread and blocks on the reply — so skip it whenever the state already
 /// matches, and only remember the new state once the window actually applied it.
 fn set_player_cursor_hidden(ui: &MainWindow, hidden: bool) {
+    // The pointer is window-global; never hide it for an autohide timer that
+    // outlived the player route.
+    if hidden && !ui.get_show_player() {
+        return;
+    }
     if PLAYER_CURSOR_HIDDEN.load(Ordering::Relaxed) == hidden {
         return;
     }
@@ -5220,6 +5301,7 @@ fn reset_autohide_timer(
             tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = weak_ui.upgrade()
+                    && ui.get_show_player()
                     && !ui.get_player_paused()
                     && !ui.get_player_show_subtitles_menu()
                     && !ui.get_player_show_audio_menu()

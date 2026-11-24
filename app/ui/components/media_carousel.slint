@@ -25,6 +25,8 @@ export component MediaCatalogRow inherits MetaRow {
     in property <bool> show-watched-context-action: true;
     in property <bool> enable-hover-preview: false;
     in property <duration> hover-preview-delay: 1200ms;
+    // Index of the console-focused card, or -1 when the shelf is idle.
+    in-out property <int> focus-index: -1;
     callback item-selected(string, string, string);
     callback remove-clicked(string);
     callback play-clicked(string);
@@ -37,6 +39,15 @@ export component MediaCatalogRow inherits MetaRow {
 
     content-width: max(root.width, (root.loading ? 8 : root.items.length) * root.card-width);
     content-height: root.card-height;
+
+    changed focus-index => {
+        if (root.focus-index >= 0) {
+            root.content-scroll-offset = max(0px, min(
+                root.focus-index * root.card-width - (root.width - root.card-width) / 2,
+                max(0px, root.content-width - root.width)
+            ));
+        }
+    }
 
     if (root.loading) : HorizontalLayout {
         x: 0px;
@@ -79,6 +90,7 @@ export component MediaCatalogRow inherits MetaRow {
         unit: root.unit;
         poster-shape: root.poster-shape;
         item: card-item;
+        console-focused: root.focus-index == index;
         show-close-button: root.show-close-button;
         show-play-button: root.show-play-button && card-item.can-play;
         show-menu-button: root.show-menu-button;

@@ -24,6 +24,7 @@ export component MediaCard inherits Rectangle {
     in property <string> poster-shape: "poster";
     in property <bool> selected: false;
     in property <bool> menu-open: false;
+    in property <bool> console-focused: false;
     in property <bool> enable-hover-scale: true;
     in property <bool> show-close-button: false;
     in property <bool> show-play-button: false;
@@ -81,7 +82,7 @@ export component MediaCard inherits Rectangle {
             ? root.poster-width
             : root.poster-width * Theme.poster-shape-ratio);
     property <bool> highlighted: card-button.has-hover || card-button.has-focus
-        || root.selected || root.menu-open;
+        || root.selected || root.menu-open || root.console-focused;
 
     private property <bool> preview-armed: root.enable-hover-preview
         && card-button.has-hover
@@ -175,7 +176,10 @@ export component MediaCard inherits Rectangle {
         border-radius: Theme.border-radius + 0.2 * root.unit;
         border-width: 0.2 * root.unit;
         border-color: Theme.primary-foreground;
+        drop-shadow-blur: root.console-focused ? 0.9 * root.unit : 0px;
+        drop-shadow-color: Theme.primary-accent;
         background: transparent;
+        animate drop-shadow-blur { duration: Theme.motion-focus; easing: ease-out; }
     }
 
     poster-container := Rectangle {

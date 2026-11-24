@@ -46,6 +46,19 @@ pub struct AppConfig {
     pub direct_sources: crate::direct_sources::types::DirectSourcesConfig,
     /// Nuvio-compatible plugin repositories and provider toggles.
     pub plugins: crate::nuvio_plugins::PluginsConfig,
+    /// Console-first shell: hides the sidebar and gives the board the whole
+    /// window while keeping every desktop control and the mouse usable.
+    #[serde(default = "default_true")]
+    pub living_room_mode: bool,
+    /// While the player is fullscreen, Escape leaves fullscreen instead of
+    /// closing playback. Users who prefer the old close-on-Escape behaviour
+    /// can turn this off in Settings.
+    #[serde(default = "default_true")]
+    pub esc_exit_fullscreen: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_font_family() -> String {
@@ -107,32 +120,32 @@ fn saved_gradient(angle: f32, start: &str, end: &str) -> SavedGradientConfig {
 impl Default for ThemeConfig {
     fn default() -> Self {
         Self {
-            active_preset_idx: 13,
+            active_preset_idx: 14,
             font_family: "Plus Jakarta Sans".to_string(),
-            background: "#000000".to_string(),
-            secondary_background: "#121212".to_string(),
-            sidebar_background: "#181818d9".to_string(),
-            modal_background: "#181818".to_string(),
-            drawer_background: "#121212ee".to_string(),
+            background: "#08090b".to_string(),
+            secondary_background: "#101216".to_string(),
+            sidebar_background: "#0d0f12d9".to_string(),
+            modal_background: "#15181d".to_string(),
+            drawer_background: "#101216ee".to_string(),
             control_background: "#ffffff14".to_string(),
             overlay: "#ffffff14".to_string(),
             overlay_hover: "#ffffff24".to_string(),
             overlay_pressed: "#ffffff29".to_string(),
             divider: "#ffffff1f".to_string(),
             scrim: "#00000066".to_string(),
-            accent: "#a855f7".to_string(),
-            accent_hover: "#a78bfa".to_string(),
-            success: "#2dd4bf".to_string(),
+            accent: "#e8eaed".to_string(),
+            accent_hover: "#ffffff".to_string(),
+            success: "#34d399".to_string(),
             warning: "#fbbf24".to_string(),
-            info: "#f472b6".to_string(),
+            info: "#93c5fd".to_string(),
             danger: "#fb7185".to_string(),
-            focus: "#a855f7".to_string(),
-            title_bar: "#000000".to_string(),
-            card_background: "#181818".to_string(),
-            card_border: "#282828".to_string(),
-            text_primary: "#ffffff".to_string(),
-            text_secondary: "#ffffffb3".to_string(),
-            text_muted: "#ffffff80".to_string(),
+            focus: "#e8eaed".to_string(),
+            title_bar: "#08090b".to_string(),
+            card_background: "#15181d".to_string(),
+            card_border: "#2a2f38".to_string(),
+            text_primary: "#f7f8fa".to_string(),
+            text_secondary: "#b6bdc8".to_string(),
+            text_muted: "#7d8694".to_string(),
             skeleton_base: "#ffffff1a".to_string(),
             skeleton_shimmer: "#ffffff26".to_string(),
             saved_colors: [
@@ -164,7 +177,7 @@ impl Default for ThemeConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            config_version: 8,
+            config_version: 9,
             server_url: "http://127.0.0.1:11470".to_string(),
             active_tab: 0,
             auto_launch_player: true,
@@ -188,6 +201,8 @@ impl Default for AppConfig {
             home_row_order: Vec::new(),
             direct_sources: crate::direct_sources::types::DirectSourcesConfig::default(),
             plugins: crate::nuvio_plugins::PluginsConfig::default(),
+            living_room_mode: true,
+            esc_exit_fullscreen: true,
         }
     }
 }
@@ -504,6 +519,34 @@ impl AppConfig {
             }
             self.config_version = 8;
         }
+        if self.config_version < 9 {
+            // This release moves the untouched OLED default to the neutral
+            // console palette and enables the living-room shell by default.
+            // Custom palettes and saved swatches are preserved.
+            let shipped_oled = self.theme.active_preset_idx == 13
+                && self.theme.background.eq_ignore_ascii_case("#000000")
+                && self
+                    .theme
+                    .secondary_background
+                    .eq_ignore_ascii_case("#121212")
+                && self.theme.accent.eq_ignore_ascii_case("#a855f7")
+                && self.theme.focus.eq_ignore_ascii_case("#a855f7")
+                && self.theme.card_background.eq_ignore_ascii_case("#181818")
+                && self.theme.card_border.eq_ignore_ascii_case("#282828")
+                && self.theme.text_primary.eq_ignore_ascii_case("#ffffff");
+            if shipped_oled {
+                let font_family = std::mem::take(&mut self.theme.font_family);
+                let saved_colors = std::mem::take(&mut self.theme.saved_colors);
+                let saved_gradients = std::mem::take(&mut self.theme.saved_gradients);
+                self.theme = ThemeConfig::default();
+                self.theme.font_family = font_family;
+                self.theme.saved_colors = saved_colors;
+                self.theme.saved_gradients = saved_gradients;
+            }
+            self.living_room_mode = true;
+            self.esc_exit_fullscreen = true;
+            self.config_version = 9;
+        }
         self.config_version != original_version
     }
 }
@@ -662,10 +705,10 @@ mod tests {
         let mut config = legacy_config();
 
         assert!(config.migrate());
-        assert_eq!(config.config_version, 8);
-        assert_eq!(config.theme.background, "#000000");
-        assert_eq!(config.theme.secondary_background, "#121212");
-        assert_eq!(config.theme.success, "#2dd4bf");
+        assert_eq!(config.config_version, 9);
+        assert_eq!(config.theme.background, "#08090b");
+        assert_eq!(config.theme.secondary_background, "#101216");
+        assert_eq!(config.theme.success, "#34d399");
     }
 
     #[test]
@@ -674,7 +717,7 @@ mod tests {
         config.theme.accent = "#ff3366".to_string();
 
         assert!(config.migrate());
-        assert_eq!(config.config_version, 8);
+        assert_eq!(config.config_version, 9);
         assert_eq!(config.theme.background, "#070a14");
         assert_eq!(config.theme.accent, "#ff3366");
     }
@@ -690,7 +733,7 @@ mod tests {
         };
 
         assert!(config.migrate());
-        assert_eq!(config.config_version, 8);
+        assert_eq!(config.config_version, 9);
         assert_eq!(
             config.hover_trailer_preview_delay_ms,
             DEFAULT_HOVER_PREVIEW_DELAY_MS
@@ -724,8 +767,8 @@ mod tests {
 
         assert_eq!(config.theme.background, "#111111");
         assert_eq!(config.theme.accent, "#abcdef");
-        assert_eq!(config.theme.drawer_background, "#121212ee");
-        assert_eq!(config.theme.text_muted, "#ffffff80");
+        assert_eq!(config.theme.drawer_background, "#101216ee");
+        assert_eq!(config.theme.text_muted, "#7d8694");
     }
 
     #[test]
@@ -740,6 +783,48 @@ mod tests {
         let serialized = serde_json::to_string(&AppConfig::default()).expect("serialize config");
         assert!(serialized.contains("thumbnail_previews_enabled"));
         assert!(!serialized.contains("thumbfast_enabled"));
+    }
+
+    fn version_eight_oled_config() -> AppConfig {
+        let mut config = AppConfig {
+            config_version: 8,
+            ..Default::default()
+        };
+        config.theme.active_preset_idx = 13;
+        config.theme.background = "#000000".to_string();
+        config.theme.secondary_background = "#121212".to_string();
+        config.theme.accent = "#a855f7".to_string();
+        config.theme.focus = "#a855f7".to_string();
+        config.theme.card_background = "#181818".to_string();
+        config.theme.card_border = "#282828".to_string();
+        config.theme.text_primary = "#ffffff".to_string();
+        config
+    }
+
+    #[test]
+    fn migrates_the_untouched_oled_theme_to_console_graphite() {
+        let mut config = version_eight_oled_config();
+
+        assert!(config.migrate());
+        assert_eq!(config.config_version, 9);
+        assert_eq!(config.theme.active_preset_idx, 14);
+        assert_eq!(config.theme.background, "#08090b");
+        assert!(config.living_room_mode);
+        assert!(config.esc_exit_fullscreen);
+    }
+
+    #[test]
+    fn preserves_a_custom_palette_while_enabling_the_console_shell() {
+        let mut config = version_eight_oled_config();
+        config.theme.accent = "#ff3366".to_string();
+        config.theme.focus = "#ff3366".to_string();
+
+        assert!(config.migrate());
+        assert_eq!(config.config_version, 9);
+        assert_eq!(config.theme.background, "#000000");
+        assert_eq!(config.theme.accent, "#ff3366");
+        assert!(config.living_room_mode);
+        assert!(config.esc_exit_fullscreen);
     }
 
     #[test]

@@ -1530,6 +1530,16 @@ pub fn setup(
         let runtime = runtime.clone();
         move |value| update_profile_settings(&runtime, |settings| settings.quit_on_close = value)
     });
+    ui.on_settings_change_living_room_mode(|value| {
+        let mut config = crate::config::load_config();
+        config.living_room_mode = value;
+        crate::config::save_config(&config);
+    });
+    ui.on_settings_change_esc_exit_fullscreen(|value| {
+        let mut config = crate::config::load_config();
+        config.esc_exit_fullscreen = value;
+        crate::config::save_config(&config);
+    });
 
     // Custom Client Settings Callbacks
     ui.on_settings_change_seeding_enabled({

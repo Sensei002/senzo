@@ -195,6 +195,8 @@ export component SettingsPage inherits Rectangle {
     in-out property <bool> tidb-show-preview: true;
     in-out property <bool> hide-spoilers: false;
     in-out property <bool> gamepad-support: false;
+    in-out property <bool> living-room-mode: true;
+    in-out property <bool> esc-exit-fullscreen: true;
     in-out property <bool> play-in-background: true;
     in-out property <bool> subtitles-auto-select: true;
     in-out property <string> subtitles-font: "Roboto";
@@ -223,7 +225,6 @@ export component SettingsPage inherits Rectangle {
     in-out property <string> streaming-logs-text: @tr("No logs loaded. Click Refresh.");
     in property <IconData> refresh-icon;
     in property <IconData> folder-icon;
-    in-out property <bool> esc-exit-fullscreen: true;
     in property <string> user-email: "";
     in property <string> user-id: "";
     in property <image> user-avatar;
@@ -294,6 +295,8 @@ export component SettingsPage inherits Rectangle {
     callback change-tidb-show-preview(bool);
     callback change-hide-spoilers(bool);
     callback change-gamepad-support(bool);
+    callback change-living-room-mode(bool);
+    callback change-esc-exit-fullscreen(bool);
     callback change-play-in-background(bool);
     callback change-subtitles-auto-select(bool);
     callback change-subtitles-font(string);
@@ -723,6 +726,12 @@ export component SettingsPage inherits Rectangle {
                     }
                     SettingsOption {
                         unit: root.unit;
+                        label: @tr("SETTINGS_LIVING_ROOM" => "Living-room console mode");
+                        description: @tr("SETTINGS_LIVING_ROOM_DESC" => "Hides the sidebar and gives the home screen a keyboard-first console layout. Mouse and desktop controls keep working.");
+                        ToggleSwitch { unit: root.unit; checked: root.living-room-mode; toggled => { root.change-living-room-mode(self.checked); } }
+                    }
+                    SettingsOption {
+                        unit: root.unit;
                         label: @tr("SETTINGS_GAMEPAD" => "Enable gamepad support");
                         ToggleSwitch { unit: root.unit; checked: root.gamepad-support; toggled => { root.change-gamepad-support(self.checked); } }
                     }
@@ -750,8 +759,9 @@ export component SettingsPage inherits Rectangle {
                     }
                     SettingsOption {
                         unit: root.unit;
-                        label: @tr("SETTINGS_FULLSCREEN_EXIT" => "Escape key exit full screen");
-                        ToggleSwitch { unit: root.unit; checked: root.esc-exit-fullscreen; toggled => { root.esc-exit-fullscreen = self.checked; } }
+                        label: @tr("SETTINGS_FULLSCREEN_EXIT" => "Escape leaves fullscreen first");
+                        description: @tr("SETTINGS_FULLSCREEN_EXIT_DESC" => "While watching in fullscreen, Escape returns to windowed playback instead of stopping the movie.");
+                        ToggleSwitch { unit: root.unit; checked: root.esc-exit-fullscreen; toggled => { root.change-esc-exit-fullscreen(self.checked); } }
                     }
                 }
 

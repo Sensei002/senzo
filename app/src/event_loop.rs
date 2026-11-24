@@ -310,6 +310,8 @@ pub fn start_event_loop(
         let mut last_details_projection_fingerprint = None;
         let last_stream_fingerprint = Arc::new(std::sync::Mutex::new(None));
         let last_details_id = Arc::new(std::sync::Mutex::new(None));
+        let mut details_pending_id: Option<String> = None;
+        let mut details_pending_since: Option<std::time::Instant> = None;
         while let Some(event) = rx.next().await {
             match event {
                 RuntimeEvent::NewState(mut fields, ..) => {
@@ -482,6 +484,12 @@ pub fn start_event_loop(
                     let addon_details_sync_needed = fields.contains(&AppModelField::AddonDetails);
                     let meta_details_changed = fields.contains(&AppModelField::MetaDetails);
                     let details_context_changed = fields.contains(&AppModelField::Ctx);
+                    let current_details_id =
+                        model.meta_details.selected.as_ref().and_then(|selected| {
+                            navigation
+                                .details_presentation(&selected.meta_path.id)
+                                .map(|_| selected.meta_path.id.clone())
+                        });
                     let details_route = (meta_details_changed || details_context_changed)
                         .then(|| {
                             model.meta_details.selected.as_ref().and_then(|selected| {
@@ -520,6 +528,58 @@ pub fn start_event_loop(
                     let details_sync_needed = meta_details_changed && details_projection_changed;
                     let details_stream_sync_needed =
                         meta_details_changed && details_route_id.is_some();
+                    // The core's per-resource loading count is a transient
+                    // snapshot: with a warm cache it can go 0 -> 1 -> 0 between
+                    // two UI frames, so the spinner never got a chance to
+                    // mount. Keep an explicit pending flag for the whole
+                    // provider round-trip and release it only once the meta
+                    // and every stream resource have settled.
+                    let details_meta_loading =
+                        matches!(&model.meta_details.meta, Loadable::Loading);
+                    let details_meta_failed = matches!(&model.meta_details.meta, Loadable::Err(_));
+                    let details_has_streams = !model.meta_details.streams.is_empty();
+                    let details_streams_loading = model
+                        .meta_details
+                        .streams
+                        .iter()
+                        .any(|resource| matches!(resource.content, Some(Loadable::Loading)));
+                    let details_pending_started = std::time::Instant::now();
+                    if current_details_id.is_none() {
+                        details_pending_id = None;
+                        details_pending_since = None;
+                    } else {
+                        let route_changed =
+                            details_pending_id.as_deref() != current_details_id.as_deref();
+                        if route_changed {
+                            details_pending_id = current_details_id.clone();
+                            details_pending_since = Some(details_pending_started);
+                        } else if details_stream_sync_needed
+                            && !details_has_streams
+                            && !details_streams_loading
+                        {
+                            // A new episode can reset the stream bucket without
+                            // changing the selected meta id.
+                            details_pending_since = Some(details_pending_started);
+                        }
+                        let elapsed = details_pending_since
+                            .map(|started| details_pending_started.duration_since(started))
+                            .unwrap_or_default();
+                        let settled = !details_meta_loading
+                            && !details_streams_loading
+                            && (details_has_streams
+                                || elapsed >= std::time::Duration::from_secs(4));
+                        if elapsed >= std::time::Duration::from_secs(15)
+                            || (elapsed >= std::time::Duration::from_millis(700)
+                                && (settled || details_meta_failed))
+                        {
+                            // Keep the route id so the next tick does not treat
+                            // the same details page as a fresh navigation and
+                            // restart the spinner forever.
+                            details_pending_since = None;
+                        }
+                    }
+                    let details_sources_pending =
+                        details_pending_since.is_some() && !details_meta_failed;
                     let details_library_sync_needed =
                         details_context_changed && details_route_id.is_some();
                     let settings_sync_needed = first_render
@@ -862,6 +922,14 @@ pub fn start_event_loop(
                                 details_route_id.as_ref().is_some_and(|id| {
                                     navigation_for_sync.details_presentation(id).is_some()
                                 });
+
+                            // This is a per-tick state, not a stream-link patch:
+                            // the release tick usually has no
+                            // `details_stream_sync_needed`, so keeping it inside
+                            // that block leaves the spinner mounted forever.
+                            ui.set_detail_sources_loading(
+                                details_patch_allowed && details_sources_pending,
+                            );
 
                             if details_library_sync_needed && details_patch_allowed {
                                 ui.set_detail_is_in_library(details_is_in_library);

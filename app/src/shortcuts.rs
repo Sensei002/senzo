@@ -565,6 +565,15 @@ fn invoke_action(ui: &MainWindow, action: HotkeyAction, last_subtitle_index: &mu
         HotkeyAction::CloseOverlayOrPlayer => {
             if ui.get_player_menu_open() {
                 ui.invoke_close_player_menus();
+            } else if ui.get_show_player()
+                && ui.window().is_fullscreen()
+                && ui.get_settings_esc_exit_fullscreen()
+            {
+                // In a living-room session Escape is the "leave fullscreen"
+                // button. Closing playback from here loses the movie and drops
+                // the user back into source selection, so only the window
+                // state changes until a second Escape is pressed.
+                ui.invoke_player_toggle_fullscreen();
             } else {
                 ui.invoke_player_close();
             }

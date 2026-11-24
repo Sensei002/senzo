@@ -71,6 +71,44 @@ export component DetailsPage inherits Rectangle {
     in property <[StreamLink]> streams: [];
     in property <[string]> stream-providers: ["All"];
     in property <int> stream-loading-count: 0;
+    // The backend keeps this true for the whole provider round-trip. The
+    // count above only flips while a plugin request is actively in flight,
+    // which is too brief to see on a warm cache.
+    in property <bool> sources-loading-pending: false;
+    private property <bool> source-spinner-hold: true;
+    private property <bool> source-spinner-cap: true;
+
+    Timer {
+        interval: 700ms;
+        running: root.source-spinner-hold;
+        triggered => { root.source-spinner-hold = false; }
+    }
+
+    Timer {
+        interval: 15s;
+        running: root.sources-loading-pending;
+        triggered => {
+            root.source-spinner-cap = false;
+            root.source-spinner-hold = false;
+        }
+    }
+
+    changed sources-loading-pending => {
+        if (root.sources-loading-pending) {
+            root.source-spinner-hold = true;
+            root.source-spinner-cap = true;
+        }
+    }
+
+    changed item-title => {
+        root.source-spinner-hold = true;
+        root.source-spinner-cap = true;
+    }
+
+    private property <bool> sources-loading-active:
+        (root.sources-loading-pending && root.source-spinner-cap)
+        || root.source-spinner-hold
+        || root.stream-loading-count > 0;
 
     in-out property <string> active-stream-provider: "All";
     in-out property <string> ranking-mode: "Smart";
@@ -312,7 +350,7 @@ export component DetailsPage inherits Rectangle {
                 // The leading status mark doubles as the provider spinner.
                 // animation-tick() is driven by the renderer, so the ring keeps
                 // turning even while the provider workers are busy.
-                if (root.stream-loading-count > 0) : Rectangle {
+                if (root.sources-loading-active) : Rectangle {
                     width: 0.9 * root.unit;
                     height: 2.1 * root.unit;
 
@@ -325,11 +363,11 @@ export component DetailsPage inherits Rectangle {
                         colorize: Theme.primary-accent;
                         image-fit: contain;
                         transform-origin: { x: self.width / 2, y: self.height / 2 };
-                        transform-rotation: (mod(animation-tick(), 900ms) / 900ms) * 360deg;
+                        transform-rotation: (animation-tick() / 900ms) * 360deg;
                     }
                 }
 
-                if (root.stream-loading-count <= 0) : Rectangle {
+                if (!root.sources-loading-active) : Rectangle {
                     width: 0.45 * root.unit;
                     height: 0.45 * root.unit;
                     border-radius: self.width / 2;
@@ -346,8 +384,8 @@ export component DetailsPage inherits Rectangle {
                     vertical-alignment: center;
                 }
 
-                if (root.stream-loading-count > 0) : Text {
-                    text: @tr("PLUGINS_ARE_LOADING" => "Plugins are loading");
+                if (root.sources-loading-active) : Text {
+                    text: @tr("SOURCES_ARE_LOADING" => "Loading sources…");
                     color: Theme.text-muted;
                     font-size: 0.68 * root.unit;
                     font-weight: 600;
