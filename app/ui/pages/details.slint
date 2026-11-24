@@ -71,6 +71,19 @@ export component DetailsPage inherits Rectangle {
     in property <[StreamLink]> streams: [];
     in property <[string]> stream-providers: ["All"];
     in property <int> stream-loading-count: 0;
+    property <angle> sources-spin-angle: 0deg;
+
+    Timer {
+        interval: 16ms;
+        running: root.stream-loading-count > 0;
+        triggered => {
+            root.sources-spin-angle += 5deg;
+            if (root.sources-spin-angle >= 360deg) {
+                root.sources-spin-angle -= 360deg;
+            }
+        }
+    }
+
     in-out property <string> active-stream-provider: "All";
     in-out property <string> ranking-mode: "Smart";
     in-out property <bool> show-filtered: false;
@@ -322,6 +335,31 @@ export component DetailsPage inherits Rectangle {
                     font-weight: 750;
                     letter-spacing: 0.12 * root.unit;
                     vertical-alignment: center;
+                }
+
+                if (root.stream-loading-count > 0) : HorizontalLayout {
+                    height: 2.1 * root.unit;
+                    spacing: 0.35 * root.unit;
+                    alignment: center;
+
+                    Image {
+                        width: 0.8 * root.unit;
+                        vertical-stretch: 1;
+                        source: @image-url("../assets/images/icons/spinner-ring.svg");
+                        colorize: Theme.primary-accent;
+                        image-fit: contain;
+                        transform-origin: { x: self.width / 2, y: self.height / 2 };
+                        transform-rotation: root.sources-spin-angle;
+                    }
+
+                    Text {
+                        text: @tr("PLUGINS_ARE_LOADING" => "Plugins are loading");
+                        color: Theme.text-muted;
+                        font-size: 0.68 * root.unit;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                        vertical-stretch: 1;
+                    }
                 }
 
                 Rectangle { horizontal-stretch: 1; }
@@ -702,21 +740,6 @@ export component DetailsPage inherits Rectangle {
                 }
             }
 
-            if ((!root.is-series || root.in-stream-view) && root.stream-loading-count > 0) : VerticalLayout {
-                height: 4 * root.unit;
-                spacing: 0.75 * root.unit;
-                Text {
-                    text: @tr("STREMIO_TV_STREAMS_STILL_LOADING" => "{} addon is still loading...", root.stream-loading-count);
-                    color: Theme.text-primary;
-                    font-size: root.unit;
-                    horizontal-alignment: center;
-                }
-                Rectangle {
-                    height: 0.3 * root.unit;
-                    border-radius: self.height / 2;
-                    background: Theme.accent;
-                }
-            }
         }
     }
 

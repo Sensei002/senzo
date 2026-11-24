@@ -1149,8 +1149,8 @@ export component PlayerPage inherits Rectangle {
     if (show-skip-button) : Rectangle {
         x: parent.width - self.width - 48px;
         y: parent.height - self.height - (controls-visible ? 230px : 120px);
-        width: 170px;
-        height: 48px;
+        width: 176px;
+        height: 46px;
         background: touch-area.has-hover ? Theme.card-background.with-alpha(0.95) : Theme.modal-background.with-alpha(0.85);
         border-radius: self.height / 2;
         border-width: 1px;
@@ -1164,24 +1164,29 @@ export component PlayerPage inherits Rectangle {
             clicked => { root.skip-segment(); }
         }
 
-        HorizontalLayout {
-            alignment: center;
-            spacing: 8px;
+        // Keep the chevron and label on the same optical centre line. Explicit
+        // anchors avoid the cross-axis drift a horizontal layout introduces
+        // when the icon and text have different intrinsic heights.
+        Image {
+            x: 26px;
+            y: (parent.height - self.height) / 2;
+            width: 16px;
+            height: 16px;
+            source: @image-url("../assets/images/icons/chevron-forward.svg");
+            colorize: Theme.text-primary;
+        }
 
-            Image {
-                source: @image-url("../assets/images/icons/chevron-forward.svg");
-                width: 18px;
-                height: 18px;
-                colorize: Theme.text-primary;
-            }
-
-            Text {
-                text: root.skip-button-label;
-                color: Theme.text-primary;
-                font-size: 14px;
-                font-weight: 600;
-                vertical-alignment: center;
-            }
+        Text {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            text: root.skip-button-label;
+            color: Theme.text-primary;
+            font-size: 14px;
+            font-weight: 600;
+            horizontal-alignment: center;
+            vertical-alignment: center;
         }
     }
 
