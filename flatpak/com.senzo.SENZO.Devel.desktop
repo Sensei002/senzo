@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=SENZO (Development)
+Comment=Native media center for Stremio add-ons
+Exec=senzo %U
+Icon=com.senzo.SENZO.Devel
+Terminal=false
+Categories=AudioVideo;Video;Player;
+MimeType=x-scheme-handler/stremio;x-scheme-handler/magnet;
+StartupWMClass=senzo

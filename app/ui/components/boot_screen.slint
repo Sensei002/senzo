@@ -1,0 +1,68 @@
+import { Theme } from "../theme.slint";
+
+// Cold-start cover. The app shell stays mounted underneath so the first
+// authenticated frame is ready before this fades away.
+export component BootScreen inherits Rectangle {
+    in property <length> unit: Theme.root-font-size;
+    in property <bool> active: true;
+
+    property <angle> spin-angle: 0deg;
+    background: Theme.background;
+    clip: true;
+
+    Timer {
+        interval: 16ms;
+        running: root.active;
+        triggered => {
+            root.spin-angle += 5deg;
+            if (root.spin-angle >= 360deg) {
+                root.spin-angle -= 360deg;
+            }
+        }
+    }
+
+    // A soft accent bloom gives the mark depth without a second image asset.
+    Rectangle {
+        width: 34 * root.unit;
+        height: 34 * root.unit;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: self.width / 2;
+        background: @radial-gradient(circle, Theme.primary-accent.with-alpha(0.13) 0%, transparent 68%);
+    }
+
+    VerticalLayout {
+        width: 100%;
+        height: 100%;
+        alignment: center;
+        spacing: 1.8 * root.unit;
+
+        Image {
+            width: 15 * root.unit;
+            height: 6 * root.unit;
+            source: @image-url("../assets/images/senzo-logo.png");
+            image-fit: contain;
+            opacity: 0.96;
+        }
+
+        Image {
+            width: 4.2 * root.unit;
+            height: 4.2 * root.unit;
+            source: @image-url("../assets/images/icons/spinner-ring.svg");
+            colorize: Theme.primary-accent;
+            image-fit: contain;
+            transform-origin: { x: self.width / 2, y: self.height / 2 };
+            transform-rotation: root.spin-angle;
+            opacity: 0.95;
+        }
+
+        Text {
+            text: @tr("Starting SENZO");
+            color: Theme.text-muted;
+            font-size: 0.9 * root.unit;
+            font-weight: 600;
+            letter-spacing: 0.08 * root.unit;
+            horizontal-alignment: center;
+        }
+    }
+}
