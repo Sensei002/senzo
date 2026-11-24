@@ -451,15 +451,47 @@ impl AppConfig {
                     .theme
                     .secondary_background
                     .eq_ignore_ascii_case("#0b1222")
+                && self
+                    .theme
+                    .sidebar_background
+                    .eq_ignore_ascii_case("#080c18")
+                && self.theme.modal_background.eq_ignore_ascii_case("#111428")
+                && self
+                    .theme
+                    .drawer_background
+                    .eq_ignore_ascii_case("#0a0918ee")
+                && self
+                    .theme
+                    .control_background
+                    .eq_ignore_ascii_case("#ffffff0d")
+                && self.theme.overlay.eq_ignore_ascii_case("#ffffff0d")
+                && self.theme.overlay_hover.eq_ignore_ascii_case("#8b5cf614")
+                && self.theme.overlay_pressed.eq_ignore_ascii_case("#8b5cf620")
+                && self.theme.divider.eq_ignore_ascii_case("#c9c4ff1a")
+                && self.theme.accent.eq_ignore_ascii_case("#8b5cf6")
+                && self.theme.accent_hover.eq_ignore_ascii_case("#a78bfa")
+                && self.theme.success.eq_ignore_ascii_case("#2dd4bf")
+                && self.theme.warning.eq_ignore_ascii_case("#fbbf24")
+                && self.theme.info.eq_ignore_ascii_case("#f472b6")
+                && self.theme.danger.eq_ignore_ascii_case("#fb7185")
+                && self.theme.focus.eq_ignore_ascii_case("#8b5cf6")
+                && self.theme.title_bar.eq_ignore_ascii_case("#070b16")
                 && self.theme.card_background.eq_ignore_ascii_case("#101426")
                 && self.theme.card_border.eq_ignore_ascii_case("#2a2a4a")
                 && self.theme.text_primary.eq_ignore_ascii_case("#f6f4ff")
-                && self.theme.accent.eq_ignore_ascii_case("#8b5cf6")
-                && self.theme.title_bar.eq_ignore_ascii_case("#070b16");
+                && self.theme.text_secondary.eq_ignore_ascii_case("#c8c5df")
+                && self.theme.text_muted.eq_ignore_ascii_case("#8e8cae")
+                && self.theme.skeleton_base.eq_ignore_ascii_case("#ffffff1a")
+                && self
+                    .theme
+                    .skeleton_shimmer
+                    .eq_ignore_ascii_case("#ffffff26");
             if shipped_aurora {
+                let font_family = std::mem::take(&mut self.theme.font_family);
                 let saved_colors = std::mem::take(&mut self.theme.saved_colors);
                 let saved_gradients = std::mem::take(&mut self.theme.saved_gradients);
                 self.theme = ThemeConfig::default();
+                self.theme.font_family = font_family;
                 self.theme.saved_colors = saved_colors;
                 self.theme.saved_gradients = saved_gradients;
             }
