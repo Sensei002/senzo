@@ -131,7 +131,7 @@ export component BoardPage inherits Rectangle {
             : min(40 * root.unit, max(24 * root.unit, root.height * 0.58)))
         : 0px;
 
-    private function card-height-for(shape: string) -> length {
+    pure function card-height-for(shape: string) -> length {
         if (shape == "landscape") {
             return (root.card-width - 2 * root.unit) * Theme.landscape-shape-ratio + 6 * root.unit;
         }
@@ -141,7 +141,7 @@ export component BoardPage inherits Rectangle {
         return (root.card-width - 2 * root.unit) * Theme.poster-shape-ratio + 6 * root.unit;
     }
 
-    private function section-height(index: int) -> length {
+    pure function section-height(index: int) -> length {
         if (index >= 0 && index < root.sections.length) {
             return root.sections[index].is-hero
                 ? root.hero-height + 0.5 * root.unit
@@ -150,7 +150,7 @@ export component BoardPage inherits Rectangle {
         return 0px;
     }
 
-    private function section-item-count(index: int) -> int {
+    pure function section-item-count(index: int) -> int {
         if (index < 0 || index >= root.sections.length) {
             return 0;
         }
@@ -159,7 +159,7 @@ export component BoardPage inherits Rectangle {
             : root.sections[index].items.length;
     }
 
-    private function row-has-items(index: int) -> bool {
+    pure function row-has-items(index: int) -> bool {
         if (index < 0 || index >= root.sections.length) {
             return false;
         }
@@ -168,7 +168,7 @@ export component BoardPage inherits Rectangle {
 
     // Look a few slots ahead so empty/loading shelves are skipped without an
     // unbounded loop in the declarative language.
-    private function next-filled-row(start: int, delta: int) -> int {
+    pure function next-filled-row(start: int, delta: int) -> int {
         if (root.row-has-items(start + delta)) { return start + delta; }
         if (root.row-has-items(start + delta * 2)) { return start + delta * 2; }
         if (root.row-has-items(start + delta * 3)) { return start + delta * 3; }
@@ -203,8 +203,10 @@ export component BoardPage inherits Rectangle {
                 root.focus-col = max(0, min(root.focus-col, root.section-item-count(root.focus-row) - 1));
             }
             if (dy < 0 && root.next-filled-row(root.focus-row, -1) >= 0) {
-                root.focus-row = root.next-filled-row(root.focus-row, -1);
+                // Use the outgoing row height so the shelf being left stays
+                // aligned with the viewport while we move toward the hero.
                 sections-view.viewport-y = min(0px, sections-view.viewport-y + root.section-height(root.focus-row));
+                root.focus-row = root.next-filled-row(root.focus-row, -1);
                 root.focus-col = max(0, min(root.focus-col, root.section-item-count(root.focus-row) - 1));
             }
             return;

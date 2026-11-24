@@ -128,7 +128,7 @@ export component PillButton inherits ButtonSurface {
     in property <brush> hover-color: root.primary ? root.accent-color : Theme.overlay-hover;
     in property <brush> foreground-color: Theme.primary-foreground;
     in property <brush> hover-foreground-color: root.foreground-color;
-    in property <brush> outline-color: root.primary ? root.accent-color : Theme.surface-light;
+    in property <brush> outline-color: root.primary ? Theme.primary-foreground : Theme.surface-light;
     in property <brush> hover-outline-color: root.outline-color;
     in property <bool> show-hover-outline: true;
     in property <float> idle-opacity: 1;

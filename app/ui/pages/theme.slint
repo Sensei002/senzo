@@ -718,7 +718,7 @@ export component ThemePage inherits Rectangle {
         { name: "Snow Light Mode", accent: #6366f1, background: #f8fafc, secondary: #e2e8f0, card: #ffffff, border: #cbd5e1, text: #0f172a },
         { name: "Cream & Coral Warm", accent: #f97316, background: #fafaf9, secondary: #f5f5f4, card: #ffffff, border: #e7e5e4, text: #1c1917 },
         { name: "OLED Pitch Black", accent: #a855f7, background: #000000, secondary: #121212, card: #181818, border: #282828, text: #ffffff },
-        { name: "Console Graphite", accent: #e8eaed, background: #08090b, secondary: #101216, card: #15181d, border: #2a2f38, text: #f7f8fa },
+        { name: "Console Graphite", accent: #64748b, background: #08090b, secondary: #101216, card: #15181d, border: #2a2f38, text: #f7f8fa },
         { name: "Steam Teal", accent: #1a9fff, background: #070b10, secondary: #0d141c, card: #111a24, border: #223140, text: #eef6ff },
     ];
 
@@ -824,7 +824,7 @@ export component ThemePage inherits Rectangle {
         else if (name == "Snow Light Mode") { root.selected-preset-idx = 11; root.apply-theme(#6366f1, #f8fafc, #e2e8f0, #ffffff, #cbd5e1, #0f172a); }
         else if (name == "Cream & Coral Warm") { root.selected-preset-idx = 12; root.apply-theme(#f97316, #fafaf9, #f5f5f4, #ffffff, #e7e5e4, #1c1917); }
         else if (name == "OLED Pitch Black") { root.selected-preset-idx = 13; root.apply-theme(#a855f7, #000000, #121212, #181818, #282828, #ffffff); }
-        else if (name == "Console Graphite") { root.selected-preset-idx = 14; root.apply-theme(#e8eaed, #08090b, #101216, #15181d, #2a2f38, #f7f8fa); }
+        else if (name == "Console Graphite") { root.selected-preset-idx = 14; root.apply-theme(#64748b, #08090b, #101216, #15181d, #2a2f38, #f7f8fa); }
         else if (name == "Steam Teal") { root.selected-preset-idx = 15; root.apply-theme(#1a9fff, #070b10, #0d141c, #111a24, #223140, #eef6ff); }
     }
 
@@ -884,7 +884,7 @@ export component ThemePage inherits Rectangle {
                         outlined: true;
                         clicked => {
                             root.selected-preset-idx = 14;
-                            root.apply-theme(#e8eaed, #08090b, #101216, #15181d, #2a2f38, #f7f8fa);
+                            root.apply-theme(#64748b, #08090b, #101216, #15181d, #2a2f38, #f7f8fa);
                             root.reset-theme();
                         }
                     }

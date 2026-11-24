@@ -66,7 +66,7 @@ export component HeroCarousel inherits Rectangle {
     background: transparent;
     clip: true;
     border-width: root.console-focused ? 2px : 0px;
-    border-color: Theme.primary-accent;
+    border-color: Theme.primary-foreground;
     drop-shadow-blur: root.console-focused ? 1.2 * root.unit : 0px;
     drop-shadow-color: Theme.primary-accent;
     animate drop-shadow-blur { duration: Theme.motion-focus; easing: ease-out; }
@@ -216,8 +216,6 @@ export component HeroCarousel inherits Rectangle {
                 show-icon: true;
                 icon-source: @image-url("../assets/images/icons/play.svg");
                 primary: true;
-                foreground-color: Theme.background;
-                hover-foreground-color: Theme.background;
                 clicked => { root.play-requested(root.current.id, root.current.media-type); }
             }
             PillButton {

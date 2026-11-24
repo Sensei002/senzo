@@ -1414,25 +1414,28 @@ export component MainWindow inherits Window {
                         alignment: start;
 
                         PillButton {
-                            width: 6.2 * root.ui-unit;
+                            width: 6.8 * root.ui-unit;
                             height: 3.1 * root.ui-unit;
                             unit: root.ui-unit;
+                            label-font-size: 1.0 * root.ui-unit;
                             label: @tr("Board");
                             primary: root.effective-active-tab == 0;
                             clicked => { root.tab-changed(0); app-shortcuts.focus(); }
                         }
                         PillButton {
-                            width: 6.2 * root.ui-unit;
+                            width: 6.8 * root.ui-unit;
                             height: 3.1 * root.ui-unit;
                             unit: root.ui-unit;
+                            label-font-size: 1.0 * root.ui-unit;
                             label: @tr("Discover" => "Discover");
                             primary: root.effective-active-tab == 1;
                             clicked => { root.tab-changed(1); app-shortcuts.focus(); }
                         }
                         PillButton {
-                            width: 6.2 * root.ui-unit;
+                            width: 6.8 * root.ui-unit;
                             height: 3.1 * root.ui-unit;
                             unit: root.ui-unit;
+                            label-font-size: 1.0 * root.ui-unit;
                             label: @tr("Library" => "Library");
                             primary: root.effective-active-tab == 2;
                             clicked => {
@@ -1442,17 +1445,19 @@ export component MainWindow inherits Window {
                             }
                         }
                         PillButton {
-                            width: 6.2 * root.ui-unit;
+                            width: 6.8 * root.ui-unit;
                             height: 3.1 * root.ui-unit;
                             unit: root.ui-unit;
+                            label-font-size: 1.0 * root.ui-unit;
                             label: @tr("ADDONS" => "Addons");
                             primary: root.effective-active-tab == 3;
                             clicked => { root.tab-changed(3); app-shortcuts.focus(); }
                         }
                         PillButton {
-                            width: 6.2 * root.ui-unit;
+                            width: 6.8 * root.ui-unit;
                             height: 3.1 * root.ui-unit;
                             unit: root.ui-unit;
+                            label-font-size: 1.0 * root.ui-unit;
                             label: @tr("SETTINGS" => "Settings");
                             primary: root.effective-active-tab == 4 || root.effective-active-tab == 10;
                             clicked => {
@@ -1472,7 +1477,7 @@ export component MainWindow inherits Window {
                         padding-right: 2 * root.ui-unit;
                         
                         search-input := SearchBox {
-                            width: 28 * root.ui-unit;
+                            width: root.console-shell-active ? 20 * root.ui-unit : 28 * root.ui-unit;
                             height: 3.5 * root.ui-unit;
                             unit: root.ui-unit;
                             text <=> root.search-query;
