@@ -102,12 +102,6 @@ fn now_seconds() -> i64 {
         .unwrap_or_default()
 }
 
-/// Return a safe resume point for the active profile.
-///
-/// The first and final few seconds are deliberately ignored: resuming at 0:03
-/// is indistinguishable from starting over, and resuming into the credits is
-/// worse than starting cleanly. A saved point is also kept a couple of seconds
-/// behind the last observed time so the viewer gets a short running start.
 /// Whether this profile has any saved position for the item. A present but
 /// ineligible entry (too early, or effectively finished) is still authoritative:
 /// it must not fall through to a stale core-library resume point.
@@ -123,6 +117,12 @@ pub(crate) fn has_entry(meta_id: &str, video_id: &str) -> bool {
         .contains_key(&key(&store.profile_id, meta_id, video_id))
 }
 
+/// Return a safe resume point for the active profile.
+///
+/// The first and final few seconds are deliberately ignored: resuming at 0:03
+/// is indistinguishable from starting over, and resuming into the credits is
+/// worse than starting cleanly. A saved point is also kept a couple of seconds
+/// behind the last observed time so the viewer gets a short running start.
 pub(crate) fn resume_position(meta_id: &str, video_id: &str) -> Option<f64> {
     let store = STORE.get()?.lock().ok()?;
     let entry = store

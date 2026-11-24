@@ -319,11 +319,7 @@ export component BoardPage inherits Rectangle {
 
         for section[index] in root.sections : Rectangle {
             property <string> p-shape: section.poster-shape != "" ? section.poster-shape : "poster";
-            property <length> section-card-height: p-shape == "landscape"
-                ? (root.card-width - 2 * root.unit) * Theme.landscape-shape-ratio + 6 * root.unit
-                : (p-shape == "square"
-                    ? (root.card-width - 2 * root.unit) + 6 * root.unit
-                    : root.card-height);
+            property <length> section-card-height: root.card-height-for(p-shape);
 
             width: parent.width;
             height: section.is-hero
