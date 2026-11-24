@@ -399,7 +399,7 @@ jobs:
           msg=$(sed -n "${n},$((n+25))p" "$clean" | sed 's/::/ - /g; s/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')
           echo "::error title=Rust build error::$msg"
       - name: Install cargo-deb
-        uses: taiki-e/install-action@v2.85.4
+        uses: taiki-e/install-action@v2.90.7
         with:
           tool: cargo-deb
       - name: Build DEB Package
