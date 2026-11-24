@@ -1,6 +1,16 @@
 # Changelog
 
-This file records notable changes to Stremio Native relative to the initial source snapshot.
+This file records notable changes to SENZO relative to the initial source snapshot.
+
+## 0.1.0 - 2026-11-24
+
+### First release
+
+- First public SENZO release, based on the Desktop Releases #114 baseline.
+- OLED Pitch Black is now the default theme, including the native Windows title bar and window frame.
+- Windows installer and portable archive, Linux binary and DEB package, Arch package, and Fedora RPM.
+- Stremio-compatible add-ons, Nuvio-compatible provider plugins, local library scanning, and native MPV playback.
+- Credit to the Stremio and Nuvio teams for their inspiration.
 
 ## 1.0.6 - 2026-08-14
 
