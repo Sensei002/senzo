@@ -620,19 +620,6 @@ export component MainWindow inherits Window {
     }
     changed effective-active-tab => {
         root.hover-preview-close();
-        if (root.console-shell-active) {
-            root.console-route-opacity = 0;
-            console-route-fade-timer.restart();
-        }
-    }
-
-    console-route-fade-timer := Timer {
-        interval: 16ms;
-        running: false;
-        triggered => {
-            self.stop();
-            root.console-route-opacity = 1;
-        }
     }
 
     // Detailed view parameters
@@ -904,7 +891,6 @@ export component MainWindow inherits Window {
         (root.effective-active-tab == 6 ? @tr("CONSOLE_SEARCH_SUBTITLE" => "Search across all connected catalogs from one place.") :
         @tr("CONSOLE_DOWNLOADS_SUBTITLE" => "Keep media available offline and manage your download queue."))))));
     private property <length> console-page-header-height: 4.4 * root.ui-unit;
-    private property <float> console-route-opacity: 1;
     private property <int> console-move-token: 0;
     private property <int> console-move-dx: 0;
     private property <int> console-move-dy: 0;
@@ -2058,11 +2044,6 @@ export component MainWindow inherits Window {
                             width: 100%;
                             vertical-stretch: 1;
                             clip: true;
-                            opacity: root.console-route-opacity;
-                            animate opacity {
-                                duration: Theme.motion-console;
-                                easing: ease-out;
-                            }
 
                     if (root.effective-active-tab == 0) : BoardPage {
                         width: parent.width;

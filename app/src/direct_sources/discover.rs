@@ -83,13 +83,12 @@ pub async fn discover(http: &SafeHttp, input: &str) -> Result<Vec<DiscoveryCandi
         let Ok(fetched) = http.get_text(&url, MAX_CANDIDATE_BYTES).await else {
             continue;
         };
-        if let Some(candidate) = inspect_candidate(&fetched.body, &fetched.final_url, &base) {
-            if !candidates
+        if let Some(candidate) = inspect_candidate(&fetched.body, &fetched.final_url, &base)
+            && !candidates
                 .iter()
                 .any(|existing: &DiscoveryCandidate| existing.url == candidate.url)
-            {
-                candidates.push(candidate);
-            }
+        {
+            candidates.push(candidate);
         }
     }
 

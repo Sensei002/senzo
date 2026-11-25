@@ -128,11 +128,7 @@ fn copy_missing_entries(source: &Path, destination: &Path) -> Result<()> {
         let source_path = entry.path();
         let destination_path = destination.join(entry.file_name());
         if source_path.is_dir() {
-            if destination_path.exists() {
-                copy_missing_entries(&source_path, &destination_path)?;
-            } else {
-                copy_missing_entries(&source_path, &destination_path)?;
-            }
+            copy_missing_entries(&source_path, &destination_path)?;
         } else if !destination_path.exists() {
             std::fs::copy(&source_path, &destination_path).with_context(|| format!(
                 "failed to preserve legacy file {}", source_path.display()

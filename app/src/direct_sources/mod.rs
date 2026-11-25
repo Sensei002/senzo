@@ -50,6 +50,16 @@ const MAX_PROVIDERS: usize = 4;
 
 static DIRECT: OnceLock<DirectSources> = OnceLock::new();
 
+struct SourceForm<'a> {
+    id: &'a str,
+    name: &'a str,
+    url: &'a str,
+    kind: &'a str,
+    content_types: &'a str,
+    formats: &'a str,
+    enabled: bool,
+}
+
 #[derive(Clone)]
 pub struct DirectSources {
     inner: Arc<Inner>,
@@ -362,16 +372,16 @@ impl DirectSources {
         self.refresh_last();
     }
 
-    fn save_source(
-        &self,
-        id: &str,
-        name: &str,
-        url: &str,
-        kind: &str,
-        content_types: &str,
-        formats: &str,
-        enabled: bool,
-    ) {
+    fn save_source(&self, form: SourceForm<'_>) {
+        let SourceForm {
+            id,
+            name,
+            url,
+            kind,
+            content_types,
+            formats,
+            enabled,
+        } = form;
         let name = name.trim();
         let url = url.trim();
         if name.is_empty() {
@@ -1002,15 +1012,15 @@ pub fn setup(
     ui.on_direct_source_save({
         let manager = manager.clone();
         move |id, name, url, kind, content_types, formats, enabled| {
-            manager.save_source(
-                id.as_str(),
-                name.as_str(),
-                url.as_str(),
-                kind.as_str(),
-                content_types.as_str(),
-                formats.as_str(),
+            manager.save_source(SourceForm {
+                id: id.as_str(),
+                name: name.as_str(),
+                url: url.as_str(),
+                kind: kind.as_str(),
+                content_types: content_types.as_str(),
+                formats: formats.as_str(),
                 enabled,
-            );
+            });
         }
     });
     ui.on_direct_source_cancel({

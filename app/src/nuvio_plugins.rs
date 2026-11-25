@@ -769,7 +769,7 @@ impl NuvioPlugins {
                         self.set_message("Plugin script compiled and exported getStreams.", false);
                     }
                     Ok(Err(error)) => {
-                        self.set_status(key, &truncate_message(&error, 90), true);
+                        self.set_status(key, truncate_message(&error, 90), true);
                         self.set_message(&error, true);
                     }
                     Err(_) => {
@@ -840,7 +840,7 @@ pub fn on_details_synced(
             .iter()
             .find(|video| video.id == stream_path.id)
             .and_then(|video| video.series_info.as_ref())
-            .map(|info| (Some(u32::from(info.season)), Some(u32::from(info.episode))))
+            .map(|info| (Some(info.season), Some(info.episode)))
             .or_else(|| parse_episode_id(&stream_path.id))
             .unwrap_or((Some(1), Some(1)))
     } else {
@@ -986,10 +986,11 @@ impl NuvioPlugins {
 
     async fn resolve_tmdb_id(&self, query: &DetailsQuery) -> Result<String, String> {
         let raw = query.meta_id.trim();
-        if let Some(id) = raw.strip_prefix("tmdb:") {
-            if id.chars().all(|character| character.is_ascii_digit()) && !id.is_empty() {
-                return Ok(id.to_owned());
-            }
+        if let Some(id) = raw.strip_prefix("tmdb:")
+            && id.chars().all(|character| character.is_ascii_digit())
+            && !id.is_empty()
+        {
+            return Ok(id.to_owned());
         }
         if raw.chars().all(|character| character.is_ascii_digit()) && !raw.is_empty() {
             return Ok(raw.to_owned());
@@ -1175,7 +1176,7 @@ impl NuvioPlugins {
             completed += 1;
             if let Some(error) = outcome.error {
                 errors += 1;
-                self.set_status(&provider.key, &truncate_message(&error, 90), true);
+                self.set_status(&provider.key, truncate_message(&error, 90), true);
             } else {
                 let candidates = outcome
                     .streams

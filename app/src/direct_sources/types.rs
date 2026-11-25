@@ -74,20 +74,11 @@ impl DirectSourcesConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct BuiltinSourceState {
     pub id: String,
     pub enabled: bool,
-}
-
-impl Default for BuiltinSourceState {
-    fn default() -> Self {
-        Self {
-            id: String::new(),
-            enabled: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

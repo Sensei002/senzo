@@ -202,11 +202,7 @@ async fn search(http: &SafeHttp, request: &DirectRequest) -> Result<Vec<SearchDo
     if request.title.trim().is_empty() {
         return Ok(Vec::new());
     }
-    let escaped = request
-        .title
-        .replace('\\', " ")
-        .replace('"', " ")
-        .replace(':', " ");
+    let escaped = request.title.replace(['\\', '"', ':'], " ");
     let query = format!("title:(\"{escaped}\") AND mediatype:movies");
     search_query(http, &query).await
 }

@@ -5119,10 +5119,10 @@ fn cleanup_torrent_cache_after_close(
             };
             let other_files = other_engine.handle.get_files().await;
             for file_idx in 0..other_files.len() {
-                if let Some(path) = other_engine.handle.get_file_path(file_idx).await {
-                    if let Ok(path) = tokio::fs::canonicalize(path).await {
-                        protected_paths.insert(path);
-                    }
+                if let Some(path) = other_engine.handle.get_file_path(file_idx).await
+                    && let Ok(path) = tokio::fs::canonicalize(path).await
+                {
+                    protected_paths.insert(path);
                 }
             }
         }
@@ -5192,15 +5192,15 @@ fn cleanup_torrent_cache_after_close(
             }
         }
 
-        if let Err(error) = tokio::fs::remove_dir_all(&disk_cache_dir).await {
-            if error.kind() != std::io::ErrorKind::NotFound {
-                tracing::warn!(%info_hash, path = %disk_cache_dir.display(), %error, "failed to remove per-torrent disk cache");
-            }
+        if let Err(error) = tokio::fs::remove_dir_all(&disk_cache_dir).await
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            tracing::warn!(%info_hash, path = %disk_cache_dir.display(), %error, "failed to remove per-torrent disk cache");
         }
-        if let Err(error) = tokio::fs::remove_file(&metadata_file).await {
-            if error.kind() != std::io::ErrorKind::NotFound {
-                tracing::debug!(%info_hash, path = %metadata_file.display(), %error, "torrent metadata file was not removed");
-            }
+        if let Err(error) = tokio::fs::remove_file(&metadata_file).await
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            tracing::debug!(%info_hash, path = %metadata_file.display(), %error, "torrent metadata file was not removed");
         }
 
         tracing::info!(

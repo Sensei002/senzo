@@ -70,7 +70,7 @@ pub(super) fn pbkdf2(
     if iterations == 0 || iterations > 1_000_000 {
         return Err("PBKDF2 iteration count is outside the allowed range.".to_owned());
     }
-    if bits == 0 || bits > 16_384 || bits % 8 != 0 {
+    if bits == 0 || bits > 16_384 || !bits.is_multiple_of(8) {
         return Err("PBKDF2 key size is outside the allowed range.".to_owned());
     }
     let mut output = vec![0u8; (bits / 8) as usize];
