@@ -55,7 +55,7 @@ base64.workspace = true
 rquickjs = "0.14"
 scraper = { version = "0.24", default-features = false }
 aes = "0.8"
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 cbc = { version = "0.1", features = ["alloc"] }
 ecb = { version = "0.1", features = ["alloc"] }
 hmac = "0.13"
