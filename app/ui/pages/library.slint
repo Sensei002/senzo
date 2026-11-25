@@ -86,10 +86,12 @@ export component LibraryPage inherits Rectangle {
         spacing: 0px;
 
         if (root.authenticated || root.local-mode) : Rectangle {
+            width: 100%;
             height: root.console-mode ? 4.75 * root.unit : 5.75 * root.unit;
             z: 1000;
 
             HorizontalLayout {
+                width: 100%;
                 padding: root.console-mode ? 0.75 * root.unit : 1.5 * root.unit;
                 spacing: 1.5 * root.unit;
                 alignment: start;

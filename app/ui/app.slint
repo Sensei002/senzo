@@ -1971,6 +1971,11 @@ export component MainWindow inherits Window {
                     unit: root.ui-unit;
                     visible: !root.effective-show-details && !root.console-shell-active
                         && (root.home-layout-preset == "Side Rail" || root.home-layout-preset == "Classic Home");
+                    // `visible: false` still reserves the sidebar's layout width in
+                    // Slint. Collapse it explicitly so console pages line up with
+                    // the full-width top bar instead of starting after an empty
+                    // 6rem gutter.
+                    width: self.visible ? Theme.vertical-nav-bar-size : 0px;
                     active-tab: root.effective-active-tab;
                     server-status: server-status;
                     username: username;
