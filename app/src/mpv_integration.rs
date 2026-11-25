@@ -5333,7 +5333,7 @@ fn reset_autohide_timer(
 
 #[cfg(test)]
 mod player_title_tests {
-    use super::{format_player_title, resume_time};
+    use super::{format_player_title, player_progress_key, resume_time};
     use stremio_core::{
         models::{
             common::{Loadable, ResourceLoadable},

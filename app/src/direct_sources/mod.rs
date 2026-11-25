@@ -937,14 +937,6 @@ impl Provider {
         }
     }
 
-    fn name(&self) -> &str {
-        match self {
-            Self::Archive => "Internet Archive",
-            Self::Commons => "Wikimedia Commons",
-            Self::Custom(source) => &source.name,
-        }
-    }
-
     async fn resolve(
         &self,
         client: &SafeHttp,
@@ -1306,7 +1298,7 @@ mod tests {
     fn migration_does_not_reenable_a_disabled_provider() {
         let mut config = DirectSourcesConfig {
             enabled: true,
-            builtin: vec![BuiltinSourceState {
+            builtin: vec![types::BuiltinSourceState {
                 id: types::INTERNET_ARCHIVE.to_owned(),
                 enabled: false,
             }],

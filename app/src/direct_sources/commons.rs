@@ -40,7 +40,6 @@ struct ImageInfo {
     #[serde(rename = "descriptionurl")]
     description_url: Option<String>,
     mime: Option<String>,
-    width: Option<u32>,
     height: Option<u32>,
     duration: Option<f64>,
 }

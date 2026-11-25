@@ -36,8 +36,6 @@ struct SearchDoc {
     identifier: Option<String>,
     title: Option<String>,
     year: Option<Value>,
-    #[serde(rename = "licenseurl")]
-    license_url: Option<Value>,
     language: Option<Value>,
 }
 
@@ -51,7 +49,6 @@ struct MetadataResponse {
 #[derive(Debug, Deserialize)]
 struct ItemMetadata {
     title: Option<String>,
-    year: Option<Value>,
     #[serde(rename = "licenseurl")]
     license_url: Option<Value>,
     language: Option<Value>,
