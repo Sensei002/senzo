@@ -365,7 +365,7 @@ fn manifest_fallback_name(manifest_url: &str) -> String {
         .ok()
         .and_then(|url| {
             url.path_segments()
-                .and_then(|segments| segments.filter(|part| !part.is_empty()).next_back())
+                .and_then(|segments| segments.rfind(|part| !part.is_empty()))
                 .map(|segment| segment.to_owned())
         })
         .unwrap_or_else(|| "Plugin repository".to_owned())
