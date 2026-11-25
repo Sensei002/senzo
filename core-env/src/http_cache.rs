@@ -406,8 +406,8 @@ async fn send_request(
         // let a cache miss inherit caller validators: that is what produces
         // bodyless 304 responses.
         if validators.is_none()
-            && (name == &http::header::IF_NONE_MATCH
-                || name == &http::header::IF_MODIFIED_SINCE)
+            && (name == http::header::IF_NONE_MATCH
+                || name == http::header::IF_MODIFIED_SINCE)
         {
             continue;
         }

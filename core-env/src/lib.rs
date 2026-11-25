@@ -140,7 +140,7 @@ pub fn describe_reqwest_error(error: &reqwest::Error) -> String {
     let mut causes = Vec::new();
     let mut source = std::error::Error::source(error);
     while let Some(cause) = source {
-        causes.push(cause.to_string().replace('\r', " ").replace('\n', " "));
+        causes.push(cause.to_string().replace(['\r', '\n'], " "));
         source = std::error::Error::source(cause);
     }
 
