@@ -111,7 +111,7 @@ async fn resolve_m3u(
         streams.push(stream);
     }
 
-    validate_stream_urls(http, streams).await
+    validate_stream_urls(streams).await
 }
 
 async fn resolve_json(
@@ -184,16 +184,13 @@ async fn resolve_json(
         }
         streams.push(stream);
     }
-    validate_stream_urls(http, streams).await
+    validate_stream_urls(streams).await
 }
 
 /// Validate only the matched stream URLs. Provider catalogs can contain
 /// thousands of entries; resolving DNS for all of them would be slow and
 /// unnecessary. We stop at a small bounded set that can actually be offered.
-async fn validate_stream_urls(
-    http: &SafeHttp,
-    streams: Vec<DirectStream>,
-) -> Result<Vec<DirectStream>, NetError> {
+async fn validate_stream_urls(streams: Vec<DirectStream>) -> Result<Vec<DirectStream>, NetError> {
     let mut accepted = Vec::new();
     for stream in streams.into_iter().take(MAX_STREAM_VALIDATIONS) {
         if SafeHttp::validate_public_url(&stream.url).await.is_ok() {

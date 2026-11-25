@@ -231,8 +231,6 @@ pub(super) fn parse_url(value: &str) -> String {
     .to_string()
 }
 
-/// Shared store handle used by native closures.
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -39,8 +39,8 @@ use core_env::DesktopEnv;
 use self::{
     net::{NetError, SafeHttp, display_url},
     types::{
-        BuiltinSourceState, CustomSourceConfig, CustomSourceKind, DirectRequest,
-        DirectSourcesConfig, DirectStream, DiscoveryCandidate, ProviderHealth,
+        CustomSourceConfig, CustomSourceKind, DirectRequest, DirectSourcesConfig, DirectStream,
+        DiscoveryCandidate, ProviderHealth,
     },
 };
 
@@ -806,7 +806,6 @@ impl DirectSources {
             let request = request.clone();
             let token = token.clone();
             let semaphore = semaphore.clone();
-            let manager = self.clone();
             tasks.push(tokio::spawn(async move {
                 let _permit = semaphore.acquire_owned().await.ok()?;
                 let result = tokio::select! {
