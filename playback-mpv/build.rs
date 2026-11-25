@@ -232,12 +232,10 @@ fn ensure_cached_sdk(
     if let (Some(import_hash), Some(runtime_hash)) = (
         artifact.import_library.sha256.as_deref(),
         artifact.runtime_library.sha256.as_deref(),
-    ) {
-        if hash_matches(&cached_import, import_hash)?
-            && hash_matches(&cached_runtime, runtime_hash)?
-        {
-            return Ok(cache_dir.to_path_buf());
-        }
+    ) && hash_matches(&cached_import, import_hash)?
+        && hash_matches(&cached_runtime, runtime_hash)?
+    {
+        return Ok(cache_dir.to_path_buf());
     }
 
     let extract_dir = cache_dir.join(format!(".extract-{}", std::process::id()));
