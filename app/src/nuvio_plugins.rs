@@ -149,48 +149,226 @@ fn normalize_type(value: &str) -> String {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Manifest {
-    name: String,
-    version: String,
-    #[serde(default)]
-    description: Option<String>,
-    #[serde(default)]
-    scrapers: Vec<ManifestScraper>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// A provider ready to be stored, after CloudStream build metadata has been
+/// normalized onto SENZO's provider record.
+#[derive(Debug)]
 struct ManifestScraper {
     id: String,
     name: String,
-    #[serde(default)]
     description: Option<String>,
-    #[serde(default)]
     version: String,
-    #[serde(default)]
     filename: String,
-    #[serde(default = "default_supported_types")]
     supported_types: Vec<String>,
-    #[serde(default = "default_true")]
     enabled: bool,
-    #[serde(default)]
     has_settings: bool,
-    #[serde(default)]
     logo: Option<String>,
-    #[serde(default)]
     content_language: Option<Vec<String>>,
-    #[serde(default)]
     formats: Option<Vec<String>>,
+}
+
+/// Everything one install or refresh contributed.
+#[derive(Debug, Default)]
+struct RepositoryContent {
+    name: String,
+    version: String,
+    description: String,
+    /// Providers are paired with the document that declared them because a
+    /// relative `filename` resolves against that document, not the repository
+    /// URL the user pasted.
+    scrapers: Vec<(String, ManifestScraper)>,
+}
+
+/// Tolerant view of one manifest document.
+///
+/// Community repositories publish three shapes: a manifest with a `scrapers`
+/// array, an index with `pluginLists` pointing at those manifests, and a bare
+/// array of plugin entries (what build branches usually serve). Unknown fields
+/// are ignored and every field is optional so one odd repository cannot make
+/// the whole install fail.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct RawManifest {
+    name: Option<String>,
+    version: Option<serde_json::Value>,
+    description: Option<String>,
+    scrapers: Vec<RawScraper>,
+    plugin_lists: Vec<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct RawScraper {
+    id: Option<String>,
+    name: Option<String>,
+    internal_name: Option<String>,
+    description: Option<String>,
+    version: Option<serde_json::Value>,
+    filename: Option<String>,
+    url: Option<String>,
+    supported_types: Vec<String>,
+    tv_types: Vec<String>,
+    enabled: Option<bool>,
+    status: Option<i64>,
+    has_settings: Option<bool>,
+    logo: Option<String>,
+    icon_url: Option<String>,
+    content_language: Option<serde_json::Value>,
+    language: Option<String>,
+    formats: Vec<String>,
 }
 
 fn default_supported_types() -> Vec<String> {
     vec!["movie".to_owned(), "tv".to_owned()]
 }
 
-fn default_true() -> bool {
-    true
+fn json_text(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(text) => text.trim().to_owned(),
+        serde_json::Value::Number(number) => number.to_string(),
+        serde_json::Value::Bool(flag) => flag.to_string(),
+        _ => String::new(),
+    }
+}
+
+/// CloudStream spells content kinds inconsistently (`TvSeries`, `tv`, `Live`).
+fn normalize_content_type(value: &str) -> String {
+    let kind = value.trim().to_ascii_lowercase();
+    match kind.as_str() {
+        "movie" | "movies" | "film" | "films" => "movie".to_owned(),
+        "series" | "tv" | "tvseries" | "tv series" | "tvshow" | "tv shows" | "show" | "shows" => {
+            "tv".to_owned()
+        }
+        "live" | "livetv" | "live tv" | "channel" | "channels" => "live".to_owned(),
+        "anime" => "anime".to_owned(),
+        "nsfw" | "adult" => "nsfw".to_owned(),
+        _ => kind,
+    }
+}
+
+impl RawScraper {
+    /// Returns `None` for entries that cannot describe a runnable provider.
+    fn normalize(self) -> Option<ManifestScraper> {
+        let name = self
+            .name
+            .or(self.internal_name.clone())
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        let filename = self
+            .filename
+            .or(self.url)
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        if name.is_empty() || filename.is_empty() {
+            return None;
+        }
+        let id = self
+            .id
+            .or(self.internal_name)
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| name.clone());
+        let mut supported_types = Vec::new();
+        for kind in self.supported_types.iter().chain(self.tv_types.iter()) {
+            let kind = normalize_content_type(kind);
+            if !kind.is_empty() && !supported_types.contains(&kind) {
+                supported_types.push(kind);
+            }
+        }
+        if supported_types.is_empty() {
+            supported_types = default_supported_types();
+        }
+        let languages = match self.content_language {
+            Some(serde_json::Value::Array(values)) => values
+                .iter()
+                .filter_map(|value| value.as_str())
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>(),
+            Some(serde_json::Value::String(text)) if !text.trim().is_empty() => {
+                vec![text.trim().to_owned()]
+            }
+            _ => self
+                .language
+                .map(|text| text.trim().to_owned())
+                .filter(|text| !text.is_empty())
+                .into_iter()
+                .collect(),
+        };
+        Some(ManifestScraper {
+            id,
+            name,
+            description: self.description,
+            version: self.version.as_ref().map(json_text).unwrap_or_default(),
+            filename,
+            supported_types,
+            enabled: self
+                .enabled
+                .or_else(|| self.status.map(|status| status != 0))
+                .unwrap_or(true),
+            has_settings: self.has_settings.unwrap_or(false),
+            logo: self.logo.or(self.icon_url),
+            content_language: Some(languages).filter(|languages| !languages.is_empty()),
+            formats: Some(self.formats).filter(|formats| !formats.is_empty()),
+        })
+    }
+}
+
+fn parse_scraper(value: serde_json::Value) -> Option<ManifestScraper> {
+    serde_json::from_value::<RawScraper>(value)
+        .ok()
+        .and_then(RawScraper::normalize)
+}
+
+/// Filter labels mirror the options offered by the Plugins page.
+fn provider_matches_filter(provider: &PluginProvider, filter: &str) -> bool {
+    match filter {
+        "Enabled" => provider.enabled,
+        "Movies" => provider.supports_type("movie"),
+        "Series" => provider.supports_type("tv"),
+        "Live TV" => provider.supports_type("live"),
+        "Anime" => provider.supports_type("anime"),
+        "Other" => {
+            !(provider.supports_type("movie")
+                || provider.supports_type("tv")
+                || provider.supports_type("live")
+                || provider.supports_type("anime"))
+        }
+        _ => true,
+    }
+}
+
+fn provider_matches_query(provider: &PluginProvider, query: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+    let mut haystack = String::new();
+    for part in [
+        provider.name.as_str(),
+        provider.description.as_str(),
+        provider.id.as_str(),
+    ] {
+        haystack.push_str(part);
+        haystack.push(' ');
+    }
+    for part in provider.supported_types.iter().chain(provider.languages.iter()) {
+        haystack.push_str(part);
+        haystack.push(' ');
+    }
+    let haystack = haystack.to_lowercase();
+    query.split_whitespace().all(|term| haystack.contains(term))
+}
+
+fn manifest_fallback_name(manifest_url: &str) -> String {
+    Url::parse(manifest_url)
+        .ok()
+        .and_then(|url| {
+            url.path_segments()
+                .and_then(|segments| segments.filter(|part| !part.is_empty()).next_back())
+                .map(|segment| segment.to_owned())
+        })
+        .unwrap_or_else(|| "Plugin repository".to_owned())
 }
 
 fn default_settings() -> String {
@@ -396,6 +574,10 @@ struct Inner {
     config: RwLock<PluginsConfig>,
     status: RwLock<HashMap<String, (String, bool)>>,
     busy: RwLock<bool>,
+    /// Provider list filters. The UI owns the values; the manager keeps a copy
+    /// so a refresh or a toggle does not reset what the user is looking at.
+    provider_filter: RwLock<String>,
+    provider_query: RwLock<String>,
     runtime: Arc<stremio_core::runtime::Runtime<core_env::DesktopEnv, AppModel>>,
     playback: Arc<PlaybackSelections>,
     generation: AtomicU64,
@@ -453,6 +635,24 @@ impl NuvioPlugins {
         self.project();
     }
 
+    fn set_provider_filter(&self, filter: String) {
+        *self
+            .inner
+            .provider_filter
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = filter;
+        self.project();
+    }
+
+    fn set_provider_query(&self, query: String) {
+        *self
+            .inner
+            .provider_query
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = query;
+        self.project();
+    }
+
     fn project(&self) {
         let Some(ui) = self.inner.ui.upgrade() else {
             return;
@@ -503,6 +703,23 @@ impl NuvioPlugins {
                 left.name.to_lowercase().cmp(&right.name.to_lowercase())
             }
         });
+        let provider_total = providers.len();
+        let filter = self
+            .inner
+            .provider_filter
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let query = self
+            .inner
+            .provider_query
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .trim()
+            .to_lowercase();
+        providers.retain(|provider| {
+            provider_matches_filter(provider, &filter) && provider_matches_query(provider, &query)
+        });
         let providers = providers
             .into_iter()
             .map(|provider| {
@@ -552,6 +769,7 @@ impl NuvioPlugins {
         ui.set_plugins_busy(busy);
         ui.set_plugin_repositories(slint::ModelRc::new(slint::VecModel::from(repositories)));
         ui.set_plugin_providers(slint::ModelRc::new(slint::VecModel::from(providers)));
+        ui.set_plugin_provider_total(i32::try_from(provider_total).unwrap_or(i32::MAX));
     }
 
     fn set_message(&self, message: &str, error: bool) {
@@ -562,89 +780,109 @@ impl NuvioPlugins {
     }
 
     pub async fn refresh_repository(&self, manifest_url: &str) {
+        let installed = self
+            .config()
+            .repositories
+            .iter()
+            .any(|repository| repository.manifest_url == manifest_url);
+        if !installed {
+            self.set_status(manifest_url, "Repository is not installed", true);
+            self.set_busy(false);
+            return;
+        }
         self.set_busy(true);
         self.set_status(manifest_url, "Refreshing…", false);
         self.set_message("Fetching plugin manifest…", false);
-        match fetch_manifest(manifest_url).await {
-            Ok(manifest) => {
-                let mut config = self.config();
-                let Some(repository) = config
-                    .repositories
-                    .iter_mut()
-                    .find(|repository| repository.manifest_url == manifest_url)
-                else {
-                    self.set_status(manifest_url, "Repository is not installed", true);
-                    self.set_busy(false);
-                    return;
-                };
-                repository.name = manifest.name;
-                repository.version = manifest.version;
-                repository.description = manifest.description.unwrap_or_default();
-                repository.last_updated = now_seconds();
-
-                let previous = config
-                    .providers
-                    .iter()
-                    .filter(|provider| provider.repository_url == manifest_url)
-                    .map(|provider| (provider.key.clone(), provider.clone()))
-                    .collect::<HashMap<_, _>>();
-                config
-                    .providers
-                    .retain(|provider| provider.repository_url != manifest_url);
-                for scraper in manifest.scrapers {
-                    if scraper.id.trim().is_empty() || scraper.name.trim().is_empty() {
-                        continue;
-                    }
-                    let key = format!("{manifest_url}#{}", scraper.id);
-                    let old = previous.get(&key);
-                    let source_url = resolve_source_url(manifest_url, &scraper.filename)
-                        .unwrap_or_else(|_| String::new());
-                    config.providers.push(PluginProvider {
-                        key: key.clone(),
-                        id: scraper.id,
-                        repository_url: manifest_url.to_owned(),
-                        name: scraper.name,
-                        description: scraper.description.unwrap_or_default(),
-                        version: scraper.version,
-                        filename: scraper.filename,
-                        source_url,
-                        supported_types: scraper.supported_types,
-                        enabled: old.is_some_and(|provider| provider.enabled),
-                        manifest_enabled: scraper.enabled,
-                        has_settings: scraper.has_settings,
-                        settings: old
-                            .map(|provider| provider.settings.clone())
-                            .unwrap_or_else(default_settings),
-                        logo: scraper.logo.unwrap_or_default(),
-                        languages: scraper.content_language.unwrap_or_default(),
-                        formats: scraper.formats.unwrap_or_default(),
-                    });
-                }
-                config
-                    .repositories
-                    .sort_by(|left, right| left.name.cmp(&right.name));
-                config.providers.sort_by(|left, right| {
-                    left.repository_url
-                        .cmp(&right.repository_url)
-                        .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
-                });
-                let count = config
-                    .providers
-                    .iter()
-                    .filter(|provider| provider.repository_url == manifest_url)
-                    .count();
-                self.invalidate_results();
-                self.replace_config(config);
-                self.set_status(manifest_url, format!("{count} providers ready"), false);
-                self.set_message(&format!("Loaded {} plugin provider(s).", count), false);
-                self.set_busy(false);
-            }
+        match load_repository(manifest_url).await {
+            Ok(content) => self.apply_repository(manifest_url, content),
             Err(error) => {
                 self.set_status(manifest_url, error.clone(), true);
                 self.set_message(&error, true);
                 self.set_busy(false);
             }
         }
+    }
+
+    /// Merge a freshly loaded repository into the saved configuration.
+    ///
+    /// Providers are re-created on every refresh so a new version, name or file
+    /// name is picked up, while the enabled flag and user settings survive
+    /// because they are keyed by provider id.
+    fn apply_repository(&self, manifest_url: &str, content: RepositoryContent) {
+        let mut config = self.config();
+        let Some(repository) = config
+            .repositories
+            .iter_mut()
+            .find(|repository| repository.manifest_url == manifest_url)
+        else {
+            self.set_status(manifest_url, "Repository is not installed", true);
+            self.set_busy(false);
+            return;
+        };
+        repository.name = content.name;
+        repository.version = content.version;
+        repository.description = content.description;
+        repository.last_updated = now_seconds();
+
+        let previous = config
+            .providers
+            .iter()
+            .filter(|provider| provider.repository_url == manifest_url)
+            .map(|provider| (provider.key.clone(), provider.clone()))
+            .collect::<HashMap<_, _>>();
+        config
+            .providers
+            .retain(|provider| provider.repository_url != manifest_url);
+        let mut seen = HashSet::new();
+        for (base_url, scraper) in content.scrapers {
+            if scraper.id.trim().is_empty() || scraper.name.trim().is_empty() {
+                continue;
+            }
+            let key = format!("{manifest_url}#{}", scraper.id);
+            if !seen.insert(key.clone()) {
+                continue;
+            }
+            let old = previous.get(&key);
+            let source_url = resolve_source_url(&base_url, &scraper.filename).unwrap_or_default();
+            config.providers.push(PluginProvider {
+                key: key.clone(),
+                id: scraper.id,
+                repository_url: manifest_url.to_owned(),
+                name: scraper.name,
+                description: scraper.description.unwrap_or_default(),
+                version: scraper.version,
+                filename: scraper.filename,
+                source_url,
+                supported_types: scraper.supported_types,
+                enabled: old.is_some_and(|provider| provider.enabled),
+                manifest_enabled: scraper.enabled,
+                has_settings: scraper.has_settings,
+                settings: old
+                    .map(|provider| provider.settings.clone())
+                    .unwrap_or_else(default_settings),
+                logo: scraper.logo.unwrap_or_default(),
+                languages: scraper.content_language.unwrap_or_default(),
+                formats: scraper.formats.unwrap_or_default(),
+            });
+        }
+        config
+            .repositories
+            .sort_by(|left, right| left.name.cmp(&right.name));
+        config.providers.sort_by(|left, right| {
+            left.repository_url
+                .cmp(&right.repository_url)
+                .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+        });
+        let count = config
+            .providers
+            .iter()
+            .filter(|provider| provider.repository_url == manifest_url)
+            .count();
+        self.invalidate_results();
+        self.replace_config(config);
+        self.set_status(manifest_url, format!("{count} providers ready"), false);
+        self.set_message(&format!("Loaded {count} plugin provider(s)."), false);
+        self.set_busy(false);
     }
 
     async fn add_repository(&self, raw_url: &str) {
@@ -663,22 +901,21 @@ impl NuvioPlugins {
         }
         self.set_busy(true);
         self.set_message("Installing plugin repository…", false);
-        match fetch_manifest(&manifest_url).await {
-            Ok(manifest) => {
+        match load_repository(&manifest_url).await {
+            Ok(content) => {
                 let mut config = self.config();
                 config.repositories.push(PluginRepository {
                     manifest_url: manifest_url.clone(),
-                    name: manifest.name,
-                    version: manifest.version,
-                    description: manifest.description.unwrap_or_default(),
+                    name: content.name.clone(),
+                    version: content.version.clone(),
+                    description: content.description.clone(),
                     last_updated: now_seconds(),
                 });
                 self.replace_config(config);
                 if let Some(ui) = self.inner.ui.upgrade() {
                     ui.set_plugins_repository_url(String::new().into());
                 }
-                self.set_busy(false);
-                self.refresh_repository(&manifest_url).await;
+                self.apply_repository(&manifest_url, content);
             }
             Err(error) => {
                 self.set_message(&error, true);
@@ -1172,7 +1409,7 @@ impl NuvioPlugins {
         let mut tasks = FuturesUnordered::new();
         // Every enabled provider runs; the semaphore below bounds the
         // number of concurrent script fetches and QuickJS workers.
-        for provider in providers.into_iter() {
+        for provider in providers {
             let manager = self.clone();
             let query = query.clone();
             let tmdb_id = tmdb_id.clone();
@@ -1327,6 +1564,8 @@ pub fn setup(
             config: RwLock::new(config.clone()),
             status: RwLock::new(HashMap::new()),
             busy: RwLock::new(false),
+            provider_filter: RwLock::new("All".to_owned()),
+            provider_query: RwLock::new(String::new()),
             runtime,
             playback,
             generation: AtomicU64::new(0),
@@ -1346,6 +1585,14 @@ pub fn setup(
     ui.on_plugins_group_changed({
         let manager = manager.clone();
         move |grouped| manager.toggle_group(grouped)
+    });
+    ui.on_plugin_provider_filter_changed({
+        let manager = manager.clone();
+        move |filter| manager.set_provider_filter(filter.to_string())
+    });
+    ui.on_plugin_provider_query_changed({
+        let manager = manager.clone();
+        move |query| manager.set_provider_query(query.to_string())
     });
     ui.on_plugin_repository_add({
         let manager = manager.clone();
@@ -1625,9 +1872,82 @@ async fn fetch_text_once(parsed: Url, limit: usize) -> Result<String, FetchFailu
         .map_err(|_| FetchFailure::permanent("Plugin response is not valid UTF-8."))
 }
 
-async fn fetch_manifest(manifest_url: &str) -> Result<Manifest, String> {
-    let text = fetch_text(manifest_url, MAX_MANIFEST_BYTES).await?;
+async fn fetch_json(url: &str) -> Result<serde_json::Value, String> {
+    let text = fetch_text(url, MAX_MANIFEST_BYTES).await?;
     serde_json::from_str(&text).map_err(|error| format!("Invalid plugin manifest: {error}"))
+}
+
+/// Load a repository in any of the shapes community projects publish.
+///
+/// A manifest with `pluginLists` is an index: each listed document is fetched
+/// (one level of indirection is enough in practice, two are allowed) and its
+/// providers are resolved against that document's own URL, so relative script
+/// names keep working no matter where the list is hosted.
+async fn load_repository(manifest_url: &str) -> Result<RepositoryContent, String> {
+    let root = fetch_json(manifest_url).await?;
+    let mut content = RepositoryContent::default();
+    let mut errors = Vec::new();
+    let mut pending = vec![(0usize, manifest_url.to_owned(), root)];
+    while let Some((depth, base_url, value)) = pending.pop() {
+        match value {
+            serde_json::Value::Array(entries) => {
+                content.scrapers.extend(
+                    entries
+                        .into_iter()
+                        .filter_map(parse_scraper)
+                        .map(|scraper| (base_url.clone(), scraper)),
+                );
+            }
+            serde_json::Value::Object(_) => {
+                let manifest: RawManifest = serde_json::from_value(value).unwrap_or_default();
+                if content.name.trim().is_empty() {
+                    content.name = manifest.name.unwrap_or_default();
+                }
+                if content.version.is_empty() {
+                    content.version = manifest.version.as_ref().map(json_text).unwrap_or_default();
+                }
+                if content.description.is_empty() {
+                    content.description = manifest.description.unwrap_or_default();
+                }
+                content.scrapers.extend(
+                    manifest
+                        .scrapers
+                        .into_iter()
+                        .filter_map(RawScraper::normalize)
+                        .map(|scraper| (base_url.clone(), scraper)),
+                );
+                if depth >= 2 {
+                    continue;
+                }
+                for list in manifest.plugin_lists {
+                    let list_url = Url::parse(&base_url)
+                        .and_then(|base| base.join(&list))
+                        .ok()
+                        .filter(|url| url.scheme() == "https" && !is_blocked_host(url));
+                    let Some(list_url) = list_url else {
+                        errors.push(format!("{list}: plugin lists must use HTTPS on a public host"));
+                        continue;
+                    };
+                    match fetch_json(list_url.as_str()).await {
+                        Ok(value) => pending.push((depth + 1, list_url.to_string(), value)),
+                        Err(error) => errors.push(format!("{list}: {error}")),
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if content.scrapers.is_empty() {
+        return Err(if errors.is_empty() {
+            "This repository declares no plugin providers.".to_owned()
+        } else {
+            format!("Could not load plugin providers: {}", errors.join("; "))
+        });
+    }
+    if content.name.trim().is_empty() {
+        content.name = manifest_fallback_name(manifest_url);
+    }
+    Ok(content)
 }
 
 async fn fetch_script(source_url: &str) -> Result<String, String> {
@@ -1669,5 +1989,63 @@ mod tests {
             .unwrap(),
             "https://example.com/repo/providers/example.js"
         );
+    }
+
+    #[test]
+    fn cloudstream_build_entries_are_normalized() {
+        let entry = serde_json::json!({
+            "url": "https://example.com/builds/Movie.cs3",
+            "status": 1,
+            "version": 11,
+            "name": "Movie",
+            "internalName": "MovieProvider",
+            "description": "Bangla & Hindi movies",
+            "language": "hi",
+            "tvTypes": ["Movie", "TvSeries"],
+            "iconUrl": "https://example.com/icon.png"
+        });
+        let scraper = parse_scraper(entry).expect("entry should normalize");
+        assert_eq!(scraper.id, "MovieProvider");
+        assert_eq!(scraper.name, "Movie");
+        assert_eq!(scraper.version, "11");
+        assert_eq!(scraper.filename, "https://example.com/builds/Movie.cs3");
+        assert_eq!(scraper.supported_types, vec!["movie", "tv"]);
+        assert_eq!(scraper.logo.as_deref(), Some("https://example.com/icon.png"));
+        assert_eq!(scraper.content_language, Some(vec!["hi".to_owned()]));
+        assert!(scraper.enabled);
+    }
+
+    #[test]
+    fn repository_index_lists_plugin_lists() {
+        let index: RawManifest = serde_json::from_str(
+            r#"{
+                "name": "Redowan's BDIX repository",
+                "description": "BDIX builds",
+                "manifestVersion": 1,
+                "pluginLists": [
+                    "https://raw.githubusercontent.com/redowan99/Redowan-CloudStream/builds/plugins.json"
+                ]
+            }"#,
+        )
+        .expect("index should parse");
+        assert_eq!(index.name.as_deref(), Some("Redowan's BDIX repository"));
+        assert_eq!(index.plugin_lists.len(), 1);
+        assert!(index.scrapers.is_empty());
+    }
+
+    #[test]
+    fn provider_filters_match_content_types() {
+        let provider = PluginProvider {
+            supported_types: vec!["movie".to_owned(), "tv".to_owned()],
+            name: "Movie Hub".to_owned(),
+            languages: vec!["bn".to_owned()],
+            ..PluginProvider::default()
+        };
+        assert!(provider_matches_filter(&provider, "All"));
+        assert!(provider_matches_filter(&provider, "Movies"));
+        assert!(provider_matches_filter(&provider, "Series"));
+        assert!(!provider_matches_filter(&provider, "Live TV"));
+        assert!(provider_matches_query(&provider, "movie bn"));
+        assert!(!provider_matches_query(&provider, "anime"));
     }
 }

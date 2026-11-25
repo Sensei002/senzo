@@ -69,6 +69,13 @@ export component MediaCard inherits Rectangle {
     }
     changed item => {
         root.request-poster-if-needed();
+        // ListView recycles delegates: scrolling by exactly one row can hand
+        // this instance a different title without moving it, so the anchor
+        // check below would not notice that the open popup is stale.
+        if (root.preview-emitted) {
+            root.preview-emitted = false;
+            root.hover-preview-cancelled();
+        }
     }
     changed is-visible => {
         root.request-poster-if-needed();
@@ -134,16 +141,6 @@ export component MediaCard inherits Rectangle {
     // the card's absolute position (scroll, resize, ListView recycling) means
     // the anchor is stale, so drop the preview instead of leaving it stranded.
     changed absolute-position => {
-        if (root.preview-emitted) {
-            root.preview-emitted = false;
-            root.hover-preview-cancelled();
-        }
-    }
-
-    // ListView recycles delegates: scrolling by exactly one row can hand this
-    // instance a different item without moving it, so the anchor check above
-    // would not notice. Drop the preview when the bound item changes too.
-    changed item => {
         if (root.preview-emitted) {
             root.preview-emitted = false;
             root.hover-preview-cancelled();

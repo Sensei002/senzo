@@ -478,6 +478,9 @@ export component MainWindow inherits Window {
     in-out property <[PluginRepositoryCard]> plugin-repositories: [];
     in-out property <[PluginProviderCard]> plugin-providers: [];
     in-out property <string> plugins-repository-url: "";
+    in-out property <string> plugins-provider-filter: "All";
+    in-out property <string> plugins-provider-query: "";
+    in property <int> plugin-provider-total: 0;
     in-out property <[StreamLink]> stream-links: [];
     in-out property <[string]> detail-stream-providers: ["All"];
     in-out property <int> detail-stream-loading-count: 0;
@@ -1110,6 +1113,8 @@ export component MainWindow inherits Window {
     callback plugin-repository-add(string);
     callback plugin-repository-refresh(string);
     callback plugin-repository-remove(string);
+    callback plugin-provider-filter-changed(string);
+    callback plugin-provider-query-changed(string);
     callback plugin-provider-toggled(string, bool);
     callback plugin-provider-tested(string);
     callback plugin-provider-settings-saved(string, string);
@@ -2331,6 +2336,11 @@ export component MainWindow inherits Window {
                         status: root.plugins-status;
                         status-error: root.plugins-status-error;
                         repository-url <=> root.plugins-repository-url;
+                        provider-filter <=> root.plugins-provider-filter;
+                        provider-query <=> root.plugins-provider-query;
+                        provider-total: root.plugin-provider-total;
+                        provider-filter-changed(value) => { root.plugin-provider-filter-changed(value); }
+                        provider-query-changed(text) => { root.plugin-provider-query-changed(text); }
                         master-changed(enabled) => { root.plugins-master-changed(enabled); }
                         group-changed(grouped) => { root.plugins-group-changed(grouped); }
                         repository-add(url) => { root.plugin-repository-add(url); }
