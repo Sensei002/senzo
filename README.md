@@ -30,6 +30,34 @@ Built with **Rust** and **Slint**, SENZO has its own interface, visual identity,
 
 ---
 
+## Quick Start
+
+### 1. Install and open SENZO
+
+1. Download the latest stable installer or package from [GitHub Releases](https://github.com/Sensei002/senzo/releases). Development builds are available from the [desktop build workflow](https://github.com/Sensei002/senzo/actions/workflows/release.yml).
+2. Install SENZO using the package for your operating system, then launch **SENZO**.
+3. On the welcome screen, choose **Continue without signing in** to use a local guest profile. Signing in with Stremio is optional and is only needed for account-connected functionality.
+
+### 2. Add catalogs and Stremio add-ons
+
+Open SENZO's add-on area and browse the available community add-ons/catalogs. Choose an add-on and use its install option, then return to discovery to browse the catalogs it provides. Add-on availability and the catalogs they expose depend on each third-party provider.
+
+SENZO does not bundle or silently enable Torrentio. Stremio add-ons are separate from the Nuvio-compatible **Plugins** providers described below.
+
+### 3. Install Plugins (Nuvio-compatible providers)
+
+1. Open the **Plugins** tab in SENZO.
+2. In the repository install box, enter the public **HTTPS URL** of a Nuvio-compatible provider repository manifest.
+3. Install the repository and wait for SENZO to fetch and validate its manifest.
+4. Use the individual provider switches to enable only the providers you want. If a provider requires configuration, enter its JSON settings in that provider's settings field.
+5. Open a movie or episode's details and request available streams. Plugin results appear in the stream drawer under the **Plugins** filter and carry a **PLUGIN** badge.
+
+Installing a repository does not execute its provider scripts. Scripts run when enabled providers are queried for a title. Only install repositories you trust: providers have network access while running. Repository URLs must be public HTTPS URLs. See the full [Plugins guide](docs/PLUGINS.md) for the manifest format, settings, compatibility details, and sandbox limitations.
+
+### 4. Find something to watch
+
+Use **Discover** to browse available catalogs, open a title to view its details, and choose one of the available streams. You can also add local media to your library and use SENZO's built-in player and download manager where supported.
+
 ## What SENZO offers
 
 ### Discover and explore
