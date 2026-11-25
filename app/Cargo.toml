@@ -74,7 +74,7 @@ minidumper.workspace = true
 mimalloc = "0.1.52"
 arboard = { version = "3.6.1", default-features = false }
 hex = "0.4.3"
-ego-tree = "0.10"
+ego-tree = "0.11"
 open = "5.4.1"
 percent-encoding.workspace = true
 self_update.workspace = true
