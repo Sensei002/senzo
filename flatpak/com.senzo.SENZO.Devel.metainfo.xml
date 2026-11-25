@@ -31,6 +31,7 @@
   <url type="homepage">https://github.com/Sensei002/senzo</url>
   <url type="bugtracker">https://github.com/Sensei002/senzo/issues</url>
   <releases>
+    <release version="0.1.3" date="2026-11-25"/>
     <release version="0.1.2" date="2026-11-24"/>
     <release version="0.1.1" date="2026-11-24"/>
     <release version="0.1.0" date="2026-11-23"/>
