@@ -53,6 +53,8 @@ export component MediaCard inherits Rectangle {
     // popup can position itself without knowing which page owns this card.
     callback hover-preview-requested(string, string, length, length, length, length);
     callback hover-preview-dismissed();
+    // Emitted when the card moved out from under an open preview (scroll).
+    callback hover-preview-cancelled();
 
     function request-poster-if-needed() {
         if ((!root.enable-lazy-loading || root.is-visible)
@@ -122,6 +124,19 @@ export component MediaCard inherits Rectangle {
                 root.preview-emitted = false;
                 root.hover-preview-dismissed();
             }
+        }
+    }
+
+    // The popup is a separate always-on-top window pinned to the card's screen
+    // rectangle at the moment it opened. Scrolling moves the card underneath a
+    // stationary pointer, so the pointer-leave grace above never fires and the
+    // popup would stay anchored to a card that has scrolled away. Any change to
+    // the card's absolute position (scroll, resize, ListView recycling) means
+    // the anchor is stale, so drop the preview instead of leaving it stranded.
+    changed absolute-position => {
+        if (root.preview-emitted) {
+            root.preview-emitted = false;
+            root.hover-preview-cancelled();
         }
     }
 

@@ -58,6 +58,7 @@ export component DiscoverPage inherits Rectangle {
 
     callback hover-preview-requested(string, string, length, length, length, length);
     callback hover-preview-dismissed();
+    callback hover-preview-cancelled();
     callback type-changed(string);
     callback catalog-changed(string);
     callback genre-changed(string);
@@ -303,6 +304,7 @@ export component DiscoverPage inherits Rectangle {
                             root.hover-preview-requested(id, media-type, x, y, width, height);
                         }
                         hover-preview-dismissed => { root.hover-preview-dismissed(); }
+                        hover-preview-cancelled => { root.hover-preview-cancelled(); }
                     }
                 }
             }

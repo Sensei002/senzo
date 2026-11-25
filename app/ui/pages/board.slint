@@ -92,6 +92,7 @@ export component BoardPage inherits Rectangle {
 
     callback hover-preview-requested(string, string, length, length, length, length);
     callback hover-preview-dismissed();
+    callback hover-preview-cancelled();
     callback item-selected(string, string, string);
     callback play-clicked(string);
     callback hero-play-requested(string, string);
@@ -377,6 +378,7 @@ export component BoardPage inherits Rectangle {
                     root.hover-preview-requested(id, media-type, x, y, width, height);
                 }
                 hover-preview-dismissed => { root.hover-preview-dismissed(); }
+                hover-preview-cancelled => { root.hover-preview-cancelled(); }
                 see-all-requested => {
                     if (section.is-continue-watching) {
                         root.see-all-continue-watching();

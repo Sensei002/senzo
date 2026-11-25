@@ -29,14 +29,17 @@ use crate::{
     app_model::AppModel,
     direct_sources::net::is_blocked_host,
     playback::{PlaybackSelections, PluginSelection},
-    plugin_runtime::{self, PluginStream, ProviderQuery, net::is_public_url},
+    plugin_runtime::{
+        self, PluginStream, ProviderQuery,
+        net::{PublicHost, classify_public_host, is_public_url},
+    },
 };
 
 pub const DEFAULT_MANIFEST_URL: &str =
     "https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json";
 const MAX_MANIFEST_BYTES: usize = 4 * 1024 * 1024;
 const MAX_SCRIPT_BYTES: usize = 4 * 1024 * 1024;
-const MEDIA_PROBE_CONCURRENCY: usize = 4;
+const MEDIA_PROBE_CONCURRENCY: usize = 8;
 const MEDIA_PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 const MEDIA_PROBE_USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 SENZO/1.0";
@@ -216,28 +219,42 @@ fn has_probe_media_extension(value: &str) -> bool {
     .any(|extension| value.contains(extension))
 }
 
+/// Outcome of a reachability probe. `Unknown` keeps a source whose server
+/// could not answer in time: a timeout on one device says nothing about the
+/// file, and dropping those made plugin results depend on the local network.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProbeResult {
+    Live,
+    Dead,
+    Unknown,
+}
+
 /// Confirm that an HTTP source really serves a media object before it reaches
 /// the drawer. A provider can return a syntactically valid `.mkv` URL that is
 /// actually a 403, an HTML interstitial, or an expired link generator. The
 /// request is range-limited and the body is never read.
-fn probe_media_stream(stream: &PluginStream) -> bool {
+fn probe_media_stream(stream: &PluginStream) -> ProbeResult {
     if stream.is_torrent() {
-        return true;
+        return ProbeResult::Live;
     }
     let Some(raw_url) = stream.url.as_deref() else {
-        return false;
+        return ProbeResult::Dead;
     };
     let Ok(mut target) = Url::parse(raw_url) else {
-        return false;
+        return ProbeResult::Dead;
     };
 
     for _ in 0..=4 {
         if !matches!(target.scheme(), "http" | "https")
             || target.host_str().is_none()
             || is_blocked_host(&target)
-            || !is_public_url(&target)
         {
-            return false;
+            return ProbeResult::Dead;
+        }
+        match classify_public_host(&target) {
+            PublicHost::Public => {}
+            PublicHost::Blocked => return ProbeResult::Dead,
+            PublicHost::Unresolved => return ProbeResult::Unknown,
         }
 
         let mut request = media_probe_client()
@@ -263,7 +280,7 @@ fn probe_media_stream(stream: &PluginStream) -> bool {
 
         let response = match request.send() {
             Ok(response) => response,
-            Err(_) => return false,
+            Err(_) => return ProbeResult::Unknown,
         };
 
         if response.status().is_redirection() {
@@ -272,10 +289,10 @@ fn probe_media_stream(stream: &PluginStream) -> bool {
                 .get(LOCATION)
                 .and_then(|value| value.to_str().ok())
             else {
-                return false;
+                return ProbeResult::Dead;
             };
             let Ok(next) = target.join(location) else {
-                return false;
+                return ProbeResult::Dead;
             };
             target = next;
             continue;
@@ -283,7 +300,16 @@ fn probe_media_stream(stream: &PluginStream) -> bool {
 
         let status = response.status();
         if !(status.is_success() || status == reqwest::StatusCode::PARTIAL_CONTENT) {
-            return false;
+            // A missing file is a fact; anything else (403 on a signed URL,
+            // 405 for a provider that rejects ranges) may still play.
+            return if matches!(
+                status,
+                reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::GONE
+            ) {
+                ProbeResult::Dead
+            } else {
+                ProbeResult::Unknown
+            };
         }
         let content_type = response
             .headers()
@@ -296,7 +322,7 @@ fn probe_media_stream(stream: &PluginStream) -> bool {
             || content_type.starts_with("application/json")
             || content_type.starts_with("application/xml")
         {
-            return false;
+            return ProbeResult::Dead;
         }
         let content_length = response
             .headers()
@@ -304,34 +330,43 @@ fn probe_media_stream(stream: &PluginStream) -> bool {
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.parse::<u64>().ok());
         if content_length == Some(0) {
-            return false;
+            return ProbeResult::Unknown;
         }
         if content_type.is_empty() {
-            return has_probe_media_extension(&target.path().to_ascii_lowercase());
+            return if has_probe_media_extension(&target.path().to_ascii_lowercase()) {
+                ProbeResult::Live
+            } else {
+                ProbeResult::Unknown
+            };
         }
-        return content_type.starts_with("video/")
+        return if content_type.starts_with("video/")
             || content_type.starts_with("audio/")
             || content_type.contains("octet-stream")
             || content_type.contains("mpegurl")
             || content_type.contains("matroska")
             || content_type.contains("mp4")
-            || content_type.contains("webm");
+            || content_type.contains("webm")
+        {
+            ProbeResult::Live
+        } else {
+            ProbeResult::Dead
+        };
     }
-    false
+    ProbeResult::Unknown
 }
 
 async fn verify_media_streams(streams: Vec<PluginStream>) -> Vec<PluginStream> {
     let probes = stream::iter(streams.into_iter().enumerate().map(|(index, stream)| {
         let probe = stream.clone();
         async move {
-            let live = if probe.is_torrent() {
-                true
+            let probe_result = if probe.is_torrent() {
+                ProbeResult::Live
             } else {
                 tokio::task::spawn_blocking(move || probe_media_stream(&probe))
                     .await
-                    .unwrap_or(false)
+                    .unwrap_or(ProbeResult::Unknown)
             };
-            (index, stream, live)
+            (index, stream, probe_result)
         }
     }))
     .buffer_unordered(MEDIA_PROBE_CONCURRENCY)
@@ -342,7 +377,12 @@ async fn verify_media_streams(streams: Vec<PluginStream>) -> Vec<PluginStream> {
     probes.sort_by_key(|(index, _, _)| *index);
     probes
         .into_iter()
-        .filter_map(|(_, stream, live)| live.then_some(stream))
+        // Only a definite rejection removes a source. Timeouts, DNS
+        // hiccups and slow hosts keep it so one flaky device cannot empty
+        // the drawer that works elsewhere.
+        .filter_map(|(_, stream, probe_result)| {
+            (probe_result != ProbeResult::Dead).then_some(stream)
+        })
         .collect()
 }
 
@@ -1091,7 +1131,14 @@ impl NuvioPlugins {
                 for provider in &providers {
                     self.set_status(&provider.key, "No TMDB id", true);
                 }
-                self.set_message(&error, true);
+                // Name the failing stage: "plugin failed" was unhelpful when
+                // the real cause was the shared metadata lookup.
+                let message = if error.starts_with("No TMDB match") {
+                    error
+                } else {
+                    format!("Metadata lookup failed: {error}")
+                };
+                self.set_message(&message, true);
                 self.project();
                 return;
             }
@@ -1123,7 +1170,9 @@ impl NuvioPlugins {
 
         let semaphore = Arc::new(Semaphore::new(8));
         let mut tasks = FuturesUnordered::new();
-        for provider in providers.into_iter().take(12) {
+        // Every enabled provider runs; the semaphore below bounds the
+        // number of concurrent script fetches and QuickJS workers.
+        for provider in providers.into_iter() {
             let manager = self.clone();
             let query = query.clone();
             let tmdb_id = tmdb_id.clone();
@@ -1234,13 +1283,22 @@ impl NuvioPlugins {
             cache.insert(cache_key, (Instant::now(), streams.clone()));
         }
         self.apply_plugin_results(generation, streams.clone(), query.video_id.clone());
-        self.set_message(
-            &format!(
+        let message = if streams.is_empty() && errors > 0 {
+            format!(
+                "No plugin sources. {errors} provider(s) failed; check this device's connection, then retry."
+            )
+        } else if errors > 0 {
+            format!(
+                "Plugin search complete: {} source(s) from {completed} provider(s); {errors} failed",
+                streams.len()
+            )
+        } else {
+            format!(
                 "Plugin search complete: {} source(s) from {completed} provider(s)",
                 streams.len()
-            ),
-            errors > 0 && streams.is_empty(),
-        );
+            )
+        };
+        self.set_message(&message, streams.is_empty() && errors > 0);
         self.project();
     }
 }
@@ -1397,43 +1455,174 @@ fn resolve_source_url(manifest_url: &str, filename: &str) -> Result<String, ()> 
     Ok(resolved.to_string())
 }
 
+/// One pooled HTTP client for every plugin manifest, script and gateway call.
+///
+/// Building a client per request (the previous behaviour) paid for a fresh DNS
+/// lookup, TCP handshake and TLS session every time, so a slow or flaky link
+/// turned into failures a kept-alive connection would have absorbed.
+static PLUGIN_HTTP: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+const FETCH_ATTEMPTS: u32 = 3;
+
+fn plugin_http_client() -> Result<&'static reqwest::Client, String> {
+    PLUGIN_HTTP
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                    if attempt.previous().len() >= 5 || !is_public_url(attempt.url()) {
+                        attempt.stop()
+                    } else {
+                        attempt.follow()
+                    }
+                }))
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(30))
+                .pool_idle_timeout(Duration::from_secs(90))
+                .tcp_keepalive(Duration::from_secs(30))
+                .user_agent("SENZO-PluginManager/1.0 (+https://github.com/Sensei002/senzo)")
+                .build()
+                .map_err(|error| format!("Could not create plugin HTTP client: {error}"))
+        })
+        .as_ref()
+        .map_err(|error| error.clone())
+}
+
+struct FetchFailure {
+    message: String,
+    retryable: bool,
+}
+
+impl FetchFailure {
+    fn permanent(message: impl Into<String>) -> Self {
+        Self { message: message.into(), retryable: false }
+    }
+
+    fn transient(message: impl Into<String>) -> Self {
+        Self { message: message.into(), retryable: true }
+    }
+}
+
 async fn fetch_text(url: &str, limit: usize) -> Result<String, String> {
     let parsed = Url::parse(url).map_err(|_| "Invalid plugin URL.".to_owned())?;
-    if parsed.scheme() != "https" || !is_public_url(&parsed) {
-        return Err("Plugin repositories must use HTTPS on a public host.".to_owned());
+    if parsed.scheme() != "https" {
+        return Err("Plugin repositories must use HTTPS.".to_owned());
     }
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() >= 5 || !is_public_url(attempt.url()) {
-                attempt.stop()
-            } else {
-                attempt.follow()
-            }
-        }))
-        .connect_timeout(Duration::from_secs(8))
-        .timeout(Duration::from_secs(30))
-        .user_agent("SENZO-PluginManager/1.0 (+https://github.com/Sensei002/senzo)")
-        .build()
-        .map_err(|error| format!("Could not create plugin HTTP client: {error}"))?;
+    match fetch_with_retries(parsed.clone(), limit).await {
+        Ok(text) => Ok(text),
+        // raw.githubusercontent.com is unreachable on some networks (it is
+        // blocked in several countries). jsDelivr mirrors GitHub content, so
+        // one fallback attempt keeps add-ons installable there.
+        Err(error) => match github_mirror(&parsed) {
+            Some(mirror) => fetch_with_retries(mirror.clone(), limit)
+                .await
+                .map_err(|mirror_error| format!("{error} Mirror {mirror}: {mirror_error}")),
+            None => Err(error),
+        },
+    }
+}
+
+fn github_mirror(url: &Url) -> Option<Url> {
+    if url.host_str()? != "raw.githubusercontent.com" {
+        return None;
+    }
+    let segments = url
+        .path_segments()?
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    if segments.len() < 4 {
+        return None;
+    }
+    let rest = segments[3..].join("/");
+    let path = format!(
+        "gh/{}/{}@{}/{rest}",
+        segments[0], segments[1], segments[2]
+    );
+    let mut mirror = Url::parse(&format!("https://cdn.jsdelivr.net/{path}")).ok()?;
+    mirror.set_query(url.query());
+    Some(mirror)
+}
+
+async fn fetch_with_retries(parsed: Url, limit: usize) -> Result<String, String> {
+    let mut last_error = "Plugin request failed.".to_owned();
+    for attempt in 0..FETCH_ATTEMPTS {
+        if attempt > 0 {
+            tokio::time::sleep(Duration::from_millis(400 * u64::from(attempt))).await;
+        }
+        match fetch_text_once(parsed.clone(), limit).await {
+            Ok(text) => return Ok(text),
+            Err(failure) if failure.retryable => last_error = failure.message,
+            Err(failure) => return Err(failure.message),
+        }
+    }
+    Err(format!(
+        "{last_error} (retried {FETCH_ATTEMPTS} times; check this device's connection, DNS, or VPN)"
+    ))
+}
+
+async fn fetch_text_once(parsed: Url, limit: usize) -> Result<String, FetchFailure> {
+    // Resolution is blocking; keep it off the async workers so one slow DNS
+    // server cannot stall every provider request in the batch.
+    let lookup = parsed.clone();
+    let host = tokio::task::spawn_blocking(move || classify_public_host(&lookup))
+        .await
+        .unwrap_or(PublicHost::Unresolved);
+    match host {
+        PublicHost::Blocked => {
+            return Err(FetchFailure::permanent(
+                "Plugin hosts must resolve to a public address.",
+            ));
+        }
+        PublicHost::Unresolved => {
+            return Err(FetchFailure::transient(format!(
+                "Could not resolve {}.",
+                parsed.host_str().unwrap_or("the plugin host")
+            )));
+        }
+        PublicHost::Public => {}
+    }
+    let client = match plugin_http_client() {
+        Ok(client) => client,
+        Err(message) => return Err(FetchFailure::permanent(message)),
+    };
     let response = client
         .get(parsed)
         .send()
         .await
-        .map_err(|error| format!("Plugin request failed: {error}"))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "Plugin server returned HTTP {}.",
-            response.status()
-        ));
+        .map_err(|error| {
+            let message = if error.is_timeout() {
+                "Plugin request timed out.".to_owned()
+            } else if error.is_connect() {
+                format!("Could not reach the plugin server: {error}")
+            } else {
+                format!("Plugin request failed: {error}")
+            };
+            if error.is_timeout() || error.is_connect() || error.is_request() || error.is_body() {
+                FetchFailure::transient(message)
+            } else {
+                FetchFailure::permanent(message)
+            }
+        })?;
+    let status = response.status();
+    if !status.is_success() {
+        let message = format!("Plugin server returned HTTP {status}.");
+        return Err(if status.is_server_error()
+            || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        {
+            FetchFailure::transient(message)
+        } else {
+            FetchFailure::permanent(message)
+        });
     }
     let bytes = response
         .bytes()
         .await
-        .map_err(|error| format!("Could not read plugin response: {error}"))?;
+        .map_err(|error| FetchFailure::transient(format!("Could not read plugin response: {error}")))?;
     if bytes.len() > limit {
-        return Err("Plugin response is larger than the allowed limit.".to_owned());
+        return Err(FetchFailure::permanent(
+            "Plugin response is larger than the allowed limit.",
+        ));
     }
-    String::from_utf8(bytes.to_vec()).map_err(|_| "Plugin response is not valid UTF-8.".to_owned())
+    String::from_utf8(bytes.to_vec())
+        .map_err(|_| FetchFailure::permanent("Plugin response is not valid UTF-8."))
 }
 
 async fn fetch_manifest(manifest_url: &str) -> Result<Manifest, String> {

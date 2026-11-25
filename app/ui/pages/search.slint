@@ -19,6 +19,7 @@ export component SearchPage inherits Rectangle {
     callback poster-requested(string);
     callback hover-preview-requested(string, string, length, length, length, length);
     callback hover-preview-dismissed();
+    callback hover-preview-cancelled();
 
     in property <length> unit: Theme.root-font-size;
     property <int> visible-count: root.width > 2100px ? 9 :
@@ -163,6 +164,7 @@ export component SearchPage inherits Rectangle {
                     root.hover-preview-requested(id, media-type, x, y, width, height);
                 }
                 hover-preview-dismissed => { root.hover-preview-dismissed(); }
+                hover-preview-cancelled => { root.hover-preview-cancelled(); }
             }
         }
     }

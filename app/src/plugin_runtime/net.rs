@@ -139,7 +139,7 @@ impl SafeHttp {
             if is_blocked_host(&target) {
                 return FetchResponse::error("Provider requests to private hosts are blocked.");
             }
-            if !dns_is_public(&target) {
+            if !is_public_url(&target) {
                 return FetchResponse::error("Provider requests to private addresses are blocked.");
             }
 
@@ -199,7 +199,7 @@ impl SafeHttp {
                 if next.scheme() != "https" && next.scheme() != "http" {
                     return FetchResponse::error("The provider redirected to an unsupported URL.");
                 }
-                if is_blocked_host(&next) || !dns_is_public(&next) {
+                if is_blocked_host(&next) || !is_public_url(&next) {
                     return FetchResponse::error("The provider redirected to a private address.");
                 }
                 url = next;
@@ -255,26 +255,47 @@ impl SafeHttp {
     }
 }
 
-pub(crate) fn is_public_url(url: &Url) -> bool {
-    !is_blocked_host(url) && dns_is_public(url)
+/// Result of checking that a URL points at the public internet.
+///
+/// `Unresolved` is deliberately distinct from `Blocked`: a lookup can fail
+/// because DNS is slow, the VPN just reconnected, or the machine is offline for
+/// a moment. Callers retry that case instead of reporting a permanent policy
+/// rejection, which used to surface as "must use HTTPS on a public host" for
+/// perfectly valid plugin repositories.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PublicHost {
+    Public,
+    Blocked,
+    Unresolved,
 }
 
-fn dns_is_public(url: &Url) -> bool {
-    let Some(host) = url.host_str() else {
-        return false;
-    };
+pub(crate) fn classify_public_host(url: &Url) -> PublicHost {
+    if is_blocked_host(url) {
+        return PublicHost::Blocked;
+    }
+    match dns_is_public(url) {
+        Some(true) => PublicHost::Public,
+        Some(false) => PublicHost::Blocked,
+        None => PublicHost::Unresolved,
+    }
+}
+
+pub(crate) fn is_public_url(url: &Url) -> bool {
+    classify_public_host(url) == PublicHost::Public
+}
+
+fn dns_is_public(url: &Url) -> Option<bool> {
+    let host = url.host_str()?;
     let port = url.port_or_known_default().unwrap_or(443);
-    let Ok(addresses) = (host, port).to_socket_addrs() else {
-        return false;
-    };
+    let addresses = (host, port).to_socket_addrs().ok()?;
     let mut found = false;
     for address in addresses {
         found = true;
         if is_blocked_ip(address.ip()) {
-            return false;
+            return Some(false);
         }
     }
-    found
+    found.then_some(true)
 }
 
 /// Metadata-only rewrite. Provider scripts assume a real TMDB key; SENZO's

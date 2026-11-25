@@ -36,6 +36,7 @@ export component MediaCatalogRow inherits MetaRow {
     callback poster-requested(string);
     callback hover-preview-requested(string, string, length, length, length, length);
     callback hover-preview-dismissed();
+    callback hover-preview-cancelled();
 
     content-width: max(root.width, (root.loading ? 8 : root.items.length) * root.card-width);
     content-height: root.card-height;
@@ -116,6 +117,7 @@ export component MediaCatalogRow inherits MetaRow {
             root.hover-preview-requested(id, media-type, x, y, width, height);
         }
         hover-preview-dismissed => { root.hover-preview-dismissed(); }
+        hover-preview-cancelled => { root.hover-preview-cancelled(); }
     }
 }
 
@@ -144,6 +146,7 @@ export component MediaCardGridRow inherits Rectangle {
     callback dismiss-requested(string);
     callback hover-preview-requested(string, string, length, length, length, length);
     callback hover-preview-dismissed();
+    callback hover-preview-cancelled();
 
     height: root.card-height;
     background: transparent;
@@ -184,6 +187,7 @@ export component MediaCardGridRow inherits Rectangle {
             root.hover-preview-requested(id, media-type, x, y, width, height);
         }
         hover-preview-dismissed => { root.hover-preview-dismissed(); }
+        hover-preview-cancelled => { root.hover-preview-cancelled(); }
     }
 }
 

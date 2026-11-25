@@ -14,6 +14,15 @@ export component StreamRow inherits Rectangle {
     in property <image> thumbnail;
     in property <int> seeders: 0;
     in property <bool> has-thumbnail: root.thumbnail.width > 0;
+    // Group heading data. Only the first row of a provider block sets
+    // show-provider, so every delegate keeps the same height and the list
+    // never mixes tall and short rows.
+    in property <string> provider: "";
+    in property <int> provider-count: 0;
+    in property <bool> show-provider: false;
+    // Quality tag parsed from the release name, used as the fallback badge
+    // when the provider supplied no thumbnail ("4K", "1080p", …).
+    in property <string> quality: "";
     in property <float> progress: 0;
     in property <bool> selected: false;
     callback play;
@@ -55,10 +64,20 @@ export component StreamRow inherits Rectangle {
         alignment: center;
 
         stream-info := Rectangle {
-            width: root.has-thumbnail ? 7.5 * root.unit : 2.8 * root.unit;
-            height: 4.6 * root.unit;
-            border-radius: 0.35 * root.unit;
-            background: Theme.overlay-color;
+            // Artwork gets the 16:9-ish thumb; a bare quality tag becomes a
+            // compact pill so the row does not look like a broken image.
+            width: root.has-thumbnail
+                ? 7.5 * root.unit
+                : (root.quality != "" ? 4.4 * root.unit : 3.2 * root.unit);
+            height: root.has-thumbnail
+                ? 4.6 * root.unit
+                : (root.quality != "" ? 2.4 * root.unit : 4.6 * root.unit);
+            border-radius: root.has-thumbnail || root.quality == ""
+                ? 0.35 * root.unit
+                : self.height / 2;
+            background: root.has-thumbnail || root.quality == ""
+                ? Theme.overlay-color
+                : Theme.primary-accent.with-alpha(0.14);
             clip: true;
 
             if (root.has-thumbnail) : FallbackImage {
@@ -78,7 +97,7 @@ export component StreamRow inherits Rectangle {
                 }
             }
 
-            if (!root.has-thumbnail) : Image {
+            if (!root.has-thumbnail && root.quality == "") : Image {
                 x: (parent.width - self.width) / 2;
                 y: (parent.height - self.height) / 2;
                 width: 1.35 * root.unit;
@@ -87,6 +106,21 @@ export component StreamRow inherits Rectangle {
                 colorize: Theme.primary-accent;
                 opacity: 0.75;
                 image-fit: contain;
+            }
+
+            // Most add-on streams carry no artwork. A quality tag is more
+            // useful than an empty dark tile and keeps the list scannable.
+            if (!root.has-thumbnail && root.quality != "") : Text {
+                width: parent.width;
+                height: parent.height;
+                text: root.quality;
+                color: Theme.primary-accent;
+                font-size: 0.62 * root.unit;
+                font-weight: 800;
+                letter-spacing: 0.02 * root.unit;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: elide;
             }
 
             if (root.progress > 0) : Rectangle {
@@ -107,6 +141,28 @@ export component StreamRow inherits Rectangle {
             horizontal-stretch: 1;
             alignment: center;
             spacing: 0.25 * root.unit;
+
+            // Provider heading, drawn inside the first row of each block. As a
+            // row child it can never overlap neighbouring content, and the
+            // delegate height stays identical for every source.
+            if (root.show-provider) : Rectangle {
+                height: 1.05 * root.unit;
+                background: transparent;
+
+                Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: root.provider-count > 1
+                        ? root.provider + "  ·  " + root.provider-count
+                        : root.provider;
+                    color: Theme.text-muted;
+                    font-size: 0.6 * root.unit;
+                    font-weight: 750;
+                    letter-spacing: 0.06 * root.unit;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
 
             Text {
                 text: root.name;

@@ -34,6 +34,42 @@ fn update_vec_model<T: Clone + 'static>(
     Ok(())
 }
 
+// Provider labels sometimes carry a resolution ("4KHDHub"), so they are
+// stripped before matching. The result feeds the artwork placeholder: most
+// add-on streams ship no thumbnail, and an empty dark tile reads as a broken
+// image. Resolution is checked from highest to lowest so a 1080p release named
+// after a 4K provider is still labelled 1080p.
+fn stream_quality(name: &str, description: &str, provider: &str) -> &'static str {
+    let name = name.to_ascii_lowercase();
+    let stripped = if provider.is_empty() {
+        name
+    } else {
+        name.replace(&provider.to_ascii_lowercase(), " ")
+    };
+    let haystack = format!("{stripped} {}", description.to_ascii_lowercase());
+    if haystack.contains("2160") {
+        "4K"
+    } else if haystack.contains("1080") {
+        "1080p"
+    } else if haystack.contains("720") {
+        "720p"
+    } else if haystack.contains("480") || haystack.contains("360") || haystack.contains("576") {
+        "SD"
+    } else if haystack.contains("4k") || haystack.contains("uhd") {
+        "4K"
+    } else if has_word(&haystack, "cam") {
+        "CAM"
+    } else {
+        ""
+    }
+}
+
+fn has_word(haystack: &str, word: &str) -> bool {
+    haystack
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .any(|part| part == word)
+}
+
 pub(crate) fn project_stream_selection_views(
     ui: &MainWindow,
     ui_weak: &slint::Weak<MainWindow>,
@@ -43,11 +79,13 @@ pub(crate) fn project_stream_selection_views(
         .into_iter()
         .map(|link| {
             let score_summary = link.score_reasons.join(", ");
+            let quality = stream_quality(&link.name, &link.description, &link.provider);
             StreamLink {
                 id: link.id.into(),
                 name: link.name.into(),
                 description: link.description.into(),
                 provider: link.provider.into(),
+                quality: quality.into(),
                 source_system: link.source_system.into(),
                 thumbnail: link
                     .thumbnail

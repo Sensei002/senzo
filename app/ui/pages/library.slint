@@ -33,6 +33,7 @@ export component LibraryPage inherits Rectangle {
 
     callback hover-preview-requested(string, string, length, length, length, length);
     callback hover-preview-dismissed();
+    callback hover-preview-cancelled();
     callback type-changed(string);
     callback sort-changed(string);
     callback item-selected(string, string, string);
@@ -318,6 +319,7 @@ export component LibraryPage inherits Rectangle {
                         root.hover-preview-requested(id, media-type, x, y, width, height);
                     }
                     hover-preview-dismissed => { root.hover-preview-dismissed(); }
+                    hover-preview-cancelled => { root.hover-preview-cancelled(); }
                     item-selected(id, media-type, video-id) => {
                         if (root.local-mode) {
                             root.local-play(id);

@@ -2101,6 +2101,8 @@ export component MainWindow inherits Window {
                             root.hover-preview-open(id, media-type, x, y, w, h);
                         }
                         hover-preview-dismissed => { root.hover-preview-schedule-dismiss(); }
+                        // The anchor moved (scroll), so retract immediately; no grace period.
+                        hover-preview-cancelled => { root.hover-preview-close(); }
                     }
 
                     if (root.effective-active-tab == 1
@@ -2194,6 +2196,8 @@ export component MainWindow inherits Window {
                             root.hover-preview-open(id, media-type, x, y, w, h);
                         }
                         hover-preview-dismissed => { root.hover-preview-schedule-dismiss(); }
+                        // The anchor moved (scroll), so retract immediately; no grace period.
+                        hover-preview-cancelled => { root.hover-preview-close(); }
                         scroll-y <=> discover-scroll-y;
                     }
 
@@ -2239,6 +2243,8 @@ export component MainWindow inherits Window {
                             root.hover-preview-open(id, media-type, x, y, w, h);
                         }
                         hover-preview-dismissed => { root.hover-preview-schedule-dismiss(); }
+                        // The anchor moved (scroll), so retract immediately; no grace period.
+                        hover-preview-cancelled => { root.hover-preview-close(); }
                         local-add-root(path) => { library-local-add-root(path); }
                         local-rescan => { library-local-rescan(); }
                         local-play(id) => { library-local-play(id); }
@@ -2603,6 +2609,8 @@ export component MainWindow inherits Window {
                             root.hover-preview-open(id, media-type, x, y, w, h);
                         }
                         hover-preview-dismissed => { root.hover-preview-schedule-dismiss(); }
+                        // The anchor moved (scroll), so retract immediately; no grace period.
+                        hover-preview-cancelled => { root.hover-preview-close(); }
                     }
 
                     if (root.effective-active-tab == 7) : DownloadsPage {

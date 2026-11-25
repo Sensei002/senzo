@@ -1,8 +1,6 @@
 import { ScrollView, ListView } from "std-widgets.slint";
 import { Theme, IconData } from "../theme.slint";
 import { ButtonSurface, ChevronTextButton, IconAction, PillButton } from "../components/button.slint";
-import { Chip } from "../components/chip.slint";
-import { HorizontalScroll } from "../components/horizontal_scroll.slint";
 import { EmptyState, SkeletonBlock } from "../components/feedback.slint";
 import { StreamRow, Video, VideoPlaceholder } from "../components/media_rows.slint";
 import { MetaPreview, MetaPreviewPlaceholder } from "../components/meta_preview.slint";
@@ -29,6 +27,8 @@ export struct StreamLink {
     group-start: bool,
     provider-count: int,
     seeders: int,
+    // Resolution tag ("4K", "1080p", …) used when the source has no artwork.
+    quality: string,
 }
 
 export struct EpisodeItem {
@@ -407,15 +407,16 @@ export component DetailsPage inherits Rectangle {
 
             if (!root.is-series || root.in-stream-view) : HorizontalLayout {
                 height: 2.75 * root.unit;
-                spacing: 0.75 * root.unit;
+                spacing: 0.6 * root.unit;
                 z: 10000;
 
-                // Chips are the quickest filter for a handful of providers.
-                // Once the installed add-on list outgrows the drawer, a compact
-                // selector keeps every provider reachable without a cramped,
-                // barely-discoverable horizontal strip.
-                if (root.stream-providers.length > 5) : Rectangle {
-                    width: 13 * root.unit;
+                // One provider dropdown at every width. The drawer is at most
+                // 30rem wide, so five chips never fit on one line; the strip
+                // clipped its tail and a desktop pointer had no way to reach
+                // the hidden providers. A select lists them all (All first)
+                // and cannot overlap the ranking control.
+                provider-field := Rectangle {
+                    horizontal-stretch: 1;
                     height: parent.height;
 
                     SelectField {
@@ -437,37 +438,9 @@ export component DetailsPage inherits Rectangle {
                     }
                 }
 
-                if (root.stream-providers.length <= 5) : provider-scroll := HorizontalScroll {
-                    horizontal-stretch: 1;
-                    height: 2.75 * root.unit;
-                    unit: root.unit;
-                    content-width: max(self.width, provider-row.preferred-width);
-                    content-height: self.height;
-                    show-edge-fades: true;
-                    fade-surface-color: Theme.drawer-background;
-
-                    provider-row := HorizontalLayout {
-                        width: self.preferred-width;
-                        height: parent.height;
-                        spacing: 0.6 * root.unit;
-                        alignment: start;
-
-                        for provider in root.stream-providers : Chip {
-                            active-color: Theme.primary-accent;
-                            unit: root.unit;
-                            label: provider;
-                            value: provider;
-                            active: provider == root.active-stream-provider;
-                            interactive: true;
-                            selected(value) => { root.active-stream-provider = value; }
-                        }
-                    }
-                }
-
-                if (root.stream-providers.length > 5) : Rectangle { horizontal-stretch: 1; }
-
                 Rectangle {
-                    width: 10.5 * root.unit;
+                    width: max(7 * root.unit, min(10.5 * root.unit, parent.width * 0.42));
+                    height: parent.height;
 
                     SelectField {
                         unit: root.unit;
@@ -732,60 +705,30 @@ export component DetailsPage inherits Rectangle {
                         root.active-stream-provider == "All"
                             || stream.provider == root.active-stream-provider;
                     width: parent.width;
-                    // The additional 0.1rem preserves the web row gap while
-                    // allowing ListView to virtualize off-screen streams.
-                    height: self.matches-provider
-                        ? (stream.group-start ? 9.9 * root.unit : 7.4 * root.unit)
-                        : 0px;
+                    // Every source uses the same height. The provider heading
+                    // used to be an extra block inside the first row of a
+                    // group, which made the ListView mix 9.9u and 7.4u items
+                    // and paint that heading on top of the row below. It now
+                    // lives inside StreamRow, so rows are uniform and the
+                    // virtualized height stays exact.
+                    height: self.matches-provider ? 7.4 * root.unit : 0px;
                     clip: true;
                     background: transparent;
-
-                    if (stream.group-start && stream-delegate.matches-provider) : Rectangle {
-                        height: 2.5 * root.unit;
-                        background: transparent;
-                        HorizontalLayout {
-                            padding-left: 0.2 * root.unit;
-                            padding-right: 0.2 * root.unit;
-                            spacing: 0.6 * root.unit;
-                            Text {
-                                text: stream.provider;
-                                color: Theme.text-primary;
-                                font-size: 0.85 * root.unit;
-                                font-weight: 700;
-                                vertical-alignment: center;
-                            }
-                            Rectangle {
-                                height: 1.35 * root.unit;
-                                width: 5.6 * root.unit;
-                                border-radius: self.height / 2;
-                                background: stream.source-system == "Direct"
-                                    ? Theme.overlay-color
-                                    : Theme.overlay-color;
-                                Text {
-                                    text: stream.source-system == "Direct" ? "DIRECT" : (stream.source-system == "Plugin" ? "PLUGIN" : (stream.provider-count + " SOURCES"));
-                                    color: stream.source-system == "Direct"
-                                        ? Theme.primary-accent
-                                        : (stream.source-system == "Plugin" ? Theme.quaternary-accent : Theme.text-muted);
-                                    font-size: 0.55 * root.unit;
-                                    font-weight: 700;
-                                    horizontal-alignment: center;
-                                    vertical-alignment: center;
-                                }
-                            }
-                            Rectangle { horizontal-stretch: 1; }
-                        }
-                    }
 
                     StreamRow {
                         visible: stream-delegate.matches-provider;
                         x: 0px;
-                        y: stream.group-start ? 2.5 * root.unit : 0px;
+                        y: 0px;
                         width: parent.width;
                         height: 7.4 * root.unit;
                         unit: root.unit;
                         name: stream.name;
                         description: stream.description;
                         source-system: stream.source-system;
+                        provider: stream.provider;
+                        provider-count: stream.provider-count;
+                        show-provider: stream.group-start;
+                        quality: stream.quality;
                         score-label: root.ranking-mode == "Original" || stream.score == 0
                             ? ""
                             : (stream.score > 0 ? "+" + stream.score : "" + stream.score);
