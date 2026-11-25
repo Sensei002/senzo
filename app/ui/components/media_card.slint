@@ -140,6 +140,16 @@ export component MediaCard inherits Rectangle {
         }
     }
 
+    // ListView recycles delegates: scrolling by exactly one row can hand this
+    // instance a different item without moving it, so the anchor check above
+    // would not notice. Drop the preview when the bound item changes too.
+    changed item => {
+        if (root.preview-emitted) {
+            root.preview-emitted = false;
+            root.hover-preview-cancelled();
+        }
+    }
+
     background: transparent;
     height: root.poster-height + 6 * root.unit;
     clip: false;
