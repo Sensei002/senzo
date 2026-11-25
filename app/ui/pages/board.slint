@@ -414,33 +414,4 @@ export component BoardPage inherits Rectangle {
         reload => { root.reload-server(); }
         open-settings => { root.open-server-settings(); }
     }
-
-    if (root.console-mode && !root.show-server-warning) : Rectangle {
-        x: max(root.unit, parent.width - min(31 * root.unit, parent.width - 2 * root.unit) - root.unit);
-        y: parent.height - 3.2 * root.unit;
-        width: min(31 * root.unit, parent.width - 2 * root.unit);
-        height: 2.1 * root.unit;
-        border-radius: self.height / 2;
-        background: Theme.modal-background;
-        border-width: 1px;
-        border-color: Theme.card-border;
-        opacity: 0.94;
-        z: 40;
-
-        Text {
-            x: 0.9 * root.unit;
-            width: parent.width - 1.8 * root.unit;
-            height: parent.height;
-            text: root.focus-active
-                ? @tr("CONSOLE_HINT" => "← →  Move     ↑ ↓  Shelf     Enter  Open     Esc  Back")
-                : @tr("CONSOLE_HINT_IDLE" => "Arrow keys to browse  ·  Enter to open");
-            color: Theme.text-muted;
-            font-size: 0.62 * root.unit;
-            font-weight: 600;
-            letter-spacing: 0.03 * root.unit;
-            vertical-alignment: center;
-            horizontal-alignment: center;
-            overflow: elide;
-        }
-    }
 }

@@ -215,9 +215,9 @@ export component MediaCard inherits Rectangle {
             image-fit: cover;
             opacity: 0.9;
             transform-origin: { x: self.width / 2, y: self.height / 2 };
-            transform-scale: root.highlighted && root.enable-hover-scale ? 105% : 100%;
+            transform-scale: root.highlighted && root.enable-hover-scale ? 106% : 100%;
             // Render-only scaling keeps the repeated card geometry stable.
-            animate transform-scale { duration: Theme.motion-fast; easing: ease-out; }
+            animate transform-scale { duration: Theme.motion-control; easing: ease-out; }
         }
 
         if (root.item.show-checkmark) : Rectangle {

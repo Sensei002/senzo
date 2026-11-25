@@ -805,6 +805,7 @@ impl NuvioPlugins {
 struct DetailsQuery {
     key: String,
     meta_id: String,
+    video_id: String,
     media_type: String,
     title: String,
     year: Option<String>,
@@ -869,6 +870,7 @@ pub fn on_details_synced(
             manager.inner.playback.source_generation()
         ),
         meta_id: selected.meta_path.id.clone(),
+        video_id: stream_path.id.clone(),
         media_type: media_type.to_owned(),
         title: meta_item.preview.name.clone(),
         year,
@@ -931,7 +933,7 @@ impl NuvioPlugins {
         });
     }
 
-    fn apply_plugin_results(&self, generation: u64, streams: Vec<PluginStream>) {
+    fn apply_plugin_results(&self, generation: u64, streams: Vec<PluginStream>, video_id: String) {
         if self.inner.generation.load(Ordering::Acquire) != generation {
             return;
         }
@@ -941,6 +943,7 @@ impl NuvioPlugins {
             .map(|(index, stream)| PluginSelection {
                 id: format!("plugin:{}:{index}", stream.provider_key),
                 provider_name: stream.provider_name,
+                video_id: Some(video_id.clone()),
                 title: stream.name,
                 description: stream.description,
                 url: stream.url,
@@ -1112,7 +1115,7 @@ impl NuvioPlugins {
             .map(|(_, streams)| streams.clone());
         if let Some(streams) = cached {
             let count = streams.len();
-            self.apply_plugin_results(generation, streams);
+            self.apply_plugin_results(generation, streams, query.video_id.clone());
             self.set_message(&format!("Plugin search complete: {count} cached source(s)"), false);
             return;
         }
@@ -1229,7 +1232,7 @@ impl NuvioPlugins {
             }
             cache.insert(cache_key, (Instant::now(), streams.clone()));
         }
-        self.apply_plugin_results(generation, streams.clone());
+        self.apply_plugin_results(generation, streams.clone(), query.video_id.clone());
         self.set_message(
             &format!(
                 "Plugin search complete: {} source(s) from {completed} provider(s)",

@@ -147,9 +147,20 @@ export component PillButton inherits ButtonSurface {
     opacity: root.enabled
         ? ((root.has-hover || root.has-focus) ? 1 : root.idle-opacity)
         : 0.5;
+    drop-shadow-blur: root.has-hover ? 0.8 * root.unit : 0px;
+    drop-shadow-offset-y: root.has-hover ? 0.18 * root.unit : 0px;
+    drop-shadow-color: root.primary
+        ? Theme.primary-accent.with-alpha(0.28)
+        : #00000066;
 
-    animate background { duration: Theme.motion-fast; }
-    animate border-color { duration: Theme.motion-fast; }
+    animate background, border-color, opacity {
+        duration: Theme.motion-control;
+        easing: ease-out;
+    }
+    animate drop-shadow-blur, drop-shadow-offset-y {
+        duration: Theme.motion-console;
+        easing: ease-out;
+    }
 
     HorizontalLayout {
         alignment: center;
@@ -226,7 +237,10 @@ export component MenuButton inherits ButtonSurface {
     opacity: root.enabled ? 1.0 : 0.4;
     accessible-name: root.label;
 
-    animate background, opacity { duration: Theme.motion-fast; }
+    animate background, opacity {
+        duration: Theme.motion-control;
+        easing: ease-out;
+    }
 
     HorizontalLayout {
         width: parent.width;

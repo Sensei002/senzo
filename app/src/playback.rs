@@ -80,6 +80,10 @@ pub struct DirectSelection {
 pub struct PluginSelection {
     pub id: String,
     pub provider_name: String,
+    // The meta/video id this provider answered for. Plugin results used to
+    // drop this, which left them without a stream_request and therefore
+    // without the resume/progress key the player needs.
+    pub video_id: Option<String>,
     pub title: String,
     pub description: String,
     pub url: Option<String>,
@@ -464,6 +468,18 @@ impl PlaybackSelections {
                     headers
                 },
             );
+            let stream_request = selection.video_id.as_ref().and_then(|video_id| {
+                let meta_request = meta_request.as_ref()?;
+                Some(ResourceRequest {
+                    base: meta_request.base.clone(),
+                    path: ResourcePath {
+                        resource: "stream".to_owned(),
+                        r#type: meta_request.path.r#type.clone(),
+                        id: video_id.clone(),
+                        extra: Vec::new(),
+                    },
+                })
+            });
             let stream = Stream {
                 source,
                 name: Some(selection.title.clone()),
@@ -493,7 +509,7 @@ impl PlaybackSelections {
                 RegisteredSelection {
                     selected: Selected {
                         stream,
-                        stream_request: None,
+                        stream_request,
                         meta_request: meta_request.clone(),
                         subtitles_path: None,
                     },

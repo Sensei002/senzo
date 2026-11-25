@@ -618,7 +618,22 @@ export component MainWindow inherits Window {
             root.hover-preview-close();
         }
     }
-    changed effective-active-tab => { root.hover-preview-close(); }
+    changed effective-active-tab => {
+        root.hover-preview-close();
+        if (root.console-shell-active) {
+            root.console-route-opacity = 0;
+            console-route-fade-timer.restart();
+        }
+    }
+
+    console-route-fade-timer := Timer {
+        interval: 16ms;
+        running: false;
+        triggered => {
+            self.stop();
+            root.console-route-opacity = 1;
+        }
+    }
 
     // Detailed view parameters
     in-out property <string> detail-title: "";
@@ -889,6 +904,7 @@ export component MainWindow inherits Window {
         (root.effective-active-tab == 6 ? @tr("CONSOLE_SEARCH_SUBTITLE" => "Search across all connected catalogs from one place.") :
         @tr("CONSOLE_DOWNLOADS_SUBTITLE" => "Keep media available offline and manage your download queue."))))));
     private property <length> console-page-header-height: 4.4 * root.ui-unit;
+    private property <float> console-route-opacity: 1;
     private property <int> console-move-token: 0;
     private property <int> console-move-dx: 0;
     private property <int> console-move-dy: 0;
@@ -1428,35 +1444,42 @@ export component MainWindow inherits Window {
                     // cluster and the search field out of alignment.
                     HorizontalLayout {
                         width: 100%;
+                        height: root.console-shell-active ? 4.4 * root.ui-unit : 5.5 * root.ui-unit;
                         padding-left: root.console-shell-active ? 1.5 * root.ui-unit : 0px;
                         padding-right: root.console-shell-active ? 1.5 * root.ui-unit : root.ui-unit;
                         spacing: 0.8 * root.ui-unit;
 
-                        if (root.console-shell-active) : HorizontalLayout {
+                        if (root.console-shell-active) : VerticalLayout {
                             width: 12 * root.ui-unit;
-                            spacing: 0.75 * root.ui-unit;
-                            alignment: start;
+                            height: 100%;
+                            alignment: center;
 
-                            Image {
-                                width: 4.6 * root.ui-unit;
-                                height: 2.3 * root.ui-unit;
-                                source: @image-url("assets/images/senzo-logo.png");
-                                image-fit: contain;
-                            }
+                            HorizontalLayout {
+                                width: 100%;
+                                spacing: 0.75 * root.ui-unit;
+                                alignment: start;
 
-                            Rectangle {
-                                width: 1px;
-                                height: 2.1 * root.ui-unit;
-                                background: Theme.divider;
-                            }
+                                Image {
+                                    width: 4.6 * root.ui-unit;
+                                    height: 2.3 * root.ui-unit;
+                                    source: @image-url("assets/images/senzo-logo.png");
+                                    image-fit: contain;
+                                }
 
-                            Text {
-                                text: @tr("LIVING_ROOM" => "LIVING ROOM");
-                                color: Theme.text-muted;
-                                font-size: 0.64 * root.ui-unit;
-                                font-weight: 700;
-                                letter-spacing: 0.08 * root.ui-unit;
-                                vertical-alignment: center;
+                                Rectangle {
+                                    width: 1px;
+                                    height: 2.1 * root.ui-unit;
+                                    background: Theme.divider;
+                                }
+
+                                Text {
+                                    text: @tr("LIVING_ROOM" => "LIVING ROOM");
+                                    color: Theme.text-muted;
+                                    font-size: 0.64 * root.ui-unit;
+                                    font-weight: 700;
+                                    letter-spacing: 0.08 * root.ui-unit;
+                                    vertical-alignment: center;
+                                }
                             }
                         }
 
@@ -1481,13 +1504,13 @@ export component MainWindow inherits Window {
                     // Search bar in top navbar. No asymmetric padding: the
                     // two stretch spacers centre it between the brand and the
                     // account cluster on every page.
-                    HorizontalLayout {
+                    VerticalLayout {
+                        height: 100%;
                         alignment: center;
-                        height: root.console-shell-active ? 4.4 * root.ui-unit : 5.5 * root.ui-unit;
                         
                         search-input := SearchBox {
-                            width: 28 * root.ui-unit;
-                            height: 3.5 * root.ui-unit;
+                            width: 26 * root.ui-unit;
+                            height: 3.2 * root.ui-unit;
                             unit: root.ui-unit;
                             text <=> root.search-query;
                             suggestions: root.search-suggestions;
@@ -1521,16 +1544,25 @@ export component MainWindow inherits Window {
 
                     Rectangle { horizontal-stretch: 1; }
 
-                    HorizontalLayout {
+                    VerticalLayout {
                         width: root.console-shell-active ? 12 * root.ui-unit : 9.5 * root.ui-unit;
-                        spacing: 0.5 * root.ui-unit;
-                        alignment: root.console-shell-active ? end : center;
+                        height: 100%;
+                        alignment: center;
+
+                        HorizontalLayout {
+                            width: 100%;
+                            spacing: 0.5 * root.ui-unit;
+                            alignment: root.console-shell-active ? end : center;
 
                         Rectangle {
                             width: 3.5 * root.ui-unit;
                             height: 3.5 * root.ui-unit;
                             border-radius: 0.75 * root.ui-unit;
                             background: top-fullscreen.has-hover ? Theme.overlay : transparent;
+                            animate background {
+                                duration: Theme.motion-control;
+                                easing: ease-out;
+                            }
                             top-fullscreen := TouchArea {
                                 clicked => { root.player-toggle-fullscreen(); }
                             }
@@ -1550,6 +1582,10 @@ export component MainWindow inherits Window {
                             height: 3.5 * root.ui-unit;
                             border-radius: 0.75 * root.ui-unit;
                             background: profile-area.has-hover ? Theme.overlay : transparent;
+                            animate background {
+                                duration: Theme.motion-control;
+                                easing: ease-out;
+                            }
 
                             profile-area := TouchArea {
                                 clicked => { root.profile-menu-open = !root.profile-menu-open; }
@@ -1601,6 +1637,7 @@ export component MainWindow inherits Window {
                         }
                     }
                 }
+            }
 
                 // Full-width console tab rail. It lives on its own row so all
                 // eight destinations fit at the 1000 px minimum width and the
@@ -1609,18 +1646,6 @@ export component MainWindow inherits Window {
                     width: 100%;
                     height: 3.2 * root.ui-unit;
                     background: transparent;
-
-                    Rectangle {
-                        width: 100%;
-                        height: 1px;
-                        background: Theme.divider;
-                    }
-                    Rectangle {
-                        y: parent.height - 1px;
-                        width: 100%;
-                        height: 1px;
-                        background: Theme.divider;
-                    }
 
                     HorizontalLayout {
                         width: 100%;
@@ -2033,6 +2058,11 @@ export component MainWindow inherits Window {
                             width: 100%;
                             vertical-stretch: 1;
                             clip: true;
+                            opacity: root.console-route-opacity;
+                            animate opacity {
+                                duration: Theme.motion-console;
+                                easing: ease-out;
+                            }
 
                     if (root.effective-active-tab == 0) : BoardPage {
                         width: parent.width;

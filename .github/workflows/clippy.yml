@@ -81,5 +81,9 @@ jobs:
         with:
           path: vcpkg_installed
           key: Linux-vcpkg-x64-linux-v3-static-release-v1-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
+      # Keep Clippy on the app/library targets. All-targets also builds the
+      # Slint test harness on this runner, which is both very slow and prone to
+      # losing the runner after ~40 minutes. This scope still covers all
+      # shipped application code while keeping the required check reliable.
       - name: Run Clippy
-        run: cargo clippy --workspace --all-targets --locked --keep-going --message-format=short -- -D warnings
+        run: cargo clippy --workspace --lib --bins --locked --keep-going --message-format=short -- -D warnings
