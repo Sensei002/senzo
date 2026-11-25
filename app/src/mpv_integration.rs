@@ -4718,8 +4718,10 @@ fn resume_time(player: &Player) -> Option<f64> {
         .id
         .as_str();
     let item = player.library_item.as_ref()?;
-    (item.state.video_id.as_deref() == Some(selected_video))
-        .then_some(item.state.time_offset as f64)
+    // Movies persist progress with no per-video id, so their library item id
+    // is the video id they played. Series store the episode id explicitly.
+    let progress_video = item.state.video_id.as_deref().unwrap_or(item.id.as_str());
+    (progress_video == selected_video).then_some(item.state.time_offset as f64)
 }
 
 /// The core library only knows about progress for library items. Direct
@@ -5533,5 +5535,28 @@ mod player_title_tests {
 
         let title = format_player_title(&player, Some(&library));
         assert_eq!(title, Some("The Mandalorian".to_string()));
+    }
+
+    #[test]
+    fn movie_resume_uses_item_id_when_video_id_is_missing() {
+        let mut player = mock_player_with_meta("Tenet", true, vec![], "tt12345");
+        player.library_item = Some(LibraryItem {
+            id: "tt12345".to_string(),
+            r#type: "movie".to_string(),
+            name: "Tenet".to_string(),
+            poster: None,
+            poster_shape: Default::default(),
+            removed: false,
+            temp: false,
+            ctime: None,
+            mtime: chrono::Utc::now(),
+            state: LibraryItemState {
+                time_offset: 4254,
+                video_id: None,
+                ..Default::default()
+            },
+            behavior_hints: Default::default(),
+        });
+        assert_eq!(resume_time(&player), Some(4254.0));
     }
 }
