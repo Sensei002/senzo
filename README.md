@@ -26,6 +26,8 @@ Built with **Rust** and **Slint**, SENZO has its own interface, visual identity,
 
 ![SENZO application preview](app/assets/preview.png)
 
+![SENZO application preview – Board](app/assets/preview2.webp)
+
 ---
 
 ## What SENZO offers
