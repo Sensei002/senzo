@@ -9309,7 +9309,7 @@ dependencies = [
 name = "senzo"
 version = "0.1.2"
 dependencies = [
- "aes 0.8.4",
+ "aes 0.9.1",
  "aes-gcm",
  "anyhow",
  "arboard",
