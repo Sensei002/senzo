@@ -9,7 +9,8 @@ export component ConsolePageHeader inherits Rectangle {
     in property <string> subtitle: "";
 
     height: 4.4 * root.unit;
-    background: transparent;
+    background: Theme.background;
+    z: 2;
 
     HorizontalLayout {
         padding-left: 1.5 * root.unit;

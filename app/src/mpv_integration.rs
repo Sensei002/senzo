@@ -4728,15 +4728,24 @@ fn resume_time(player: &Player) -> Option<f64> {
 fn player_progress_key(player: &Player) -> Option<(String, String)> {
     let selected = player.selected.as_ref()?;
     let video_id = selected.stream_request.as_ref()?.path.id.to_string();
-    let meta_id = player
-        .meta_item
-        .as_ref()?
-        .content
+    // The meta resource may still be loading when the stream becomes playable.
+    // The request id is available immediately and is the same id the fully
+    // loaded preview would report, so use it first instead of dropping the
+    // progress sample (and the resume point) during that window.
+    let meta_id = selected
+        .meta_request
         .as_ref()
-        .and_then(Loadable::ready)?
-        .preview
-        .id
-        .to_string();
+        .map(|request| request.path.id.clone())
+        .or_else(|| {
+            player
+                .meta_item
+                .as_ref()?
+                .content
+                .as_ref()
+                .and_then(Loadable::ready)
+                .map(|meta_item| meta_item.preview.id.clone())
+        })
+        .unwrap_or_else(|| video_id.clone());
     (!meta_id.is_empty() && !video_id.is_empty()).then_some((meta_id, video_id))
 }
 
@@ -5460,6 +5469,35 @@ mod player_title_tests {
         let player = mock_player_with_meta("Breaking Bad", false, vec![video], "tt12345:1:2");
         let title = format_player_title(&player, None);
         assert_eq!(title, Some("Breaking Bad (1x2)".to_string()));
+    }
+
+    #[test]
+    fn progress_key_uses_meta_request_before_meta_loads() {
+        let mut player = mock_player_with_meta("Tenet", true, vec![], "tt6723592");
+        player.meta_item = None;
+        assert_eq!(
+            player_progress_key(&player),
+            Some(("tt12345".to_string(), "tt6723592".to_string()))
+        );
+    }
+
+    #[test]
+    fn progress_key_falls_back_to_video_id_without_meta_request() {
+        let stream_request = mock_request("stream", "series", "tt999:1:1");
+        let selected = Selected {
+            stream: mock_stream(),
+            stream_request: Some(stream_request),
+            meta_request: None,
+            subtitles_path: None,
+        };
+        let player = Player {
+            selected: Some(selected),
+            ..Default::default()
+        };
+        assert_eq!(
+            player_progress_key(&player),
+            Some(("tt999:1:1".to_string(), "tt999:1:1".to_string()))
+        );
     }
 
     #[test]
