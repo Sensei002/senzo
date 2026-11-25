@@ -1432,8 +1432,9 @@ export component MainWindow inherits Window {
                         alignment: start;
 
                         if (root.console-shell-active) : HorizontalLayout {
+                            width: 12 * root.ui-unit;
                             spacing: 0.75 * root.ui-unit;
-                            alignment: center;
+                            alignment: start;
 
                             Image {
                                 width: 4.6 * root.ui-unit;
@@ -1520,8 +1521,9 @@ export component MainWindow inherits Window {
                     Rectangle { horizontal-stretch: 1; }
 
                     HorizontalLayout {
+                        width: root.console-shell-active ? 12 * root.ui-unit : 9.5 * root.ui-unit;
                         spacing: 0.5 * root.ui-unit;
-                        alignment: center;
+                        alignment: root.console-shell-active ? end : center;
 
                         Rectangle {
                             width: 3.5 * root.ui-unit;
