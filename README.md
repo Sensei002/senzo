@@ -32,31 +32,43 @@ Built with **Rust** and **Slint**, SENZO has its own interface, visual identity,
 
 ## Quick Start
 
-### 1. Install and open SENZO
+### 1. Download, install, and open SENZO
 
-1. Download the latest stable installer or package from [GitHub Releases](https://github.com/Sensei002/senzo/releases). Development builds are available from the [desktop build workflow](https://github.com/Sensei002/senzo/actions/workflows/release.yml).
-2. Install SENZO using the package for your operating system, then launch **SENZO**.
-3. On the welcome screen, choose **Continue without signing in** to use a local guest profile. Signing in with Stremio is optional and is only needed for account-connected functionality.
+1. Download the latest stable version from [GitHub Releases](https://github.com/Sensei002/senzo/releases). To try the newest development build, use the [desktop build workflow](https://github.com/Sensei002/senzo/actions/workflows/release.yml).
+2. Choose the package for your operating system, install it, and launch **SENZO**.
+3. At the welcome screen, choose **Continue without signing in** to start with a local guest profile. Stremio sign-in is optional; use it when you need Stremio account-connected features.
 
-### 2. Add catalogs and Stremio add-ons
+### 2. Install Stremio add-ons and catalogs
 
-Open SENZO's add-on area and browse the available community add-ons/catalogs. Choose an add-on and use its install option, then return to discovery to browse the catalogs it provides. Add-on availability and the catalogs they expose depend on each third-party provider.
+Stremio add-ons and SENZO Plugins are two different integration systems.
 
-SENZO does not bundle or silently enable Torrentio. Stremio add-ons are separate from the Nuvio-compatible **Plugins** providers described below.
+1. Open SENZO's **Add-ons** area.
+2. Browse the available community add-ons/catalogs and select one you want to use.
+3. Choose its **Install** action and complete any confirmation shown by SENZO.
+4. Return to **Discover** to browse the catalogs and content made available by that add-on.
 
-### 3. Install Plugins (Nuvio-compatible providers)
+Add-ons are provided and maintained by third parties, so their catalogs, features, and availability can vary. SENZO does not bundle or silently install Torrentio; install it yourself only if you choose to use it.
 
-1. Open the **Plugins** tab in SENZO.
-2. In the repository install box, enter the public **HTTPS URL** of a Nuvio-compatible provider repository manifest.
-3. Install the repository and wait for SENZO to fetch and validate its manifest.
-4. Use the individual provider switches to enable only the providers you want. If a provider requires configuration, enter its JSON settings in that provider's settings field.
-5. Open a movie or episode's details and request available streams. Plugin results appear in the stream drawer under the **Plugins** filter and carry a **PLUGIN** badge.
+### 3. Install and activate Plugins (Nuvio-compatible providers)
 
-Installing a repository does not execute its provider scripts. Scripts run when enabled providers are queried for a title. Only install repositories you trust: providers have network access while running. Repository URLs must be public HTTPS URLs. See the full [Plugins guide](docs/PLUGINS.md) for the manifest format, settings, compatibility details, and sandbox limitations.
+The **Plugins** tab manages Nuvio-compatible provider repositories. These are separate from Stremio add-ons.
 
-### 4. Find something to watch
+1. Open the **Plugins** tab.
+2. Find the repository install field and paste the repository's public **HTTPS manifest URL**.
+3. Install the repository. SENZO downloads and validates its manifest, then lists the providers it contains.
+4. **Activate a provider:** use that provider's individual switch to turn it on. Installing a repository does not automatically activate its providers. A provider marked disabled by its repository cannot be enabled locally.
+5. **Configure when needed:** if a provider offers a settings field, enter the JSON configuration required by that provider and save it. You can use the provider's **Test** action to check that its script exports a usable `getStreams` function.
+6. Open a movie or episode, request its available streams, and select the **Plugins** filter in the stream drawer. Results are grouped by provider and marked with a **PLUGIN** badge.
 
-Use **Discover** to browse available catalogs, open a title to view its details, and choose one of the available streams. You can also add local media to your library and use SENZO's built-in player and download manager where supported.
+Installing a repository does not execute its provider scripts. Enabled providers are run when SENZO queries them for a selected title. Only install repositories you trust: provider scripts can make network requests while running, although the sandbox does not give them access to SENZO's local files, database, or credentials. Repository and provider URLs must use public HTTPS hosts.
+
+For repository format, provider settings, compatibility details, and sandbox limits, see the full [Plugins guide](docs/PLUGINS.md).
+
+### 4. Find and play something
+
+Use **Discover** to browse your installed catalogs, open a movie or episode to view its details, and choose an available stream. You can also add local media to your library and use SENZO's built-in player and download manager where supported.
+
+**Quick distinction:** use **Add-ons** for Stremio-compatible catalogs and community add-ons; use **Plugins** for Nuvio-compatible provider repositories. Installing either does not mean every provider is automatically enabled.
 
 ## What SENZO offers
 
