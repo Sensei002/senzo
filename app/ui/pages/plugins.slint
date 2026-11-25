@@ -293,6 +293,7 @@ component RepositoryRow inherits Rectangle {
 
 export component PluginsPage inherits Rectangle {
     in property <length> unit: Theme.root-font-size;
+    in property <bool> console-mode: false;
     in property <bool> master-enabled: true;
     in property <bool> group-by-repository: false;
     in property <[PluginRepositoryCard]> repositories: [];
@@ -312,7 +313,7 @@ export component PluginsPage inherits Rectangle {
     callback provider-settings-saved(string, string);
     callback refresh-all;
 
-    background: Theme.background;
+    background: root.console-mode ? transparent : Theme.background;
 
     ScrollView {
         width: parent.width;
@@ -323,9 +324,9 @@ export component PluginsPage inherits Rectangle {
             x: 0px;
             y: 0px;
             width: 100%;
-            padding-left: 2 * root.unit;
-            padding-right: 2 * root.unit;
-            padding-top: 1.5 * root.unit;
+            padding-left: root.console-mode ? 1.5 * root.unit : 2 * root.unit;
+            padding-right: root.console-mode ? 1.5 * root.unit : 2 * root.unit;
+            padding-top: root.console-mode ? 1.0 * root.unit : 1.5 * root.unit;
             padding-bottom: 2 * root.unit;
             spacing: 1.1 * root.unit;
 

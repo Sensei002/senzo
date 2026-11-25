@@ -71,6 +71,7 @@ export component LibraryPage inherits Rectangle {
     }
 
     in property <length> unit: Theme.root-font-size;
+    in property <bool> console-mode: false;
     in-out property <bool> type-open: false;
     in-out property <bool> sort-open: false;
     property <length> grid-width: root.width - 3 * root.unit;
@@ -85,11 +86,11 @@ export component LibraryPage inherits Rectangle {
         spacing: 0px;
 
         if (root.authenticated || root.local-mode) : Rectangle {
-            height: 5.75 * root.unit;
+            height: root.console-mode ? 4.75 * root.unit : 5.75 * root.unit;
             z: 1000;
 
             HorizontalLayout {
-                padding: 1.5 * root.unit;
+                padding: root.console-mode ? 0.75 * root.unit : 1.5 * root.unit;
                 spacing: 1.5 * root.unit;
                 alignment: start;
 

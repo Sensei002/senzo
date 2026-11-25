@@ -291,6 +291,7 @@ export component AddonsPage inherits Rectangle {
     in property <bool> details-configuration-required: false;
 
     in property <length> unit: Theme.root-font-size;
+    in property <bool> console-mode: false;
     in-out property <string> active-filter: "Installed";
     in-out property <string> active-type: "All";
     in-out property <bool> filter-open: false;
@@ -409,13 +410,13 @@ export component AddonsPage inherits Rectangle {
         }
 
         Rectangle {
-            height: 6 * root.unit;
+            height: root.console-mode ? 4.75 * root.unit : 6 * root.unit;
             z: 50;
 
             HorizontalLayout {
                 width: parent.width;
                 height: parent.height;
-                padding: 1.5 * root.unit;
+                padding: root.console-mode ? 0.75 * root.unit : 1.5 * root.unit;
                 spacing: root.unit;
 
                 SelectField {

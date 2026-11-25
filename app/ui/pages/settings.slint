@@ -378,6 +378,7 @@ export component SettingsPage inherits Rectangle {
     callback hotkey-reset();
 
     in property <length> unit: Theme.root-font-size;
+    in property <bool> console-mode: false;
     in-out property <int> active-category: 0;
     background: transparent;
 
@@ -402,10 +403,118 @@ export component SettingsPage inherits Rectangle {
             ((offset < root.shortcuts-pos - 10px) ? 6 : 7))))));
     }
 
-    HorizontalLayout {
+    VerticalLayout {
         spacing: 0px;
 
-        VerticalLayout {
+        // Console category rail. The desktop sidebar collapses into a single
+        // horizontal row so Settings keeps the same chrome as every other
+        // living-room section instead of falling back to a desktop sub-shell.
+        if (root.console-mode) : Rectangle {
+            height: 3.9 * root.unit;
+            background: transparent;
+
+            Rectangle {
+                y: parent.height - 1px;
+                width: 100%;
+                height: 1px;
+                background: Theme.divider;
+            }
+
+            HorizontalLayout {
+                padding-left: 1.5 * root.unit;
+                padding-right: 1.5 * root.unit;
+                padding-top: 0.6 * root.unit;
+                padding-bottom: 0.6 * root.unit;
+                spacing: 0.45 * root.unit;
+                alignment: start;
+
+                PillButton {
+                    horizontal-stretch: 1;
+                    height: 2.5 * root.unit;
+                    unit: root.unit;
+                    label-font-size: 0.72 * root.unit;
+                    label-font-weight: 600;
+                    label: @tr("SETTINGS_NAV_GENERAL" => "General");
+                    primary: root.active-category == 0;
+                    clicked => { scroll.viewport-y = 0px; root.active-category = 0; }
+                }
+                PillButton {
+                    horizontal-stretch: 1;
+                    height: 2.5 * root.unit;
+                    unit: root.unit;
+                    label-font-size: 0.72 * root.unit;
+                    label-font-weight: 600;
+                    label: @tr("CONSOLE_ACCOUNT" => "Account");
+                    primary: root.active-category == 1;
+                    clicked => { scroll.viewport-y = -profiles-sec.y; root.active-category = 1; }
+                }
+                PillButton {
+                    horizontal-stretch: 1;
+                    height: 2.5 * root.unit;
+                    unit: root.unit;
+                    label-font-size: 0.72 * root.unit;
+                    label-font-weight: 600;
+                    label: @tr("CONSOLE_INTEGRATIONS" => "Integrations");
+                    primary: root.active-category == 2;
+                    clicked => { scroll.viewport-y = -integrations-sec.y; root.active-category = 2; }
+                }
+                PillButton {
+                    horizontal-stretch: 1;
+                    height: 2.5 * root.unit;
+                    unit: root.unit;
+                    label-font-size: 0.72 * root.unit;
+                    label-font-weight: 600;
+                    label: @tr("INTERFACE" => "Interface");
+                    primary: root.active-category == 3;
+                    clicked => { scroll.viewport-y = -interface-sec.y; root.active-category = 3; }
+                }
+                PillButton {
+                    horizontal-stretch: 1;
+                    height: 2.5 * root.unit;
+                    unit: root.unit;
+                    label-font-size: 0.72 * root.unit;
+                    label-font-weight: 600;
+                    label: @tr("SETTINGS_NAV_PLAYER" => "Player");
+                    primary: root.active-category == 4;
+                    clicked => { scroll.viewport-y = -player-sec.y; root.active-category = 4; }
+                }
+                PillButton {
+                    horizontal-stretch: 1;
+                    height: 2.5 * root.unit;
+                    unit: root.unit;
+                    label-font-size: 0.72 * root.unit;
+                    label-font-weight: 600;
+                    label: @tr("SETTINGS_NAV_STREAMING" => "Streaming");
+                    primary: root.active-category == 5;
+                    clicked => { scroll.viewport-y = -streaming-sec.y; root.active-category = 5; }
+                }
+                PillButton {
+                    horizontal-stretch: 1;
+                    height: 2.5 * root.unit;
+                    unit: root.unit;
+                    label-font-size: 0.72 * root.unit;
+                    label-font-weight: 600;
+                    label: @tr("CONSOLE_BACKUP" => "Backup");
+                    primary: root.active-category == 6;
+                    clicked => { scroll.viewport-y = -operations-sec.y; root.active-category = 6; }
+                }
+                PillButton {
+                    horizontal-stretch: 1;
+                    height: 2.5 * root.unit;
+                    unit: root.unit;
+                    label-font-size: 0.72 * root.unit;
+                    label-font-weight: 600;
+                    label: @tr("SETTINGS_NAV_SHORTCUTS" => "Shortcuts");
+                    primary: root.active-category == 7;
+                    clicked => { scroll.viewport-y = -shortcuts-sec.y; root.active-category = 7; }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 0px;
+
+        if (!root.console-mode) : VerticalLayout {
             width: 20 * root.unit;
             padding-top: 3 * root.unit;
             padding-bottom: 3 * root.unit;
@@ -474,8 +583,9 @@ export component SettingsPage inherits Rectangle {
             }
 
             VerticalLayout {
-                padding-left: 3 * root.unit;
-                padding-right: 3 * root.unit;
+                padding-left: root.console-mode ? 1.5 * root.unit : 3 * root.unit;
+                padding-right: root.console-mode ? 1.5 * root.unit : 3 * root.unit;
+                padding-top: root.console-mode ? 0.6 * root.unit : 0px;
                 spacing: 0px;
                 alignment: start;
 
@@ -727,7 +837,7 @@ export component SettingsPage inherits Rectangle {
                     SettingsOption {
                         unit: root.unit;
                         label: @tr("SETTINGS_LIVING_ROOM" => "Living-room console mode");
-                        description: @tr("SETTINGS_LIVING_ROOM_DESC" => "Hides the sidebar and gives the home screen a keyboard-first console layout. Mouse and desktop controls keep working.");
+                        description: @tr("SETTINGS_LIVING_ROOM_DESC" => "Switches the whole app to a keyboard-first console: persistent top navigation, no sidebar, and shared section headers. Mouse and desktop controls keep working.");
                         ToggleSwitch { unit: root.unit; checked: root.living-room-mode; toggled => { root.change-living-room-mode(self.checked); } }
                     }
                     SettingsOption {
@@ -1755,6 +1865,7 @@ export component SettingsPage inherits Rectangle {
                     }
                 }
             }
+        }
         }
     }
 

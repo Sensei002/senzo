@@ -1,0 +1,82 @@
+import { Theme } from "../theme.slint";
+
+// Shared section header for the living-room shell. The global top bar handles
+// navigation; this band gives every non-Board page the same console hierarchy.
+export component ConsolePageHeader inherits Rectangle {
+    in property <length> unit: Theme.root-font-size;
+    in property <string> kicker: "";
+    in property <string> title: "";
+    in property <string> subtitle: "";
+
+    height: 4.4 * root.unit;
+    background: transparent;
+
+    HorizontalLayout {
+        padding-left: 1.5 * root.unit;
+        padding-right: 1.5 * root.unit;
+        padding-top: 0.35 * root.unit;
+        padding-bottom: 0.35 * root.unit;
+        spacing: 1.2 * root.unit;
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 0.1 * root.unit;
+
+            Text {
+                height: 0.7 * root.unit;
+                text: root.kicker;
+                color: Theme.primary-accent;
+                font-size: 0.62 * root.unit;
+                font-weight: 700;
+                letter-spacing: 0.08 * root.unit;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            Text {
+                height: 1.8 * root.unit;
+                text: root.title;
+                color: Theme.text-primary;
+                font-size: 1.75 * root.unit;
+                font-weight: 800;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            Text {
+                height: 0.9 * root.unit;
+                text: root.subtitle;
+                color: Theme.text-muted;
+                font-size: 0.78 * root.unit;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+
+        Rectangle { horizontal-stretch: 1; }
+
+        Rectangle {
+            height: 2.0 * root.unit;
+            width: 9.8 * root.unit;
+            border-radius: 1.1 * root.unit;
+            background: Theme.primary-accent.with-alpha(0.12);
+            border-width: 1px;
+            border-color: Theme.primary-accent.with-alpha(0.35);
+
+            Text {
+                text: @tr("LIVING_ROOM_CONSOLE" => "LIVING ROOM CONSOLE");
+                color: Theme.primary-accent;
+                font-size: 0.58 * root.unit;
+                font-weight: 700;
+                letter-spacing: 0.04 * root.unit;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    Rectangle {
+        y: parent.height - 1px;
+        width: 100%;
+        height: 1px;
+        background: Theme.divider;
+    }
+}

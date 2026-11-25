@@ -3,7 +3,7 @@ name: Clippy
 on:
   workflow_dispatch:
   pull_request:
-    branches: [main]
+    branches: [main, development]
     paths:
       - "**/*.rs"
       - "**/*.slint"
@@ -16,7 +16,7 @@ on:
       - "vcpkg-overlays/**"
       - ".github/workflows/clippy.yml"
   push:
-    branches: [main]
+    branches: [main, development]
     paths:
       - "**/*.rs"
       - "**/*.slint"
@@ -37,7 +37,7 @@ env:
 jobs:
   clippy:
     name: Rust workspace
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
       VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg_installed

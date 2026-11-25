@@ -15,6 +15,7 @@ import { EventModal } from "components/event_modal.slint";
 import { ActionsGroup } from "components/action_group.slint";
 import { HorizontalScroll } from "components/horizontal_scroll.slint";
 import { FallbackImage } from "components/fallback_image.slint";
+import { ConsolePageHeader } from "components/console_header.slint";
 import { DelayedRenderer, VisibilityTransition } from "components/transition.slint";
 import { BootScreen } from "components/boot_screen.slint";
 import { HorizontalNavBar, HorizontalNavButton, NavMenuPanel } from "components/horizontal_nav.slint";
@@ -851,14 +852,43 @@ export component MainWindow inherits Window {
     in-out property <bool> settings-quit-on-close: true;
     in-out property <bool> settings-living-room-mode: true;
     in-out property <bool> settings-esc-exit-fullscreen: true;
-    // Console shell is the keyboard-first Board presentation. Other tabs keep
-    // the sidebar so navigation stays reachable until a full top nav exists.
+    // Living-room mode replaces the desktop chrome everywhere in the app: one
+    // persistent console bar, no sidebar, and a shared section header. Details
+    // keep their own full-bleed route so the back stack stays intact.
     private property <bool> console-shell-active: root.settings-living-room-mode
-        && root.effective-active-tab == 0 && !root.effective-show-details;
+        && !root.effective-show-details;
     // Never steal arrows or Enter while the search field is being typed in.
     in-out property <bool> search-field-focused: false;
     private property <bool> console-keys-enabled: root.console-shell-active
+        && root.effective-active-tab == 0
         && !root.effective-show-player && !root.search-field-focused;
+    private property <bool> console-page-header-visible: root.console-shell-active
+        && (root.effective-active-tab >= 1 && root.effective-active-tab <= 7);
+    private property <string> console-page-kicker:
+        root.effective-active-tab == 1 ? @tr("CONSOLE_BROWSE" => "BROWSE") :
+        (root.effective-active-tab == 2 ? @tr("CONSOLE_LIBRARY" => "YOUR LIBRARY") :
+        (root.effective-active-tab == 3 ? @tr("CONSOLE_ADDONS" => "EXTENSIONS") :
+        (root.effective-active-tab == 4 ? @tr("CONSOLE_SETTINGS" => "SYSTEM") :
+        (root.effective-active-tab == 5 ? @tr("CONSOLE_SCHEDULE" => "SCHEDULE") :
+        (root.effective-active-tab == 6 ? @tr("CONSOLE_SEARCH" => "SEARCH") :
+        @tr("CONSOLE_OFFLINE" => "OFFLINE"))))));
+    private property <string> console-page-title:
+        root.effective-active-tab == 1 ? @tr("Discover") :
+        (root.effective-active-tab == 2 ? @tr("Library") :
+        (root.effective-active-tab == 3 ? @tr("ADDONS" => "Add-ons") :
+        (root.effective-active-tab == 4 ? @tr("SETTINGS" => "Settings") :
+        (root.effective-active-tab == 5 ? @tr("Calendar") :
+        (root.effective-active-tab == 6 ? @tr("STREMIO_TV_NAV_SEARCH" => "Search") :
+        @tr("DOWNLOADS_TITLE" => "Downloads"))))));
+    private property <string> console-page-subtitle:
+        root.effective-active-tab == 1 ? @tr("CONSOLE_DISCOVER_SUBTITLE" => "Browse every catalog connected to your add-ons.") :
+        (root.effective-active-tab == 2 ? @tr("CONSOLE_LIBRARY_SUBTITLE" => "Your saved movies, series, and local media in one place.") :
+        (root.effective-active-tab == 3 ? @tr("CONSOLE_ADDONS_SUBTITLE" => "Install add-ons and curate where your catalogs come from.") :
+        (root.effective-active-tab == 4 ? @tr("CONSOLE_SETTINGS_SUBTITLE" => "Tune playback, interface, streaming, and system behaviour.") :
+        (root.effective-active-tab == 5 ? @tr("CONSOLE_CALENDAR_SUBTITLE" => "Track upcoming episodes and releases from your library.") :
+        (root.effective-active-tab == 6 ? @tr("CONSOLE_SEARCH_SUBTITLE" => "Search across all connected catalogs from one place.") :
+        @tr("CONSOLE_DOWNLOADS_SUBTITLE" => "Keep media available offline and manage your download queue."))))));
+    private property <length> console-page-header-height: 4.4 * root.ui-unit;
     private property <int> console-move-token: 0;
     private property <int> console-move-dx: 0;
     private property <int> console-move-dy: 0;
@@ -1383,105 +1413,78 @@ export component MainWindow inherits Window {
 
             // Official horizontal navigation bar.
             Rectangle {
-                height: 5.5 * root.ui-unit;
+                height: root.console-shell-active ? 7.6 * root.ui-unit : 5.5 * root.ui-unit;
                 visible: !root.effective-show-details;
-                background: transparent;
+                background: root.console-shell-active ? Theme.sidebar-background : transparent;
                 z: 100;
 
-                HorizontalLayout {
-                    padding-right: root.ui-unit;
-                    alignment: space-between;
+                VerticalLayout {
+                    spacing: 0px;
 
-                    // The sidebar owns the single large SENZO brand mark. Keep
-                    // this slot as an alignment spacer instead of repeating a
-                    // second, smaller logo in the top navigation bar.
-                    Rectangle {
-                        width: root.console-shell-active ? 0px : Theme.vertical-nav-bar-size;
-                        height: Theme.horizontal-nav-bar-size;
-                        background: Theme.sidebar-background;
-
-                        Rectangle {
-                            x: parent.width - 1px;
-                            y: 0px;
-                            width: 1px;
-                            height: 100%;
-                            background: Theme.divider;
-                        }
-                    }
-
-                    // Compact console tab strip replaces the sidebar while the
-                    // living-room board is on screen, so navigation never
-                    // becomes keyboard-only or hidden.
-                    if (root.console-shell-active) : HorizontalLayout {
-                        spacing: 0.4 * root.ui-unit;
-                        padding-left: 1 * root.ui-unit;
+                    // Upper chrome row: brand, centred search, account actions.
+                    // Keeping this row separate from the tab rail removes the
+                    // free-space distribution that used to push the old nav
+                    // cluster and the search field out of alignment.
+                    HorizontalLayout {
+                        padding-left: root.console-shell-active ? 1.5 * root.ui-unit : 0px;
+                        padding-right: root.console-shell-active ? 1.5 * root.ui-unit : root.ui-unit;
+                        spacing: 0.8 * root.ui-unit;
                         alignment: start;
 
-                        PillButton {
-                            width: 6.8 * root.ui-unit;
-                            height: 3.1 * root.ui-unit;
-                            unit: root.ui-unit;
-                            label-font-size: 1.0 * root.ui-unit;
-                            label: @tr("Board");
-                            primary: root.effective-active-tab == 0;
-                            clicked => { root.tab-changed(0); app-shortcuts.focus(); }
-                        }
-                        PillButton {
-                            width: 6.8 * root.ui-unit;
-                            height: 3.1 * root.ui-unit;
-                            unit: root.ui-unit;
-                            label-font-size: 1.0 * root.ui-unit;
-                            label: @tr("Discover" => "Discover");
-                            primary: root.effective-active-tab == 1;
-                            clicked => { root.tab-changed(1); app-shortcuts.focus(); }
-                        }
-                        PillButton {
-                            width: 6.8 * root.ui-unit;
-                            height: 3.1 * root.ui-unit;
-                            unit: root.ui-unit;
-                            label-font-size: 1.0 * root.ui-unit;
-                            label: @tr("Library" => "Library");
-                            primary: root.effective-active-tab == 2;
-                            clicked => {
-                                root.library-continue-watching-mode = false;
-                                root.tab-changed(2);
-                                app-shortcuts.focus();
-                            }
-                        }
-                        PillButton {
-                            width: 6.8 * root.ui-unit;
-                            height: 3.1 * root.ui-unit;
-                            unit: root.ui-unit;
-                            label-font-size: 1.0 * root.ui-unit;
-                            label: @tr("ADDONS" => "Addons");
-                            primary: root.effective-active-tab == 3;
-                            clicked => { root.tab-changed(3); app-shortcuts.focus(); }
-                        }
-                        PillButton {
-                            width: 6.8 * root.ui-unit;
-                            height: 3.1 * root.ui-unit;
-                            unit: root.ui-unit;
-                            label-font-size: 1.0 * root.ui-unit;
-                            label: @tr("SETTINGS" => "Settings");
-                            primary: root.effective-active-tab == 4 || root.effective-active-tab == 10;
-                            clicked => {
-                                root.settings-active-category = 0;
-                                root.tab-changed(4);
-                                app-shortcuts.focus();
-                            }
-                        }
-                    }
+                        if (root.console-shell-active) : HorizontalLayout {
+                            spacing: 0.75 * root.ui-unit;
+                            alignment: center;
 
-                    // Search bar in top navbar
+                            Image {
+                                width: 4.6 * root.ui-unit;
+                                height: 2.3 * root.ui-unit;
+                                source: @image-url("assets/images/senzo-logo.png");
+                                image-fit: contain;
+                            }
+
+                            Rectangle {
+                                width: 1px;
+                                height: 2.1 * root.ui-unit;
+                                background: Theme.divider;
+                            }
+
+                            Text {
+                                text: @tr("LIVING_ROOM" => "LIVING ROOM");
+                                color: Theme.text-muted;
+                                font-size: 0.64 * root.ui-unit;
+                                font-weight: 700;
+                                letter-spacing: 0.08 * root.ui-unit;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        // Desktop keeps the sidebar brand slot so the global
+                        // search stays optically centred beside it.
+                        if (!root.console-shell-active) : Rectangle {
+                            width: Theme.vertical-nav-bar-size;
+                            height: Theme.horizontal-nav-bar-size;
+                            background: Theme.sidebar-background;
+
+                            Rectangle {
+                                x: parent.width - 1px;
+                                y: 0px;
+                                width: 1px;
+                                height: 100%;
+                                background: Theme.divider;
+                            }
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                    // Search bar in top navbar. No asymmetric padding: the
+                    // two stretch spacers centre it between the brand and the
+                    // account cluster on every page.
                     HorizontalLayout {
                         alignment: center;
-                        padding-top: 1 * root.ui-unit;
-                        padding-bottom: 1 * root.ui-unit;
-                        padding-left: 2 * root.ui-unit;
-                        padding-right: 2 * root.ui-unit;
+                        height: root.console-shell-active ? 4.4 * root.ui-unit : 5.5 * root.ui-unit;
                         
                         search-input := SearchBox {
-                            width: root.console-shell-active ? 20 * root.ui-unit : 28 * root.ui-unit;
+                            width: 28 * root.ui-unit;
                             height: 3.5 * root.ui-unit;
                             unit: root.ui-unit;
                             text <=> root.search-query;
@@ -1514,10 +1517,11 @@ export component MainWindow inherits Window {
                         }
                     }
 
+                    Rectangle { horizontal-stretch: 1; }
+
                     HorizontalLayout {
                         spacing: 0.5 * root.ui-unit;
                         alignment: center;
-                        padding-top: 0.5 * root.ui-unit;
 
                         Rectangle {
                             width: 3.5 * root.ui-unit;
@@ -1595,6 +1599,148 @@ export component MainWindow inherits Window {
                     }
                 }
 
+                // Full-width console tab rail. It lives on its own row so all
+                // eight destinations fit at the 1000 px minimum width and the
+                // search field never competes with the tabs for space.
+                if (root.console-shell-active) : Rectangle {
+                    height: 3.2 * root.ui-unit;
+                    background: transparent;
+
+                    Rectangle {
+                        width: 100%;
+                        height: 1px;
+                        background: Theme.divider;
+                    }
+                    Rectangle {
+                        y: parent.height - 1px;
+                        width: 100%;
+                        height: 1px;
+                        background: Theme.divider;
+                    }
+
+                    HorizontalLayout {
+                        padding-left: 1.5 * root.ui-unit;
+                        padding-right: 1.5 * root.ui-unit;
+                        spacing: 0.4 * root.ui-unit;
+                        alignment: start;
+
+                        PillButton {
+                            horizontal-stretch: 1;
+                            height: 2.5 * root.ui-unit;
+                            unit: root.ui-unit;
+                            label-font-size: 0.8 * root.ui-unit;
+                            label-font-weight: 600;
+                            label: @tr("Board");
+                            primary: root.effective-active-tab == 0;
+                            clicked => {
+                                root.theme-studio-open = false;
+                                root.tab-changed(0);
+                                app-shortcuts.focus();
+                            }
+                        }
+                        PillButton {
+                            horizontal-stretch: 1;
+                            height: 2.5 * root.ui-unit;
+                            unit: root.ui-unit;
+                            label-font-size: 0.8 * root.ui-unit;
+                            label-font-weight: 600;
+                            label: @tr("Discover" => "Discover");
+                            primary: root.effective-active-tab == 1;
+                            clicked => {
+                                root.theme-studio-open = false;
+                                root.tab-changed(1);
+                                app-shortcuts.focus();
+                            }
+                        }
+                        PillButton {
+                            horizontal-stretch: 1;
+                            height: 2.5 * root.ui-unit;
+                            unit: root.ui-unit;
+                            label-font-size: 0.8 * root.ui-unit;
+                            label-font-weight: 600;
+                            label: @tr("Library" => "Library");
+                            primary: root.effective-active-tab == 2;
+                            clicked => {
+                                root.theme-studio-open = false;
+                                root.library-continue-watching-mode = false;
+                                root.tab-changed(2);
+                                app-shortcuts.focus();
+                            }
+                        }
+                        PillButton {
+                            horizontal-stretch: 1;
+                            height: 2.5 * root.ui-unit;
+                            unit: root.ui-unit;
+                            label-font-size: 0.8 * root.ui-unit;
+                            label-font-weight: 600;
+                            label: @tr("Calendar");
+                            primary: root.effective-active-tab == 5;
+                            clicked => {
+                                root.theme-studio-open = false;
+                                root.tab-changed(5);
+                                app-shortcuts.focus();
+                            }
+                        }
+                        PillButton {
+                            horizontal-stretch: 1;
+                            height: 2.5 * root.ui-unit;
+                            unit: root.ui-unit;
+                            label-font-size: 0.8 * root.ui-unit;
+                            label-font-weight: 600;
+                            label: @tr("ADDONS" => "Addons");
+                            primary: root.effective-active-tab == 3;
+                            clicked => {
+                                root.theme-studio-open = false;
+                                root.tab-changed(3);
+                                app-shortcuts.focus();
+                            }
+                        }
+                        PillButton {
+                            horizontal-stretch: 1;
+                            height: 2.5 * root.ui-unit;
+                            unit: root.ui-unit;
+                            label-font-size: 0.8 * root.ui-unit;
+                            label-font-weight: 600;
+                            label: @tr("Plugins");
+                            primary: root.effective-active-tab == 12;
+                            clicked => {
+                                root.theme-studio-open = false;
+                                root.tab-changed(12);
+                                app-shortcuts.focus();
+                            }
+                        }
+                        PillButton {
+                            horizontal-stretch: 1;
+                            height: 2.5 * root.ui-unit;
+                            unit: root.ui-unit;
+                            label-font-size: 0.8 * root.ui-unit;
+                            label-font-weight: 600;
+                            label: @tr("DOWNLOADS_TITLE" => "Downloads");
+                            primary: root.effective-active-tab == 7;
+                            clicked => {
+                                root.theme-studio-open = false;
+                                root.tab-changed(7);
+                                app-shortcuts.focus();
+                            }
+                        }
+                        PillButton {
+                            horizontal-stretch: 1;
+                            height: 2.5 * root.ui-unit;
+                            unit: root.ui-unit;
+                            label-font-size: 0.8 * root.ui-unit;
+                            label-font-weight: 600;
+                            label: @tr("SETTINGS" => "Settings");
+                            primary: root.effective-active-tab == 4 || root.effective-active-tab == 10;
+                            clicked => {
+                                root.theme-studio-open = false;
+                                root.settings-active-category = 0;
+                                root.tab-changed(4);
+                                app-shortcuts.focus();
+                            }
+                        }
+                    }
+                }
+            }
                 if (root.profile-menu-open) : Rectangle {
                     x: 0px;
                     y: 0px;
@@ -1610,7 +1756,7 @@ export component MainWindow inherits Window {
 
                 if (root.profile-menu-open) : Rectangle {
                     x: parent.width - 23 * root.ui-unit;
-                    y: 6.5 * root.ui-unit;
+                    y: (root.console-shell-active ? 7.9 : 6.0) * root.ui-unit;
                     width: 22 * root.ui-unit;
                     height: layout.preferred-height;
                     border-radius: 0.75 * root.ui-unit;
@@ -1769,6 +1915,7 @@ export component MainWindow inherits Window {
                         }
                     }
                 }
+
             }
 
             if (root.settings-update-state == 2 && !root.updater-banner-dismissed) : Rectangle {
@@ -1854,6 +2001,23 @@ export component MainWindow inherits Window {
                     background: transparent;
                     clip: true;
                     
+                    if (root.console-page-header-visible) : ConsolePageHeader {
+                        width: parent.width;
+                        height: root.console-page-header-height;
+                        unit: root.ui-unit;
+                        kicker: root.console-page-kicker;
+                        title: root.console-page-title;
+                        subtitle: root.console-page-subtitle;
+                    }
+
+                    // All routed pages share the console header offset. Details
+                    // and the player are rendered outside this shell.
+                    Rectangle {
+                        y: root.console-page-header-visible ? root.console-page-header-height : 0px;
+                        width: 100%;
+                        height: parent.height - (root.console-page-header-visible
+                            ? root.console-page-header-height : 0px);
+
                     if (root.effective-active-tab == 0) : BoardPage {
                         width: parent.width;
                         height: parent.height;
@@ -1920,6 +2084,7 @@ export component MainWindow inherits Window {
                         width: parent.width;
                         height: parent.height;
                         unit: root.ui-unit;
+                        console-mode: root.console-shell-active && root.effective-active-tab == 1;
                         rows: root.debug-preview-enabled && root.debug-preview-page == 1
                             && (root.debug-preview-state == "empty" || root.debug-preview-state == "loading")
                             ? [] : discover-rows;
@@ -2009,6 +2174,7 @@ export component MainWindow inherits Window {
                         width: parent.width;
                         height: parent.height;
                         unit: root.ui-unit;
+                        console-mode: root.console-shell-active;
                         rows: root.debug-preview-enabled && root.debug-preview-page == 2
                             && (root.debug-preview-state == "empty" || root.debug-preview-state == "loading")
                             ? [] : library-rows;
@@ -2057,6 +2223,7 @@ export component MainWindow inherits Window {
                         width: parent.width;
                         height: parent.height;
                         unit: root.ui-unit;
+                        console-mode: root.console-shell-active;
                         addons: root.debug-preview-enabled && root.debug-preview-page == 3
                             && (root.debug-preview-state == "empty" || root.debug-preview-state == "loading")
                             ? [] : addons-list;
@@ -2122,6 +2289,7 @@ export component MainWindow inherits Window {
                         width: parent.width;
                         height: parent.height;
                         unit: root.ui-unit;
+                        console-mode: root.console-shell-active;
                         master-enabled: root.plugins-master-enabled;
                         group-by-repository: root.plugins-group-by-repository;
                         repositories: root.plugin-repositories;
@@ -2145,6 +2313,7 @@ export component MainWindow inherits Window {
                         width: parent.width;
                         height: parent.height;
                         unit: root.ui-unit;
+                        console-mode: root.console-shell-active;
                         active-category: root.debug-preview-enabled && root.debug-preview-page == 4
                             ? (root.debug-preview-state == "interface" ? 1
                                 : (root.debug-preview-state == "player-settings" ? 2
@@ -2413,6 +2582,7 @@ export component MainWindow inherits Window {
                         width: parent.width;
                         height: parent.height;
                         unit: root.ui-unit;
+                        console-mode: root.console-shell-active;
                         items: root.download-items;
                         loading: root.downloads-loading;
                         error: root.downloads-error;
@@ -2422,6 +2592,7 @@ export component MainWindow inherits Window {
                         play(id) => { root.downloads-play(id); }
                         reveal(id) => { root.downloads-reveal(id); }
                         retry => { root.downloads-refresh(); }
+                    }
                     }
                 }
             }

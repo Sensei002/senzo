@@ -96,6 +96,7 @@ export component DiscoverPage inherits Rectangle {
     }
 
     in property <length> unit: Theme.root-font-size;
+    in property <bool> console-mode: false;
     property <bool> preview-visible: root.has-preview && root.preview-title != "";
     in-out property <bool> type-open: false;
     in-out property <bool> catalog-open: false;
@@ -118,10 +119,12 @@ export component DiscoverPage inherits Rectangle {
             spacing: 0px;
 
             Rectangle {
-                height: root.selected-addon-installed ? 5.75 * root.unit : 10 * root.unit;
+                height: root.console-mode
+                    ? (root.selected-addon-installed ? 4.75 * root.unit : 8.5 * root.unit)
+                    : (root.selected-addon-installed ? 5.75 * root.unit : 10 * root.unit);
 
                 HorizontalLayout {
-                    padding: 1.5 * root.unit;
+                    padding: root.console-mode ? 0.75 * root.unit : 1.5 * root.unit;
                     spacing: 1.5 * root.unit;
                     alignment: start;
 
@@ -198,7 +201,7 @@ export component DiscoverPage inherits Rectangle {
 
                 if (!root.selected-addon-installed) : Rectangle {
                     x: 1.5 * root.unit;
-                    y: 5.5 * root.unit;
+                    y: root.console-mode ? 4.5 * root.unit : 5.5 * root.unit;
                     width: parent.width - 3 * root.unit;
                     height: 3.5 * root.unit;
                     border-radius: Theme.border-radius;

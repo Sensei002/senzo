@@ -19,6 +19,7 @@ export struct DownloadItem {
 
 export component DownloadsPage inherits Rectangle {
     in property <length> unit: Theme.root-font-size;
+    in property <bool> console-mode: false;
     in property <[DownloadItem]> items: [];
     in property <bool> loading: false;
     in property <string> error: "";
@@ -32,13 +33,13 @@ export component DownloadsPage inherits Rectangle {
     background: transparent;
 
     VerticalLayout {
-        padding-left: 3 * root.unit;
-        padding-right: 3 * root.unit;
-        padding-top: 2.5 * root.unit;
+        padding-left: root.console-mode ? 1.5 * root.unit : 3 * root.unit;
+        padding-right: root.console-mode ? 1.5 * root.unit : 3 * root.unit;
+        padding-top: root.console-mode ? 1.2 * root.unit : 2.5 * root.unit;
         padding-bottom: 2 * root.unit;
         spacing: 1.5 * root.unit;
 
-        Text {
+        if (!root.console-mode) : Text {
             height: 3 * root.unit;
             text: @tr("DOWNLOADS_TITLE" => "Downloads");
             color: Theme.text-primary;
