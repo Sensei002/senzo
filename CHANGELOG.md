@@ -2,6 +2,17 @@
 
 This file records notable changes to SENZO relative to the initial source snapshot.
 
+## 0.1.3 - 2026-11-25
+
+### Fixes and reliability
+
+- Fixed routed pages becoming invisible after switching tabs by removing the fragile timer-driven fade from the page host.
+- Resolved the 14 strict Clippy diagnostics without adding lint suppressions.
+
+### App presentation
+
+- Added a second application screenshot to the project preview section.
+
 ## 0.1.2 - 2026-11-24
 
 ### Sources
