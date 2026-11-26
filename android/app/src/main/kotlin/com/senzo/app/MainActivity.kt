@@ -55,6 +55,7 @@ import com.senzo.app.ui.DetailsScreen
 import com.senzo.app.ui.HomeScreen
 import com.senzo.app.ui.LibraryScreen
 import com.senzo.app.ui.LoginScreen
+import com.senzo.app.ui.Outline
 import com.senzo.app.ui.PlayerScreen
 import com.senzo.app.ui.SearchScreen
 import com.senzo.app.ui.SenzoTheme
