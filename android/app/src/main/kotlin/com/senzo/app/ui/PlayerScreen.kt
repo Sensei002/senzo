@@ -126,6 +126,7 @@ fun PlayerScreen(
             onNext = onNext,
             onRetry = onRetry,
             onClose = onClose,
+            subtitleSize = subtitleSize,
             onUnavailable = { libmpv = false },
         )
     } else {

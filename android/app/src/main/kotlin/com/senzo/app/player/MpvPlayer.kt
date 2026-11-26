@@ -151,6 +151,17 @@ class MpvPlayerView(context: Context) : BaseMPVView(context, null) {
         mpv.command("seek", (deltaMilliseconds / 1000.0).toString(), "relative")
     }
 
+    /** Matches the Small/Medium/Large choice in Settings. */
+    fun setSubtitleSize(size: Int) {
+        if (closed) return
+        val points = when (size) {
+            0 -> "38"
+            2 -> "62"
+            else -> "50"
+        }
+        runCatching { mpv.setPropertyString("sub-font-size", points) }
+    }
+
     fun setSpeed(speed: Float) {
         if (closed) return
         mpv.setPropertyDouble("speed", speed.toDouble())

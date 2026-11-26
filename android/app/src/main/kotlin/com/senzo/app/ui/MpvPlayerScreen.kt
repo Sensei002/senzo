@@ -84,6 +84,7 @@ fun MpvPlayerScreen(
     onNext: () -> Unit,
     onRetry: () -> Unit,
     onClose: (Long, Long) -> Unit,
+    subtitleSize: Int = 1,
     onUnavailable: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -151,6 +152,7 @@ fun MpvPlayerScreen(
                     runCatching {
                         MpvPlayerView(ctx).apply {
                             start(File(ctx.filesDir, "mpv-config"), File(ctx.cacheDir, "mpv"))
+                            setSubtitleSize(subtitleSize)
                             engine = this
                             if (url != null) play(url, playback.headers, playback.startPositionMs)
                         }
