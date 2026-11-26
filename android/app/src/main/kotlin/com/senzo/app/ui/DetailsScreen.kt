@@ -444,6 +444,8 @@ private enum class SourceFilter(val label: String) {
     Direct("Direct"),
 }
 
+private val SOURCE_FILTERS = listOf(SourceFilter.All, SourceFilter.Torrent, SourceFilter.Direct)
+
 /** How the source list is ordered. */
 private enum class SourceSort(val label: String) {
     Quality("Quality"),
@@ -556,7 +558,9 @@ private fun StreamSheet(
                         contentPadding = PaddingValues(horizontal = 20.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        items(SourceFilter.entries.toList()) { entry ->
+                        // K2 crashes on enum `entries` here, so the three
+                        // values are listed by hand.
+                        items(SOURCE_FILTERS) { entry ->
                             val count = when (entry) {
                                 SourceFilter.All -> streams.size
                                 SourceFilter.Torrent -> torrents
