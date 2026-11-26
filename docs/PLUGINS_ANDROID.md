@@ -232,6 +232,16 @@ trackers are appended when a magnet carries none, and the file is located on dis
 after download starts rather than assumed, because libtorrent nests multi-file
 torrents under the torrent name.
 
+Torrent pieces are non-persistent on both platforms. The desktop client rotates
+`torrent-cache` at launch and deletes the old tree on a detached worker, because
+a fresh engine cannot resume what an old one wrote. Android used to keep
+everything under `cache/torrents` across launches, so every film ever watched
+stayed on disk until the OS reclaimed it. `TorrentCache` now does the desktop
+thing: the directory is renamed out of the way at launch and deleted in the
+background, each stream writes into its own directory, and that directory is
+dropped as soon as the engine releases the torrent. Settings also offers a
+"Clear torrent cache" row.
+
 ## APK size
 
 `libtorrent4j.so` is ~15 MB per architecture and QuickJS adds ~1.3 MB. The

@@ -26,6 +26,7 @@ import com.senzo.app.plugins.PluginRepository
 import com.senzo.app.plugins.PluginRuntime
 import com.senzo.app.plugins.PluginStream
 import com.senzo.app.plugins.ProviderRequest
+import com.senzo.app.torrent.TorrentCache
 import com.senzo.app.torrent.TorrentStreamer
 
 /** The five places the bottom bar can take the viewer. */
@@ -170,6 +171,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 plugins = PluginUiState(config = pluginRuntime.config()),
             )
         }
+        // The engine starts empty every launch, so nothing an earlier run wrote
+        // can be resumed; rotate the cache now and let a worker delete it.
+        viewModelScope.launch(Dispatchers.IO) {
+            TorrentCache.rotate(java.io.File(application.cacheDir, "torrents"))
+        }
+
         // The plugin repository that ships with the app only knows its file list
         // after one manifest fetch, so fill it in quietly on first start.
         if (pluginRuntime.config().providers.isEmpty()) {
@@ -471,6 +478,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update {
             it.copy(searchQuery = "", searchResults = emptyList(), searchLoading = false)
         }
+    }
+
+    /**
+     * Drops the pieces the torrent engine wrote. Nothing can resume them after a
+     * restart, so this only frees space; watch history is untouched.
+     */
+    fun clearTorrentCache() {
+        if (_state.value.playback?.torrent != null) return
+        val root = java.io.File(getApplication<Application>().cacheDir, "torrents")
+        viewModelScope.launch(Dispatchers.IO) { TorrentCache.rotate(root) }
     }
 
     fun clearRecentSearches() {
@@ -885,6 +902,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }.onFailure { error ->
                 torrentWatcher?.cancel()
+                torrentWatcher = null
+                // A failed start may leave a running session behind, and its
+                // pieces have nowhere to be resumed from, so release both.
+                torrentStop = viewModelScope.launch(Dispatchers.IO) { torrents.stop() }
                 val reason = error.message ?: "The torrent could not be played."
                 _state.update { current ->
                     current.copy(playback = current.playback?.copy(status = null, failure = reason))

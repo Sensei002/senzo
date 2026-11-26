@@ -260,6 +260,7 @@ private fun MainShell(state: UiState, viewModel: MainViewModel) {
                     },
                     onClearHistory = viewModel::clearWatchHistory,
                     onClearSearches = viewModel::clearRecentSearches,
+                    onClearTorrents = viewModel::clearTorrentCache,
                     onSignOut = viewModel::signOut,
                 )
             }

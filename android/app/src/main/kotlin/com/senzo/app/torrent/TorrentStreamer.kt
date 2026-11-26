@@ -72,6 +72,8 @@ class TorrentStreamer(private val cacheDir: File) {
     @Volatile private var fileOffset = 0L
     @Volatile private var videoName = ""
     private var videoIndex = -1
+    /** Where this torrent's pieces live, so they can be dropped afterwards. */
+    private var activeDir: File? = null
     @Volatile private var current = Status()
     @Volatile private var stopped = true
 
@@ -89,12 +91,15 @@ class TorrentStreamer(private val cacheDir: File) {
         synchronized(lock) {
             stopLocked()
             stopped = false
-            val dir = File(cacheDir, "stream").apply { mkdirs() }
+            val dir = File(cacheDir, dirName(magnet)).apply { mkdirs() }
+            activeDir = dir
             current = Status(state = "metadata")
             val session = try {
                 SessionManager().also { it.start() }
             } catch (error: Throwable) {
                 stopped = true
+                TorrentCache.discard(dir)
+                activeDir = null
                 throw IllegalStateException("The torrent engine is not available on this device.", error)
             }
             this.session = session
@@ -104,6 +109,8 @@ class TorrentStreamer(private val cacheDir: File) {
                 safeSessionStop(session)
                 this.session = null
                 stopped = true
+                TorrentCache.discard(dir)
+                activeDir = null
                 current = current.copy(error = error.message ?: "The torrent could not be resolved.")
                 throw error
             }
@@ -114,6 +121,8 @@ class TorrentStreamer(private val cacheDir: File) {
                 this.session = null
                 stopped = true
                 val message = "This torrent has no playable video file."
+                TorrentCache.discard(dir)
+                activeDir = null
                 current = current.copy(error = message)
                 throw IllegalStateException(message)
             }
@@ -124,7 +133,14 @@ class TorrentStreamer(private val cacheDir: File) {
             videoName = storage.filePath(index)
             session.download(torrent, dir)
             val added = waitForHandle(session, torrent)
-                ?: throw IllegalStateException("The torrent could not be added.")
+                ?: run {
+                    safeSessionStop(session)
+                    this.session = null
+                    stopped = true
+                    TorrentCache.discard(dir)
+                    activeDir = null
+                    throw IllegalStateException("The torrent could not be added.")
+                }
             handle = added
             prioritize(added, storage)
             // Wait for the opening pieces here, so the player connects to a
@@ -169,6 +185,10 @@ class TorrentStreamer(private val cacheDir: File) {
         videoName = ""
         fileSize = 0
         fileOffset = 0
+        activeDir?.let { dir ->
+            activeDir = null
+            TorrentCache.discard(dir)
+        }
         if (current.error == null) current = Status()
     }
 
@@ -274,6 +294,15 @@ class TorrentStreamer(private val cacheDir: File) {
             session.fetchMagnet(uri, 30, File(dir, "metadata.torrent"))
         }.getOrNull() ?: throw IllegalStateException("No peer answered with the torrent metadata.")
         return TorrentInfo(raw)
+    }
+
+    /**
+     * One directory per stream, so a finished one can be dropped by itself
+     * without racing the next download that would reuse the same name.
+     */
+    private fun dirName(magnet: String): String {
+        val base = hashOf(magnet)?.toString()?.takeIf { it.isNotBlank() } ?: "session"
+        return "$base-${System.currentTimeMillis()}"
     }
 
     /** Reads the info hash out of a magnet so the added torrent can be found. */

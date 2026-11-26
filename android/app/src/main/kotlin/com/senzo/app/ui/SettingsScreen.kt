@@ -53,6 +53,7 @@ fun SettingsScreen(
     onSubtitleSize: (Int) -> Unit,
     onClearHistory: () -> Unit,
     onClearSearches: () -> Unit,
+    onClearTorrents: () -> Unit,
     onSignOut: () -> Unit,
 ) {
     var confirmSignOut by remember { mutableStateOf(false) }
@@ -222,6 +223,11 @@ fun SettingsScreen(
         }
 
         SectionTitle("On this device")
+        ActionRow(
+            title = "Clear torrent cache",
+            subtitle = "Removes the pieces downloaded for torrents. They cannot be resumed after a restart anyway.",
+            onClick = onClearTorrents,
+        )
         ActionRow(
             title = "Clear watch history",
             subtitle = "Removes the resume points of the board.",
