@@ -157,6 +157,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 plugins = PluginUiState(config = pluginRuntime.config()),
             )
         }
+        // The plugin repository that ships with the app only knows its file list
+        // after one manifest fetch, so fill it in quietly on first start.
+        if (pluginRuntime.config().providers.isEmpty()) {
+            viewModelScope.launch {
+                pluginRuntime.config().repositories.forEach { repository ->
+                    refreshPluginRepository(repository.url)
+                }
+            }
+        }
+
         if (session == null && prefs.guest()) {
             // The guest choice is local to this app, so a restart goes straight
             // back to the board instead of asking for an account again.

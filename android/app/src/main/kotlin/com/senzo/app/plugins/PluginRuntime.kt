@@ -151,7 +151,7 @@ class PluginRepositoryClient {
     fun text(url: String, limit: Int): String {
         val uri = requireHttps(url)
         val request = Request.Builder().url(uri.toString()).build()
-        client.newCall(request).execute().use { response ->
+        return client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IllegalStateException("The plugin host answered ${response.code}.")
             }
