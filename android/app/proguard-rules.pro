@@ -40,13 +40,12 @@
 }
 -dontwarn com.whl.quickjs.**
 
-# NextLib decodes audio in native FFmpeg code that calls back into Java by
-# name, so its bridge classes must not be renamed or stripped.
--keep class io.github.anilbeesetti.nextlib.** { *; }
--keepclasseswithmembernames class io.github.anilbeesetti.nextlib.** {
+# The FFmpeg audio decoder is reached by name from native code and replaces
+# the platform decoders for AC3, EAC3, DTS and TrueHD.
+-keep class androidx.media3.decoder.ffmpeg.** { *; }
+-keepclasseswithmembernames class androidx.media3.decoder.ffmpeg.** {
     native <methods>;
 }
--dontwarn io.github.anilbeesetti.nextlib.**
 
 # libmpv calls back into is.xyz.mpv.MPV from JNI by name, and the native
 # player loads its Java observers reflectively.

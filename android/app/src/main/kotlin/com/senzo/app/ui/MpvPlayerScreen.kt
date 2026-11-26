@@ -84,6 +84,7 @@ fun MpvPlayerScreen(
     onNext: () -> Unit,
     onRetry: () -> Unit,
     onClose: (Long, Long) -> Unit,
+    onUnavailable: () -> Unit = {},
 ) {
     val context = LocalContext.current
     var snapshot by remember { mutableStateOf(MpvSnapshot()) }
@@ -94,6 +95,7 @@ fun MpvPlayerScreen(
     var scrubValue by remember { mutableStateOf(0f) }
     var sheet by remember { mutableStateOf(false) }
     var failure by remember { mutableStateOf<String?>(null) }
+    val unavailable = remember { mutableStateOf(false) }
 
     val url = playback.url
     val position = snapshot.positionMs
@@ -108,6 +110,11 @@ fun MpvPlayerScreen(
         onDispose {
             activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
+    }
+
+    // If the native library cannot load, the Media3 player takes over.
+    LaunchedEffect(unavailable.value) {
+        if (unavailable.value) onUnavailable()
     }
 
     LaunchedEffect(engine, attempts) {
@@ -141,10 +148,15 @@ fun MpvPlayerScreen(
         key(attempts) {
             AndroidView(
                 factory = { ctx ->
-                    MpvPlayerView(ctx).apply {
-                        start(File(ctx.filesDir, "mpv-config"), File(ctx.cacheDir, "mpv"))
-                        engine = this
-                        if (url != null) play(url, playback.headers, playback.startPositionMs)
+                    runCatching {
+                        MpvPlayerView(ctx).apply {
+                            start(File(ctx.filesDir, "mpv-config"), File(ctx.cacheDir, "mpv"))
+                            engine = this
+                            if (url != null) play(url, playback.headers, playback.startPositionMs)
+                        }
+                    }.getOrElse {
+                        unavailable.value = true
+                        android.view.View(ctx)
                     }
                 },
                 modifier = Modifier.fillMaxSize(),

@@ -94,7 +94,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.senzo.app.Playback
 import com.senzo.app.PlayerEngine
-import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.FfmpegAudioRenderer
+import androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.delay
 import okhttp3.OkHttpClient
@@ -117,7 +117,8 @@ fun PlayerScreen(
     onRetry: () -> Unit,
     onClose: (Long, Long) -> Unit,
 ) {
-    if (engine == PlayerEngine.Libmpv) {
+    var libmpv by remember(playback.url, playback.torrent) { mutableStateOf(engine == PlayerEngine.Libmpv) }
+    if (libmpv) {
         MpvPlayerScreen(
             playback = playback,
             autoNext = autoNext,
@@ -125,6 +126,7 @@ fun PlayerScreen(
             onNext = onNext,
             onRetry = onRetry,
             onClose = onClose,
+            onUnavailable = { libmpv = false },
         )
     } else {
         ExoPlayerScreen(

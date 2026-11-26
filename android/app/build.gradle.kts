@@ -147,12 +147,14 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
 
-    implementation("androidx.media3:media3-exoplayer:1.5.1")
-    implementation("androidx.media3:media3-ui:1.5.1")
-    implementation("androidx.media3:media3-datasource-okhttp:1.5.1")
-    // AC3, EAC3, DTS and TrueHD audio decode in software, which is what most
-    // of the high-bitrate files these scrapers return carry.
-    implementation("com.github.anilbeesetti.nextlib:nextlib-media3ext:v0.8.4")
+    implementation("androidx.media3:media3-exoplayer:1.7.1")
+    implementation("androidx.media3:media3-ui:1.7.1")
+    implementation("androidx.media3:media3-datasource-okhttp:1.7.1")
+    // AC3, EAC3, DTS and TrueHD decode in software, which is what most of the
+    // high-bitrate files these scrapers return carry. This build links FFmpeg
+    // statically into libffmpegJNI.so, so it does not collide with the libav*
+    // libraries libmpv ships; NextLib's separate libavcodec.so did.
+    implementation("org.jellyfin.media3:media3-ffmpeg-decoder:1.6.1+1")
     // The engine the desktop client runs: libmpv decodes and renders everything
     // itself, ASS subtitles included. Chosen in Settings.
     implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
