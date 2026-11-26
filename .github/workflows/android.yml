@@ -106,8 +106,29 @@ jobs:
           # matches the versionCode the APK was built with.
           cp "$apk" "dist/senzo-${GITHUB_REF_NAME}-r${GITHUB_RUN_NUMBER}.apk"
           ls -l dist
+      - name: Report what the APK contains
+        run: |
+          set -euo pipefail
+          apk=$(ls android/app/build/outputs/apk/release/*.apk | head -n 1)
+          echo "APK: $apk ($(stat -c %s "$apk") bytes)"
+          unzip -l "$apk" | sort -k1 -n -r | head -n 12
+          mapping=android/app/build/outputs/mapping/release/mapping.txt
+          if [ -f "$mapping" ]; then
+            echo "--- kept classes per package (top 20) ---"
+            grep -E '^[^ :]+ -> ' "$mapping" \
+              | awk '{ print $1 }' \
+              | awk -F. '{ if (NF >= 3) print $1 "." $2 "." $3; else print $0 }' \
+              | sort | uniq -c | sort -rn | head -n 20
+          fi
       - uses: actions/upload-artifact@v7
         with:
           name: senzo-android-apk
           path: dist/*.apk
           if-no-files-found: error
+      # Kept so a stack trace from a release build can be retraced to real names.
+      - uses: actions/upload-artifact@v7
+        if: ${{ hashFiles('android/app/build/outputs/mapping/release/mapping.txt') != '' }}
+        with:
+          name: senzo-android-mapping
+          path: android/app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: ignore
