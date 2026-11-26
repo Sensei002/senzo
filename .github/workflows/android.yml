@@ -53,11 +53,16 @@ jobs:
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          keystore="$RUNNER_TEMP/senzo-release.jks"
+          keystore="$RUNNER_TEMP/senzo-release.keystore"
           password="${KEYSTORE_PASSWORD:-senzo-development}"
           alias="${KEY_ALIAS:-senzo}"
+          keytype="PKCS12"
           if [ -n "${KEYSTORE_BASE64:-}" ]; then
             printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$keystore"
+            # A JKS archive starts with 0xFEEDFEED, a PKCS#12 one does not.
+            if [ "$(od -An -tx1 -N4 "$keystore" | tr -d ' \n')" = "feedfeed" ]; then
+              keytype="JKS"
+            fi
           else
             # No repository secret yet: a throwaway key still produces an
             # installable APK, it just cannot upgrade an earlier install.
@@ -70,6 +75,7 @@ jobs:
           {
             echo "SENZO_KEYSTORE=$keystore"
             echo "SENZO_KEYSTORE_PASSWORD=$password"
+            echo "SENZO_KEYSTORE_TYPE=$keytype"
             echo "SENZO_KEY_ALIAS=$alias"
             echo "SENZO_KEY_PASSWORD=${KEY_PASSWORD:-$password}"
           } >> "$GITHUB_ENV"

@@ -46,6 +46,8 @@ val releaseKeystore = signingValue("storeFile", "SENZO_KEYSTORE")
 val releaseStorePassword = signingValue("storePassword", "SENZO_KEYSTORE_PASSWORD")
 val releaseKeyAlias = signingValue("keyAlias", "SENZO_KEY_ALIAS")
 val releaseKeyPassword = signingValue("keyPassword", "SENZO_KEY_PASSWORD")
+// Absent means the JVM default store type, which is PKCS#12 on modern JDKs.
+val releaseStoreType = signingValue("storeType", "SENZO_KEYSTORE_TYPE")
 
 android {
     namespace = "com.senzo.app"
@@ -59,6 +61,7 @@ android {
             storePassword = releaseStorePassword
             keyAlias = releaseKeyAlias
             keyPassword = releaseKeyPassword
+            releaseStoreType?.let { storeType = it }
         }
     }
 
