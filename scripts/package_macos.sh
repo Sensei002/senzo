@@ -133,11 +133,8 @@ fi
 codesign --force --deep --sign - "$app" >/dev/null
 codesign --verify --deep --strict "$app"
 
-archive="$out/senzo-${tag}-${target}.zip"
-ditto -c -k --keepParent "$app" "$archive"
-
-# macOS users expect a disk image: mount it, drag SENZO onto the Applications
-# alias, eject. The zip stays for anything that unpacks archives in place.
+# The disk image is the only macOS archive: mount it, drag SENZO onto the
+# Applications alias, eject. Nothing else has to be unpacked by hand.
 dmg="$out/senzo-${tag}-${target}.dmg"
 stage="$out/dmg-stage"
 rm -rf "$stage"
@@ -151,6 +148,5 @@ if [[ ! -s "$dmg" ]]; then
     exit 1
 fi
 
-echo "Bundle:  $app"
-echo "Archive: $archive ($(du -h "$archive" | cut -f1))"
-echo "Image:   $dmg ($(du -h "$dmg" | cut -f1))"
+echo "Bundle: $app"
+echo "Image:  $dmg ($(du -h "$dmg" | cut -f1))"
