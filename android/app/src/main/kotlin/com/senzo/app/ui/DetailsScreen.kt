@@ -438,19 +438,10 @@ private fun MovieFacts(state: DetailsState) {
     }
 
 /** Which sources the sheet shows. */
-private enum class SourceFilter(val label: String) {
-    All("All"),
-    Torrent("Torrent"),
-    Direct("Direct"),
-}
-
-private val SOURCE_FILTERS = listOf(SourceFilter.All, SourceFilter.Torrent, SourceFilter.Direct)
-
-/** How the source list is ordered. */
-private enum class SourceSort(val label: String) {
-    Quality("Quality"),
-    Seeds("Seeds"),
-}
+private const val FILTER_ALL = "All"
+private const val FILTER_TORRENT = "Torrent"
+private const val FILTER_DIRECT = "Direct"
+private val SOURCE_FILTERS = listOf(FILTER_ALL, FILTER_TORRENT, FILTER_DIRECT)
 
 /**
  * The sources of the selected title.
@@ -472,22 +463,23 @@ private fun StreamSheet(
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var filter by remember { mutableStateOf(SourceFilter.All) }
-    var sort by remember { mutableStateOf(SourceSort.Quality) }
+    var filter by remember { mutableStateOf(FILTER_ALL) }
+    var sortBySeeds by remember { mutableStateOf(false) }
     val torrents = streams.count { it.torrent != null }
     val direct = streams.size - torrents
     val filtered = streams.filter { item ->
         when (filter) {
-            SourceFilter.All -> true
-            SourceFilter.Torrent -> item.torrent != null
-            SourceFilter.Direct -> item.torrent == null
+            FILTER_TORRENT -> item.torrent != null
+            FILTER_DIRECT -> item.torrent == null
+            else -> true
         }
     }
-    val ordered = when (sort) {
-        SourceSort.Quality -> filtered.sortedWith(
+    val ordered = if (sortBySeeds) {
+        filtered.sortedByDescending { it.seeds ?: 0 }
+    } else {
+        filtered.sortedWith(
             compareByDescending<StreamItem> { it.qualityRank }.thenByDescending { it.seeds ?: 0 },
         )
-        SourceSort.Seeds -> filtered.sortedByDescending { it.seeds ?: 0 }
     }
 
     Dialog(
@@ -562,27 +554,21 @@ private fun StreamSheet(
                         // values are listed by hand.
                         items(SOURCE_FILTERS) { entry ->
                             val count = when (entry) {
-                                SourceFilter.All -> streams.size
-                                SourceFilter.Torrent -> torrents
-                                SourceFilter.Direct -> direct
+                                FILTER_TORRENT -> torrents
+                                FILTER_DIRECT -> direct
+                                else -> streams.size
                             }
                             SourcePill(
-                                text = entry.label + " " + count,
+                                text = "$entry $count",
                                 selected = filter == entry,
                                 onClick = { filter = entry },
                             )
                         }
                         item {
                             SourcePill(
-                                text = "Sort: " + sort.label,
-                                selected = sort == SourceSort.Seeds,
-                                onClick = {
-                                    sort = if (sort == SourceSort.Quality) {
-                                        SourceSort.Seeds
-                                    } else {
-                                        SourceSort.Quality
-                                    }
-                                },
+                                text = if (sortBySeeds) "Sort: Seeds" else "Sort: Quality",
+                                selected = sortBySeeds,
+                                onClick = { sortBySeeds = !sortBySeeds },
                             )
                         }
                     }
