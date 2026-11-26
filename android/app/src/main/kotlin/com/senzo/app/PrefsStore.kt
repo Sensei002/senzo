@@ -81,6 +81,24 @@ class PrefsStore(context: Context) {
         encode(KEY_LOCAL, addons)
     }
 
+    /**
+     * The local profile: no account, the official addons, and everything the
+     * viewer saves staying on this device. The desktop client calls this guest
+     * mode and remembers the choice across restarts; so does this.
+     */
+    fun guest(): Boolean = prefs.getBoolean(KEY_GUEST, false)
+
+    fun saveGuest(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_GUEST, enabled).apply()
+    }
+
+    /** The official addons of the guest profile, cached so it starts offline. */
+    fun guestAddons(): List<AddonDescriptor> = decode(KEY_GUEST_ADDONS) ?: emptyList()
+
+    fun saveGuestAddons(addons: List<AddonDescriptor>) {
+        encode(KEY_GUEST_ADDONS, addons)
+    }
+
     private inline fun <reified T> decode(key: String): T? {
         val raw = prefs.getString(key, null) ?: return null
         return runCatching { Http.json.decodeFromString<T>(raw) }.getOrNull()
@@ -99,6 +117,8 @@ class PrefsStore(context: Context) {
         const val KEY_DISABLED = "disabledAddons"
         const val KEY_ORDER = "addonOrder"
         const val KEY_LOCAL = "localAddons"
+        const val KEY_GUEST = "guestMode"
+        const val KEY_GUEST_ADDONS = "guestAddons"
         const val MAX_PROGRESS = 80
         const val MAX_SEARCHES = 8
     }

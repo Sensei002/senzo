@@ -23,6 +23,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +48,7 @@ fun LoginScreen(
     signingIn: Boolean,
     message: String?,
     onSignIn: (String, String) -> Unit,
+    onGuest: () -> Unit,
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -159,6 +161,24 @@ fun LoginScreen(
                     Text("Sign in", style = MaterialTheme.typography.labelLarge)
                 }
             }
+            // The desktop client can be used without an account, so this one
+            // can be too: same official addons, everything saved on the device.
+            Spacer(Modifier.height(10.dp))
+            TextButton(
+                onClick = onGuest,
+                modifier = Modifier.fillMaxWidth().height(46.dp),
+            ) {
+                Text(
+                    text = "Continue without an account",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = TextPrimary,
+                )
+            }
+            Text(
+                text = "Browses the official addons and keeps your library, progress and searches on this device.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextDim,
+            )
             Spacer(Modifier.height(18.dp))
             Text(
                 text = "Passwords are only sent to strem.io and are never stored on the device.",

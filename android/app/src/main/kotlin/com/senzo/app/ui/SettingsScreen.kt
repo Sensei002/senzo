@@ -18,7 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Logout
+import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -81,36 +81,57 @@ fun SettingsScreen(
         ) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = session?.email ?: "Not signed in",
+                    text = session?.email ?: "Guest",
                     style = MaterialTheme.typography.titleSmall,
                     color = TextPrimary,
                 )
                 Text(
-                    text = "The same account the desktop app uses",
+                    text = if (session == null) {
+                        "Local profile: the official addons, no account",
+                    } else {
+                        "The same account the desktop app uses",
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = TextDim,
                 )
             }
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(Color(0xFFFF6B6B).copy(alpha = 0.16f))
-                    .clickable { confirmSignOut = true }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    Icons.Rounded.Logout,
-                    contentDescription = null,
-                    tint = Color(0xFFFF6B6B),
-                    modifier = Modifier.size(15.dp),
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = "Sign out",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFFFF6B6B),
-                )
+            if (session == null) {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(Accent.copy(alpha = 0.16f))
+                        .clickable { onSignOut() }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Sign in",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Accent,
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(Color(0xFFFF6B6B).copy(alpha = 0.16f))
+                        .clickable { confirmSignOut = true }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.Logout,
+                        contentDescription = null,
+                        tint = Color(0xFFFF6B6B),
+                        modifier = Modifier.size(15.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "Sign out",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color(0xFFFF6B6B),
+                    )
+                }
             }
         }
 

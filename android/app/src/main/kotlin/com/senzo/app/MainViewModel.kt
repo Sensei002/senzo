@@ -49,6 +49,8 @@ data class UiState(
     val screen: Screen = Screen.Login,
     val tab: Tab = Tab.Home,
     val session: Session? = null,
+    /** True while the app runs as a local profile without an account. */
+    val guest: Boolean = false,
     val signingIn: Boolean = false,
     val addons: List<AddonDescriptor> = emptyList(),
     val addonOrder: List<String> = emptyList(),
@@ -124,7 +126,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 addonOrder = order,
             )
         }
-        if (session == null) {
+        if (session == null && prefs.guest()) {
+            // The guest choice is local to this app, so a restart goes straight
+            // back to the board instead of asking for an account again.
+            val cached = mergeLocal(prefs.guestAddons())
+            _state.update {
+                it.copy(screen = Screen.Main, guest = true, addons = cached)
+            }
+            if (cached.isEmpty()) loadGuestAddons() else loadBoard(cached)
+        } else if (session == null) {
             _state.update { it.copy(screen = Screen.Login) }
         } else {
             val cached = mergeLocal(sessions.addons())
@@ -148,8 +158,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             runCatching { api.login(email.trim(), password) }
                 .onSuccess { session ->
                     sessions.saveSession(session)
+                    prefs.saveGuest(false)
                     _state.update {
-                        it.copy(signingIn = false, session = session, screen = Screen.Main)
+                        it.copy(
+                            signingIn = false,
+                            guest = false,
+                            session = session,
+                            screen = Screen.Main,
+                        )
                     }
                     refreshAddons(session, force = true)
                 }
@@ -161,15 +177,66 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Opens the local profile: the official addons, this device's library and
+     * no account, which is what the desktop client does when sign-in is skipped.
+     * The choice is remembered, and signing in replaces it.
+     */
+    fun continueAsGuest() {
+        prefs.saveGuest(true)
+        val cached = prefs.guestAddons()
+        _state.update {
+            it.copy(
+                screen = Screen.Main,
+                session = null,
+                guest = true,
+                signingIn = false,
+                message = null,
+                tab = Tab.Home,
+                addons = mergeLocal(cached),
+            )
+        }
+        if (cached.isEmpty()) loadGuestAddons() else loadBoard(_state.value.addons)
+    }
+
+    /**
+     * Fetches the official addons a guest profile starts with. Their manifests
+     * are cached, so the second launch of the profile needs no network.
+     */
+    private fun loadGuestAddons() {
+        boardJob?.cancel()
+        viewModelScope.launch {
+            _state.update { it.copy(boardLoading = true, boardError = null) }
+            val fetched = GUEST_ADDONS
+                .mapNotNull { base -> runCatching { addonClient.manifest(base) }.getOrNull() }
+                .map { (base, manifest) -> AddonDescriptor(transportUrl = base, manifest = manifest) }
+            if (fetched.isNotEmpty()) prefs.saveGuestAddons(fetched)
+            val addons = mergeLocal(fetched.ifEmpty { prefs.guestAddons() })
+            _state.update { it.copy(addons = addons) }
+            if (addons.isEmpty()) {
+                _state.update {
+                    it.copy(
+                        boardLoading = false,
+                        boardError = "No addon could be reached. Check the connection and try again.",
+                    )
+                }
+            } else {
+                loadBoard(addons)
+            }
+        }
+    }
+
     fun signOut() {
         boardJob?.cancel()
         searchJob?.cancel()
         detailsJob?.cancel()
         sessions.clearSession()
+        prefs.saveGuest(false)
         _state.update {
             it.copy(
                 screen = Screen.Login,
                 session = null,
+                guest = false,
                 addons = emptyList(),
                 board = emptyList(),
                 hero = emptyList(),
@@ -189,7 +256,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refresh() {
-        val session = _state.value.session ?: return
+        val session = _state.value.session
+        if (session == null) {
+            if (_state.value.guest) loadGuestAddons()
+            return
+        }
         refreshAddons(session, force = true)
     }
 
@@ -735,6 +806,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         const val MAX_SEARCH_REQUESTS = 12
         const val SEARCH_DEBOUNCE_MS = 350L
         const val RESUME_MIN_MS = 30_000L
+
+        /**
+         * The official addons of the guest profile. These are the same ones the
+         * desktop client installs for a local profile: Cinemeta for catalogues
+         * and metadata, WatchHub for streams, and the public domain catalogue.
+         * Subtitles are here too once the player can show them.
+         */
+        val GUEST_ADDONS = listOf(
+            "https://v3-cinemeta.strem.io",
+            "https://watchhub.strem.io",
+            "https://caching.stremio.net/publicdomainmovies.now.sh",
+        )
 
         val CINEMETA = AddonDescriptor(
             transportUrl = "https://v3-cinemeta.strem.io",

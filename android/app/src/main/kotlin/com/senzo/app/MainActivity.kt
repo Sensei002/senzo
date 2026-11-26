@@ -120,6 +120,7 @@ private fun SenzoApp(viewModel: MainViewModel = viewModel()) {
             signingIn = state.signingIn,
             message = state.message,
             onSignIn = viewModel::signIn,
+            onGuest = viewModel::continueAsGuest,
         )
 
         is Screen.Details -> {
