@@ -463,6 +463,8 @@ jobs:
             triplet: x64-osx-v3-static-release
             target: x86_64-apple-darwin
     runs-on: ${{ matrix.runner }}
+    # The bundled libmpv build is the slow part; cap a stuck dependency install.
+    timeout-minutes: 150
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
       VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg_installed
@@ -491,8 +493,16 @@ jobs:
           if [ "${{ matrix.arch }}" = "arm64" ]; then
             # Homebrew publishes arm64 bottles of mpv and its libraries.
             brew install pkg-config mpv dylibbundler
-            prefix="$(brew --prefix)"
-            echo "PKG_CONFIG_PATH=$prefix/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
+            # mpv.pc requires keg-only dependencies such as libarchive, whose
+            # pkg-config files are not in the shared Homebrew prefix.
+            paths="$(brew --prefix mpv)/lib/pkgconfig"
+            while read -r dependency; do
+              candidate="$(brew --prefix "$dependency" 2>/dev/null || true)/lib/pkgconfig"
+              if [ -d "$candidate" ]; then
+                paths="$paths:$candidate"
+              fi
+            done < <(brew deps --transitive mpv)
+            echo "PKG_CONFIG_PATH=$paths:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
           else
             # Homebrew stopped publishing Intel macOS bottles, so the Intel
             # build takes libmpv from MacPorts, which still ships x86_64
@@ -500,8 +510,10 @@ jobs:
             curl -fsSL -o "$RUNNER_TEMP/macports.pkg" \
               "https://github.com/macports/macports-base/releases/download/v2.12.7/MacPorts-2.12.7-15-Sequoia.pkg"
             sudo installer -pkg "$RUNNER_TEMP/macports.pkg" -target /
-            sudo port -q selfupdate || true
-            sudo port -q install mpv pkgconfig dylibbundler
+            # sudo resets PATH, so call the port command where the package
+            # installs it instead of relying on /opt/local/bin being visible.
+            sudo /opt/local/bin/port -q selfupdate || true
+            sudo /opt/local/bin/port -q install mpv pkgconfig dylibbundler
             echo "/opt/local/bin" >> "$GITHUB_PATH"
             echo "PKG_CONFIG_PATH=/opt/local/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
           fi
