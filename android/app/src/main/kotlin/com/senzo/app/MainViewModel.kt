@@ -126,16 +126,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (session == null) {
             _state.update { it.copy(screen = Screen.Login) }
-            return
+        } else {
+            val cached = mergeLocal(sessions.addons())
+            _state.update {
+                it.copy(screen = Screen.Main, session = session, addons = cached)
+            }
+            if (cached.isNotEmpty()) {
+                loadBoard(cached)
+            }
+            refreshAddons(session, cached.isEmpty())
         }
-        val cached = mergeLocal(sessions.addons())
-        _state.update {
-            it.copy(screen = Screen.Main, session = session, addons = cached)
-        }
-        if (cached.isNotEmpty()) {
-            loadBoard(cached)
-        }
-        refreshAddons(session, cached.isEmpty())
     }
 
     fun signIn(email: String, password: String) {

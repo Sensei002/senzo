@@ -97,7 +97,7 @@ fun PlayerScreen(
             .setDefaultRequestProperties(headers)
             .setUserAgent("SENZO Android")
         ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(context, dataSource))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource))
             .build()
             .apply {
                 setMediaItem(MediaItem.fromUri(playback.url))
