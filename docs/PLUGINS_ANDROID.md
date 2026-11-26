@@ -184,12 +184,31 @@ overlay, a double tap on either half seeks, and the screen stays awake with the
 system bars hidden while the film runs. Failures show the reason with a retry
 that rebuilds the player.
 
+### What Nuvio Android actually plays with
+
+NuvioMobile ships two engines behind one controller: `Media3 ExoPlayer`, and
+`libmpv` (`io.github.abdallahmehiz:mpv-android-lib`). ExoPlayer is the default;
+`resolveAutoPlaybackEngine()` only sends a stream to mpv when it is anime, and
+back to ExoPlayer for anything whose name says HDR, HDR10 or Dolby Vision. Both
+get the same Compose overlay, so the choice is invisible to the viewer.
+
+Their ExoPlayer is configured with the official Media3 FFmpeg extension, decoder
+fallback, 15 s / 45 s buffers, and a 25 MB to 2 GB byte target chosen from total
+RAM. Their torrent engine is not in the repository: `com.nuvio.engine.NuvioEngine`
+comes from a prebuilt `lib-*.aar`, next to a libass AAR and a patched `quickjs-kt`.
+None of those can be reused here, so the engine below stays libtorrent4j.
+
+### What SENZO does
+
 Audio that used to play silently was AC3/EAC3/DTS/TrueHD, which Android devices
 often carry no decoder for. `NextLib` (`nextlib-media3ext`, GPL-3.0, which this
 app's own GPL-3.0 licence covers) supplies FFmpeg audio decoders; the app's
-`SenzoRenderersFactory` puts that renderer in front of the platform ones, so
-hardware decoding still handles AAC while the harder formats fall through to
-FFmpeg. Media playback also uses its own OkHttp client: the shared client caps a
+`SenzoRenderersFactory` puts that renderer ahead of the platform ones. The
+renderer was added but never reached, because Media3 leaves extension renderers
+off until `setExtensionRendererMode` is called; that omission is what kept the
+player silent, and the factory now switches it on. Buffering follows the Nuvio
+shape: 15 s minimum, 60 s maximum, 2.5 s to start, 64 MB in memory, 30 s of back
+buffer. Media playback also uses its own OkHttp client: the shared client caps a
 call at 45 s, which would cut a film mid-stream.
 
 A torrent now opens the player immediately. The screen shows the breathing SENZO

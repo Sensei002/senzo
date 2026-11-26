@@ -48,6 +48,14 @@
 }
 -dontwarn io.github.anilbeesetti.nextlib.**
 
+# libmpv calls back into is.xyz.mpv.MPV from JNI by name, and the native
+# player loads its Java observers reflectively.
+-keep class is.xyz.mpv.** { *; }
+-keepclasseswithmembernames class is.xyz.mpv.** {
+    native <methods>;
+}
+-dontwarn is.xyz.mpv.**
+
 # Media3 and Guava reference desktop-only entry points.
 -dontwarn androidx.media3.**
 -dontwarn com.google.common.**

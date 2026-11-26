@@ -108,6 +108,7 @@ private fun SenzoApp(viewModel: MainViewModel = viewModel()) {
             playback = playback,
             subtitleSize = state.settings.subtitleSize,
             autoNext = state.settings.autoplayNext,
+            engine = state.settings.engine,
             onProgress = viewModel::reportProgress,
             onNext = viewModel::playNext,
             onRetry = viewModel::retryPlayback,
@@ -250,6 +251,9 @@ private fun MainShell(state: UiState, viewModel: MainViewModel) {
                     },
                     onQuality = { value ->
                         viewModel.updateSettings { it.copy(preferHighestQuality = value) }
+                    },
+                    onEngine = { value ->
+                        viewModel.updateSettings { it.copy(playerEngine = value) }
                     },
                     onSubtitleSize = { value ->
                         viewModel.updateSettings { it.copy(subtitleSize = value) }

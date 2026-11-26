@@ -93,13 +93,54 @@ import androidx.media3.exoplayer.source.UnrecognizedInputFormatException
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.senzo.app.Playback
+import com.senzo.app.PlayerEngine
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.FfmpegAudioRenderer
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.delay
 import okhttp3.OkHttpClient
 
 /**
- * Full-screen playback with the app's own controls.
+ * Full-screen playback, on whichever engine the settings pick.
+ *
+ * `libmpv` is what the desktop client runs: it decodes everything itself, so
+ * AC3, DTS and ASS subtitles work on any phone. The Media3 player stays the
+ * default because it uses the device's hardware decoders.
+ */
+@Composable
+fun PlayerScreen(
+    playback: Playback,
+    subtitleSize: Int,
+    autoNext: Boolean,
+    engine: PlayerEngine,
+    onProgress: (Long, Long) -> Unit,
+    onNext: () -> Unit,
+    onRetry: () -> Unit,
+    onClose: (Long, Long) -> Unit,
+) {
+    if (engine == PlayerEngine.Libmpv) {
+        MpvPlayerScreen(
+            playback = playback,
+            autoNext = autoNext,
+            onProgress = onProgress,
+            onNext = onNext,
+            onRetry = onRetry,
+            onClose = onClose,
+        )
+    } else {
+        ExoPlayerScreen(
+            playback = playback,
+            subtitleSize = subtitleSize,
+            autoNext = autoNext,
+            onProgress = onProgress,
+            onNext = onNext,
+            onRetry = onRetry,
+            onClose = onClose,
+        )
+    }
+}
+
+/**
+ * The Media3 player, with the app's own controls.
  *
  * A torrent opens this screen before the engine has an address, so the logo
  * breathes over the engine's own status until the first pieces arrive. The
@@ -108,7 +149,7 @@ import okhttp3.OkHttpClient
  */
 @OptIn(UnstableApi::class)
 @Composable
-fun PlayerScreen(
+private fun ExoPlayerScreen(
     playback: Playback,
     subtitleSize: Int,
     autoNext: Boolean,
@@ -496,7 +537,7 @@ private class SenzoRenderersFactory(context: Context) : DefaultRenderersFactory(
 }
 
 @Composable
-private fun BreathingLogo(status: String, failed: Boolean) {
+internal fun BreathingLogo(status: String, failed: Boolean) {
     val transition = rememberInfiniteTransition(label = "logo")
     val scale by transition.animateFloat(
         initialValue = 0.94f,
@@ -549,7 +590,7 @@ private fun BreathingLogo(status: String, failed: Boolean) {
 }
 
 @Composable
-private fun FailureOverlay(message: String, onRetry: () -> Unit, onClose: () -> Unit) {
+internal fun FailureOverlay(message: String, onRetry: () -> Unit, onClose: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().padding(28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -785,7 +826,7 @@ private fun ControlsOverlay(
 }
 
 @Composable
-private fun ControlPill(
+internal fun ControlPill(
     text: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: () -> Unit,
@@ -906,7 +947,7 @@ private fun PlayerSheetContent(
 }
 
 @Composable
-private fun TrackRow(label: String, selected: Boolean, onClick: () -> Unit) {
+internal fun TrackRow(label: String, selected: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1000,7 +1041,7 @@ private fun describe(error: PlaybackException): String {
     }
 }
 
-private fun formatTime(milliseconds: Long): String {
+internal fun formatTime(milliseconds: Long): String {
     val total = (milliseconds / 1000).coerceAtLeast(0)
     val hours = total / 3600
     val minutes = (total % 3600) / 60
@@ -1012,10 +1053,10 @@ private fun formatTime(milliseconds: Long): String {
     }
 }
 
-private fun formatSpeed(speed: Float): String =
+internal fun formatSpeed(speed: Float): String =
     if (speed == speed.toInt().toFloat()) "${speed.toInt()}x" else "${speed}x"
 
-private fun nextSpeed(speed: Float): Float = when (speed) {
+internal fun nextSpeed(speed: Float): Float = when (speed) {
     0.75f -> 1f
     1f -> 1.25f
     1.25f -> 1.5f

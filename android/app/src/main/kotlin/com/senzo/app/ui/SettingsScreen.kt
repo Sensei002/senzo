@@ -49,6 +49,7 @@ fun SettingsScreen(
     onAutoplay: (Boolean) -> Unit,
     onResume: (Boolean) -> Unit,
     onQuality: (Boolean) -> Unit,
+    onEngine: (String) -> Unit,
     onSubtitleSize: (Int) -> Unit,
     onClearHistory: () -> Unit,
     onClearSearches: () -> Unit,
@@ -157,6 +158,42 @@ fun SettingsScreen(
             subtitle = "Sort a title's streams by resolution and seeders.",
             checked = settings.preferHighestQuality,
             onChange = onQuality,
+        )
+
+        Text(
+            text = "Player engine",
+            style = MaterialTheme.typography.labelMedium,
+            color = TextMuted,
+            modifier = Modifier.padding(horizontal = 16.dp).padding(top = 8.dp),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            listOf("media3" to "Media3", "libmpv" to "libmpv").forEach { (value, label) ->
+                val selected = settings.playerEngine == value
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (selected) Accent else Surface)
+                        .clickable { onEngine(value) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (selected) OnAccent else TextMuted,
+                    )
+                }
+            }
+        }
+        Text(
+            text = "Media3 uses the phone's decoders; libmpv is the desktop player and decodes everything itself.",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextDim,
+            modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp),
         )
 
         SectionTitle("Subtitles")

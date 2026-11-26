@@ -360,6 +360,9 @@ data class WatchProgress(
 @Serializable
 data class LibraryEntry(val item: MetaPreview, val addedAt: Long = 0)
 
+/** The playback engine. Media3 uses the phone's decoders; libmpv is mpv. */
+enum class PlayerEngine { Media3, Libmpv }
+
 /** Preferences that change behaviour rather than appearance. */
 @Serializable
 data class AppSettings(
@@ -367,7 +370,13 @@ data class AppSettings(
     val resumePlayback: Boolean = true,
     val preferHighestQuality: Boolean = true,
     val subtitleSize: Int = 1,
+    /** "media3" or "libmpv"; older saves fall back to media3. */
+    val playerEngine: String = "media3",
 )
+
+/** The engine a saved preference asks for. */
+val AppSettings.engine: PlayerEngine
+    get() = if (playerEngine == "libmpv") PlayerEngine.Libmpv else PlayerEngine.Media3
 
 private val QUALITY_PATTERN = Regex("(?i)\\b(2160p|1080p|720p|480p|360p|4k|uhd)\\b")
 private val SIZE_PATTERN = Regex("(?i)(\\d+(?:\\.\\d+)?)\\s?(gb|mb)\\b")

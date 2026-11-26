@@ -153,6 +153,9 @@ dependencies {
     // AC3, EAC3, DTS and TrueHD audio decode in software, which is what most
     // of the high-bitrate files these scrapers return carry.
     implementation("com.github.anilbeesetti.nextlib:nextlib-media3ext:v0.8.4")
+    // The engine the desktop client runs: libmpv decodes and renders everything
+    // itself, ASS subtitles included. Chosen in Settings.
+    implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
 
     // Provider plugins: Nuvio scripts run on QuickJS, with jsoup as their HTML tree.
     implementation("wang.harlon.quickjs:wrapper-android:3.2.3")
