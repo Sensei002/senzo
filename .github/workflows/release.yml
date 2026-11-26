@@ -11,6 +11,9 @@ on:
     paths-ignore:
       - "android/**"
       - ".github/workflows/android.yml"
+      # Notes and documentation never change a desktop binary.
+      - "docs/**"
+      - "**/*.md"
 
 concurrency:
   group: senzo-build-${{ github.ref }}
