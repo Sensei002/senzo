@@ -1,9 +1,15 @@
-# Android is built on demand only. A push runs the desktop matrix; the mobile
-# client is built here when someone asks for it.
+# The mobile client has its own pipeline: a push that touches android/ builds
+# the APK, while a desktop-only push runs only the desktop matrix.
+# workflow_dispatch also works once this file exists on the default branch.
 name: SENZO Android build
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["development"]
+    paths:
+      - "android/**"
+      - ".github/workflows/android.yml"
 
 concurrency:
   group: senzo-android-${{ github.ref }}
