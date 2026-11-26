@@ -45,9 +45,21 @@ class TorrentStreamer(private val cacheDir: File) {
                     "Looking for peers…"
                 }
                 state == "finished" -> "Ready"
-                percent > 0 -> "$percent% of the file · $peers peers"
+                percent > 0 -> buildString {
+                    append("$percent% of the file · $peers peers")
+                    val speed = speedLabel()
+                    if (speed != null) append(" · ").append(speed)
+                }
                 else -> "Connecting…"
             }
+
+        /** The download rate, as the player shows it under a stall. */
+        private fun speedLabel(): String? = when {
+            rate <= 0 -> null
+            rate >= 1_048_576 -> "${"%.1f".format(Locale.US, rate / 1_048_576.0)} MB/s"
+            rate >= 1_024 -> "${rate / 1_024} KB/s"
+            else -> "$rate B/s"
+        }
     }
 
     private val lock = Any()

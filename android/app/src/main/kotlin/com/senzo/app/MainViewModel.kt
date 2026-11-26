@@ -130,7 +130,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** The most recent engine shutdown, awaited before a new torrent starts. */
     private var torrentStop: Job? = null
 
+    /** Publishes the engine's swarm numbers into the open player. */
+    private var torrentWatcher: Job? = null
+
     private fun stopTorrents() {
+        torrentWatcher?.cancel()
+        torrentWatcher = null
         torrentStop = viewModelScope.launch(Dispatchers.IO) { torrents.stop() }
     }
     private val communityClient = CommunityClient()
@@ -843,21 +848,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Runs the torrent engine and hands its address to the open player. */
     private fun launchTorrent(magnet: String) {
+        torrentWatcher?.cancel()
         viewModelScope.launch {
             torrentStop?.join()
-            _state.update { current -> current.copy(playback = current.playback?.copy(failure = null, status = "Looking for peers…")) }
-            val watcher = launch {
+            _state.update { current ->
+                current.copy(playback = current.playback?.copy(failure = null, stats = null, status = "Looking for peers…"))
+            }
+            // The engine numbers stay on screen after the stream starts, so a
+            // stall shows the swarm being waited on instead of a bare spinner.
+            torrentWatcher = launch {
                 while (isActive) {
                     val status = torrents.status
                     val label = status.label
                     _state.update { current ->
-                        current.copy(playback = current.playback?.copy(status = label))
+                        val playback = current.playback
+                        if (playback == null || playback.torrent != magnet) {
+                            current
+                        } else {
+                            current.copy(
+                                playback = playback.copy(
+                                    status = if (playback.url == null) label else null,
+                                    stats = if (playback.url != null) label else null,
+                                ),
+                            )
+                        }
                     }
-                    delay(800)
+                    delay(1000)
                 }
             }
             val result = runCatching { withContext(Dispatchers.IO) { torrents.start(magnet) } }
-            watcher.cancel()
             result.onSuccess { address ->
                 _state.update { current ->
                     current.copy(
@@ -865,6 +884,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             }.onFailure { error ->
+                torrentWatcher?.cancel()
                 val reason = error.message ?: "The torrent could not be played."
                 _state.update { current ->
                     current.copy(playback = current.playback?.copy(status = null, failure = reason))

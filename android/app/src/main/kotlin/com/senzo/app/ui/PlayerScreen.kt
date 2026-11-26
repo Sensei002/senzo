@@ -78,14 +78,18 @@ import androidx.media3.common.TrackGroup
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.audio.AudioRendererEventListener
 import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.mediacodec.MediaCodecRenderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.UnrecognizedInputFormatException
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.senzo.app.Playback
@@ -143,6 +147,7 @@ fun PlayerScreen(
             ExoPlayer.Builder(context)
                 .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource))
                 .setRenderersFactory(SenzoRenderersFactory(context))
+                .setLoadControl(senzoLoadControl())
                 .setHandleAudioBecomingNoisy(true)
                 .build()
                 .apply {
@@ -301,11 +306,24 @@ fun PlayerScreen(
 
         if (url != null && buffering && error == null && playback.failure == null && !ended) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(
-                    color = Color.White,
-                    strokeWidth = 2.dp,
-                    modifier = Modifier.size(38.dp),
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(38.dp),
+                    )
+                    // The swarm numbers keep showing during a restart, which is
+                    // what tells a slow torrent apart from a stuck player.
+                    playback.stats?.let { stats ->
+                        Spacer(Modifier.height(14.dp))
+                        Text(
+                            text = stats,
+                            color = Color.White.copy(alpha = 0.8f),
+                            style = MaterialTheme.typography.labelMedium,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        )
+                    }
+                }
             }
         }
 
@@ -425,8 +443,28 @@ private enum class PlayerSheet { Speed, Audio, Subtitles }
  * play silently now has sound.
  */
 @OptIn(UnstableApi::class)
+/**
+ * The buffer the desktop app gives a stream, sized for a phone: enough ahead of
+ * a torrent to survive a slow peer, small enough for a few hundred MB of RAM.
+ */
+@OptIn(UnstableApi::class)
+private fun senzoLoadControl(): DefaultLoadControl = DefaultLoadControl.Builder()
+    .setBufferDurationsMs(
+        15_000,
+        60_000,
+        2_500,
+        4_000,
+    )
+    .setTargetBufferBytes(64 * 1024 * 1024)
+    .setPrioritizeTimeOverSizeThresholds(false)
+    .setBackBuffer(30_000, true)
+    .build()
+
 private class SenzoRenderersFactory(context: Context) : DefaultRenderersFactory(context) {
     init {
+        // Media3 starts with extensions switched off, which silently dropped every
+        // FFmpeg audio renderer: this is what left AC3 and DTS streams silent.
+        setExtensionRendererMode(EXTENSION_RENDERER_MODE_ON)
         setEnableDecoderFallback(true)
     }
 
@@ -450,7 +488,8 @@ private class SenzoRenderersFactory(context: Context) : DefaultRenderersFactory(
             eventListener,
             out,
         )
-        if (extensionRendererMode == EXTENSION_RENDERER_MODE_OFF) return
+        // The bundled decoder lives in its own package, so Media3's own extension
+        // lookup never finds it; it is added here, ahead of the platform decoders.
         runCatching { FfmpegAudioRenderer(eventHandler, eventListener, audioSink) }
             .onSuccess { out.add(0, it) }
     }
@@ -920,14 +959,45 @@ private fun trackName(group: TrackGroup, index: Int): String? {
     return format.sampleMimeType
 }
 
-private fun describe(error: PlaybackException): String = when (error.errorCode) {
-    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED -> "The stream host could not be reached."
-    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "The stream host timed out."
-    PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "The stream host refused the request."
-    PlaybackException.ERROR_CODE_DECODER_INIT_FAILED -> "This device cannot decode the file."
-    PlaybackException.ERROR_CODE_DECODING_FAILED -> "The file could not be decoded."
-    PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED -> "The file format is not supported."
-    else -> error.errorCodeName
+/**
+ * Turns a Media3 failure into what the viewer needs: the HTTP status when the
+ * host refused the request, the decoder that failed, or the format problem.
+ */
+@OptIn(UnstableApi::class)
+private fun describe(error: PlaybackException): String {
+    val cause = error.cause
+    if (cause is HttpDataSource.InvalidResponseCodeException) {
+        val reason = when (cause.responseCode) {
+            401, 410 -> "The stream link expired. Pick the source again."
+            403 -> "The stream host blocked this device."
+            404 -> "The stream host no longer has this file."
+            429 -> "The stream host is rate limiting requests."
+            in 500..599 -> "The stream host is having trouble right now."
+            else -> "The stream host refused the request."
+        }
+        return "HTTP ${cause.responseCode} · $reason"
+    }
+    var current: Throwable? = cause
+    while (current != null) {
+        if (current is UnrecognizedInputFormatException) {
+            return "This source did not return a video file."
+        }
+        if (current is MediaCodecRenderer.DecoderInitializationException) {
+            val detail = current.message?.trim()?.takeIf { it.isNotEmpty() }
+                ?: current.diagnosticInfo?.trim()?.takeIf { it.isNotEmpty() }
+            return if (detail != null) "The decoder failed: $detail" else "This device cannot decode the file."
+        }
+        current = current.cause
+    }
+    return when (error.errorCode) {
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED -> "The stream host could not be reached."
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "The stream host timed out."
+        PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "The stream host refused the request."
+        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED -> "This device cannot decode the file."
+        PlaybackException.ERROR_CODE_DECODING_FAILED -> "The file could not be decoded."
+        PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED -> "The file format is not supported."
+        else -> error.errorCodeName
+    }
 }
 
 private fun formatTime(milliseconds: Long): String {

@@ -296,6 +296,7 @@ data class StreamItem(
  * A torrent opens the player before it has an address: [url] stays null while
  * the engine connects, [status] carries the engine's own words, and [torrent]
  * keeps the magnet so a failure can be retried without leaving the player.
+ * Once it plays, [stats] keeps the swarm numbers the buffering spinner shows.
  */
 data class Playback(
     val url: String? = null,
@@ -308,6 +309,7 @@ data class Playback(
     val status: String? = null,
     val failure: String? = null,
     val torrent: String? = null,
+    val stats: String? = null,
 )
 
 /** One row of the board: a catalogue served by an installed addon. */
