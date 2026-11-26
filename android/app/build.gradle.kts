@@ -142,6 +142,10 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.5.0")
     implementation("androidx.media3:media3-datasource-okhttp:1.5.0")
 
+    // Provider plugins: Nuvio scripts run on QuickJS, with jsoup as their HTML tree.
+    implementation("wang.harlon.quickjs:wrapper-android:3.2.3")
+    implementation("org.jsoup:jsoup:1.18.3")
+
     // BitTorrent, for the infohash streams Torrentio and the plugins return.
     implementation("org.libtorrent4j:libtorrent4j:2.1.0-39")
     implementation("org.libtorrent4j:libtorrent4j-android-arm64:2.1.0-39")

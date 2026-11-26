@@ -59,9 +59,10 @@ import coil.compose.AsyncImage
 import com.senzo.app.AddonDescriptor
 import com.senzo.app.CommunityAddon
 import com.senzo.app.CommunitySort
+import com.senzo.app.plugins.PluginUiState
 
-/** The two halves of the addon tab: what is installed, and what could be. */
-private enum class AddonsSection { Installed, Directory }
+/** The three parts of the addon tab: installed, installable, and plugins. */
+private enum class AddonsSection { Installed, Directory, Plugins }
 
 /**
  * Addons, split the way the desktop client splits them: the installed ones
@@ -88,6 +89,8 @@ fun AddonsScreen(
     onCommunityMore: () -> Unit,
     onCommunityRefresh: () -> Unit,
     onCommunityInstall: (CommunityAddon) -> Unit,
+    plugins: PluginUiState,
+    pluginActions: PluginActions,
 ) {
     var section by remember { mutableStateOf(AddonsSection.Installed) }
     var showInstall by remember { mutableStateOf(false) }
@@ -163,8 +166,15 @@ fun AddonsScreen(
                     }
                 },
             )
+
+            AddonsSection.Plugins -> PluginsSection(
+                modifier = Modifier.weight(1f),
+                state = plugins,
+                actions = pluginActions,
+            )
         }
     }
+
 
     if (showInstall) {
         var url by remember { mutableStateOf("") }
@@ -232,6 +242,12 @@ private fun SectionSwitch(section: AddonsSection, onSelect: (AddonsSection) -> U
             selected = section == AddonsSection.Directory,
             modifier = Modifier.weight(1f),
             onClick = { onSelect(AddonsSection.Directory) },
+        )
+        Pill(
+            label = "Plugins",
+            selected = section == AddonsSection.Plugins,
+            modifier = Modifier.weight(1f),
+            onClick = { onSelect(AddonsSection.Plugins) },
         )
     }
 }

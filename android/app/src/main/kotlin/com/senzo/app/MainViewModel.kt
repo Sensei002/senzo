@@ -16,6 +16,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import com.senzo.app.plugins.PluginUiState
+import com.senzo.app.plugins.PluginRepository
+import com.senzo.app.plugins.PluginRuntime
+import com.senzo.app.plugins.PluginStream
+import com.senzo.app.plugins.ProviderRequest
 import com.senzo.app.torrent.TorrentStreamer
 
 /** The five places the bottom bar can take the viewer. */
@@ -84,6 +94,8 @@ data class UiState(
     val communityHasMore: Boolean = false,
     /** The manifest URL currently being installed from the directory. */
     val communityInstalling: String? = null,
+    /** Plugin repositories, providers, and the last plugin error. */
+    val plugins: PluginUiState = PluginUiState(),
 ) {
     /** Addons the viewer has not switched off, in their chosen order. */
     val enabledAddons: List<AddonDescriptor>
@@ -113,6 +125,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val addonClient = AddonClient()
     private val torrents = TorrentStreamer(java.io.File(application.cacheDir, "torrents"))
     private val communityClient = CommunityClient()
+    private val pluginRuntime = PluginRuntime(application)
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -141,6 +154,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 recentSearches = searches,
                 disabledAddons = disabled,
                 addonOrder = order,
+                plugins = PluginUiState(config = pluginRuntime.config()),
             )
         }
         if (session == null && prefs.guest()) {
@@ -569,22 +583,185 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ---- Plugin repositories -------------------------------------------------
+
+    /** Adds a repository and loads its providers. */
+    fun addPluginRepository(raw: String) {
+        val url = raw.trim()
+        if (url.isEmpty()) {
+            setPluginError("Enter a plugin manifest URL.")
+            return
+        }
+        if (!url.startsWith("https://")) {
+            setPluginError("Plugin manifests must use HTTPS.")
+            return
+        }
+        val config = pluginRuntime.config()
+        if (config.repositories.none { it.url == url }) {
+            pluginRuntime.replace(
+                config.copy(repositories = config.repositories + PluginRepository(url)),
+            )
+        }
+        refreshPluginRepository(url)
+    }
+
+    /** Reloads one repository and merges its providers. */
+    fun refreshPluginRepository(url: String) {
+        _state.update { current ->
+            current.copy(
+                plugins = current.plugins.copy(
+                    busy = current.plugins.busy + url,
+                    error = null,
+                ),
+            )
+        }
+        viewModelScope.launch {
+            val result = pluginRuntime.install(url)
+            val count = result.getOrNull()
+            updatePlugins(
+                error = if (count == null) {
+                    result.exceptionOrNull()?.message ?: "The repository could not be loaded."
+                } else {
+                    null
+                },
+            )
+            if (count != null) {
+                _state.update { it.copy(message = "$count plugin provider(s) ready.") }
+            }
+        }
+    }
+
+    fun removePluginRepository(url: String) {
+        pluginRuntime.removeRepository(url)
+        updatePlugins()
+    }
+
+    fun togglePlugin(key: String, enabled: Boolean) {
+        pluginRuntime.setEnabled(key, enabled)
+        updatePlugins()
+    }
+
+    fun setRepositoryPlugins(url: String, enabled: Boolean) {
+        pluginRuntime.setAllEnabled(url, enabled)
+        updatePlugins()
+    }
+
+    fun savePluginSettings(key: String, settings: String) {
+        pluginRuntime.setSettings(key, settings)
+        updatePlugins()
+    }
+
+    fun dismissPluginError() {
+        _state.update { current -> current.copy(plugins = current.plugins.copy(error = null)) }
+    }
+
+    private fun setPluginError(message: String) {
+        _state.update { current -> current.copy(plugins = current.plugins.copy(error = message)) }
+    }
+
+    private fun updatePlugins(error: String? = null) {
+        _state.update { current ->
+            current.copy(plugins = PluginUiState(config = pluginRuntime.config(), error = error))
+        }
+    }
+
+    /** Runs the enabled plugin providers for the open title. */
+    private suspend fun pluginStreams(type: String, details: DetailsState): List<StreamItem> {
+        val meta = details.meta ?: return emptyList()
+        if (pluginRuntime.config().providers.none { it.enabled }) return emptyList()
+        val tmdbId = resolveTmdbId(meta, type) ?: return emptyList()
+        val mediaType = if (type == "series") "tv" else "movie"
+        val season = details.selectedVideo?.season ?: details.season
+        val episode = details.selectedVideo?.episode
+        val streams = pluginRuntime.streams(
+            ProviderRequest(
+                tmdbId = tmdbId,
+                mediaType = mediaType,
+                season = season,
+                episode = episode,
+            ),
+        )
+        return streams.mapNotNull { it.toItem() }
+    }
+
+    /** Finds the TMDB id plugins expect, from the title metadata. */
+    private suspend fun resolveTmdbId(meta: Meta, type: String): String? {
+        val raw = meta.id.trim()
+        if (raw.startsWith("tmdb:")) {
+            val id = raw.removePrefix("tmdb:")
+            return id.takeIf { value -> value.isNotEmpty() && value.all(Char::isDigit) }
+        }
+        if (raw.isNotEmpty() && raw.all(Char::isDigit)) return raw
+        val gatewayType = if (type == "series") "tv" else "movie"
+        val query = java.net.URLEncoder.encode(meta.name, "UTF-8")
+        val url = "https://senzo-api.vercel.app/api/tmdb/search?query=" + query + "&type=" + gatewayType
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val request = okhttp3.Request.Builder().url(url).build()
+                val body = Http.client.newCall(request).execute().use { response ->
+                    response.body?.string().orEmpty()
+                }
+                val results = Http.json.parseToJsonElement(body)
+                    .jsonObject["results"]
+                    ?.jsonArray
+                    ?: return@runCatching null
+                val dateKey = if (gatewayType == "tv") "first_air_date" else "release_date"
+                val year = meta.releaseInfo?.take(4)
+                val candidates = results.mapNotNull { entry ->
+                    val objectValue = entry as? JsonObject ?: return@mapNotNull null
+                    val id = (objectValue["id"] as? JsonPrimitive)?.contentOrNull
+                    val date = (objectValue[dateKey] as? JsonPrimitive)?.contentOrNull
+                    id?.let { it to date }
+                }
+                val match = candidates.firstOrNull { (_, date) ->
+                    year != null && date != null && date.startsWith(year)
+                } ?: candidates.firstOrNull()
+                match?.first
+            }.getOrNull()
+        }
+    }
+
+    private fun PluginStream.toItem(): StreamItem? {
+        val link = url?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+        val magnet = url?.takeIf { it.startsWith("magnet:") }
+            ?: infoHash?.let { hash -> "magnet:?xt=urn:btih:" + hash }
+        if (link == null && magnet == null) return null
+        return StreamItem(
+            addon = "Plugin · " + provider.ifEmpty { "provider" },
+            name = name,
+            detail = description,
+            url = link ?: "",
+            headers = headers,
+            seeds = seeders,
+            torrent = if (link == null) magnet else null,
+        )
+    }
+
     /** Every playable stream of a title, in the order the settings ask for. */
     private suspend fun streamsFor(type: String, videoId: String): List<StreamItem> {
         val addons = _state.value.enabledAddons.filter { it.manifest.serves("stream", type) }
-        val responses = coroutineScope {
-            addons
-                .map { descriptor ->
-                    async {
-                        descriptor.manifest.name to runCatching {
-                            addonClient.streams(descriptor, type, videoId)
-                        }.getOrDefault(emptyList())
+        val details = _state.value.details
+        // Addons and plugin providers both answer from the network, so they run
+        // together and the list keeps the addon order first.
+        val items = coroutineScope {
+            val addonJob = async {
+                val responses = addons
+                    .map { descriptor ->
+                        async {
+                            descriptor.manifest.name to runCatching {
+                                addonClient.streams(descriptor, type, videoId)
+                            }.getOrDefault(emptyList())
+                        }
                     }
+                    .awaitAll()
+                responses.flatMap { (addon, list) ->
+                    list.mapNotNull { stream -> stream.toItem(addon) }
                 }
-                .awaitAll()
-        }
-        val items = responses.flatMap { (addon, list) ->
-            list.mapNotNull { stream -> stream.toItem(addon) }
+            }
+            val pluginJob = async {
+                details?.let { state -> pluginStreams(type, state) }.orEmpty()
+            }
+            addonJob.await() + pluginJob.await()
         }
         val ordered = if (_state.value.settings.preferHighestQuality) {
             items.sortedWith(compareByDescending<StreamItem> { it.qualityRank }.thenByDescending { it.seeds ?: 0 })

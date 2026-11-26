@@ -57,6 +57,7 @@ import com.senzo.app.ui.LibraryScreen
 import com.senzo.app.ui.LoginScreen
 import com.senzo.app.ui.Outline
 import com.senzo.app.ui.PlayerScreen
+import com.senzo.app.ui.PluginActions
 import com.senzo.app.ui.SearchScreen
 import com.senzo.app.ui.SenzoTheme
 import com.senzo.app.ui.SettingsScreen
@@ -225,6 +226,16 @@ private fun MainShell(state: UiState, viewModel: MainViewModel) {
                     onCommunityMore = { viewModel.loadCommunity(reset = false) },
                     onCommunityRefresh = { viewModel.loadCommunity() },
                     onCommunityInstall = viewModel::installCommunityAddon,
+                    plugins = state.plugins,
+                    pluginActions = PluginActions(
+                        addRepository = viewModel::addPluginRepository,
+                        refreshRepository = viewModel::refreshPluginRepository,
+                        removeRepository = viewModel::removePluginRepository,
+                        setRepositoryEnabled = viewModel::setRepositoryPlugins,
+                        toggleProvider = viewModel::togglePlugin,
+                        saveSettings = viewModel::savePluginSettings,
+                        dismissError = viewModel::dismissPluginError,
+                    ),
                 )
 
                 Tab.Settings -> SettingsScreen(
