@@ -54,6 +54,13 @@ fun SettingsScreen(
     onSignOut: () -> Unit,
 ) {
     var confirmSignOut by remember { mutableStateOf(false) }
+    // A guest profile is local to this device; the account card says so
+    // instead of claiming an account that is not there.
+    val accountDetail = if (session == null) {
+        "Local profile: the official addons, no account"
+    } else {
+        "The same account the desktop app uses"
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -86,11 +93,7 @@ fun SettingsScreen(
                     color = TextPrimary,
                 )
                 Text(
-                    text = if (session == null) {
-                        "Local profile: the official addons, no account",
-                    } else {
-                        "The same account the desktop app uses",
-                    },
+                    text = accountDetail,
                     style = MaterialTheme.typography.bodySmall,
                     color = TextDim,
                 )
