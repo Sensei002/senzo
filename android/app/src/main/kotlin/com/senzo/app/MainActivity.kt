@@ -44,7 +44,7 @@ private fun SenzoApp(viewModel: MainViewModel = viewModel()) {
         return
     }
 
-    when (val screen = state.screen) {
+    when (state.screen) {
         Screen.Login -> LoginScreen(
             signingIn = state.signingIn,
             message = state.message,
