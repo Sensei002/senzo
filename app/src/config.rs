@@ -3,15 +3,6 @@ use std::sync::{OnceLock, RwLock};
 
 static APP_CONFIG: OnceLock<RwLock<AppConfig>> = OnceLock::new();
 
-/// How long the pointer must rest on a card before its trailer opens.
-///
-/// Shared with the migration below so the shipped default and the value an
-/// existing profile is moved to cannot drift apart.
-pub const DEFAULT_HOVER_PREVIEW_DELAY_MS: u32 = 1200;
-
-/// The threshold this shipped with originally. It fires while the pointer is
-/// still crossing a grid, so profiles still holding it are moved forward.
-const LEGACY_HOVER_PREVIEW_DELAY_MS: u32 = 500;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -32,9 +23,6 @@ pub struct AppConfig {
     pub active_shader_preset: u8,
     #[serde(alias = "thumbfast_enabled")]
     pub thumbnail_previews_enabled: bool,
-    pub hover_trailer_previews_enabled: bool,
-    /// How long the pointer must rest on a card before its trailer opens.
-    pub hover_trailer_preview_delay_ms: u32,
     pub onboarding_completed: bool,
     /// Keep the local guest experience active across application restarts.
     pub guest_mode: bool,
@@ -192,8 +180,6 @@ impl Default for AppConfig {
             shaders_enabled: true,
             active_shader_preset: 0,
             thumbnail_previews_enabled: true,
-            hover_trailer_previews_enabled: true,
-            hover_trailer_preview_delay_ms: DEFAULT_HOVER_PREVIEW_DELAY_MS,
             onboarding_completed: false,
             guest_mode: false,
             download_bandwidth_limit_bps: 0,
@@ -235,13 +221,6 @@ impl AppConfig {
             self.config_version = 2;
         }
         if self.config_version < 3 {
-            // The delay is persisted, so raising the shipped default alone
-            // leaves every existing profile on the old threshold. Only the
-            // value this used to ship with is moved, which keeps a delay the
-            // user picked deliberately.
-            if self.hover_trailer_preview_delay_ms == LEGACY_HOVER_PREVIEW_DELAY_MS {
-                self.hover_trailer_preview_delay_ms = DEFAULT_HOVER_PREVIEW_DELAY_MS;
-            }
             self.config_version = 3;
         }
         if self.config_version < 4 {
@@ -720,36 +699,6 @@ mod tests {
         assert_eq!(config.config_version, 9);
         assert_eq!(config.theme.background, "#070a14");
         assert_eq!(config.theme.accent, "#ff3366");
-    }
-
-    #[test]
-    fn migration_moves_the_shipped_hover_delay_forward() {
-        // A stored value shadows the default, so without this the threshold
-        // stays at 500ms however the default is edited.
-        let mut config = AppConfig {
-            config_version: 2,
-            hover_trailer_preview_delay_ms: LEGACY_HOVER_PREVIEW_DELAY_MS,
-            ..Default::default()
-        };
-
-        assert!(config.migrate());
-        assert_eq!(config.config_version, 9);
-        assert_eq!(
-            config.hover_trailer_preview_delay_ms,
-            DEFAULT_HOVER_PREVIEW_DELAY_MS
-        );
-    }
-
-    #[test]
-    fn migration_keeps_a_deliberately_chosen_hover_delay() {
-        let mut config = AppConfig {
-            config_version: 2,
-            hover_trailer_preview_delay_ms: 250,
-            ..Default::default()
-        };
-
-        assert!(config.migrate());
-        assert_eq!(config.hover_trailer_preview_delay_ms, 250);
     }
 
     #[test]

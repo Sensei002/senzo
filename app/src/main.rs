@@ -67,7 +67,6 @@ mod playback;
 mod player_features;
 #[cfg(feature = "plugins")]
 mod plugins;
-mod preview_player;
 pub mod profiles;
 pub mod ratings;
 pub mod runtime_host;
@@ -686,27 +685,6 @@ async fn finish_startup(
     let native_playback_bridge = native_playback
         .as_ref()
         .map(mpv_integration::NativePlayback::bridge);
-
-    // The hover popup is only offered when the secondary preview engine came
-    // up with native playback; without it the card would never fill in.
-    match native_playback_bridge.as_ref() {
-        Some(bridge) => {
-            let previews = bridge.previews();
-            ui.set_hover_preview_enabled(previews.is_enabled());
-            ui.set_hover_preview_delay_ms(
-                i32::try_from(config.hover_trailer_preview_delay_ms)
-                    .unwrap_or(crate::config::DEFAULT_HOVER_PREVIEW_DELAY_MS as i32),
-            );
-            event_loop::install_hover_preview_callbacks(
-                &ui,
-                runtime.clone(),
-                playback_selections.clone(),
-                previews,
-                navigation.clone(),
-            );
-        }
-        None => ui.set_hover_preview_enabled(false),
-    }
 
     nuvio_plugins::setup(&ui, &config.plugins, runtime.clone(), playback_selections.clone());
 

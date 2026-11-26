@@ -24,7 +24,6 @@ import { SharePrompt } from "components/share_prompt.slint";
 import { ColorInput, ColorPicker } from "components/color_input.slint";
 import { ColorUtils, ParsedColor, CursorSample, SavedGradient } from "components/color_utils.slint";
 import { SeeAllButton, MetaRow, MetaRowPlaceholder } from "components/meta_row.slint";
-import { TrailerHoverPopup } from "components/trailer_popup.slint";
 import { MetaActionButton, MetaLinkChip, MetaLinks, MetaPreview, MetaPreviewPlaceholder } from "components/meta_preview.slint";
 import { AuthPage } from "pages/auth.slint";
 import { BoardPage, BoardSection } from "pages/board.slint";
@@ -529,103 +528,6 @@ export component MainWindow inherits Window {
     in-out property <image> discover-preview-poster;
     in-out property <string> discover-preview-poster-url: "";
 
-    // Hover trailer preview popup. The backend owns everything except the
-    // anchor geometry, which only the hovered card knows.
-    in-out property <bool> hover-preview-enabled: false;
-    in-out property <int> hover-preview-delay-ms: 1200;
-    private property <bool> hover-preview-active: false;
-    in-out property <image> hover-preview-frame;
-    in-out property <bool> hover-preview-has-frame: false;
-    in-out property <bool> hover-preview-loading: false;
-    in-out property <bool> hover-preview-muted: true;
-    in-out property <string> hover-preview-status: "";
-    in-out property <string> hover-preview-title: "";
-    in-out property <string> hover-preview-year: "";
-    in-out property <string> hover-preview-runtime: "";
-    in-out property <string> hover-preview-rating: "";
-    in-out property <string> hover-preview-description: "";
-    in-out property <[string]> hover-preview-genres: [];
-    in-out property <image> hover-preview-poster;
-    in-out property <bool> hover-preview-in-library: false;
-    private property <length> hover-preview-anchor-x: 0px;
-    private property <length> hover-preview-anchor-y: 0px;
-    private property <length> hover-preview-anchor-width: 0px;
-    private property <length> hover-preview-anchor-height: 0px;
-    private property <bool> hover-preview-dismiss-pending: false;
-    private property <bool> hover-preview-popup-hovered: false;
-
-    callback hover-preview-requested(string, string);
-    callback hover-preview-dismissed();
-    callback hover-preview-toggle-muted();
-    callback hover-preview-play();
-    callback hover-preview-toggle-library();
-
-    function hover-preview-open(id: string, media-type: string, anchor-x: length,
-            anchor-y: length, anchor-width: length, anchor-height: length) {
-        if (!root.hover-preview-enabled || root.effective-show-player
-            || root.effective-show-details) {
-            return;
-        }
-        root.hover-preview-dismiss-pending = false;
-        root.hover-preview-popup-hovered = false;
-        root.hover-preview-anchor-x = anchor-x;
-        root.hover-preview-anchor-y = anchor-y;
-        root.hover-preview-anchor-width = anchor-width;
-        root.hover-preview-anchor-height = anchor-height;
-        root.hover-preview-active = true;
-        root.hover-preview-requested(id, media-type);
-    }
-
-    // The popup covers the card that opened it, so the pointer legitimately
-    // leaves the card on the way in. A short grace period keeps the session
-    // alive across that handover and across gaps between adjacent cards.
-    // The timer re-reads the popup's hover state when it fires rather than
-    // trusting the order the leave and enter callbacks arrived in.
-    function hover-preview-schedule-dismiss() {
-        if (root.hover-preview-active) {
-            root.hover-preview-dismiss-pending = true;
-        }
-    }
-
-    function hover-preview-keep() {
-        root.hover-preview-popup-hovered = true;
-        root.hover-preview-dismiss-pending = false;
-    }
-
-    // Public so the backend can retract a popup it cannot fill in.
-    public function hover-preview-close() {
-        root.hover-preview-dismiss-pending = false;
-        root.hover-preview-popup-hovered = false;
-        if (root.hover-preview-active) {
-            root.hover-preview-active = false;
-            root.hover-preview-dismissed();
-        }
-    }
-
-    hover-preview-dismiss-timer := Timer {
-        interval: 160ms;
-        running: root.hover-preview-dismiss-pending;
-        triggered => {
-            if (root.hover-preview-popup-hovered) {
-                root.hover-preview-dismiss-pending = false;
-            } else {
-                root.hover-preview-close();
-            }
-        }
-    }
-
-    // Leaving the browsing surface tears the preview down immediately: the
-    // cards that own the hover contract are gone, so nothing else would.
-    private property <bool> hover-preview-route-visible: !root.effective-show-details
-        && !root.effective-show-player;
-    changed hover-preview-route-visible => {
-        if (!root.hover-preview-route-visible) {
-            root.hover-preview-close();
-        }
-    }
-    changed effective-active-tab => {
-        root.hover-preview-close();
-    }
 
     // Detailed view parameters
     in-out property <string> detail-title: "";
@@ -2103,14 +2005,6 @@ export component MainWindow inherits Window {
                         reload-server => { board-reload-server(); }
                         open-server-settings => { board-open-server-settings(); }
                         poster-requested(url) => { request-poster(url); }
-                        enable-hover-preview: root.hover-preview-enabled;
-                        hover-preview-delay: root.hover-preview-delay-ms * 1ms;
-                        hover-preview-requested(id, media-type, x, y, w, h) => {
-                            root.hover-preview-open(id, media-type, x, y, w, h);
-                        }
-                        hover-preview-dismissed => { root.hover-preview-schedule-dismiss(); }
-                        // The anchor moved (scroll), so retract immediately; no grace period.
-                        hover-preview-cancelled => { root.hover-preview-close(); }
                     }
 
                     if (root.effective-active-tab == 1
@@ -2198,14 +2092,6 @@ export component MainWindow inherits Window {
                         toggle-library-preview => { toggle-library-preview(); }
                         toggle-watched-preview => { details-toggle-watched(); }
                         play-trailer-preview(selection-id) => { play-stream(selection-id); }
-                        enable-hover-preview: root.hover-preview-enabled;
-                        hover-preview-delay: root.hover-preview-delay-ms * 1ms;
-                        hover-preview-requested(id, media-type, x, y, w, h) => {
-                            root.hover-preview-open(id, media-type, x, y, w, h);
-                        }
-                        hover-preview-dismissed => { root.hover-preview-schedule-dismiss(); }
-                        // The anchor moved (scroll), so retract immediately; no grace period.
-                        hover-preview-cancelled => { root.hover-preview-close(); }
                         scroll-y <=> discover-scroll-y;
                     }
 
@@ -2245,14 +2131,6 @@ export component MainWindow inherits Window {
                         watched-changed(id, watched) => { library-watched-changed(id, watched); }
                         play-item(id) => { library-play-item(id); }
                         dismiss-item(id) => { library-dismiss-item(id); }
-                        enable-hover-preview: root.hover-preview-enabled;
-                        hover-preview-delay: root.hover-preview-delay-ms * 1ms;
-                        hover-preview-requested(id, media-type, x, y, w, h) => {
-                            root.hover-preview-open(id, media-type, x, y, w, h);
-                        }
-                        hover-preview-dismissed => { root.hover-preview-schedule-dismiss(); }
-                        // The anchor moved (scroll), so retract immediately; no grace period.
-                        hover-preview-cancelled => { root.hover-preview-close(); }
                         local-add-root(path) => { library-local-add-root(path); }
                         local-rescan => { library-local-rescan(); }
                         local-play(id) => { library-local-play(id); }
@@ -2619,14 +2497,6 @@ export component MainWindow inherits Window {
                         }
                         catalog-visible(index) => { search-catalog-visible(index); }
                         poster-requested(url) => { request-poster(url); }
-                        enable-hover-preview: root.hover-preview-enabled;
-                        hover-preview-delay: root.hover-preview-delay-ms * 1ms;
-                        hover-preview-requested(id, media-type, x, y, w, h) => {
-                            root.hover-preview-open(id, media-type, x, y, w, h);
-                        }
-                        hover-preview-dismissed => { root.hover-preview-schedule-dismiss(); }
-                        // The anchor moved (scroll), so retract immediately; no grace period.
-                        hover-preview-cancelled => { root.hover-preview-close(); }
                     }
 
                     if (root.effective-active-tab == 7) : DownloadsPage {
@@ -2647,46 +2517,6 @@ export component MainWindow inherits Window {
                     }
                     }
                 }
-            }
-        }
-
-        // Floats over the browsing surface but stays under the details and
-        // player routes, which replace it wholesale.
-        if (root.hover-preview-enabled) : TrailerHoverPopup {
-            x: 0px;
-            y: 0px;
-            width: 100%;
-            height: 100%;
-            z: 400;
-            unit: root.ui-unit;
-            active: root.hover-preview-active;
-            frame: root.hover-preview-frame;
-            has-frame: root.hover-preview-has-frame;
-            loading: root.hover-preview-loading;
-            muted: root.hover-preview-muted;
-            status: root.hover-preview-status;
-            poster: root.hover-preview-poster;
-            title: root.hover-preview-title;
-            year: root.hover-preview-year;
-            runtime: root.hover-preview-runtime;
-            rating: root.hover-preview-rating;
-            description: root.hover-preview-description;
-            genres: root.hover-preview-genres;
-            in-library: root.hover-preview-in-library;
-            anchor-x: root.hover-preview-anchor-x;
-            anchor-y: root.hover-preview-anchor-y;
-            anchor-width: root.hover-preview-anchor-width;
-            anchor-height: root.hover-preview-anchor-height;
-            toggle-muted => { root.hover-preview-toggle-muted(); }
-            toggle-library-requested => { root.hover-preview-toggle-library(); }
-            play-requested => {
-                root.hover-preview-play();
-                root.hover-preview-close();
-            }
-            pointer-entered => { root.hover-preview-keep(); }
-            pointer-left => {
-                root.hover-preview-popup-hovered = false;
-                root.hover-preview-schedule-dismiss();
             }
         }
 

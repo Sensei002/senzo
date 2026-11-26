@@ -36,8 +36,6 @@ export component MediaCard inherits Rectangle {
     in property <bool> library-context-menu: false;
     in property <bool> continue-watching-context-menu: false;
     in property <bool> show-watched-context-action: true;
-    in property <bool> enable-hover-preview: false;
-    in property <duration> hover-preview-delay: 1200ms;
 
     callback clicked;
     callback double-clicked;
@@ -49,12 +47,6 @@ export component MediaCard inherits Rectangle {
     callback library-remove-requested;
     callback dismiss-requested;
     callback poster-requested(string);
-    // Window-space anchor geometry travels with the request so the floating
-    // popup can position itself without knowing which page owns this card.
-    callback hover-preview-requested(string, string, length, length, length, length);
-    callback hover-preview-dismissed();
-    // Emitted when the card moved out from under an open preview (scroll).
-    callback hover-preview-cancelled();
 
     function request-poster-if-needed() {
         if ((!root.enable-lazy-loading || root.is-visible)
@@ -69,13 +61,6 @@ export component MediaCard inherits Rectangle {
     }
     changed item => {
         root.request-poster-if-needed();
-        // ListView recycles delegates: scrolling by exactly one row can hand
-        // this instance a different title without moving it, so the anchor
-        // check below would not notice that the open popup is stale.
-        if (root.preview-emitted) {
-            root.preview-emitted = false;
-            root.hover-preview-cancelled();
-        }
     }
     changed is-visible => {
         root.request-poster-if-needed();
@@ -92,60 +77,6 @@ export component MediaCard inherits Rectangle {
             : root.poster-width * Theme.poster-shape-ratio);
     property <bool> highlighted: card-button.has-hover || card-button.has-focus
         || root.selected || root.menu-open || root.console-focused;
-
-    private property <bool> preview-armed: root.enable-hover-preview
-        && card-button.has-hover
-        && root.item.id != "";
-    private property <bool> preview-emitted: false;
-
-    // Driven imperatively rather than by binding `running` to `preview-armed`.
-    // Re-enabling a Slint timer only marks it active again: the deadline from
-    // the previous hover is kept, so a card the pointer had already rested on
-    // would open its popup with no delay at all. `restart()` recomputes the
-    // deadline from now, which is what makes the threshold hold on every hover.
-    hover-preview-timer := Timer {
-        interval: root.hover-preview-delay;
-        running: false;
-        triggered => {
-            // One-shot: Slint timers repeat until stopped.
-            self.stop();
-            root.preview-emitted = true;
-            root.hover-preview-requested(
-                root.item.id,
-                root.item.media-type,
-                root.absolute-position.x,
-                root.absolute-position.y,
-                root.width,
-                root.height,
-            );
-        }
-    }
-
-    changed preview-armed => {
-        if (root.preview-armed) {
-            hover-preview-timer.start();
-            hover-preview-timer.restart();
-        } else {
-            hover-preview-timer.stop();
-            if (root.preview-emitted) {
-                root.preview-emitted = false;
-                root.hover-preview-dismissed();
-            }
-        }
-    }
-
-    // The popup is a separate always-on-top window pinned to the card's screen
-    // rectangle at the moment it opened. Scrolling moves the card underneath a
-    // stationary pointer, so the pointer-leave grace above never fires and the
-    // popup would stay anchored to a card that has scrolled away. Any change to
-    // the card's absolute position (scroll, resize, ListView recycling) means
-    // the anchor is stale, so drop the preview instead of leaving it stranded.
-    changed absolute-position => {
-        if (root.preview-emitted) {
-            root.preview-emitted = false;
-            root.hover-preview-cancelled();
-        }
-    }
 
     background: transparent;
     height: root.poster-height + 6 * root.unit;

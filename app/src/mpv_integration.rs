@@ -14,9 +14,8 @@ use anyhow::{Context, anyhow};
 use enginefs::backend::{TorrentBackend, TorrentHandle};
 use playback_mpv::{
     EndReason, HdrMode, OmniphonyAudioSettings, PlaybackCommand, PlaybackController, PlaybackEvent,
-    PlaybackRuntime, PlaybackState, PlayerConfig, PreviewConfig, PreviewRuntime, RenderContext,
-    RenderOutcome, RenderSource, SpatialAudioMode, ThumbnailConfig, ThumbnailRuntime,
-    ThumbnailSource,
+    PlaybackRuntime, PlaybackState, PlayerConfig, RenderContext, RenderOutcome, RenderSource,
+    SpatialAudioMode, ThumbnailConfig, ThumbnailRuntime, ThumbnailSource,
 };
 use slint::{
     BorrowedOpenGLTextureBuilder, BorrowedOpenGLTextureOrigin, ComponentHandle, ModelRc,
@@ -957,7 +956,6 @@ pub struct NativePlaybackBridge {
     runtime_handle: tokio::runtime::Handle,
     shaders: SharedShaderCoordinator,
     thumbnails: crate::thumbnail_preview::ThumbnailPreview,
-    previews: crate::preview_player::PreviewPlayer,
     capture_directory: Arc<PathBuf>,
     capture_sequence: Arc<AtomicU64>,
 }
@@ -965,7 +963,6 @@ pub struct NativePlaybackBridge {
 pub struct NativePlayback {
     runtime: PlaybackRuntime,
     thumbnail_runtime: Option<ThumbnailRuntime>,
-    preview_runtime: Option<PreviewRuntime>,
     bridge: NativePlaybackBridge,
     event_task: tokio::task::JoinHandle<()>,
 }
@@ -1058,31 +1055,6 @@ impl NativePlayback {
             Err(error) => {
                 tracing::warn!(%error, "timeline thumbnail decoder could not be initialized");
                 thumbnails.worker_failed(error.to_string());
-                None
-            }
-        };
-        let previews = crate::preview_player::PreviewPlayer::new(
-            app_config.hover_trailer_previews_enabled,
-            ui.as_weak(),
-        );
-        let preview_events = previews.clone();
-        let preview_runtime = match PreviewRuntime::start(
-            PreviewConfig {
-                hardware_decoding,
-                ytdl_path: resolve_ytdl_path(),
-                ..PreviewConfig::default()
-            },
-            move |event| {
-                preview_events.handle_event(event);
-            },
-        ) {
-            Ok(runtime) => {
-                previews.attach_controller(runtime.controller());
-                Some(runtime)
-            }
-            Err(error) => {
-                tracing::warn!(%error, "hover trailer preview decoder could not be initialized");
-                previews.worker_failed(error.to_string());
                 None
             }
         };
@@ -1228,7 +1200,6 @@ impl NativePlayback {
             runtime_handle,
             shaders: shader_coordinator,
             thumbnails,
-            previews,
             capture_directory: Arc::new(capture_directory),
             capture_sequence: Arc::new(AtomicU64::new(1)),
         };
@@ -1236,7 +1207,6 @@ impl NativePlayback {
         Ok(Self {
             runtime,
             thumbnail_runtime,
-            preview_runtime,
             bridge,
             event_task,
         })
@@ -1254,14 +1224,9 @@ impl NativePlayback {
             .thumbnail_runtime
             .map(ThumbnailRuntime::shutdown)
             .transpose();
-        let preview_result = self
-            .preview_runtime
-            .map(PreviewRuntime::shutdown)
-            .transpose();
         let result = self.runtime.shutdown().map_err(Into::into);
         self.event_task.abort();
         thumbnail_result.context("thumbnail worker did not shut down cleanly")?;
-        preview_result.context("hover preview worker did not shut down cleanly")?;
         result
     }
 }
@@ -1271,10 +1236,6 @@ impl NativePlaybackBridge {
         self.omniphony_decoder_available
     }
 
-    /// Handle onto the hover trailer preview engine for UI callback wiring.
-    pub fn previews(&self) -> crate::preview_player::PreviewPlayer {
-        self.previews.clone()
-    }
 
     pub fn set_spatial_audio_mode(&self, mode: SpatialAudioMode) {
         log_command(
