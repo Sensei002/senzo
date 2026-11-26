@@ -543,6 +543,72 @@ jobs:
           name: senzo-macos-${{ matrix.arch }}
           path: dist/*.zip
           if-no-files-found: error
+  android:
+    name: Android APK
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK packages
+        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+      - name: Prepare the signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keystore="$RUNNER_TEMP/senzo-release.jks"
+          password="${KEYSTORE_PASSWORD:-senzo-development}"
+          alias="${KEY_ALIAS:-senzo}"
+          if [ -n "${KEYSTORE_BASE64:-}" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$keystore"
+          else
+            # No repository secret yet: a throwaway key still produces an
+            # installable APK, it just cannot upgrade an earlier install.
+            keytool -genkeypair -keystore "$keystore" -alias "$alias" \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$password" -keypass "${KEY_PASSWORD:-$password}" \
+              -dname "CN=SENZO, O=SENZO, C=US"
+          fi
+          {
+            echo "SENZO_KEYSTORE=$keystore"
+            echo "SENZO_KEYSTORE_PASSWORD=$password"
+            echo "SENZO_KEY_ALIAS=$alias"
+            echo "SENZO_KEY_PASSWORD=${KEY_PASSWORD:-$password}"
+          } >> "$GITHUB_ENV"
+      - name: Build release APK
+        run: |
+          set -euo pipefail
+          cd android
+          # A tag names the release; a branch build keeps the desktop version
+          # from app/Cargo.toml and only bumps the build number.
+          versionName="${GITHUB_REF_NAME#v}"
+          args=(-PsenzoVersionCode="${GITHUB_RUN_NUMBER}")
+          if printf '%s' "$versionName" | grep -Eq '^[0-9]+\.[0-9]+'; then
+            args+=(-PsenzoVersionName="$versionName")
+          fi
+          gradle --no-daemon --console=plain :app:assembleRelease "${args[@]}"
+      - name: Collect artifact
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          apk=$(ls android/app/build/outputs/apk/release/*.apk | head -n 1)
+          cp "$apk" "dist/senzo-${GITHUB_REF_NAME}.apk"
+          ls -l dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: senzo-android-apk
+          path: dist/*.apk
+          if-no-files-found: error
   arch:
     name: Arch Linux x64
     needs: linux
@@ -687,7 +753,7 @@ jobs:
 
   release:
     name: Publish tagged release
-    needs: [windows, linux, macos, arch, fedora]
+    needs: [windows, linux, macos, android, arch, fedora]
     runs-on: ubuntu-24.04
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -721,6 +787,7 @@ jobs:
           copy_latest "senzo-v*-x86_64-pc-windows-msvc.zip"
           copy_latest "senzo-v*-aarch64-apple-darwin.zip"
           copy_latest "senzo-v*-x86_64-apple-darwin.zip"
+          copy_latest "senzo-v*.apk"
           copy_latest "*.deb"
           copy_latest "senzo-[0-9]*.pkg.tar.zst"
           copy_latest "*.rpm"

@@ -41,6 +41,15 @@
 # Local CPU v4 triplet override
 /triplets/x64-windows-v4-static-release.cmake
 
+# Android build output and local signing material
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/local.properties
+/android/keystore.properties
+/android/*.jks
+/android/*.keystore
+
 # OS metadata
 .DS_Store
 Thumbs.db
