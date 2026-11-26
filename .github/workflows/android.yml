@@ -101,10 +101,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          apk=$(ls android/app/build/outputs/apk/release/*.apk | head -n 1)
+          # Splits are built per ABI, and phones take the arm64 one.
+          apk=$(ls android/app/build/outputs/apk/release/*arm64-v8a*.apk | head -n 1)
           # The run number keeps downloads from overwriting each other and
           # matches the versionCode the APK was built with.
           cp "$apk" "dist/senzo-${GITHUB_REF_NAME}-r${GITHUB_RUN_NUMBER}.apk"
+          v7a=$(ls android/app/build/outputs/apk/release/*armeabi-v7a*.apk 2>/dev/null | head -n 1 || true)
+          if [ -n "$v7a" ]; then
+            cp "$v7a" "dist/senzo-${GITHUB_REF_NAME}-r${GITHUB_RUN_NUMBER}-arm32.apk"
+          fi
           ls -l dist
       - uses: actions/upload-artifact@v7
         with:
