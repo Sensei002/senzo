@@ -161,7 +161,7 @@ fn submit_search(
 /// state at all, while the UI had just been cleared and marked as loading. The
 /// unload guarantees a fresh plan plus a real state change on every submit, so
 /// the same search always runs again.
-fn search_reset_actions(query: String) -> Vec<RuntimeAction> {
+fn search_reset_actions(query: String) -> Vec<RuntimeAction<DesktopEnv, AppModel>> {
     vec![
         RuntimeAction {
             field: Some(AppModelField::Search),
