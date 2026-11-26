@@ -52,11 +52,34 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent {
-            SenzoTheme {
-                SenzoApp()
-            }
+        CrashReporter.install(this)
+
+        // A crash the last run could not survive becomes a page that can be
+        // read and copied, instead of a second silent failure.
+        val previous = CrashReporter.pending(this)
+        if (previous != null) {
+            showCrash(previous)
+            return
         }
+
+        try {
+            setContent {
+                SenzoTheme {
+                    SenzoApp()
+                }
+            }
+        } catch (error: Throwable) {
+            showCrash(CrashReporter.record(this, error))
+        }
+    }
+
+    private fun showCrash(details: String) {
+        setContentView(
+            CrashReporter.page(this, details) {
+                CrashReporter.forget(this)
+                recreate()
+            },
+        )
     }
 }
 

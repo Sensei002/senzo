@@ -1,5 +1,6 @@
 package com.senzo.app.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import com.senzo.app.R
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -51,7 +55,7 @@ fun LoginScreen(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    0f to Color(0xFF16122A),
+                    0f to Color(0xFF06222B),
                     0.5f to Background,
                     1f to Background,
                 ),
@@ -74,11 +78,12 @@ fun LoginScreen(
                 .padding(horizontal = 26.dp),
             horizontalAlignment = Alignment.Start,
         ) {
-            Spacer(Modifier.height(72.dp))
-            Text(
-                text = "SENZO",
-                style = SenzoWordmark.copy(fontSize = MaterialTheme.typography.displaySmall.fontSize),
-                color = Accent,
+            Spacer(Modifier.height(56.dp))
+            Image(
+                painter = painterResource(R.drawable.senzo_lockup),
+                contentDescription = "SENZO",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.height(112.dp),
             )
             Spacer(Modifier.height(10.dp))
             Text(

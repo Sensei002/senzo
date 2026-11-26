@@ -13,22 +13,30 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** The dark palette of the desktop application, in Compose form. */
-val Background = Color(0xFF07080B)
-val BackgroundElevated = Color(0xFF0D0F15)
-val Surface = Color(0xFF12141B)
-val SurfaceHigh = Color(0xFF1A1D26)
-val Accent = Color(0xFF7C5CFF)
-val TextPrimary = Color(0xFFF2F3F7)
-val TextMuted = Color(0xFF9AA0AE)
-val TextDim = Color(0xFF6B7280)
+/**
+ * The dark palette of the desktop application, in Compose form.
+ *
+ * The accent is the cyan of the SENZO mark, not a colour the app picked:
+ * the logo, the launcher icon and every highlight share one hue so the
+ * product reads as one brand rather than a reskinned player.
+ */
+val Background = Color(0xFF08090C)
+val BackgroundElevated = Color(0xFF0E1116)
+val Surface = Color(0xFF12161C)
+val SurfaceHigh = Color(0xFF1A2029)
+val Accent = Color(0xFF00D8F8)
+val AccentDeep = Color(0xFF00A6C4)
+val OnAccent = Color(0xFF04141A)
+val TextPrimary = Color(0xFFF4F6F8)
+val TextMuted = Color(0xFF9BA6B2)
+val TextDim = Color(0xFF6C7783)
 val Gold = Color(0xFFFFC857)
-val Outline = Color(0xFF2A2E3A)
+val Outline = Color(0xFF232A33)
 
 private val SenzoColors = darkColorScheme(
     primary = Accent,
-    onPrimary = Color.White,
-    primaryContainer = Accent.copy(alpha = 0.20f),
+    onPrimary = OnAccent,
+    primaryContainer = Accent.copy(alpha = 0.16f),
     onPrimaryContainer = TextPrimary,
     secondary = Gold,
     onSecondary = Color.Black,
