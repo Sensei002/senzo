@@ -72,12 +72,6 @@ android {
         versionCode = appVersionCode
         versionName = appVersionName
 
-        // The torrent engine ships a native build per architecture. 32-bit x86
-        // has no phone behind it, so the APK carries the two that matter and
-        // the emulator build is only produced when it is asked for.
-        ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
-        }
     }
 
     buildFeatures {
@@ -87,7 +81,9 @@ android {
 
     // libtorrent is ~15 MB per architecture, so a universal APK would be three
     // copies of the same engine. One APK per ABI keeps the download around
-    // 18 MB; phones take the arm64 build.
+    // 18 MB; phones take the arm64 build and 32-bit devices the arm one.
+    // The torrent dependencies also carry an x86_64 build, but no phone needs
+    // it, so it stays out of the release.
     splits {
         abi {
             isEnable = true
