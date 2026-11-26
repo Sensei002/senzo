@@ -295,7 +295,7 @@ private fun ActionsRow(
                     text = when {
                         state.streamsLoading -> "Finding sources"
                         resume != null && !resume.finished -> "Resume"
-                        else -> "Play",
+                        else -> "Play"
                     },
                     style = MaterialTheme.typography.labelLarge,
                 )
