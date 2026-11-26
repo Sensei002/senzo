@@ -581,7 +581,9 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: senzo-macos-${{ matrix.arch }}
-          path: dist/*.zip
+          path: |
+            dist/*.dmg
+            dist/*.zip
           if-no-files-found: error
   android:
     name: Android APK
@@ -842,6 +844,8 @@ jobs:
 
           copy_latest "SENZO-Setup-v*-x64.exe"
           copy_latest "senzo-v*-x86_64-pc-windows-msvc.zip"
+          copy_latest "senzo-v*-aarch64-apple-darwin.dmg"
+          copy_latest "senzo-v*-x86_64-apple-darwin.dmg"
           copy_latest "senzo-v*-aarch64-apple-darwin.zip"
           copy_latest "senzo-v*-x86_64-apple-darwin.zip"
           copy_latest "senzo-v*.apk"

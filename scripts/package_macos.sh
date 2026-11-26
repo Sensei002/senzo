@@ -68,7 +68,7 @@ if [[ -z "$tag" ]]; then
     tag="v$version"
 fi
 
-for tool in sips iconutil dylibbundler otool install_name_tool codesign ditto; do
+for tool in sips iconutil dylibbundler otool install_name_tool codesign ditto hdiutil; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "missing build tool: $tool" >&2
         exit 1
@@ -136,5 +136,21 @@ codesign --verify --deep --strict "$app"
 archive="$out/senzo-${tag}-${target}.zip"
 ditto -c -k --keepParent "$app" "$archive"
 
+# macOS users expect a disk image: mount it, drag SENZO onto the Applications
+# alias, eject. The zip stays for anything that unpacks archives in place.
+dmg="$out/senzo-${tag}-${target}.dmg"
+stage="$out/dmg-stage"
+rm -rf "$stage"
+mkdir -p "$stage"
+ditto "$app" "$stage/SENZO.app"
+ln -s /Applications "$stage/Applications"
+hdiutil create -volname "SENZO" -srcfolder "$stage" -ov -format UDZO "$dmg" >/dev/null
+rm -rf "$stage"
+if [[ ! -s "$dmg" ]]; then
+    echo "failed to build disk image: $dmg" >&2
+    exit 1
+fi
+
 echo "Bundle:  $app"
 echo "Archive: $archive ($(du -h "$archive" | cut -f1))"
+echo "Image:   $dmg ($(du -h "$dmg" | cut -f1))"
