@@ -61,6 +61,7 @@ jobs:
           else
             # No repository secret yet: a throwaway key still produces an
             # installable APK, it just cannot upgrade an earlier install.
+            echo "::warning title=Android signing::ANDROID_KEYSTORE_BASE64 is not set; this APK is signed with a throwaway key and cannot upgrade an earlier install."
             keytool -genkeypair -keystore "$keystore" -alias "$alias" \
               -keyalg RSA -keysize 2048 -validity 10000 \
               -storepass "$password" -keypass "${KEY_PASSWORD:-$password}" \
@@ -89,7 +90,9 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           apk=$(ls android/app/build/outputs/apk/release/*.apk | head -n 1)
-          cp "$apk" "dist/senzo-${GITHUB_REF_NAME}.apk"
+          # The run number keeps downloads from overwriting each other and
+          # matches the versionCode the APK was built with.
+          cp "$apk" "dist/senzo-${GITHUB_REF_NAME}-r${GITHUB_RUN_NUMBER}.apk"
           ls -l dist
       - uses: actions/upload-artifact@v7
         with:
