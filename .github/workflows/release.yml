@@ -487,10 +487,24 @@ jobs:
           key: macos-${{ matrix.arch }}
       - name: Install native dependencies
         run: |
-          brew update --quiet
-          # mpv ships libmpv and its pkg-config file; dylibbundler collects the
-          # non-system libraries into the app bundle.
-          brew install pkg-config mpv dylibbundler
+          set -euo pipefail
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            # Homebrew publishes arm64 bottles of mpv and its libraries.
+            brew install pkg-config mpv dylibbundler
+            prefix="$(brew --prefix)"
+            echo "PKG_CONFIG_PATH=$prefix/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
+          else
+            # Homebrew stopped publishing Intel macOS bottles, so the Intel
+            # build takes libmpv from MacPorts, which still ships x86_64
+            # archives of mpv with the libmpv variant.
+            curl -fsSL -o "$RUNNER_TEMP/macports.pkg" \
+              "https://github.com/macports/macports-base/releases/download/v2.12.7/MacPorts-2.12.7-15-Sequoia.pkg"
+            sudo installer -pkg "$RUNNER_TEMP/macports.pkg" -target /
+            sudo port -q selfupdate || true
+            sudo port -q install mpv pkgconfig dylibbundler
+            echo "/opt/local/bin" >> "$GITHUB_PATH"
+            echo "PKG_CONFIG_PATH=/opt/local/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
+          fi
       - name: Restore libtorrent cache
         id: libtorrent-cache
         uses: actions/cache/restore@v6

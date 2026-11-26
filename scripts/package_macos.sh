@@ -111,14 +111,14 @@ if ! otool -l "$contents/MacOS/senzo" | grep -q "@executable_path/../Frameworks"
     install_name_tool -add_rpath "@executable_path/../Frameworks" "$contents/MacOS/senzo"
 fi
 
-# Anything still linked from a Homebrew prefix ships only on machines that have
-# the same prefix, so refuse to publish such a bundle.
+# Anything still linked from a Homebrew or MacPorts prefix ships only on
+# machines that have the same prefix, so refuse to publish such a bundle.
 stray=""
 for candidate in "$contents/MacOS/senzo" "$contents"/Frameworks/*.dylib; do
     [[ -e "$candidate" ]] || continue
     while read -r dependency; do
         case "$dependency" in
-            /opt/homebrew/*|/usr/local/*|/Users/*)
+            /opt/homebrew/*|/opt/local/*|/usr/local/*|/Users/*)
                 stray="${stray}${candidate}: ${dependency}"$'\n'
                 ;;
         esac
