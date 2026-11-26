@@ -302,6 +302,8 @@ data class Playback(
     val url: String? = null,
     val title: String,
     val subtitle: String = "",
+    /** The year the title came out, shown under its name while it plays. */
+    val year: String? = null,
     val headers: Map<String, String> = emptyMap(),
     val startPositionMs: Long = 0,
     val progress: WatchProgress? = null,

@@ -845,6 +845,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     url = null,
                     title = meta.name,
                     subtitle = subtitle,
+                    year = meta.releaseInfo?.takeIf { it.isNotBlank() },
                     headers = item.headers,
                     startPositionMs = if (_state.value.settings.resumePlayback) {
                         _state.value.progress.firstOrNull { it.key == entry.key }
@@ -968,6 +969,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     title = meta.name,
                     subtitle = listOfNotNull(video?.label, item.quality, item.size)
                         .joinToString("  ·  "),
+                    year = meta.releaseInfo?.takeIf { it.isNotBlank() },
                     headers = item.headers,
                     startPositionMs = start,
                     progress = entry,

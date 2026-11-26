@@ -174,6 +174,7 @@ private fun ExoPlayerScreen(
     var speed by remember { mutableStateOf(1f) }
     var zoom by remember { mutableStateOf(false) }
     var controls by remember { mutableStateOf(true) }
+    var locked by remember { mutableStateOf(false) }
     var sheet by remember { mutableStateOf<PlayerSheet?>(null) }
     var tracks by remember { mutableStateOf<Tracks?>(null) }
     var attempts by remember(playback.url) { mutableStateOf(0) }
@@ -397,35 +398,22 @@ private fun ExoPlayerScreen(
         }
 
         if (exoPlayer != null && controls) {
-            ControlsOverlay(
-                playback = playback,
-                player = exoPlayer,
+            PlayerChrome(
+                title = playback.title,
+                subtitle = listOfNotNull(
+                    playback.year,
+                    playback.subtitle.takeIf { it.isNotBlank() },
+                ).joinToString("  ·  "),
                 playing = playing,
                 buffering = buffering,
                 ended = ended,
                 position = position,
                 duration = duration,
                 buffered = buffered,
-                scrubbing = scrubbing,
-                scrubValue = scrubValue,
                 zoom = zoom,
-                speed = speed,
-                tracks = tracks,
-                onToggleControls = { controls = true },
-                onScrub = { value ->
-                    scrubbing = true
-                    scrubValue = value
-                },
-                onScrubFinished = {
-                    exoPlayer.seekTo(scrubValue.toLong())
-                    position = scrubValue.toLong()
-                    scrubbing = false
-                },
-                onSeekBy = { delta ->
-                    exoPlayer.seekTo((exoPlayer.currentPosition + delta).coerceAtLeast(0))
-                    controls = true
-                },
-                onTogglePlay = {
+                locked = locked,
+                hasNext = playback.hasNext,
+                onPlayPause = {
                     if (ended) {
                         exoPlayer.seekTo(0)
                         exoPlayer.play()
@@ -437,14 +425,28 @@ private fun ExoPlayerScreen(
                     }
                     controls = true
                 },
-                onSpeed = {
-                    speed = nextSpeed(speed)
-                    exoPlayer.setPlaybackSpeed(speed)
+                onSeekBy = { delta ->
+                    exoPlayer.seekTo((exoPlayer.currentPosition + delta).coerceAtLeast(0))
+                    controls = true
+                },
+                onSeek = { value ->
+                    exoPlayer.seekTo(value)
+                    position = value
+                    controls = true
                 },
                 onZoom = { zoom = !zoom },
+                onSubtitles = { sheet = PlayerSheet.Subtitles },
+                onAudio = { sheet = PlayerSheet.Audio },
+                onSpeed = { sheet = PlayerSheet.Speed },
+                onInfo = { sheet = PlayerSheet.Info },
                 onNext = onNext,
-                onOpenSheet = { sheet = it },
-                onClose = { onClose(position, duration) },
+                onRetry = {
+                    error = null
+                    attempts++
+                    onRetry()
+                },
+                onLock = { locked = !locked; controls = true },
+                onBack = { onClose(position, duration) },
             )
         }
     }
@@ -455,6 +457,10 @@ private fun ExoPlayerScreen(
             sheet = openSheet,
             player = exoPlayer,
             tracks = tracks,
+            playback = playback,
+            position = position,
+            duration = duration,
+            buffered = buffered,
             speed = speed,
             onSpeed = { value ->
                 speed = value
@@ -478,7 +484,7 @@ private val playbackClient: OkHttpClient by lazy {
 }
 
 /** Which settings sheet is open. */
-private enum class PlayerSheet { Speed, Audio, Subtitles }
+private enum class PlayerSheet { Speed, Audio, Subtitles, Info }
 
 /**
  * The buffer the desktop app gives a stream, sized for a phone: enough ahead of
@@ -619,216 +625,6 @@ internal fun FailureOverlay(message: String, onRetry: () -> Unit, onClose: () ->
 }
 
 @Composable
-private fun ControlsOverlay(
-    playback: Playback,
-    player: ExoPlayer,
-    playing: Boolean,
-    buffering: Boolean,
-    ended: Boolean,
-    position: Long,
-    duration: Long,
-    buffered: Long,
-    scrubbing: Boolean,
-    scrubValue: Float,
-    zoom: Boolean,
-    speed: Float,
-    tracks: Tracks?,
-    onToggleControls: () -> Unit,
-    onScrub: (Float) -> Unit,
-    onScrubFinished: () -> Unit,
-    onSeekBy: (Long) -> Unit,
-    onTogglePlay: () -> Unit,
-    onSpeed: () -> Unit,
-    onZoom: () -> Unit,
-    onNext: () -> Unit,
-    onOpenSheet: (PlayerSheet) -> Unit,
-    onClose: () -> Unit,
-) {
-    val audio = trackLabel(tracks, C.TRACK_TYPE_AUDIO)
-    val subtitles = trackLabel(tracks, C.TRACK_TYPE_TEXT)
-    Column(Modifier.fillMaxSize()) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        0f to Color.Black.copy(alpha = 0.78f),
-                        1f to Color.Transparent,
-                    ),
-                )
-                .statusBarsPadding()
-                .padding(horizontal = 6.dp, vertical = 6.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Rounded.Close, contentDescription = "Close player", tint = Color.White)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = playback.title,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (playback.subtitle.isNotBlank()) {
-                        Text(
-                            text = playback.subtitle,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextMuted,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-                Spacer(Modifier.width(8.dp))
-            }
-        }
-
-        Row(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = { onSeekBy(-10_000) }, modifier = Modifier.size(56.dp)) {
-                Icon(
-                    Icons.Rounded.Replay10,
-                    contentDescription = "Back 10 seconds",
-                    tint = Color.White,
-                    modifier = Modifier.size(28.dp),
-                )
-            }
-            Spacer(Modifier.width(24.dp))
-            Box(
-                modifier = Modifier
-                    .size(72.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.45f))
-                    .clickable { onToggleControls(); onTogglePlay() },
-                contentAlignment = Alignment.Center,
-            ) {
-                if (buffering && !ended) {
-                    CircularProgressIndicator(
-                        color = Color.White,
-                        strokeWidth = 2.5.dp,
-                        modifier = Modifier.size(40.dp),
-                    )
-                } else {
-                    Icon(
-                        imageVector = if (playing && !ended) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = if (playing) "Pause" else "Play",
-                        tint = Color.White,
-                        modifier = Modifier.size(36.dp),
-                    )
-                }
-            }
-            Spacer(Modifier.width(24.dp))
-            IconButton(onClick = { onSeekBy(10_000) }, modifier = Modifier.size(56.dp)) {
-                Icon(
-                    Icons.Rounded.Forward10,
-                    contentDescription = "Forward 10 seconds",
-                    tint = Color.White,
-                    modifier = Modifier.size(28.dp),
-                )
-            }
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        0f to Color.Transparent,
-                        1f to Color.Black.copy(alpha = 0.88f),
-                    ),
-                )
-                .navigationBarsPadding()
-                .padding(horizontal = 18.dp, vertical = 10.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = formatTime(if (scrubbing) scrubValue.toLong() else position),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White,
-                )
-                Box(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                    // The buffer sits under the slider, the way a desktop player
-                    // shows how far ahead the stream has read.
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(3.dp)
-                            .align(Alignment.CenterStart)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.20f)),
-                    )
-                    Box(
-                        Modifier
-                            .fillMaxWidth(
-                                if (duration > 0) (buffered.toFloat() / duration).coerceIn(0f, 1f) else 0f,
-                            )
-                            .height(3.dp)
-                            .align(Alignment.CenterStart)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.45f)),
-                    )
-                    Slider(
-                        value = if (scrubbing) {
-                            scrubValue
-                        } else {
-                            position.toFloat().coerceIn(0f, duration.coerceAtLeast(1).toFloat())
-                        },
-                        onValueChange = onScrub,
-                        onValueChangeFinished = onScrubFinished,
-                        valueRange = 0f..duration.coerceAtLeast(1).toFloat(),
-                        colors = SliderDefaults.colors(
-                            thumbColor = Color.White,
-                            activeTrackColor = Accent,
-                            inactiveTrackColor = Color.Transparent,
-                        ),
-                    )
-                }
-                Text(
-                    text = formatTime(duration),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White,
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                ControlPill(text = formatSpeed(speed), icon = Icons.Rounded.Speed, onClick = onSpeed)
-                ControlPill(
-                    text = "Audio · " + (audio ?: "Default"),
-                    icon = Icons.Rounded.Audiotrack,
-                    onClick = { onOpenSheet(PlayerSheet.Audio) },
-                )
-                ControlPill(
-                    text = "Subs · " + (subtitles ?: "Off"),
-                    icon = Icons.Rounded.Subtitles,
-                    onClick = { onOpenSheet(PlayerSheet.Subtitles) },
-                )
-                ControlPill(
-                    text = if (zoom) "Zoom" else "Fit",
-                    icon = Icons.Rounded.ZoomIn,
-                    onClick = onZoom,
-                )
-                Spacer(Modifier.weight(1f))
-                if (playback.hasNext) {
-                    ControlPill(
-                        text = "Next",
-                        icon = Icons.Rounded.SkipNext,
-                        onClick = onNext,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
 internal fun ControlPill(
     text: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -859,6 +655,10 @@ private fun PlayerSheetContent(
     sheet: PlayerSheet,
     player: ExoPlayer,
     tracks: Tracks?,
+    playback: Playback,
+    position: Long,
+    duration: Long,
+    buffered: Long,
     speed: Float,
     onSpeed: (Float) -> Unit,
     onDismiss: () -> Unit,
@@ -875,6 +675,7 @@ private fun PlayerSheetContent(
                     PlayerSheet.Speed -> "Playback speed"
                     PlayerSheet.Audio -> "Audio track"
                     PlayerSheet.Subtitles -> "Subtitles"
+                    PlayerSheet.Info -> "Stream details"
                 },
                 style = MaterialTheme.typography.titleMedium,
                 color = TextPrimary,
@@ -897,6 +698,16 @@ private fun PlayerSheetContent(
                                 .padding(horizontal = 14.dp, vertical = 8.dp),
                         )
                     }
+                }
+                PlayerSheet.Info -> {
+                    InfoRow("Playing", playback.title)
+                    if (!playback.year.isNullOrBlank()) InfoRow("Released", playback.year.orEmpty())
+                    if (playback.subtitle.isNotBlank()) InfoRow("This stream", playback.subtitle)
+                    InfoRow("Engine", "Media3 ExoPlayer")
+                    InfoRow("Position", formatTime(position) + " of " + formatTime(duration))
+                    InfoRow("Buffered", formatTime(buffered) + " ahead")
+                    InfoRow("Speed", formatSpeed(speed))
+                    playback.stats?.let { InfoRow("Swarm", it) }
                 }
                 PlayerSheet.Audio, PlayerSheet.Subtitles -> {
                     val type = if (sheet == PlayerSheet.Audio) C.TRACK_TYPE_AUDIO else C.TRACK_TYPE_TEXT
@@ -946,6 +757,29 @@ private fun PlayerSheetContent(
                 }
             }
         }
+    }
+}
+
+/** One label and value line in the stream details sheet. */
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = TextMuted,
+            modifier = Modifier.width(92.dp),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextPrimary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
