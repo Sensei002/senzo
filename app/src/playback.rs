@@ -16,8 +16,6 @@ use stremio_core::{
     },
 };
 
-use crate::app_model::AppModel;
-
 /// Presentation data for a stream whose full core selection remains in Rust.
 #[derive(Clone, Debug)]
 pub struct StreamSelectionView {
