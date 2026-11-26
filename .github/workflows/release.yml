@@ -537,6 +537,20 @@ jobs:
         with:
           path: vcpkg_installed
           key: macOS-${{ matrix.arch }}-vcpkg-${{ matrix.triplet }}-v1-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
+      - name: Link compiler-rt builtins
+        # UnRAR's SIMD dispatch calls __builtin_cpu_supports, which clang lowers
+        # to __cpu_model from compiler-rt's builtins archive. Rust does not pass
+        # that archive to the linker, so the Intel link fails without it.
+        if: matrix.arch == 'x86_64'
+        run: |
+          set -euo pipefail
+          resource_dir="$(/usr/bin/clang -print-resource-dir)"
+          archive="$resource_dir/lib/darwin/libclang_rt.osx.a"
+          if [ ! -f "$archive" ]; then
+            echo "::error title=compiler-rt::missing $archive"
+            exit 1
+          fi
+          echo "RUSTFLAGS=${RUSTFLAGS:-} -C link-arg=-L$resource_dir/lib/darwin -C link-arg=-lclang_rt.osx" >> "$GITHUB_ENV"
       - name: Build release
         run: |
           set -o pipefail

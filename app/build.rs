@@ -207,19 +207,33 @@ fn link_macos_compiler_rt() {
         return;
     }
 
-    let Ok(output) = std::process::Command::new("clang")
+    // Prefer the system compiler: a MacPorts or Homebrew clang in PATH reports
+    // a resource directory without Apple's macOS builtins.
+    let clang = if Path::new("/usr/bin/clang").is_file() {
+        "/usr/bin/clang"
+    } else {
+        "clang"
+    };
+
+    let Ok(output) = std::process::Command::new(clang)
         .arg("-print-resource-dir")
         .output()
     else {
+        println!("cargo:warning=could not run {clang} to locate compiler-rt");
         return;
     };
     if !output.status.success() {
+        println!("cargo:warning={clang} could not report its resource directory");
         return;
     }
 
     let resource_dir = String::from_utf8_lossy(&output.stdout);
     let lib_dir = Path::new(resource_dir.trim()).join("lib/darwin");
     if !lib_dir.join("libclang_rt.osx.a").is_file() {
+        println!(
+            "cargo:warning=no libclang_rt.osx.a under {}; the link may miss __cpu_model",
+            lib_dir.display()
+        );
         return;
     }
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
