@@ -32,6 +32,14 @@
 -keep class org.libtorrent4j.swig.** { *; }
 -dontwarn org.libtorrent4j.**
 
+# QuickJS calls into its Java surface from JNI, and the wrapper hands JSObject
+# callbacks back to native code, so every name in the wrapper must survive.
+-keep class com.whl.quickjs.** { *; }
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+-dontwarn com.whl.quickjs.**
+
 # Media3 and Guava reference desktop-only entry points.
 -dontwarn androidx.media3.**
 -dontwarn com.google.common.**
