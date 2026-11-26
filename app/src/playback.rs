@@ -10,9 +10,8 @@ use stremio_core::{
     models::{common::Loadable, meta_details::MetaDetails, player::Selected},
     types::{
         addon::{Descriptor, ResourcePath, ResourceRequest},
-        profile::Settings,
         resource::{
-            MetaItemPreview, Stream, StreamBehaviorHints, StreamProxyHeaders, StreamSource, Subtitles,
+            Stream, StreamBehaviorHints, StreamProxyHeaders, StreamSource, Subtitles,
         },
     },
 };
@@ -627,57 +626,6 @@ impl PlaybackSelections {
             .map(|entry| (entry.selected.clone(), entry.stream_name.clone()))
     }
 }
-
-/// Searches every loaded catalog for the metadata preview of one item.
-fn find_meta_preview<'a>(model: &'a AppModel, meta_id: &str) -> Option<&'a MetaItemPreview> {
-    let details =
-        model
-            .meta_details
-            .meta_items
-            .iter()
-            .find_map(|resource| match resource.content.as_ref() {
-                Some(Loadable::Ready(meta)) if meta.preview.id == meta_id => Some(&meta.preview),
-                _ => None,
-            });
-    if details.is_some() {
-        return details;
-    }
-
-    model
-        .board
-        .catalogs
-        .iter()
-        .chain(model.search.catalogs.iter())
-        .flatten()
-        .chain(model.discover.catalog.iter())
-        .find_map(|page| match page.content.as_ref() {
-            Some(Loadable::Ready(items)) => items.iter().find(|item| item.id == meta_id),
-            _ => None,
-        })
-}
-
-/// Renders the trailer stream as a URL the preview MPV worker can open.
-fn trailer_stream_url(
-    stream: &Stream,
-    streaming_server_url: Option<&url::Url>,
-    settings: &Settings,
-) -> Option<String> {
-    if let stremio_core::types::resource::StreamSource::YouTube { yt_id } = &stream.source {
-        return Some(format!("https://www.youtube.com/watch?v={yt_id}"));
-    }
-    let links =
-        stremio_core::deep_links::StreamDeepLinks::from((stream, streaming_server_url, settings));
-    links.external_player.streaming
-}
-
-fn preview_year(preview: &MetaItemPreview) -> String {
-    preview
-        .release_info
-        .clone()
-        .or_else(|| preview.released.map(|date| date.format("%Y").to_string()))
-        .unwrap_or_default()
-}
-
 fn ranking_mode_byte(mode: stream_ranking::RankingMode) -> u8 {
     match mode {
         stream_ranking::RankingMode::Smart => 0,

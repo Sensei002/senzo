@@ -7,14 +7,11 @@ use crate::{
 };
 use core_env::DesktopEnv;
 use futures::StreamExt;
-use slint::{ComponentHandle, Model, ModelRc};
+use slint::{Model, ModelRc};
 use std::sync::Arc;
 use stremio_core::{
     models::common::Loadable,
-    runtime::{
-        Runtime, RuntimeAction, RuntimeEvent,
-        msg::{Action, ActionCtx, Event},
-    },
+    runtime::{Runtime, RuntimeEvent, msg::Event},
 };
 
 fn update_vec_model<T: Clone + 'static>(
