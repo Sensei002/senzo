@@ -139,6 +139,7 @@ private fun SenzoApp(viewModel: MainViewModel = viewModel()) {
                     onSelectVideo = viewModel::selectVideo,
                     onToggleLibrary = viewModel::toggleLibrary,
                     onRetry = viewModel::reloadStreams,
+                    onPickerShown = viewModel::consumePickSource,
                 )
             }
         }

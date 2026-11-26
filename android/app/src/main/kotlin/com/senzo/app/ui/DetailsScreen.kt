@@ -35,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,10 +69,18 @@ fun DetailsScreen(
     onSelectVideo: (Video) -> Unit,
     onToggleLibrary: () -> Unit,
     onRetry: () -> Unit,
+    onPickerShown: () -> Unit,
 ) {
     var showStreams by remember(state.id) { mutableStateOf(false) }
     var expanded by remember(state.id) { mutableStateOf(false) }
     val meta = state.meta
+    // The board's play button opens straight into the picker.
+    LaunchedEffect(state.pickSource) {
+        if (state.pickSource) {
+            showStreams = true
+            onPickerShown()
+        }
+    }
     val seasons = meta?.seasons.orEmpty()
     val episodes = meta?.episodes(state.season ?: seasons.firstOrNull() ?: 0).orEmpty()
 
@@ -85,7 +94,6 @@ fun DetailsScreen(
         item(key = "actions") {
             ActionsRow(
                 state = state,
-                onPlay = onPlayBest,
                 onChooseStream = { showStreams = true },
                 onToggleLibrary = onToggleLibrary,
                 onRetry = onRetry,
@@ -178,6 +186,10 @@ fun DetailsScreen(
                 showStreams = false
                 onPlayStream(item)
             },
+            onPlayBest = {
+                showStreams = false
+                onPlayBest()
+            },
             onRetry = onRetry,
             onDismiss = { showStreams = false },
         )
@@ -254,7 +266,6 @@ private fun Backdrop(state: DetailsState, onBack: () -> Unit) {
 @Composable
 private fun ActionsRow(
     state: DetailsState,
-    onPlay: () -> Unit,
     onChooseStream: () -> Unit,
     onToggleLibrary: () -> Unit,
     onRetry: () -> Unit,
@@ -263,8 +274,8 @@ private fun ActionsRow(
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Button(
-                onClick = onPlay,
-                enabled = !state.streamsLoading && state.streams.isNotEmpty(),
+                onClick = onChooseStream,
+                enabled = state.streams.isNotEmpty() || state.streamsLoading || state.streamError != null,
                 shape = RoundedCornerShape(50),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color.White,
@@ -282,9 +293,9 @@ private fun ActionsRow(
                 Spacer(Modifier.width(6.dp))
                 Text(
                     text = when {
-                        state.streamsLoading -> "Finding streams"
+                        state.streamsLoading -> "Finding sources"
                         resume != null && !resume.finished -> "Resume"
-                        else -> "Play"
+                        else -> "Play",
                     },
                     style = MaterialTheme.typography.labelLarge,
                 )
@@ -293,7 +304,7 @@ private fun ActionsRow(
             if (state.streams.isNotEmpty()) {
                 TextButton(onClick = onChooseStream) {
                     Text(
-                        text = "${state.streams.size} streams",
+                        text = "${state.streams.size} sources",
                         style = MaterialTheme.typography.labelMedium,
                         color = TextMuted,
                     )
@@ -425,9 +436,28 @@ private fun MovieFacts(state: DetailsState) {
             )
         }
     }
+
+/** Which sources the sheet shows. */
+private enum class SourceFilter(val label: String) {
+    All("All"),
+    Torrent("Torrent"),
+    Direct("Direct"),
 }
 
-/** The addon streams of the selected title, as a bottom sheet. */
+/** How the source list is ordered. */
+private enum class SourceSort(val label: String) {
+    Quality("Quality"),
+    Seeds("Seeds"),
+}
+
+/**
+ * The sources of the selected title.
+ *
+ * Every addon and every enabled plugin answers here, so the list is grouped by
+ * kind and can be ordered by quality or by swarm size before anything starts
+ * playing. A torrent entry goes through the local engine, a direct one through
+ * the player as-is.
+ */
 @Composable
 private fun StreamSheet(
     title: String,
@@ -436,9 +466,28 @@ private fun StreamSheet(
     loading: Boolean,
     error: String?,
     onPlay: (StreamItem) -> Unit,
+    onPlayBest: () -> Unit,
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var filter by remember { mutableStateOf(SourceFilter.All) }
+    var sort by remember { mutableStateOf(SourceSort.Quality) }
+    val torrents = streams.count { it.torrent != null }
+    val direct = streams.size - torrents
+    val filtered = streams.filter { item ->
+        when (filter) {
+            SourceFilter.All -> true
+            SourceFilter.Torrent -> item.torrent != null
+            SourceFilter.Direct -> item.torrent == null
+        }
+    }
+    val ordered = when (sort) {
+        SourceSort.Quality -> filtered.sortedWith(
+            compareByDescending<StreamItem> { it.qualityRank }.thenByDescending { it.seeds ?: 0 },
+        )
+        SourceSort.Seeds -> filtered.sortedByDescending { it.seeds ?: 0 }
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -447,10 +496,10 @@ private fun StreamSheet(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 520.dp)
+                    .heightIn(max = 620.dp)
                     .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                     .background(Surface)
-                    .padding(vertical = 12.dp),
+                    .padding(top = 10.dp, bottom = 14.dp),
             ) {
                 Box(
                     Modifier
@@ -459,26 +508,86 @@ private fun StreamSheet(
                         .clip(CircleShape)
                         .background(Outline),
                 )
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = TextPrimary,
-                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (subtitle.isNotBlank()) {
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextDim,
-                        modifier = Modifier.padding(horizontal = 20.dp),
-                    )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 20.dp, end = 10.dp, top = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = "Choose a source",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TextPrimary,
+                        )
+                        Text(
+                            text = listOfNotNull(title, subtitle.takeIf { it.isNotBlank() })
+                                .joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextDim,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (streams.isNotEmpty()) {
+                            Text(
+                                text = "$torrents torrents · $direct direct",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextMuted,
+                            )
+                        }
+                    }
+                    if (streams.isNotEmpty()) {
+                        TextButton(onClick = onPlayBest) {
+                            Icon(
+                                Icons.Rounded.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = Accent,
+                            )
+                            Spacer(Modifier.width(2.dp))
+                            Text("Best", color = Accent, style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
                 }
-                Spacer(Modifier.height(10.dp))
+
+                if (streams.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(SourceFilter.entries.toList()) { entry ->
+                            val count = when (entry) {
+                                SourceFilter.All -> streams.size
+                                SourceFilter.Torrent -> torrents
+                                SourceFilter.Direct -> direct
+                            }
+                            SourcePill(
+                                text = entry.label + " " + count,
+                                selected = filter == entry,
+                                onClick = { filter = entry },
+                            )
+                        }
+                        item {
+                            SourcePill(
+                                text = "Sort: " + sort.label,
+                                selected = sort == SourceSort.Seeds,
+                                onClick = {
+                                    sort = if (sort == SourceSort.Quality) {
+                                        SourceSort.Seeds
+                                    } else {
+                                        SourceSort.Quality
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(4.dp))
                 when {
-                    loading -> Box(Modifier.fillMaxWidth().height(160.dp)) {
-                        LoadingBlock("Asking your addons…")
+                    loading && streams.isEmpty() -> Box(Modifier.fillMaxWidth().height(180.dp)) {
+                        LoadingBlock("Asking your addons and plugins…")
                     }
                     error != null && streams.isEmpty() -> {
                         ErrorBlock(message = error, onRetry = onRetry)
@@ -488,26 +597,57 @@ private fun StreamSheet(
                         ) { Text("Close", color = TextMuted) }
                     }
                     streams.isEmpty() -> EmptyState(
-                        title = "No streams",
-                        body = "None of your addons offered a stream for this title.",
+                        title = "No sources",
+                        body = "No addon or plugin offered a playable stream for this title.",
+                    )
+                    ordered.isEmpty() -> EmptyState(
+                        title = "Nothing in this filter",
+                        body = "Switch back to All to see every source.",
                     )
                     else -> LazyColumn(
                         modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
-                        contentPadding = PaddingValues(vertical = 8.dp),
+                        contentPadding = PaddingValues(vertical = 6.dp),
                     ) {
-                        items(streams) { item ->
+                        items(ordered) { item ->
                             StreamRow(item = item, onPlay = { onPlay(item) })
                         }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
+                if (loading && streams.isNotEmpty()) {
+                    Text(
+                        text = "Still searching for more sources…",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextDim,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
+private fun SourcePill(text: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .height(32.dp)
+            .clip(RoundedCornerShape(50))
+            .background(if (selected) Accent.copy(alpha = 0.18f) else SurfaceHigh)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) Accent else TextMuted,
+        )
+    }
+}
+
+@Composable
 private fun StreamRow(item: StreamItem, onPlay: () -> Unit) {
+    val torrent = item.torrent != null
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -518,12 +658,12 @@ private fun StreamRow(item: StreamItem, onPlay: () -> Unit) {
     ) {
         LabelPill(
             text = item.badge,
-            color = Accent.copy(alpha = 0.24f),
+            color = if (torrent) Gold.copy(alpha = 0.22f) else Accent.copy(alpha = 0.22f),
             contentColor = Color.White,
         )
         Column(Modifier.weight(1f)) {
             Text(
-                text = item.addon,
+                text = item.addon.removePrefix("Plugin · "),
                 style = MaterialTheme.typography.titleSmall,
                 color = TextPrimary,
                 maxLines = 1,
@@ -538,13 +678,32 @@ private fun StreamRow(item: StreamItem, onPlay: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-        }
-        val caption = listOfNotNull(item.size, item.seeds?.let { "$it seeds" }).joinToString("\n")
-        if (caption.isNotBlank()) {
             Text(
-                text = caption,
+                text = if (torrent) {
+                    "Plays through the torrent engine"
+                } else {
+                    "Direct stream"
+                },
                 style = MaterialTheme.typography.labelSmall,
-                color = TextMuted,
+                color = TextDim,
+            )
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            val caption = listOfNotNull(item.size, item.seeds?.let { "$it seeds" })
+                .joinToString("\n")
+            if (caption.isNotBlank()) {
+                Text(
+                    text = caption,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextMuted,
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Icon(
+                Icons.Rounded.PlayArrow,
+                contentDescription = null,
+                tint = if (torrent) Gold else Accent,
+                modifier = Modifier.size(18.dp),
             )
         }
     }

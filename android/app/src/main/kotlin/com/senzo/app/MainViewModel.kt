@@ -51,6 +51,8 @@ data class DetailsState(
     val streamsLoading: Boolean = false,
     val streamError: String? = null,
     val resume: WatchProgress? = null,
+    /** Opens the source picker as soon as the page appears. */
+    val pickSource: Boolean = false,
 ) {
     val title: String get() = meta?.name ?: preview?.name.orEmpty()
     val backdrop: String? get() = meta?.background ?: preview?.background ?: meta?.poster
@@ -131,7 +133,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     /** Set when a board title was opened with the intent to start playing. */
-    private var autoplayAfterLoad = false
 
     private var searchJob: Job? = null
     private var boardJob: Job? = null
@@ -466,7 +467,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openDetails(type: String, id: String, preview: MetaPreview? = null) {
-        autoplayAfterLoad = false
         detailsJob?.cancel()
         _state.update {
             it.copy(
@@ -514,10 +514,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(screen = Screen.Main, details = null) }
     }
 
-    /** Opens a board title and plays it as soon as its streams arrive. */
+    /** Opens a board title straight into its source picker, like the desktop. */
     fun playFromBoard(preview: MetaPreview) {
         openDetails(preview.type, preview.id, preview)
-        autoplayAfterLoad = true
+        _state.update { current ->
+            current.copy(details = current.details?.copy(pickSource = true))
+        }
+    }
+
+    /** The picker opened, so the page no longer asks for it. */
+    fun consumePickSource() {
+        _state.update { current ->
+            current.copy(details = current.details?.copy(pickSource = false))
+        }
     }
 
     /** Re-requests the streams of the selected episode after a failure. */
@@ -585,10 +594,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         },
                     ),
                 )
-            }
-            if (autoplayAfterLoad) {
-                autoplayAfterLoad = false
-                _state.value.details?.streams?.firstOrNull()?.let { item -> play(item) }
             }
         }
     }
