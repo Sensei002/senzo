@@ -200,16 +200,29 @@ None of those can be reused here, so the engine below stays libtorrent4j.
 
 ### What SENZO does
 
+The app now carries both engines too. Media3 stays the default, so the phone's
+hardware decoders keep doing the work; `libmpv` is a switch in Settings under
+Playback, and it is the engine the desktop client runs, so a file that Media3
+handles badly has somewhere else to go. If the native library cannot load, the
+screen hands the stream back to Media3 instead of failing.
+
 Audio that used to play silently was AC3/EAC3/DTS/TrueHD, which Android devices
-often carry no decoder for. `NextLib` (`nextlib-media3ext`, GPL-3.0, which this
-app's own GPL-3.0 licence covers) supplies FFmpeg audio decoders; the app's
-`SenzoRenderersFactory` puts that renderer ahead of the platform ones. The
-renderer was added but never reached, because Media3 leaves extension renderers
-off until `setExtensionRendererMode` is called; that omission is what kept the
-player silent, and the factory now switches it on. Buffering follows the Nuvio
-shape: 15 s minimum, 60 s maximum, 2.5 s to start, 64 MB in memory, 30 s of back
+often carry no decoder for. `org.jellyfin.media3:media3-ffmpeg-decoder` links
+FFmpeg statically into `libffmpegJNI.so`, and the app's `SenzoRenderersFactory`
+puts that renderer ahead of the platform ones. The renderer was added but never
+reached, because Media3 leaves extension renderers off until
+`setExtensionRendererMode` is called; that omission is what kept the player
+silent, and the factory now switches it on. Buffering follows the Nuvio shape:
+15 s minimum, 60 s maximum, 2.5 s to start, 64 MB in memory, 30 s of back
 buffer. Media playback also uses its own OkHttp client: the shared client caps a
 call at 45 s, which would cut a film mid-stream.
+
+The decoder had to change for the two engines to fit in one APK. NextLib links
+against its own `libavcodec.so`, `libavutil.so`, `libswresample.so` and
+`libswscale.so`, and libmpv ships its own build of the same names; the native
+library merge failed with two files for one path. Jellyfin's decoder carries its
+FFmpeg inside a single library, so both engines now pack cleanly, and the APK
+grew by libmpv rather than by a second FFmpeg.
 
 A torrent now opens the player immediately. The screen shows the breathing SENZO
 mark with the engine's own words ("Looking for peers…", then percent and peer
@@ -221,10 +234,12 @@ torrents under the torrent name.
 
 ## APK size
 
-`libtorrent4j.so` is ~15 MB per architecture, QuickJS adds ~1.3 MB, and the
-FFmpeg audio decoders add ~5.3 MB. The release now builds one APK per ABI:
-arm64-v8a ~24.8 MB (the phone download) and armeabi-v7a ~22.0 MB. x86_64 is
-available from the dependencies for emulator builds but is not packaged.
+`libtorrent4j.so` is ~15 MB per architecture and QuickJS adds ~1.3 MB. The
+FFmpeg audio decoders are now one ~1.4 MB library per ABI instead of ~5.3 MB of
+shared ones, and libmpv brings ~28 MB of unpacked libraries per ABI, which is
+most of the release size. The workflow builds one APK per ABI (the arm64 one is
+the phone download); x86_64 stays available for emulator builds but is not
+packaged.
 
 ## Still unverified on device
 
@@ -232,5 +247,7 @@ available from the dependencies for emulator builds but is not packaged.
   async `CALL_CODE` returns, which the timer shim depends on.
 - Torrent streaming to Media3 through `http://127.0.0.1:<port>/stream` with
   Range requests on a real swarm.
-- Whether `NextLib`'s FFmpeg audio decoder loads on every device; it is added
+- Whether the FFmpeg audio decoder loads on every device; it is added
   best-effort, so a failed load leaves normal Platform decoding untouched.
+- libmpv on the phone: surface attach, AC3/DTS in mpv, ASS subtitles, and the
+  settings switch between the two engines.

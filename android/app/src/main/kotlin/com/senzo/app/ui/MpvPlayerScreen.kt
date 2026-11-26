@@ -92,7 +92,7 @@ fun MpvPlayerScreen(
     var attempts by remember { mutableStateOf(0) }
     var controls by remember { mutableStateOf(true) }
     var scrubbing by remember { mutableStateOf(false) }
-    var scrubValue by remember { mutableStateOf(0f) }
+    var scrubValue by remember { mutableStateOf(0L) }
     var sheet by remember { mutableStateOf(false) }
     var failure by remember { mutableStateOf<String?>(null) }
     val unavailable = remember { mutableStateOf(false) }
@@ -160,7 +160,7 @@ fun MpvPlayerScreen(
                     }
                 },
                 modifier = Modifier.fillMaxSize(),
-                onRelease = { view -> view.close() },
+                onRelease = { view -> (view as? MpvPlayerView)?.close() },
             )
         }
 
@@ -314,7 +314,7 @@ fun MpvPlayerScreen(
                         .navigationBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                 ) {
-                    val shown = if (scrubbing) scrubValue.toLong() else position
+                    val shown = if (scrubbing) scrubValue else position
                     Slider(
                         value = if (duration > 0) (shown.toFloat() / duration).coerceIn(0f, 1f) else 0f,
                         onValueChange = {
