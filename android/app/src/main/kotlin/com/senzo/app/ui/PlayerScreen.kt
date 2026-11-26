@@ -478,13 +478,6 @@ private val playbackClient: OkHttpClient by lazy {
 private enum class PlayerSheet { Speed, Audio, Subtitles }
 
 /**
- * Adds the FFmpeg audio decoder in front of the platform ones. The platform
- * decoders stay for AAC and MP3, which they handle in hardware; AC3, EAC3,
- * DTS and TrueHD fall through to FFmpeg, which is why a stream that used to
- * play silently now has sound.
- */
-@OptIn(UnstableApi::class)
-/**
  * The buffer the desktop app gives a stream, sized for a phone: enough ahead of
  * a torrent to survive a slow peer, small enough for a few hundred MB of RAM.
  */
@@ -501,6 +494,13 @@ private fun senzoLoadControl(): DefaultLoadControl = DefaultLoadControl.Builder(
     .setBackBuffer(30_000, true)
     .build()
 
+/**
+ * Adds the FFmpeg audio decoder in front of the platform ones. The platform
+ * decoders stay for AAC and MP3, which they handle in hardware; AC3, EAC3,
+ * DTS and TrueHD fall through to FFmpeg, which is why a stream that used to
+ * play silently now has sound.
+ */
+@OptIn(UnstableApi::class)
 private class SenzoRenderersFactory(context: Context) : DefaultRenderersFactory(context) {
     init {
         // Media3 starts with extensions switched off, which silently dropped every
