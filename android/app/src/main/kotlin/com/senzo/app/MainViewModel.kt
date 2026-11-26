@@ -905,6 +905,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun beginPlayback(meta: Meta, video: Video?, item: StreamItem) {
+        // A direct stream replaces whatever the torrent engine was doing.
+        torrents.stop()
         val entry = progressEntry(meta, video)
         val saved = _state.value.settings.resumePlayback
             .let { resume -> if (resume) _state.value.progress.firstOrNull { it.key == entry.key } else null }

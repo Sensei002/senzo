@@ -39,7 +39,11 @@ class TorrentStreamer(private val cacheDir: File) {
         val label: String
             get() = when {
                 error != null -> error
-                state == "metadata" -> "Looking for peers…"
+                state == "metadata" -> if (peers + seeds > 0) {
+                    "Asking ${peers + seeds} peers for the file…"
+                } else {
+                    "Looking for peers…"
+                }
                 state == "finished" -> "Ready"
                 percent > 0 -> "$percent% of the file · $peers peers"
                 else -> "Connecting…"
@@ -80,9 +84,7 @@ class TorrentStreamer(private val cacheDir: File) {
             }
             this.session = session
             val torrent = try {
-                val raw = session.fetchMagnet(withTrackers(magnet), METADATA_SECONDS, File(dir, "metadata.torrent"))
-                    ?: throw IllegalStateException("No peer answered with the torrent metadata.")
-                TorrentInfo(raw)
+                resolveTorrent(session, magnet, dir)
             } catch (error: Throwable) {
                 safeSessionStop(session)
                 this.session = null
@@ -218,6 +220,52 @@ class TorrentStreamer(private val cacheDir: File) {
             "The swarm is not sending data yet ($peers peers). Try another source."
         }
         throw IllegalStateException(message)
+    }
+
+    /**
+     * Resolves a magnet to torrent metadata.
+     *
+     * Adding the magnet as a normal download is the standard flow: the engine
+     * connects, trades metadata, and starts on the opening pieces at once.
+     * `fetchMagnet` runs in upload mode and drops the torrent when it gives up,
+     * so it is only the fallback for swarms that answer the second way.
+     */
+    private fun resolveTorrent(session: SessionManager, magnet: String, dir: File): TorrentInfo {
+        val uri = withTrackers(magnet)
+        val hash = hashOf(magnet)
+        if (hash != null) {
+            session.download(uri, dir, org.libtorrent4j.swig.torrent_flags_t())
+            val deadline = System.currentTimeMillis() + METADATA_SECONDS * 1_000L
+            while (!stopped && System.currentTimeMillis() < deadline) {
+                val handle = runCatching { session.find(hash) }.getOrNull()
+                if (handle != null) {
+                    val info = runCatching { handle.torrentFile() }.getOrNull()
+                    if (info != null && info.isValid()) return info
+                    val status = runCatching { handle.status() }.getOrNull()
+                    if (status != null) {
+                        current = current.copy(
+                            state = "metadata",
+                            seeds = status.numSeeds(),
+                            peers = status.numPeers(),
+                        )
+                    }
+                }
+                Thread.sleep(400)
+            }
+            if (stopped) throw IllegalStateException("The torrent was stopped.")
+        }
+        val raw = runCatching {
+            session.fetchMagnet(uri, 30, File(dir, "metadata.torrent"))
+        }.getOrNull() ?: throw IllegalStateException("No peer answered with the torrent metadata.")
+        return TorrentInfo(raw)
+    }
+
+    /** Reads the info hash out of a magnet so the added torrent can be found. */
+    private fun hashOf(magnet: String): org.libtorrent4j.Sha1Hash? {
+        val raw = Regex("urn:btih:([a-zA-Z0-9]+)").find(magnet)?.groupValues?.getOrNull(1)
+            ?: return null
+        if (raw.length != 40) return null
+        return runCatching { org.libtorrent4j.Sha1Hash.parseHex(raw.lowercase()) }.getOrNull()
     }
 
     private fun prioritize(torrent: TorrentHandle, storage: FileStorage) {
@@ -440,7 +488,7 @@ class TorrentStreamer(private val cacheDir: File) {
     private companion object {
         const val METADATA_SECONDS = 60
         const val PREBUFFER_SECONDS = 90
-        const val RANGE_SECONDS = 180
+        const val RANGE_SECONDS = 90
         val TRACKERS = listOf(
             "udp://tracker.opentrackr.org:1337/announce",
             "udp://open.demonii.com:1337/announce",

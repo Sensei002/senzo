@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Context
 import android.util.TypedValue
 import android.view.WindowManager
-import androidx.annotation.OptIn
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -406,7 +405,7 @@ fun PlayerScreen(
 private val playbackClient: OkHttpClient by lazy {
     OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
 }
@@ -841,7 +840,7 @@ private fun PlayerSheetContent(
                         }
                         groups.forEach { group ->
                             TrackRow(
-                                label = trackName(group.mediaTrackGroup, 0)
+                                label = trackName(group, 0)
                                     ?: (if (type == C.TRACK_TYPE_AUDIO) "Audio" else "Subtitle"),
                                 selected = player.trackSelectionParameters.overrides
                                     .containsKey(group),
