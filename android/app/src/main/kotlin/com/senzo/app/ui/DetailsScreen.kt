@@ -8,293 +8,544 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.FilterChip
+import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.BookmarkBorder
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.senzo.app.DetailsState
 import com.senzo.app.StreamItem
 import com.senzo.app.Video
 
+/**
+ * The title page: backdrop, actions, description, and for a series the season
+ * picker with its episodes. Playing opens the stream list of the addons.
+ */
 @Composable
 fun DetailsScreen(
     state: DetailsState,
     onBack: () -> Unit,
-    onSelectVideo: (String) -> Unit,
-    onPlay: (StreamItem) -> Unit,
+    onPlayBest: () -> Unit,
+    onPlayStream: (StreamItem) -> Unit,
+    onSelectSeason: (Int) -> Unit,
+    onSelectVideo: (Video) -> Unit,
+    onToggleLibrary: () -> Unit,
+    onRetry: () -> Unit,
 ) {
+    var showStreams by remember(state.id) { mutableStateOf(false) }
+    var expanded by remember(state.id) { mutableStateOf(false) }
     val meta = state.meta
-    Column(Modifier.fillMaxSize().background(Background).statusBarsPadding()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = TextPrimary)
-            }
-            Text(
-                text = meta?.name ?: "",
-                style = MaterialTheme.typography.titleMedium,
-                color = TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-
-        when {
-            state.loading -> LoadingBlock("Loading details…")
-            meta == null -> MessageBlock(
-                message = "No addon returned metadata for this title.",
-                actionLabel = "Back",
-                onAction = onBack,
-            )
-            else -> DetailsBody(
-                state = state,
-                onSelectVideo = onSelectVideo,
-                onPlay = onPlay,
-            )
-        }
-    }
-}
-
-@Composable
-private fun DetailsBody(
-    state: DetailsState,
-    onSelectVideo: (String) -> Unit,
-    onPlay: (StreamItem) -> Unit,
-) {
-    val meta = state.meta ?: return
-    val context = LocalContext.current
-    val episodes = meta.videos.filter { it.id.isNotBlank() }
-    val seasons = episodes.mapNotNull { it.season }.distinct().sorted()
-    var season by rememberSaveable(meta.id) {
-        mutableStateOf(seasons.firstOrNull() ?: 0)
-    }
+    val seasons = meta?.seasons.orEmpty()
+    val episodes = meta?.episodes(state.season ?: seasons.firstOrNull() ?: 0).orEmpty()
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().background(Background),
         contentPadding = PaddingValues(bottom = 32.dp),
     ) {
-        item {
-            Box(Modifier.fillMaxWidth().height(280.dp)) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(meta.background ?: meta.poster)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            androidx.compose.ui.graphics.Brush.verticalGradient(
-                                listOf(
-                                    Background.copy(alpha = 0.2f),
-                                    Background.copy(alpha = 0.75f),
-                                    Background,
-                                ),
-                            ),
-                        ),
-                )
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(16.dp),
-                ) {
+        item(key = "backdrop") {
+            Backdrop(state = state, onBack = onBack)
+        }
+        item(key = "actions") {
+            ActionsRow(
+                state = state,
+                onPlay = onPlayBest,
+                onChooseStream = { showStreams = true },
+                onToggleLibrary = onToggleLibrary,
+                onRetry = onRetry,
+            )
+        }
+        meta?.description?.takeIf { it.isNotBlank() }?.let { description ->
+            item(key = "description") {
+                Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
                     Text(
-                        text = meta.name,
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = TextPrimary,
+                        text = description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextMuted,
+                        maxLines = if (expanded) 40 else 4,
+                        overflow = TextOverflow.Ellipsis,
                     )
-                    Spacer(Modifier.height(6.dp))
-                    TagRow(
-                        tags = listOfNotNull(
-                            meta.releaseInfo,
-                            meta.imdbRating?.let { "★ $it" },
-                            meta.runtime,
-                            *meta.genres.take(2).toTypedArray(),
-                        ),
-                        modifier = Modifier.padding(0.dp),
+                    Text(
+                        text = if (expanded) "Show less" else "Read more",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Accent,
+                        modifier = Modifier
+                            .padding(top = 6.dp)
+                            .clip(RoundedCornerShape(50))
+                            .clickable { expanded = !expanded }
+                            .padding(vertical = 4.dp),
                     )
                 }
-                PlayBadge(
-                    hasStream = state.streams.isNotEmpty(),
-                    onClick = { state.streams.firstOrNull()?.let(onPlay) },
-                    modifier = Modifier.align(Alignment.CenterEnd).padding(16.dp),
-                )
             }
         }
-
-        if (!meta.description.isNullOrBlank()) {
-            item {
-                Text(
-                    text = meta.description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextMuted,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
+        if (state.loading && meta == null) {
+            item(key = "loading") {
+                Box(Modifier.fillMaxWidth().height(160.dp)) {
+                    LoadingBlock("Loading details…")
+                }
             }
         }
-
         if (seasons.isNotEmpty()) {
-            item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(seasons) { candidate ->
-                        FilterChip(
-                            selected = candidate == season,
-                            onClick = { season = candidate },
-                            label = { Text("Season $candidate") },
-                        )
+            item(key = "seasons") {
+                Column {
+                    SectionHeader(
+                        title = "Episodes",
+                        modifier = Modifier.padding(start = 20.dp, end = 20.dp),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(seasons, key = { it }) { season ->
+                            val selected = season == (state.season ?: seasons.first())
+                            Text(
+                                text = "Season $season",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (selected) Color.White else TextMuted,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(if (selected) Accent else Surface)
+                                    .clickable { onSelectSeason(season) }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                            )
+                        }
                     }
                 }
             }
-            items(
-                episodes.filter { it.season == season },
-                key = { it.id },
-            ) { episode ->
+            items(episodes, key = { it.id }) { episode ->
                 EpisodeRow(
-                    episode = episode,
-                    selected = state.selectedVideo == episode.id,
-                    onClick = { onSelectVideo(episode.id) },
+                    video = episode,
+                    selected = state.selectedVideo?.id == episode.id,
+                    progress = state.resume
+                        ?.takeIf { it.videoId == episode.id }
+                        ?.fraction,
+                    onClick = {
+                        onSelectVideo(episode)
+                        showStreams = true
+                    },
+                )
+            }
+        } else if (meta != null && meta.type == "movie") {
+            item(key = "movie-meta") { MovieFacts(state = state) }
+        }
+    }
+
+    if (showStreams) {
+        StreamSheet(
+            title = state.title,
+            subtitle = state.selectedVideo?.label.orEmpty(),
+            streams = state.streams,
+            loading = state.streamsLoading,
+            error = state.streamError,
+            onPlay = { item ->
+                showStreams = false
+                onPlayStream(item)
+            },
+            onRetry = onRetry,
+            onDismiss = { showStreams = false },
+        )
+    }
+}
+
+@Composable
+private fun Backdrop(state: DetailsState, onBack: () -> Unit) {
+    Box(Modifier.fillMaxWidth().height(330.dp)) {
+        AsyncImage(
+            model = state.backdrop,
+            contentDescription = state.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Black.copy(alpha = 0.45f),
+                        0.45f to Background.copy(alpha = 0.25f),
+                        1f to Background,
+                    ),
+                ),
+        )
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier
+                .statusBarsPadding()
+                .padding(start = 6.dp, top = 6.dp)
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.45f)),
+        ) {
+            Icon(Icons.Rounded.ArrowBack, contentDescription = "Back", tint = Color.White)
+        }
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(horizontal = 20.dp),
+        ) {
+            Text(
+                text = state.title,
+                style = MaterialTheme.typography.headlineMedium,
+                color = Color.White,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                val meta = state.meta
+                meta?.releaseInfo?.let { info ->
+                    val year = Regex("\\b(19|20)\\d{2}\\b").find(info)?.value
+                    if (year != null) {
+                        LabelPill(year, color = Color.White.copy(alpha = 0.16f))
+                    }
+                }
+                meta?.imdbRating?.takeIf { it.isNotBlank() }?.let {
+                    LabelPill("★ $it", color = Color.White.copy(alpha = 0.16f))
+                }
+                meta?.runtime?.takeIf { it.isNotBlank() }?.let {
+                    LabelPill(it, color = Color.White.copy(alpha = 0.16f))
+                }
+                LabelPill(
+                    text = if (state.type == "series") "Series" else "Movie",
+                    color = Accent.copy(alpha = 0.30f),
                 )
             }
         }
+    }
+}
 
-        item {
-            SectionTitle(
-                text = if (state.streamsLoading) "Streams" else "Streams (${state.streams.size})",
+@Composable
+private fun ActionsRow(
+    state: DetailsState,
+    onPlay: () -> Unit,
+    onChooseStream: () -> Unit,
+    onToggleLibrary: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    val resume = state.resume
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Button(
+                onClick = onPlay,
+                enabled = !state.streamsLoading && state.streams.isNotEmpty(),
+                shape = RoundedCornerShape(50),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.White,
+                    contentColor = Color.Black,
+                    disabledContainerColor = SurfaceHigh,
+                    disabledContentColor = TextDim,
+                ),
+                contentPadding = PaddingValues(horizontal = 22.dp, vertical = 12.dp),
+            ) {
+                Icon(
+                    Icons.Rounded.PlayArrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = when {
+                        state.streamsLoading -> "Finding streams"
+                        resume != null && !resume.finished -> "Resume"
+                        else -> "Play"
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            if (state.streams.isNotEmpty()) {
+                TextButton(onClick = onChooseStream) {
+                    Text(
+                        text = "${state.streams.size} streams",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextMuted,
+                    )
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = onToggleLibrary) {
+                Icon(
+                    imageVector = if (state.inLibrary) {
+                        Icons.Rounded.Bookmark
+                    } else {
+                        Icons.Rounded.BookmarkBorder
+                    },
+                    contentDescription = if (state.inLibrary) "Remove from library" else "Save to library",
+                    tint = if (state.inLibrary) Accent else TextPrimary,
+                )
+            }
+        }
+        if (state.streamError != null && state.streams.isEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = state.streamError,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextDim,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onRetry) { Text("Retry", color = Accent) }
+            }
+        }
+        if (resume != null && !resume.finished && resume.durationMs > 0) {
+            Text(
+                text = "${(resume.fraction * 100).toInt()}% watched",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextDim,
+                modifier = Modifier.padding(top = 8.dp),
             )
         }
-
-        when {
-            state.streamsLoading -> item { LoadingBlock("Asking your addons for streams…") }
-            state.streamError != null -> item {
-                MessageBlock(message = state.streamError)
-            }
-            else -> items(state.streams) { stream ->
-                StreamRow(stream = stream, onClick = { onPlay(stream) })
-            }
-        }
     }
 }
 
 @Composable
-private fun PlayBadge(
-    hasStream: Boolean,
+private fun EpisodeRow(
+    video: Video,
+    selected: Boolean,
+    progress: Float?,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier = modifier
-            .size(64.dp)
-            .clip(RoundedCornerShape(50))
-            .background(if (hasStream) Accent else SurfaceHigh)
-            .clickable(enabled = hasStream, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            Icons.Filled.PlayArrow,
-            contentDescription = "Play",
-            tint = TextPrimary,
-            modifier = Modifier.size(36.dp),
-        )
-    }
-}
-
-@Composable
-private fun EpisodeRow(episode: Video, selected: Boolean, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .background(if (selected) SurfaceHigh else Background)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-    ) {
-        Text(
-            text = episode.label,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) TextPrimary else TextMuted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@Composable
-private fun StreamRow(stream: StreamItem, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 20.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Icon(
-            Icons.Filled.PlayArrow,
-            contentDescription = null,
-            tint = Accent,
-            modifier = Modifier.size(22.dp),
-        )
+        Box(
+            modifier = Modifier
+                .width(124.dp)
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(10.dp))
+                .background(SurfaceHigh),
+        ) {
+            AsyncImage(
+                model = video.thumbnail,
+                contentDescription = video.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (progress != null && progress > 0f) {
+                Box(
+                    Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(4.dp)
+                        .height(3.dp)
+                        .fillMaxWidth(progress)
+                        .clip(CircleShape)
+                        .background(Accent),
+                )
+            }
+        }
         Column(Modifier.weight(1f)) {
             Text(
-                text = stream.name,
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextPrimary,
+                text = video.label,
+                style = MaterialTheme.typography.titleSmall,
+                color = if (selected) Accent else TextPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (stream.detail.isNotBlank()) {
+            video.overview?.takeIf { it.isNotBlank() }?.let { overview ->
+                Spacer(Modifier.height(3.dp))
                 Text(
-                    text = stream.detail,
+                    text = overview,
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextMuted,
+                    color = TextDim,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
         }
-        Text(
-            text = stream.addon,
-            style = MaterialTheme.typography.bodySmall,
-            color = TextMuted.copy(alpha = 0.7f),
-            maxLines = 1,
+        if (selected) ActiveMark()
+    }
+}
+
+@Composable
+private fun MovieFacts(state: DetailsState) {
+    val meta = state.meta ?: return
+    Column(Modifier.padding(horizontal = 20.dp, vertical = 10.dp)) {
+        if (meta.genres.isNotEmpty()) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(meta.genres.take(8), key = { it }) { genre ->
+                    LabelPill(genre)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+        }
+        if (meta.director.isNotEmpty()) {
+            Text(
+                text = "Director · " + meta.director.joinToString(", "),
+                style = MaterialTheme.typography.bodySmall,
+                color = TextDim,
+            )
+        }
+        if (meta.cast.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Cast · " + meta.cast.take(6).joinToString(", "),
+                style = MaterialTheme.typography.bodySmall,
+                color = TextDim,
+            )
+        }
+    }
+}
+
+/** The addon streams of the selected title, as a bottom sheet. */
+@Composable
+private fun StreamSheet(
+    title: String,
+    subtitle: String,
+    streams: List<StreamItem>,
+    loading: Boolean,
+    error: String?,
+    onPlay: (StreamItem) -> Unit,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 520.dp)
+                    .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                    .background(Surface)
+                    .padding(vertical = 12.dp),
+            ) {
+                Box(
+                    Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .size(width = 40.dp, height = 4.dp)
+                        .clip(CircleShape)
+                        .background(Outline),
+                )
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = TextPrimary,
+                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (subtitle.isNotBlank()) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextDim,
+                        modifier = Modifier.padding(horizontal = 20.dp),
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                when {
+                    loading -> Box(Modifier.fillMaxWidth().height(160.dp)) {
+                        LoadingBlock("Asking your addons…")
+                    }
+                    error != null && streams.isEmpty() -> {
+                        ErrorBlock(message = error, onRetry = onRetry)
+                        TextButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.align(Alignment.CenterHorizontally),
+                        ) { Text("Close", color = TextMuted) }
+                    }
+                    streams.isEmpty() -> EmptyState(
+                        title = "No streams",
+                        body = "None of your addons offered a stream for this title.",
+                    )
+                    else -> LazyColumn(
+                        modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                        contentPadding = PaddingValues(vertical = 8.dp),
+                    ) {
+                        items(streams) { item ->
+                            StreamRow(item = item, onPlay = { onPlay(item) })
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun StreamRow(item: StreamItem, onPlay: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onPlay)
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        LabelPill(
+            text = item.badge,
+            color = Accent.copy(alpha = 0.24f),
+            contentColor = Color.White,
         )
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = item.addon,
+                style = MaterialTheme.typography.titleSmall,
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (item.detail.isNotBlank()) {
+                Text(
+                    text = item.detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextDim,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        val caption = listOfNotNull(item.size, item.seeds?.let { "$it seeds" }).joinToString("\n")
+        if (caption.isNotBlank()) {
+            Text(
+                text = caption,
+                style = MaterialTheme.typography.labelSmall,
+                color = TextMuted,
+            )
+        }
     }
 }

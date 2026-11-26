@@ -70,6 +70,10 @@ data class CatalogDescriptor(
 
     val supportsSearch: Boolean
         get() = extraSupported.contains("search") || extra.any { it.name == "search" }
+
+    /** Whether the catalogue can be paged with `skip`, which the board uses. */
+    val supportsSkip: Boolean
+        get() = extraSupported.contains("skip") || extra.any { it.name == "skip" }
 }
 
 @Serializable
@@ -93,10 +97,21 @@ data class MetaPreview(
     val name: String = "",
     val poster: String? = null,
     val posterShape: String? = null,
+    val background: String? = null,
+    val logo: String? = null,
     val description: String? = null,
     val releaseInfo: String? = null,
     val imdbRating: String? = null,
-)
+    val runtime: String? = null,
+    val genres: List<String> = emptyList(),
+) {
+    val key: String get() = "$type:$id"
+
+    /** The year a catalogue entry belongs to, when the addon provides one. */
+    val year: String?
+        get() = releaseInfo
+            ?.let { info -> Regex("\\b(19|20)\\d{2}\\b").find(info)?.value }
+}
 
 @Serializable
 data class Meta(
@@ -105,13 +120,43 @@ data class Meta(
     val name: String = "",
     val poster: String? = null,
     val background: String? = null,
+    val logo: String? = null,
     val description: String? = null,
     val releaseInfo: String? = null,
     val imdbRating: String? = null,
     val runtime: String? = null,
     val genres: List<String> = emptyList(),
     val videos: List<Video> = emptyList(),
-)
+    val director: List<String> = emptyList(),
+    val cast: List<String> = emptyList(),
+) {
+    val seasons: List<Int>
+        get() = videos.mapNotNull { it.season }.distinct().sorted()
+
+    fun episodes(season: Int): List<Video> =
+        videos.filter { it.season == season }.sortedBy { it.episode ?: 0 }
+
+    /** The first episode that is not obviously a special or a trailer. */
+    val firstEpisode: Video?
+        get() = videos
+            .filter { it.season != null && it.episode != null }
+            .sortedWith(compareBy({ it.season }, { it.episode }))
+            .firstOrNull()
+
+    fun preview(): MetaPreview = MetaPreview(
+        id = id,
+        type = type,
+        name = name,
+        poster = poster,
+        background = background,
+        logo = logo,
+        description = description,
+        releaseInfo = releaseInfo,
+        imdbRating = imdbRating,
+        runtime = runtime,
+        genres = genres,
+    )
+}
 
 @Serializable
 data class Video(
@@ -125,7 +170,14 @@ data class Video(
 ) {
     val label: String
         get() = when {
-            season != null && episode != null -> "S${season}E${episode} · ${title ?: "Episode $episode"}"
+            season != null && episode != null -> "S${season}E$episode" + (title?.let { " · $it" } ?: "")
+            !title.isNullOrBlank() -> title
+            else -> id
+        }
+
+    val shortLabel: String
+        get() = when {
+            season != null && episode != null -> "E$episode"
             !title.isNullOrBlank() -> title
             else -> id
         }
@@ -213,13 +265,32 @@ data class StreamItem(
     val detail: String,
     val url: String,
     val headers: Map<String, String> = emptyMap(),
-)
+    val quality: String? = null,
+    val size: String? = null,
+    val seeds: Int? = null,
+) {
+    val qualityRank: Int
+        get() = when (quality) {
+            "4K" -> 4
+            "1080p" -> 3
+            "720p" -> 2
+            "480p" -> 1
+            else -> 0
+        }
+
+    val badge: String
+        get() = quality ?: "HTTP"
+}
 
 /** What the player needs to start a stream. */
 data class Playback(
     val url: String,
     val title: String,
+    val subtitle: String = "",
     val headers: Map<String, String> = emptyMap(),
+    val startPositionMs: Long = 0,
+    val progress: WatchProgress? = null,
+    val hasNext: Boolean = false,
 )
 
 /** One row of the board: a catalogue served by an installed addon. */
@@ -228,3 +299,93 @@ data class CatalogRow(
     val type: String,
     val items: List<MetaPreview>,
 )
+
+/** Where the viewer stopped in a title, as the board and the player need it. */
+@Serializable
+data class WatchProgress(
+    val key: String,
+    val type: String,
+    val metaId: String,
+    val videoId: String,
+    val name: String,
+    val poster: String? = null,
+    val background: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+    val episodeTitle: String? = null,
+    val positionMs: Long = 0,
+    val durationMs: Long = 0,
+    val updatedAt: Long = 0,
+) {
+    val fraction: Float
+        get() = if (durationMs <= 0) 0f else (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
+
+    /** Near the end counts as finished, the same window the desktop uses. */
+    val finished: Boolean
+        get() = durationMs > 0 && positionMs >= durationMs - FINISH_MARGIN_MS
+
+    val episodeLabel: String?
+        get() = when {
+            season != null && episode != null -> "S$season · E$episode"
+            else -> null
+        }
+
+    companion object {
+        const val FINISH_MARGIN_MS = 45_000L
+
+        fun key(type: String, metaId: String, videoId: String): String =
+            "$type:$metaId:$videoId"
+    }
+}
+
+@Serializable
+data class LibraryEntry(val item: MetaPreview, val addedAt: Long = 0)
+
+/** Preferences that change behaviour rather than appearance. */
+@Serializable
+data class AppSettings(
+    val autoplayNext: Boolean = true,
+    val resumePlayback: Boolean = true,
+    val preferHighestQuality: Boolean = true,
+    val subtitleSize: Int = 1,
+)
+
+private val QUALITY_PATTERN = Regex("(?i)\\b(2160p|1080p|720p|480p|360p|4k|uhd)\\b")
+private val SIZE_PATTERN = Regex("(?i)(\\d+(?:\\.\\d+)?)\\s?(gb|mb)\\b")
+private val SEED_PATTERN = Regex("(?i)(?:👤|seeds?)\\s*:?\\s*(\\d+)")
+
+/**
+ * Flattens an addon stream into something the player can open.
+ *
+ * Torrent infohashes need a streaming engine; this client plays the HTTP
+ * streams the addons offer directly and keeps the label they advertise.
+ */
+fun Stream.toItem(addon: String): StreamItem? {
+    val address = url?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+        ?: return null
+    val text = listOfNotNull(name, title, description).joinToString(" ")
+    val quality = QUALITY_PATTERN.find(text)?.value?.let { value ->
+        when (value.lowercase()) {
+            "4k", "uhd", "2160p" -> "4K"
+            else -> value.lowercase()
+        }
+    }
+    val size = SIZE_PATTERN.find(text)?.let { match ->
+        val amount = match.groupValues[1]
+        val unit = match.groupValues[2].uppercase()
+        "$amount $unit"
+    }
+    val seeds = SEED_PATTERN.find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()
+    return StreamItem(
+        addon = addon,
+        name = name?.takeIf { it.isNotBlank() } ?: addon,
+        detail = title?.takeIf { it.isNotBlank() }
+            ?: description?.takeIf { it.isNotBlank() }
+            ?: "",
+        url = address,
+        headers = behaviorHints?.proxyHeaders?.request.orEmpty(),
+        quality = quality,
+        size = size,
+        seeds = seeds,
+    )
+}

@@ -95,6 +95,34 @@ class AddonClient(private val client: OkHttpClient = Http.client) {
             json.decodeFromString<StreamResponse>(get(url)).streams
         }
 
+    /**
+     * Reads the manifest of an addon the viewer typed in.
+     *
+     * Addons are addressed by their base URL; pasting the manifest URL itself
+     * works too, so the input is normalised before the request.
+     */
+    suspend fun manifest(input: String): Pair<String, AddonManifest> = withContext(Dispatchers.IO) {
+        val base = normaliseBase(input)
+        val body = get("$base/manifest.json")
+        val manifest = runCatching { json.decodeFromString<AddonManifest>(body) }
+            .getOrElse { throw ApiException("That address does not serve an addon manifest.") }
+        if (manifest.id.isBlank() || manifest.name.isBlank()) {
+            throw ApiException("That manifest is missing an id or a name.")
+        }
+        base to manifest
+    }
+
+    private fun normaliseBase(input: String): String {
+        var url = input.trim()
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            url = "https://$url"
+        }
+        url = url.trimEnd('/')
+        url = url.removeSuffix("/manifest.json")
+        if (url.isEmpty()) throw ApiException("Enter the address of an addon.")
+        return url
+    }
+
     private fun get(url: String): String {
         val request = Request.Builder()
             .url(url)
