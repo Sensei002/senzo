@@ -126,6 +126,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val api = StremioApi()
     private val addonClient = AddonClient()
     private val torrents = TorrentStreamer(java.io.File(application.cacheDir, "torrents"))
+
+    /** The most recent engine shutdown, awaited before a new torrent starts. */
+    private var torrentStop: Job? = null
+
+    private fun stopTorrents() {
+        torrentStop = viewModelScope.launch(Dispatchers.IO) { torrents.stop() }
+    }
     private val communityClient = CommunityClient()
     private val pluginRuntime = PluginRuntime(application)
 
@@ -837,6 +844,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Runs the torrent engine and hands its address to the open player. */
     private fun launchTorrent(magnet: String) {
         viewModelScope.launch {
+            torrentStop?.join()
             _state.update { current -> current.copy(playback = current.playback?.copy(failure = null, status = "Looking for peers…")) }
             val watcher = launch {
                 while (isActive) {
@@ -870,7 +878,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val playback = _state.value.playback ?: return
         val magnet = playback.torrent
         if (magnet != null) {
-            torrents.stop()
             _state.update { current ->
                 current.copy(
                     playback = current.playback?.copy(
@@ -905,8 +912,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun beginPlayback(meta: Meta, video: Video?, item: StreamItem) {
-        // A direct stream replaces whatever the torrent engine was doing.
-        torrents.stop()
+        // A direct stream replaces whatever the torrent engine was doing, and
+        // the engine may be mid-wait, so it is stopped off the main thread.
+        stopTorrents()
         val entry = progressEntry(meta, video)
         val saved = _state.value.settings.resumePlayback
             .let { resume -> if (resume) _state.value.progress.firstOrNull { it.key == entry.key } else null }
@@ -956,7 +964,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (positionMs >= 0 && durationMs > 0) {
             reportProgress(positionMs, durationMs)
         }
-        torrents.stop()
+        stopTorrents()
         _state.update { it.copy(playback = null) }
     }
 

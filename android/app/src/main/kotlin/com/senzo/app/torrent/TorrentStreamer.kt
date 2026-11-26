@@ -71,6 +71,9 @@ class TorrentStreamer(private val cacheDir: File) {
      * main thread.
      */
     fun start(magnet: String): String {
+        // Let a previous run leave its waits before taking the lock, otherwise
+        // it would sit in a 90 s wait while this call blocks behind it.
+        stopped = true
         synchronized(lock) {
             stopLocked()
             stopped = false
@@ -136,6 +139,7 @@ class TorrentStreamer(private val cacheDir: File) {
 
     /** Stops the stream and releases the torrent. Safe to call twice. */
     fun stop() {
+        stopped = true
         synchronized(lock) { stopLocked() }
     }
 
