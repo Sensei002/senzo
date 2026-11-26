@@ -145,3 +145,44 @@ useful, and a provider that cannot be tested is a support burden.
 - Providers require network access while they run. Only repositories the
   viewer trusts belong in a build, and the preinstalled entry is a default,
   not an endorsement.
+## What shipped
+
+The four phases landed together, in `android/app/src/main/kotlin/com/senzo/app/plugins/`:
+
+- `PluginRuntime` owns the config (repositories, providers, per-provider settings
+  JSON) in `SharedPreferences` and runs enabled providers four at a time.
+- `PluginRepositoryClient` loads manifests and scripts over HTTPS only, with the
+  same 4 MB caps and the same three manifest shapes as the desktop loader.
+- `PluginEngine` hosts a `QuickJSContext` per provider run: memory 128 MB, stack
+  2 MB, 60 s deadline enforced inside fetch/sleep, 48 streams, 80 log lines.
+  The nine `__senzo_*`/eleven `__crypto_*`/twelve `__cheerio_*` bridges are
+  registered before the prelude, the three shims, the provider script, then the
+  async `CALL_CODE` that awaits `getStreams` and captures JSON.
+- `PluginFetch` ports the desktop request policy (manual redirects, cookie jar,
+  12 MB cap, TMDB gateway rewrite, private-host blocking).
+- `PluginDom` maps Cheerio element ids onto jsoup elements; `PluginCrypto` uses
+  `MessageDigest`/`Mac`/`Cipher` with the desktop hex wire format.
+
+The Plugins section sits beside the addon directory. Repositories are refreshed
+on first start, providers start disabled, and stream results merge with addon
+streams: `infoHash`/magnet entries go through `TorrentStreamer`, direct URLs
+through the player.
+
+Dependencies: `wang.harlon.quickjs:wrapper-android:3.2.3` (AAR plus the
+`wrapper-java` companion it pulls in) and `org.jsoup:jsoup:1.18.3`. R8 keeps
+`com.whl.quickjs.**` and all native method names, because the wrapper crosses
+into JNI by name.
+
+## APK size
+
+`libtorrent4j.so` is ~15 MB per architecture and QuickJS adds ~1.3 MB, so the
+universal APK had grown to 52 MB. The release now builds one APK per ABI:
+arm64-v8a ~19.4 MB (the phone download) and armeabi-v7a ~16.9 MB. x86_64 is
+available from the dependencies for emulator builds but is not packaged.
+
+## Still unverified on device
+
+- Whether `QuickJSContext.evaluate` drains the promise job queue after the
+  async `CALL_CODE` returns, which the timer shim depends on.
+- Torrent streaming to Media3 through `http://127.0.0.1:<port>/stream` with
+  Range requests on a real swarm.
