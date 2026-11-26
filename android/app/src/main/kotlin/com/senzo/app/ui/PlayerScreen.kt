@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.util.TypedValue
 import android.view.WindowManager
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -158,6 +159,10 @@ fun PlayerScreen(
                 }
         }
     }
+
+    // Back leaves the player the same way the close button does, saving where
+    // the viewer stopped.
+    BackHandler { onClose(position, duration) }
 
     // The screen stays awake and the bars step aside while the player is open.
     DisposableEffect(context) {

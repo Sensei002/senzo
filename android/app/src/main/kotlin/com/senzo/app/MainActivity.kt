@@ -104,7 +104,6 @@ private fun SenzoApp(viewModel: MainViewModel = viewModel()) {
 
     val playback = state.playback
     if (playback != null) {
-        BackHandler { viewModel.stopPlayback() }
         PlayerScreen(
             playback = playback,
             subtitleSize = state.settings.subtitleSize,

@@ -171,7 +171,8 @@ through the player.
 Dependencies: `wang.harlon.quickjs:wrapper-android:3.2.3` (AAR plus the
 `wrapper-java` companion it pulls in) and `org.jsoup:jsoup:1.18.3`. R8 keeps
 `com.whl.quickjs.**` and all native method names, because the wrapper crosses
-into JNI by name.
+into JNI by name. Audio decoding adds
+`com.github.anilbeesetti.nextlib:nextlib-media3ext` from JitPack.
 
 ## Player and torrent engine
 
@@ -201,9 +202,9 @@ torrents under the torrent name.
 
 ## APK size
 
-`libtorrent4j.so` is ~15 MB per architecture and QuickJS adds ~1.3 MB, so the
-universal APK had grown to 52 MB. The release now builds one APK per ABI:
-arm64-v8a ~19.4 MB (the phone download) and armeabi-v7a ~16.9 MB. x86_64 is
+`libtorrent4j.so` is ~15 MB per architecture, QuickJS adds ~1.3 MB, and the
+FFmpeg audio decoders add ~5.3 MB. The release now builds one APK per ABI:
+arm64-v8a ~24.8 MB (the phone download) and armeabi-v7a ~22.0 MB. x86_64 is
 available from the dependencies for emulator builds but is not packaged.
 
 ## Still unverified on device
