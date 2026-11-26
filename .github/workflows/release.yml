@@ -494,14 +494,13 @@ jobs:
             # Homebrew publishes arm64 bottles of mpv and its libraries.
             brew install pkg-config mpv dylibbundler
             # mpv.pc requires keg-only dependencies such as libarchive, whose
-            # pkg-config files are not in the shared Homebrew prefix.
+            # pkg-config files only exist under the per-formula opt prefix.
             paths="$(brew --prefix mpv)/lib/pkgconfig"
-            while read -r dependency; do
-              candidate="$(brew --prefix "$dependency" 2>/dev/null || true)/lib/pkgconfig"
+            for candidate in /opt/homebrew/opt/*/lib/pkgconfig /usr/local/opt/*/lib/pkgconfig; do
               if [ -d "$candidate" ]; then
                 paths="$paths:$candidate"
               fi
-            done < <(brew deps --transitive mpv)
+            done
             echo "PKG_CONFIG_PATH=$paths:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
           else
             # Homebrew stopped publishing Intel macOS bottles, so the Intel
