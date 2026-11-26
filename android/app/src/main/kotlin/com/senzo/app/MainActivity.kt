@@ -5,8 +5,21 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -234,35 +247,71 @@ private val tabs = listOf(
     TabSpec(Tab.Settings, "Settings", Icons.Rounded.Settings),
 )
 
+/**
+ * The tab bar, drawn rather than borrowed from Material.
+ *
+ * The stock NavigationBar brings a grey container and a full-width indicator,
+ * which sits badly under a poster board. This keeps the surface almost the
+ * colour of the page, marks the current tab with a cyan capsule around the
+ * icon, and fades into the artwork with a hairline on top.
+ */
 @Composable
 private fun BottomBar(tab: Tab, onSelect: (Tab) -> Unit) {
-    NavigationBar(containerColor = BackgroundElevated, tonalElevation = 0.dp) {
-        tabs.forEach { spec ->
-            val selected = spec.tab == tab
-            NavigationBarItem(
-                selected = selected,
-                onClick = { onSelect(spec.tab) },
-                icon = {
-                    Icon(
-                        imageVector = spec.icon,
-                        contentDescription = spec.label,
-                        modifier = Modifier.size(22.dp),
-                    )
-                },
-                label = {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Background.copy(alpha = 0.97f)),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(Color.Transparent, Outline.copy(alpha = 0.9f), Color.Transparent),
+                    ),
+                ),
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 6.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            tabs.forEach { spec ->
+                val selected = spec.tab == tab
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(18.dp))
+                        .clickable { onSelect(spec.tab) }
+                        .padding(vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (selected) Accent.copy(alpha = 0.14f) else Color.Transparent,
+                            )
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                    ) {
+                        Icon(
+                            imageVector = spec.icon,
+                            contentDescription = spec.label,
+                            tint = if (selected) Accent else TextDim,
+                            modifier = Modifier.size(21.dp),
+                        )
+                    }
+                    Spacer(Modifier.height(3.dp))
                     Text(
                         text = spec.label,
                         style = MaterialTheme.typography.labelSmall,
+                        color = if (selected) Accent else TextDim,
                     )
-                },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = Accent,
-                    selectedTextColor = Accent,
-                    unselectedIconColor = TextDim,
-                    unselectedTextColor = TextDim,
-                    indicatorColor = Accent.copy(alpha = 0.15f),
-                ),
-            )
+                }
+            }
         }
     }
 }

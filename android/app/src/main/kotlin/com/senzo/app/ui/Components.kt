@@ -290,7 +290,9 @@ fun HeroCarousel(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(0.78f),
+            // Taller than the poster grid it sits above, so the artwork reaches
+            // the status bar and the header floats on the image.
+            .aspectRatio(0.70f),
     ) {
         HorizontalPager(
             state = pagerState,
@@ -313,6 +315,19 @@ fun HeroCarousel(
                                 0f to Color.Transparent,
                                 0.5f to Background.copy(alpha = 0.30f),
                                 1f to Background,
+                            ),
+                        ),
+                )
+                // A second, weaker scrim at the top keeps the floating header
+                // readable over a bright backdrop.
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(140.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                0f to Background.copy(alpha = 0.55f),
+                                1f to Color.Transparent,
                             ),
                         ),
                 )
