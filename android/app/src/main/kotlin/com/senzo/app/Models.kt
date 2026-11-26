@@ -192,6 +192,8 @@ data class Stream(
     val externalUrl: String? = null,
     val infoHash: String? = null,
     val fileIdx: Int? = null,
+    /** Trackers of the swarm, when an addon sends them with the hash. */
+    val sources: List<String> = emptyList(),
     val behaviorHints: BehaviorHints? = null,
 )
 
@@ -268,6 +270,8 @@ data class StreamItem(
     val quality: String? = null,
     val size: String? = null,
     val seeds: Int? = null,
+    /** Set when the stream is a torrent the local engine has to fetch. */
+    val torrent: String? = null,
 ) {
     val qualityRank: Int
         get() = when (quality) {
@@ -279,7 +283,11 @@ data class StreamItem(
         }
 
     val badge: String
-        get() = quality ?: "HTTP"
+        get() = when {
+            torrent != null -> quality ?: "P2P"
+            quality != null -> quality
+            else -> "HTTP"
+        }
 }
 
 /** What the player needs to start a stream. */
@@ -354,15 +362,32 @@ private val QUALITY_PATTERN = Regex("(?i)\\b(2160p|1080p|720p|480p|360p|4k|uhd)\
 private val SIZE_PATTERN = Regex("(?i)(\\d+(?:\\.\\d+)?)\\s?(gb|mb)\\b")
 private val SEED_PATTERN = Regex("(?i)(?:👤|seeds?)\\s*:?\\s*(\\d+)")
 
+/** Builds the magnet URI the local torrent engine opens. */
+private fun Stream.magnet(hash: String): String = buildString {
+    append("magnet:?xt=urn:btih:").append(hash)
+    name?.trim()?.takeIf { it.isNotEmpty() }?.let { title ->
+        append("&dn=").append(java.net.URLEncoder.encode(title, "UTF-8"))
+    }
+    sources
+        .filter { it.startsWith("tracker:") }
+        .forEach { tracker ->
+            append("&tr=").append(
+                java.net.URLEncoder.encode(tracker.removePrefix("tracker:"), "UTF-8"),
+            )
+        }
+}
+
 /**
  * Flattens an addon stream into something the player can open.
  *
- * Torrent infohashes need a streaming engine; this client plays the HTTP
- * streams the addons offer directly and keeps the label they advertise.
+ * Torrent infohashes become magnet links the local engine opens, so Torrentio
+ * and the plugins play without a debrid account. The label an addon advertises
+ * is kept on the item either way.
  */
 fun Stream.toItem(addon: String): StreamItem? {
     val address = url?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
-        ?: return null
+    val hash = infoHash?.trim()?.takeIf { it.length >= 32 }
+    if (address == null && hash == null) return null
     val text = listOfNotNull(name, title, description).joinToString(" ")
     val quality = QUALITY_PATTERN.find(text)?.value?.let { value ->
         when (value.lowercase()) {
@@ -382,10 +407,11 @@ fun Stream.toItem(addon: String): StreamItem? {
         detail = title?.takeIf { it.isNotBlank() }
             ?: description?.takeIf { it.isNotBlank() }
             ?: "",
-        url = address,
+        url = address ?: "",
         headers = behaviorHints?.proxyHeaders?.request.orEmpty(),
         quality = quality,
         size = size,
         seeds = seeds,
+        torrent = if (address == null && hash != null) magnet(hash) else null,
     )
 }

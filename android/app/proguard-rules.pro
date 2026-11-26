@@ -26,6 +26,12 @@
 -dontwarn okhttp3.internal.platform.**
 -dontwarn okio.**
 
+# libtorrent4j reaches its Java surface from native code, so the SWIG names
+# have to survive R8 untouched.
+-keep class org.libtorrent4j.** { *; }
+-keep class org.libtorrent4j.swig.** { *; }
+-dontwarn org.libtorrent4j.**
+
 # Media3 and Guava reference desktop-only entry points.
 -dontwarn androidx.media3.**
 -dontwarn com.google.common.**

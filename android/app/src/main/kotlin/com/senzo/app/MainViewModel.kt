@@ -12,7 +12,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.senzo.app.torrent.TorrentStreamer
 
 /** The five places the bottom bar can take the viewer. */
 enum class Tab { Home, Search, Library, Addons, Settings }
@@ -107,6 +110,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val sessions = SessionStore(application)
     private val api = StremioApi()
     private val addonClient = AddonClient()
+    private val torrents = TorrentStreamer(java.io.File(application.cacheDir, "torrents"))
     private val communityClient = CommunityClient()
 
     private val _state = MutableStateFlow(UiState())
@@ -539,8 +543,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     ),
                 )
             }
-            val batch = streamsFor(type, videoId)
-            val items = batch.items
+            val items = streamsFor(type, videoId)
             _state.update { current ->
                 val details = current.details ?: return@update current
                 if (details.selectedVideo?.id != videoId && details.type == "series") {
@@ -550,14 +553,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     details = details.copy(
                         streamsLoading = false,
                         streams = items,
-                        streamError = when {
-                            items.isNotEmpty() -> null
-                            // Torrent addons (Torrentio and friends) answer with
-                            // infohashes this build cannot open by itself.
-                            batch.torrents > 0 -> "These addons returned torrent links only. " +
-                                "This build plays direct HTTP streams, so configure that addon " +
-                                "with a debrid account to get playable links."
-                            else -> "No addon offered a playable stream for this title."
+                        streamError = if (items.isEmpty()) {
+                            "No addon offered a playable stream for this title."
+                        } else {
+                            null
                         },
                     ),
                 )
@@ -569,10 +568,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** What a title resolved to, and how much of it this client cannot open. */
-    private data class StreamBatch(val items: List<StreamItem>, val torrents: Int)
-
-    private suspend fun streamsFor(type: String, videoId: String): StreamBatch {
+    /** Every playable stream of a title, in the order the settings ask for. */
+    private suspend fun streamsFor(type: String, videoId: String): List<StreamItem> {
         val addons = _state.value.enabledAddons.filter { it.manifest.serves("stream", type) }
         val responses = coroutineScope {
             addons
@@ -585,15 +582,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 .awaitAll()
         }
-        val streams = responses.flatMap { (addon, list) -> list.map { addon to it } }
-        val items = streams.mapNotNull { (addon, stream) -> stream.toItem(addon) }
-        val torrents = streams.count { (_, stream) -> stream.url == null && stream.infoHash != null }
+        val items = responses.flatMap { (addon, list) ->
+            list.mapNotNull { stream -> stream.toItem(addon) }
+        }
         val ordered = if (_state.value.settings.preferHighestQuality) {
             items.sortedWith(compareByDescending<StreamItem> { it.qualityRank }.thenByDescending { it.seeds ?: 0 })
         } else {
             items
         }
-        return StreamBatch(ordered, torrents)
+        return ordered
     }
 
     fun play(item: StreamItem) {
@@ -610,6 +607,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun startPlayback(meta: Meta, video: Video?, item: StreamItem) {
+        val magnet = item.torrent
+        if (magnet != null) {
+            viewModelScope.launch {
+                _state.update { it.copy(message = "Connecting to the torrent…") }
+                val watcher = launch {
+                    while (isActive) {
+                        _state.update { current -> current.copy(message = torrents.status.label) }
+                        delay(1_000)
+                    }
+                }
+                val result = runCatching {
+                    withContext(Dispatchers.IO) { torrents.start(magnet) }
+                }
+                watcher.cancel()
+                val address = result.getOrNull()
+                if (address == null) {
+                    val reason = result.exceptionOrNull()?.message
+                        ?: "The torrent could not be played."
+                    _state.update { current -> current.copy(message = reason) }
+                    return@launch
+                }
+                _state.update { current -> current.copy(message = null) }
+                beginPlayback(meta, video, item.copy(url = address, torrent = null))
+            }
+            return
+        }
+        beginPlayback(meta, video, item)
+    }
+
+    private fun beginPlayback(meta: Meta, video: Video?, item: StreamItem) {
         val videoId = video?.id ?: meta.id
         val key = WatchProgress.key(meta.type, meta.id, videoId)
         val saved = _state.value.settings.resumePlayback
@@ -672,6 +699,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (positionMs >= 0 && durationMs > 0) {
             reportProgress(positionMs, durationMs)
         }
+        torrents.stop()
         _state.update { it.copy(playback = null) }
     }
 
@@ -687,7 +715,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             _state.update { it.copy(message = "Loading the next episode…") }
-            val item = streamsFor(meta.type, next.id).items.firstOrNull()
+            val item = streamsFor(meta.type, next.id).firstOrNull()
             if (item == null) {
                 _state.update {
                     it.copy(playback = null, message = "No stream for the next episode.")
