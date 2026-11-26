@@ -1,0 +1,7 @@
+set(VCPKG_TARGET_ARCHITECTURE arm64)
+set(VCPKG_CRT_LINKAGE dynamic)
+set(VCPKG_LIBRARY_LINKAGE static)
+set(VCPKG_BUILD_TYPE release)
+set(VCPKG_OSX_ARCHITECTURES arm64)
+# The app supports macOS 12 and newer on Apple silicon.
+set(VCPKG_OSX_DEPLOYMENT_TARGET 12.0)

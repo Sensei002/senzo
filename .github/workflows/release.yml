@@ -447,6 +447,102 @@ jobs:
           path: target/debian/*.deb
           if-no-files-found: error
 
+  macos:
+    name: macOS ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-14
+            triplet: arm64-osx-v3-static-release
+            target: aarch64-apple-darwin
+          - arch: x86_64
+            runner: macos-15-intel
+            triplet: x64-osx-v3-static-release
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg_installed
+      VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+      VCPKGRS_TRIPLET: ${{ matrix.triplet }}
+      VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/triplets
+      VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/vcpkg-overlays
+      PKG_CONFIG_PATH: ${{ github.workspace }}/vcpkg_installed/${{ matrix.triplet }}/lib/pkgconfig
+      # The bundled libtorrent and the app are both built for this floor, so a
+      # mismatch cannot produce a bundle that only runs on the build machine.
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+      LIBTORRENT_STATIC: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-05-03
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-${{ matrix.arch }}
+      - name: Install native dependencies
+        run: |
+          brew update --quiet
+          # mpv ships libmpv and its pkg-config file; dylibbundler collects the
+          # non-system libraries into the app bundle.
+          brew install pkg-config mpv dylibbundler
+      - name: Restore libtorrent cache
+        id: libtorrent-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: vcpkg_installed
+          key: macOS-${{ matrix.arch }}-vcpkg-${{ matrix.triplet }}-v1-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
+          restore-keys: |
+            macOS-${{ matrix.arch }}-vcpkg-${{ matrix.triplet }}-v1-
+      - name: Install static libtorrent 2.1.1
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: "84bab45d415d22042bd0b9081aea57f362da3f35"
+          vcpkgDirectory: "${{ github.workspace }}/vcpkg"
+          vcpkgJsonGlob: "vcpkg.json"
+          runVcpkgInstall: true
+      - name: Save libtorrent cache
+        if: steps.libtorrent-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: vcpkg_installed
+          key: macOS-${{ matrix.arch }}-vcpkg-${{ matrix.triplet }}-v1-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
+      - name: Build release
+        run: |
+          set -o pipefail
+          cargo build --locked --release --package senzo 2>&1 | tee build.log
+      - name: Report build failure
+        if: failure()
+        continue-on-error: true
+        shell: bash
+        run: |
+          if [ ! -f build.log ]; then
+            echo "::error title=Build log::build.log was not created"
+            exit 0
+          fi
+          clean=$(mktemp)
+          sed -r 's/\x1B\[[0-9;]*[mK]//g' build.log > "$clean"
+          n=$(grep -n -m1 -E '^error(\[|:)' "$clean" | cut -d: -f1 || true)
+          if [ -z "$n" ]; then
+            n=$(( $(wc -l < "$clean") - 40 ))
+          fi
+          msg=$(sed -n "${n},$((n+25))p" "$clean" | sed 's/::/ - /g; s/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')
+          echo "::error title=Rust build error::$msg"
+      - name: Package app bundle
+        run: |
+          bash scripts/package_macos.sh \
+            --arch "${{ matrix.arch }}" \
+            --tag "${GITHUB_REF_NAME}" \
+            --out dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: senzo-macos-${{ matrix.arch }}
+          path: dist/*.zip
+          if-no-files-found: error
   arch:
     name: Arch Linux x64
     needs: linux
@@ -591,7 +687,7 @@ jobs:
 
   release:
     name: Publish tagged release
-    needs: [windows, linux, arch, fedora]
+    needs: [windows, linux, macos, arch, fedora]
     runs-on: ubuntu-24.04
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -623,6 +719,8 @@ jobs:
 
           copy_latest "SENZO-Setup-v*-x64.exe"
           copy_latest "senzo-v*-x86_64-pc-windows-msvc.zip"
+          copy_latest "senzo-v*-aarch64-apple-darwin.zip"
+          copy_latest "senzo-v*-x86_64-apple-darwin.zip"
           copy_latest "*.deb"
           copy_latest "senzo-[0-9]*.pkg.tar.zst"
           copy_latest "*.rpm"

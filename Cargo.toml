@@ -64,7 +64,9 @@ discord-rich-presence = "1.1.0"
 # (SMTC) and macOS (MediaRemote) backends ignore this feature.
 souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
 keepawake = "0.6.0"
-keyring = { version = "3.6.3", default-features = false, features = ["windows-native", "sync-secret-service", "vendored"] }
+# One platform backend per desktop target: Keychain on macOS, Credential
+# Manager on Windows, Secret Service on Linux.
+keyring = { version = "3.6.3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service", "vendored"] }
 mlua = { version = "0.12.0", features = ["lua54", "vendored", "serialize"] }
 minidump-writer = "0.13.0"
 minidumper = "0.11.0"
