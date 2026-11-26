@@ -436,6 +436,7 @@ private fun MovieFacts(state: DetailsState) {
             )
         }
     }
+}
 
 /** Which sources the sheet shows. */
 private const val FILTER_ALL = "All"
