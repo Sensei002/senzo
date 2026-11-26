@@ -176,13 +176,16 @@ into JNI by name. Audio decoding adds
 
 ## Player and torrent engine
 
-The Android player is no longer Media3's stock controller. `PlayerScreen` draws
-its own overlay, matching the desktop client: close and title, rewind/forward 10 s,
-play/pause with a buffering spinner, a seek bar that shows the buffer ahead, then
-speed, audio track, subtitle track, zoom and next-episode pills. Taps toggle the
-overlay, a double tap on either half seeks, and the screen stays awake with the
-system bars hidden while the film runs. Failures show the reason with a retry
-that rebuilds the player.
+The Android player is no longer Media3's stock controller. `PlayerChrome` draws
+one overlay for both engines, matching the desktop client: title and year at the
+lower left, a thin seek bar with the buffer ahead, and a row of subtitle, audio,
+cloud, speed, next-episode and overflow buttons. The centre holds rewind 10 s,
+play/pause with a buffering spinner, and forward 10 s. The top right has aspect
+zoom, an info sheet (title, release, stream, engine, position, buffer, speed,
+swarm), a lock that leaves only its unlock button on screen, and back. Taps
+toggle the overlay, a double tap on either half seeks, and the screen stays
+awake with the system bars hidden while the film runs. Failures show the reason
+with a retry that rebuilds the player.
 
 ### What Nuvio Android actually plays with
 
@@ -241,6 +244,23 @@ thing: the directory is renamed out of the way at launch and deleted in the
 background, each stream writes into its own directory, and that directory is
 dropped as soon as the engine releases the torrent. Settings also offers a
 "Clear torrent cache" row.
+
+## Source page
+
+Playing a title opens a page of sources instead of starting a stream, the shape
+the desktop client uses. The list is grouped by addon with a heading and a
+count, and every row states the quality badge, the addon's own description, its
+seeders in colour (green from 25 up, gold above zero, red at zero), its parsed
+size, and whether it plays peer to peer or direct.
+
+Above the list sit two menus and a switch. Provider starts at "All" and narrows
+to one addon; Ranking offers Smart, Quality, Smallest, Seeders and Original.
+Smart weighs resolution, source, codec, HDR, audio, seeders and size with the
+same scores as `stream-ranking` on the desktop, and shows that score on the row.
+Suspicious results (password bait, scam markers) stay hidden until "Show
+suspicious or filtered sources" is on. While addons answer, a turning arrow and
+"Loading sources…" show the count still pending, and the refresh button asks
+every addon again. The chosen ranking and the switch persist in `AppSettings`.
 
 ## APK size
 

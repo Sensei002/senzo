@@ -218,8 +218,8 @@ private fun SourcesHeader(
                     busy && state.streams.isEmpty() -> "Loading sources…"
                     state.streamsPending > 0 -> "${state.streamsPending} addons still answering"
                     state.streams.isEmpty() -> "No sources yet"
-                    state.streams.size == 1 -> "1 file"
-                    else -> "${state.streams.size} files"
+                    state.streams.size == 1 -> "1 FILE"
+                    else -> "${state.streams.size} FILES"
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = TextMuted,
