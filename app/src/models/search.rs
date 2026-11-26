@@ -21,7 +21,7 @@ use stremio_core::{
     },
     runtime::{
         Runtime, RuntimeAction,
-        msg::{Action, ActionLoad, ActionSearch},
+        msg::{Action, ActionCatalogsWithExtra, ActionLoad, ActionSearch},
     },
     types::addon::{Descriptor, ExtraValue},
 };
@@ -148,16 +148,36 @@ fn submit_search(
         },
     );
 
-    runtime.dispatch(RuntimeAction {
-        field: Some(AppModelField::Search),
-        action: Action::Load(ActionLoad::CatalogsWithExtra(Selected {
-            r#type: None,
-            extra: vec![ExtraValue {
-                name: "search".to_owned(),
-                value: query,
-            }],
-        })),
-    });
+    for action in search_reset_actions(query) {
+        runtime.dispatch(action);
+    }
+}
+
+/// Clear the previous search before loading the new one.
+///
+/// Core reuses a planned catalog whose request matches and whose content is
+/// already present, and it treats that as "no change". Re-submitting the query
+/// that is already loaded (or one whose request errored) therefore produced no
+/// state at all, while the UI had just been cleared and marked as loading. The
+/// unload guarantees a fresh plan plus a real state change on every submit, so
+/// the same search always runs again.
+fn search_reset_actions(query: String) -> Vec<RuntimeAction> {
+    vec![
+        RuntimeAction {
+            field: Some(AppModelField::Search),
+            action: Action::Unload,
+        },
+        RuntimeAction {
+            field: Some(AppModelField::Search),
+            action: Action::Load(ActionLoad::CatalogsWithExtra(Selected {
+                r#type: None,
+                extra: vec![ExtraValue {
+                    name: "search".to_owned(),
+                    value: query,
+                }],
+            })),
+        },
+    ]
 }
 
 fn open_details(
@@ -227,6 +247,7 @@ pub fn sync_results(
     ui: &MainWindow,
     search: &CatalogsWithExtra,
     addons: &[Descriptor],
+    runtime: &Arc<Runtime<DesktopEnv, AppModel>>,
     _ui_weak: &slint::Weak<MainWindow>,
 ) {
     let catalog_count = search.catalogs.len();
@@ -237,6 +258,14 @@ pub fn sync_results(
                 .is_none_or(|content| matches!(content, Loadable::Loading))
         })
     });
+
+    // A range load can leave a planned catalog without content, and Core never
+    // reuses or retries such a page. Search renders every catalog, so a page
+    // without content never produces a row, and without a row no visibility
+    // callback can ask for it again: the page would keep showing skeletons
+    // forever. Ask for every planned catalog instead, which only re-requests
+    // the empty ones.
+    ensure_catalogs_requested(search, runtime);
 
     let mut fingerprint = Fingerprint::new();
     fingerprint.usize(catalog_count);
@@ -289,5 +318,121 @@ pub fn sync_results(
         }
     } else {
         ui.set_search_sections(ModelRc::new(VecModel::from(sections)));
+    }
+}
+
+/// Catalogs that Core planned but never requested.
+fn catalogs_without_content(search: &CatalogsWithExtra) -> usize {
+    search
+        .catalogs
+        .iter()
+        .filter(|catalog| catalog.first().is_none_or(|page| page.content.is_none()))
+        .count()
+}
+
+/// Request every planned catalog that has no content yet.
+///
+/// A ranged load only requests the catalogs inside the range; the rest are
+/// planned with no content and no effect, and Core never reuses or retries such
+/// a page on its own. The search page renders one row per catalog that has
+/// content, so an empty page produces no row, and without a row no visibility
+/// callback can ask for it again. Asking for the whole range only re-requests
+/// the empty pages (the reuse rule keeps the loaded ones), which closes that
+/// deadlock instead of leaving the page on skeletons forever.
+fn ensure_catalogs_requested(
+    search: &CatalogsWithExtra,
+    runtime: &Arc<Runtime<DesktopEnv, AppModel>>,
+) {
+    if search.selected.is_none() || search.catalogs.is_empty() {
+        return;
+    }
+    let missing = catalogs_without_content(search);
+    if missing == 0 {
+        return;
+    }
+    tracing::info!(
+        missing_catalogs = missing,
+        catalog_count = search.catalogs.len(),
+        "requesting search catalogs that were planned without content"
+    );
+    runtime.dispatch(RuntimeAction {
+        field: Some(AppModelField::Search),
+        action: Action::CatalogsWithExtra(ActionCatalogsWithExtra::LoadRange(
+            0..search.catalogs.len(),
+        )),
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use stremio_core::{
+        models::common::ResourceLoadable,
+        types::{addon::{ResourcePath, ResourceRequest}, resource::MetaItemPreview},
+    };
+
+    fn request() -> ResourceRequest {
+        ResourceRequest {
+            base: url::Url::parse("https://example.com/manifest.json").expect("base url"),
+            path: ResourcePath {
+                id: "search".to_owned(),
+                r#type: "movie".to_owned(),
+                resource: "catalog".to_owned(),
+                extra: Vec::new(),
+            },
+        }
+    }
+
+    fn search_with(contents: Vec<Option<Loadable<Vec<MetaItemPreview>>>>) -> CatalogsWithExtra {
+        CatalogsWithExtra {
+            selected: Some(Selected {
+                r#type: None,
+                extra: vec![ExtraValue {
+                    name: "search".to_owned(),
+                    value: "taandob".to_owned(),
+                }],
+            }),
+            catalogs: contents
+                .into_iter()
+                .map(|content| vec![ResourceLoadable { request: request(), content }])
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn re_submitting_a_search_unloads_before_loading_again() {
+        let actions = search_reset_actions("taandob".to_owned());
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0].field, Some(AppModelField::Search));
+        assert!(matches!(actions[0].action, Action::Unload));
+        match &actions[1].action {
+            Action::Load(ActionLoad::CatalogsWithExtra(selected)) => {
+                assert_eq!(selected.r#type, None);
+                assert_eq!(selected.extra.len(), 1);
+                assert_eq!(selected.extra[0].name, "search");
+                assert_eq!(selected.extra[0].value, "taandob");
+            }
+            other => panic!("expected a catalogs-with-extra load, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn planned_catalogs_without_content_are_detected() {
+        let search = search_with(vec![
+            None,
+            Some(Loadable::Loading),
+            Some(Loadable::Err("boom".to_owned())),
+            Some(Loadable::Ready(Vec::new())),
+        ]);
+        assert_eq!(catalogs_without_content(&search), 1);
+    }
+
+    #[test]
+    fn loaded_catalogs_never_trigger_another_request() {
+        let search = search_with(vec![
+            Some(Loadable::Loading),
+            Some(Loadable::Ready(Vec::new())),
+        ]);
+        assert_eq!(catalogs_without_content(&search), 0);
     }
 }

@@ -1156,6 +1156,7 @@ pub fn start_event_loop(
                                     &ui,
                                     search,
                                     addons,
+                                    &runtime_for_sync,
                                     &ui_weak_for_sync,
                                 );
                             }
