@@ -539,7 +539,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     ),
                 )
             }
-            val items = streamsFor(type, videoId)
+            val batch = streamsFor(type, videoId)
+            val items = batch.items
             _state.update { current ->
                 val details = current.details ?: return@update current
                 if (details.selectedVideo?.id != videoId && details.type == "series") {
@@ -549,10 +550,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     details = details.copy(
                         streamsLoading = false,
                         streams = items,
-                        streamError = if (items.isEmpty()) {
-                            "No addon offered a playable stream for this title."
-                        } else {
-                            null
+                        streamError = when {
+                            items.isNotEmpty() -> null
+                            // Torrent addons (Torrentio and friends) answer with
+                            // infohashes this build cannot open by itself.
+                            batch.torrents > 0 -> "These addons returned torrent links only. " +
+                                "This build plays direct HTTP streams, so configure that addon " +
+                                "with a debrid account to get playable links."
+                            else -> "No addon offered a playable stream for this title."
                         },
                     ),
                 )
@@ -564,7 +569,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun streamsFor(type: String, videoId: String): List<StreamItem> {
+    /** What a title resolved to, and how much of it this client cannot open. */
+    private data class StreamBatch(val items: List<StreamItem>, val torrents: Int)
+
+    private suspend fun streamsFor(type: String, videoId: String): StreamBatch {
         val addons = _state.value.enabledAddons.filter { it.manifest.serves("stream", type) }
         val responses = coroutineScope {
             addons
@@ -577,14 +585,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 .awaitAll()
         }
-        val items = responses.flatMap { (addon, streams) ->
-            streams.mapNotNull { stream -> stream.toItem(addon) }
-        }
-        return if (_state.value.settings.preferHighestQuality) {
+        val streams = responses.flatMap { (addon, list) -> list.map { addon to it } }
+        val items = streams.mapNotNull { (addon, stream) -> stream.toItem(addon) }
+        val torrents = streams.count { (_, stream) -> stream.url == null && stream.infoHash != null }
+        val ordered = if (_state.value.settings.preferHighestQuality) {
             items.sortedWith(compareByDescending<StreamItem> { it.qualityRank }.thenByDescending { it.seeds ?: 0 })
         } else {
             items
         }
+        return StreamBatch(ordered, torrents)
     }
 
     fun play(item: StreamItem) {
@@ -865,6 +874,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
         }
     }
+
     fun toggleAddon(transportUrl: String, enabled: Boolean) {
         val disabled = if (enabled) {
             _state.value.disabledAddons - transportUrl
