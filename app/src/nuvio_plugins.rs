@@ -20,7 +20,7 @@ use futures::{
 };
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderName, HeaderValue, LOCATION, RANGE};
 use serde::{Deserialize, Serialize};
-use slint::ComponentHandle;
+use slint::{ComponentHandle, Model};
 use tokio::sync::Semaphore;
 use url::Url;
 
@@ -339,6 +339,33 @@ fn provider_matches_filter(provider: &PluginProvider, filter: &str) -> bool {
     }
 }
 
+/// The label shown for "no repository filter".
+const ALL_REPOSITORIES: &str = "All repositories";
+
+/// Option labels for the repository filter, paired with the repository URL.
+///
+/// Repository names are not unique (several community projects publish under
+/// the same name), so repeated labels get a numeric suffix and the label stays
+/// a stable key for the selected repository.
+fn repository_filter_labels(repositories: &[PluginRepository]) -> Vec<(String, String)> {
+    let mut labels: Vec<(String, String)> = Vec::with_capacity(repositories.len());
+    for repository in repositories {
+        let base = if repository.name.trim().is_empty() {
+            manifest_fallback_name(&repository.manifest_url)
+        } else {
+            repository.name.trim().to_owned()
+        };
+        let mut label = base.clone();
+        let mut suffix = 2;
+        while labels.iter().any(|(existing, _)| existing == &label) {
+            label = format!("{base} ({suffix})");
+            suffix += 1;
+        }
+        labels.push((label, repository.manifest_url.clone()));
+    }
+    labels
+}
+
 fn provider_matches_query(provider: &PluginProvider, query: &str) -> bool {
     if query.is_empty() {
         return true;
@@ -578,6 +605,9 @@ struct Inner {
     /// so a refresh or a toggle does not reset what the user is looking at.
     provider_filter: RwLock<String>,
     provider_query: RwLock<String>,
+    /// Selected "repository" filter, stored as the option label the UI shows.
+    /// Empty means every installed repository.
+    repository_filter: RwLock<String>,
     runtime: Arc<stremio_core::runtime::Runtime<core_env::DesktopEnv, AppModel>>,
     playback: Arc<PlaybackSelections>,
     generation: AtomicU64,
@@ -653,6 +683,15 @@ impl NuvioPlugins {
         self.project();
     }
 
+    fn set_repository_filter(&self, filter: String) {
+        *self
+            .inner
+            .repository_filter
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = filter;
+        self.project();
+    }
+
     fn project(&self) {
         let Some(ui) = self.inner.ui.upgrade() else {
             return;
@@ -704,6 +743,36 @@ impl NuvioPlugins {
             }
         });
         let provider_total = providers.len();
+        let repository_filters = repository_filter_labels(&config.repositories);
+        let stored_repository = self
+            .inner
+            .repository_filter
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let repository_url = repository_filters
+            .iter()
+            .find(|(label, _)| label == &stored_repository)
+            .map(|(_, url)| url.clone());
+        // Keep the UI in step when the filtered repository was removed or
+        // renamed: the filter falls back to every repository instead of
+        // leaving a selection that matches nothing.
+        let selected_repository = repository_url
+            .as_ref()
+            .and_then(|url| {
+                repository_filters
+                    .iter()
+                    .find(|(_, candidate)| candidate == url)
+                    .map(|(label, _)| label.clone())
+            })
+            .unwrap_or_default();
+        if selected_repository != stored_repository {
+            *self
+                .inner
+                .repository_filter
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = selected_repository.clone();
+        }
         let filter = self
             .inner
             .provider_filter
@@ -718,7 +787,11 @@ impl NuvioPlugins {
             .trim()
             .to_lowercase();
         providers.retain(|provider| {
-            provider_matches_filter(provider, &filter) && provider_matches_query(provider, &query)
+            provider_matches_filter(provider, &filter)
+                && provider_matches_query(provider, &query)
+                && repository_url
+                    .as_deref()
+                    .is_none_or(|url| provider.repository_url == url)
         });
         let providers = providers
             .into_iter()
@@ -764,11 +837,44 @@ impl NuvioPlugins {
             })
             .collect::<Vec<_>>();
 
+        let mut repository_options = Vec::with_capacity(repository_filters.len() + 1);
+        repository_options.push(ALL_REPOSITORIES.to_owned());
+        repository_options.extend(repository_filters.into_iter().map(|(label, _)| label));
+
         ui.set_plugins_master_enabled(config.enabled);
         ui.set_plugins_group_by_repository(config.group_by_repository);
         ui.set_plugins_busy(busy);
-        ui.set_plugin_repositories(slint::ModelRc::new(slint::VecModel::from(repositories)));
-        ui.set_plugin_providers(slint::ModelRc::new(slint::VecModel::from(providers)));
+        ui.set_plugins_repository_filters(slint::ModelRc::new(slint::VecModel::from(
+            repository_options.into_iter().map(Into::into).collect::<Vec<slint::SharedString>>(),
+        )));
+        ui.set_plugins_repository_filter(
+            if selected_repository.is_empty() {
+                ALL_REPOSITORIES
+            } else {
+                selected_repository.as_str()
+            }
+            .into(),
+        );
+        // Keep the existing rows when the list keeps its length: replacing the
+        // model rebuilds every provider row, which is slow for the repositories
+        // that publish dozens of providers and discards an unsaved settings
+        // draft in the other rows.
+        let existing_repositories = ui.get_plugin_repositories();
+        if existing_repositories.row_count() == repositories.len() {
+            for (index, repository) in repositories.into_iter().enumerate() {
+                existing_repositories.set_row_data(index, repository);
+            }
+        } else {
+            ui.set_plugin_repositories(slint::ModelRc::new(slint::VecModel::from(repositories)));
+        }
+        let existing_providers = ui.get_plugin_providers();
+        if existing_providers.row_count() == providers.len() {
+            for (index, provider) in providers.into_iter().enumerate() {
+                existing_providers.set_row_data(index, provider);
+            }
+        } else {
+            ui.set_plugin_providers(slint::ModelRc::new(slint::VecModel::from(providers)));
+        }
         ui.set_plugin_provider_total(i32::try_from(provider_total).unwrap_or(i32::MAX));
     }
 
@@ -1566,6 +1672,7 @@ pub fn setup(
             busy: RwLock::new(false),
             provider_filter: RwLock::new("All".to_owned()),
             provider_query: RwLock::new(String::new()),
+            repository_filter: RwLock::new(String::new()),
             runtime,
             playback,
             generation: AtomicU64::new(0),
@@ -1593,6 +1700,17 @@ pub fn setup(
     ui.on_plugin_provider_query_changed({
         let manager = manager.clone();
         move |query| manager.set_provider_query(query.to_string())
+    });
+    ui.on_plugin_repository_filter_changed({
+        let manager = manager.clone();
+        move |filter| {
+            let filter = filter.to_string();
+            manager.set_repository_filter(if filter == ALL_REPOSITORIES {
+                String::new()
+            } else {
+                filter
+            });
+        }
     });
     ui.on_plugin_repository_add({
         let manager = manager.clone();
@@ -1636,9 +1754,19 @@ pub fn setup(
             let manager = manager.clone();
             let repositories = manager.config().repositories;
             tokio::spawn(async move {
-                for repository in repositories {
-                    manager.refresh_repository(&repository.manifest_url).await;
-                }
+                // Refreshing repositories one by one turned "Refresh all" into
+                // a queue of network round-trips. Providers are independent,
+                // so refresh a few repositories at a time instead.
+                stream::iter(repositories)
+                    .for_each_concurrent(REFRESH_CONCURRENCY, |repository| {
+                        let manager = manager.clone();
+                        async move {
+                            manager
+                                .refresh_repository(&repository.manifest_url)
+                                .await;
+                        }
+                    })
+                    .await;
             });
         }
     });
@@ -1709,6 +1837,10 @@ fn resolve_source_url(manifest_url: &str, filename: &str) -> Result<String, ()> 
 /// turned into failures a kept-alive connection would have absorbed.
 static PLUGIN_HTTP: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
 const FETCH_ATTEMPTS: u32 = 3;
+/// Plugin lists of one repository are fetched this many at a time.
+const LOAD_CONCURRENCY: usize = 6;
+/// Repositories refreshed together by "Refresh all".
+const REFRESH_CONCURRENCY: usize = 4;
 
 fn plugin_http_client() -> Result<&'static reqwest::Client, String> {
     PLUGIN_HTTP
@@ -1883,58 +2015,91 @@ async fn fetch_json(url: &str) -> Result<serde_json::Value, String> {
 /// (one level of indirection is enough in practice, two are allowed) and its
 /// providers are resolved against that document's own URL, so relative script
 /// names keep working no matter where the list is hosted.
+/// Plugin lists of one repository document, or no lists for a leaf document.
+fn merge_repository_document(
+    content: &mut RepositoryContent,
+    depth: usize,
+    base_url: &str,
+    value: serde_json::Value,
+) -> Vec<String> {
+    match value {
+        serde_json::Value::Array(entries) => {
+            content.scrapers.extend(
+                entries
+                    .into_iter()
+                    .filter_map(parse_scraper)
+                    .map(|scraper| (base_url.to_owned(), scraper)),
+            );
+            Vec::new()
+        }
+        serde_json::Value::Object(_) => {
+            let manifest: RawManifest = serde_json::from_value(value).unwrap_or_default();
+            if content.name.trim().is_empty() {
+                content.name = manifest.name.unwrap_or_default();
+            }
+            if content.version.is_empty() {
+                content.version = manifest.version.as_ref().map(json_text).unwrap_or_default();
+            }
+            if content.description.is_empty() {
+                content.description = manifest.description.unwrap_or_default();
+            }
+            content.scrapers.extend(
+                manifest
+                    .scrapers
+                    .into_iter()
+                    .filter_map(RawScraper::normalize)
+                    .map(|scraper| (base_url.to_owned(), scraper)),
+            );
+            if depth >= 2 {
+                Vec::new()
+            } else {
+                manifest.plugin_lists
+            }
+        }
+        _ => Vec::new(),
+    }
+}
+
 async fn load_repository(manifest_url: &str) -> Result<RepositoryContent, String> {
     let root = fetch_json(manifest_url).await?;
     let mut content = RepositoryContent::default();
     let mut errors = Vec::new();
-    let mut pending = vec![(0usize, manifest_url.to_owned(), root)];
-    while let Some((depth, base_url, value)) = pending.pop() {
-        match value {
-            serde_json::Value::Array(entries) => {
-                content.scrapers.extend(
-                    entries
-                        .into_iter()
-                        .filter_map(parse_scraper)
-                        .map(|scraper| (base_url.clone(), scraper)),
-                );
-            }
-            serde_json::Value::Object(_) => {
-                let manifest: RawManifest = serde_json::from_value(value).unwrap_or_default();
-                if content.name.trim().is_empty() {
-                    content.name = manifest.name.unwrap_or_default();
-                }
-                if content.version.is_empty() {
-                    content.version = manifest.version.as_ref().map(json_text).unwrap_or_default();
-                }
-                if content.description.is_empty() {
-                    content.description = manifest.description.unwrap_or_default();
-                }
-                content.scrapers.extend(
-                    manifest
-                        .scrapers
-                        .into_iter()
-                        .filter_map(RawScraper::normalize)
-                        .map(|scraper| (base_url.clone(), scraper)),
-                );
-                if depth >= 2 {
-                    continue;
-                }
-                for list in manifest.plugin_lists {
-                    let list_url = Url::parse(&base_url)
-                        .and_then(|base| base.join(&list))
-                        .ok()
-                        .filter(|url| url.scheme() == "https" && !is_blocked_host(url));
-                    let Some(list_url) = list_url else {
-                        errors.push(format!("{list}: plugin lists must use HTTPS on a public host"));
-                        continue;
-                    };
-                    match fetch_json(list_url.as_str()).await {
-                        Ok(value) => pending.push((depth + 1, list_url.to_string(), value)),
-                        Err(error) => errors.push(format!("{list}: {error}")),
-                    }
+    let mut level = vec![(0usize, manifest_url.to_owned(), root)];
+    while !level.is_empty() {
+        let mut list_requests = Vec::new();
+        for (depth, base_url, value) in std::mem::take(&mut level) {
+            for list in merge_repository_document(&mut content, depth, &base_url, value) {
+                let list_url = Url::parse(&base_url)
+                    .and_then(|base| base.join(&list))
+                    .ok()
+                    .filter(|url| url.scheme() == "https" && !is_blocked_host(url));
+                match list_url {
+                    Some(list_url) => list_requests.push((depth + 1, list_url.to_string())),
+                    None => errors.push(format!(
+                        "{list}: plugin lists must use HTTPS on a public host"
+                    )),
                 }
             }
-            _ => {}
+        }
+        if list_requests.is_empty() {
+            continue;
+        }
+        // Sibling plugin lists are independent documents. Fetching them one
+        // after another made a repository that publishes a dozen lists wait
+        // for a dozen round-trips (with retries) before one provider appeared.
+        let mut fetched = stream::iter(list_requests.into_iter().map(|(depth, url)| async move {
+            let value = fetch_json(url.as_str()).await;
+            (depth, url, value)
+        }))
+        .buffer_unordered(LOAD_CONCURRENCY)
+        .collect::<Vec<_>>()
+        .await;
+        fetched.sort_by(|left, right| left.1.cmp(&right.1));
+        for (depth, url, value) in fetched {
+            match value {
+                Ok(value) => level.push((depth, url, value)),
+                Err(error) => errors.push(format!("{url}: {error}")),
+            }
         }
     }
     if content.scrapers.is_empty() {
@@ -2047,5 +2212,33 @@ mod tests {
         assert!(!provider_matches_filter(&provider, "Live TV"));
         assert!(provider_matches_query(&provider, "movie bn"));
         assert!(!provider_matches_query(&provider, "anime"));
+    }
+
+    #[test]
+    fn repository_filter_labels_stay_unique() {
+        let repositories = vec![
+            PluginRepository {
+                manifest_url: "https://a.example.com/manifest.json".to_owned(),
+                name: "Community".to_owned(),
+                ..PluginRepository::default()
+            },
+            PluginRepository {
+                manifest_url: "https://b.example.com/manifest.json".to_owned(),
+                name: "Community".to_owned(),
+                ..PluginRepository::default()
+            },
+            PluginRepository {
+                manifest_url: "https://c.example.com/repo.json".to_owned(),
+                name: "   ".to_owned(),
+                ..PluginRepository::default()
+            },
+        ];
+        let labels = repository_filter_labels(&repositories);
+        assert_eq!(labels[0], ("Community".to_owned(), repositories[0].manifest_url.clone()));
+        assert_eq!(
+            labels[1],
+            ("Community (2)".to_owned(), repositories[1].manifest_url.clone())
+        );
+        assert_eq!(labels[2].0, "repo.json");
     }
 }

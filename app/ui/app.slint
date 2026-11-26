@@ -480,6 +480,8 @@ export component MainWindow inherits Window {
     in-out property <string> plugins-repository-url: "";
     in-out property <string> plugins-provider-filter: "All";
     in-out property <string> plugins-provider-query: "";
+    in-out property <[string]> plugins-repository-filters: ["All repositories"];
+    in-out property <string> plugins-repository-filter: "All repositories";
     in property <int> plugin-provider-total: 0;
     in-out property <[StreamLink]> stream-links: [];
     in-out property <[string]> detail-stream-providers: ["All"];
@@ -1115,6 +1117,7 @@ export component MainWindow inherits Window {
     callback plugin-repository-remove(string);
     callback plugin-provider-filter-changed(string);
     callback plugin-provider-query-changed(string);
+    callback plugin-repository-filter-changed(string);
     callback plugin-provider-toggled(string, bool);
     callback plugin-provider-tested(string);
     callback plugin-provider-settings-saved(string, string);
@@ -2338,9 +2341,12 @@ export component MainWindow inherits Window {
                         repository-url <=> root.plugins-repository-url;
                         provider-filter <=> root.plugins-provider-filter;
                         provider-query <=> root.plugins-provider-query;
+                        repository-filters: root.plugins-repository-filters;
+                        repository-filter <=> root.plugins-repository-filter;
                         provider-total: root.plugin-provider-total;
                         provider-filter-changed(value) => { root.plugin-provider-filter-changed(value); }
                         provider-query-changed(text) => { root.plugin-provider-query-changed(text); }
+                        repository-filter-changed(value) => { root.plugin-repository-filter-changed(value); }
                         master-changed(enabled) => { root.plugins-master-changed(enabled); }
                         group-changed(grouped) => { root.plugins-group-changed(grouped); }
                         repository-add(url) => { root.plugin-repository-add(url); }

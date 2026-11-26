@@ -317,9 +317,14 @@ export component PluginsPage inherits Rectangle {
     ];
     in-out property <string> provider-query: "";
     in property <int> provider-total: 0;
+    // Repository filter for the provider list. Repositories commonly publish
+    // dozens of providers, so the list can be narrowed to one of them.
+    in property <[string]> repository-filters: ["All repositories"];
+    in-out property <string> repository-filter: "All repositories";
 
     callback provider-filter-changed(string);
     callback provider-query-changed(string);
+    callback repository-filter-changed(string);
     callback master-changed(bool);
     callback group-changed(bool);
     callback repository-add(string);
@@ -532,6 +537,20 @@ export component PluginsPage inherits Rectangle {
                     edited => { root.provider-query-changed(self.text); }
                 }
                 Rectangle {
+                    width: max(9 * root.unit, min(16 * root.unit, parent.width * 0.34));
+                    height: 2.75 * root.unit;
+                    SelectField {
+                        unit: root.unit;
+                        field-width: parent.width;
+                        value: root.repository-filter;
+                        options: root.repository-filters;
+                        selected(value) => {
+                            root.repository-filter = value;
+                            root.repository-filter-changed(value);
+                        }
+                    }
+                }
+                Rectangle {
                     width: max(8 * root.unit, min(12 * root.unit, parent.width * 0.32));
                     height: 2.75 * root.unit;
                     SelectField {
@@ -555,7 +574,7 @@ export component PluginsPage inherits Rectangle {
             }
 
             if (root.provider-total > 0 && root.providers.length == 0) : Text {
-                text: "No providers match this search or category. Pick another category, or clear the search box.";
+                text: "No providers match this repository, category or search. Change the filters, or clear the search box.";
                 color: Theme.text-muted;
                 font-size: 0.82 * root.unit;
                 wrap: word-wrap;
