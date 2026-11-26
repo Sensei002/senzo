@@ -4,7 +4,6 @@ import android.content.Context
 import android.view.SurfaceHolder
 import `is`.xyz.mpv.BaseMPVView
 import `is`.xyz.mpv.MPV
-import `is`.xyz.mpv.mpvLogLevel
 import java.io.File
 
 /** One audio or subtitle track as mpv lists it. */
@@ -53,15 +52,17 @@ class MpvPlayerView(context: Context) : BaseMPVView(context, null) {
     @Volatile
     private var lastError: String? = null
 
+    @Volatile
+    private var closed = false
+
     private var pendingUrl: String? = null
     private var pendingStartMs: Long = 0
     private var caFile: File? = null
 
+    /** mpv numbers its levels the other way round: 20 is an error, 30 a warning. */
     private val logger = object : MPV.LogObserver {
         override fun logMessage(prefix: String, level: Int, text: String) {
-            if (level >= mpvLogLevel.MPV_LOG_LEVEL_ERROR && text.isNotBlank()) {
-                lastError = text.trim()
-            }
+            if (level <= 30 && text.isNotBlank()) lastError = text.trim()
         }
     }
 
@@ -106,7 +107,7 @@ class MpvPlayerView(context: Context) : BaseMPVView(context, null) {
         val fields = headers
             .filterValues { it.isNotBlank() }
             .map { (name, value) -> "$name: $value" }
-        mpv.setOptionString("http-header-fields", fields.joinToString(","))
+        runCatching { mpv.setPropertyString("http-header-fields", fields.joinToString(",")) }
     }
 
     override fun initOptions() {
@@ -132,34 +133,41 @@ class MpvPlayerView(context: Context) : BaseMPVView(context, null) {
     override fun observeProperties() = Unit
 
     /** The mpv log carries the reason a stream did not open. */
-    fun error(): String? = lastError
+    fun error(): String? = if (closed) null else lastError
 
     fun togglePause() {
+        if (closed) return
         val paused = mpv.getPropertyBoolean("pause") ?: false
         mpv.setPropertyBoolean("pause", !paused)
     }
 
     fun seekTo(milliseconds: Long) {
+        if (closed) return
         mpv.command("seek", (milliseconds / 1000.0).toString(), "absolute")
     }
 
     fun seekBy(deltaMilliseconds: Long) {
+        if (closed) return
         mpv.command("seek", (deltaMilliseconds / 1000.0).toString(), "relative")
     }
 
     fun setSpeed(speed: Float) {
+        if (closed) return
         mpv.setPropertyDouble("speed", speed.toDouble())
     }
 
     fun selectAudio(id: Long?) {
+        if (closed) return
         mpv.setPropertyString("aid", id?.toString() ?: "no")
     }
 
     fun selectSubtitle(id: Long?) {
+        if (closed) return
         mpv.setPropertyString("sid", id?.toString() ?: "no")
     }
 
     fun poll(): MpvSnapshot {
+        if (closed) return MpvSnapshot()
         val duration = mpv.getPropertyDouble("duration") ?: 0.0
         val position = mpv.getPropertyDouble("time-pos") ?: 0.0
         val paused = mpv.getPropertyBoolean("pause") ?: false
@@ -205,6 +213,8 @@ class MpvPlayerView(context: Context) : BaseMPVView(context, null) {
 
     /** Closes the player once, off the surface callback. */
     fun close() {
+        if (closed) return
+        closed = true
         runCatching { mpv.removeLogObserver(logger) }
         runCatching { destroy() }
     }
