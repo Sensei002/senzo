@@ -173,6 +173,32 @@ Dependencies: `wang.harlon.quickjs:wrapper-android:3.2.3` (AAR plus the
 `com.whl.quickjs.**` and all native method names, because the wrapper crosses
 into JNI by name.
 
+## Player and torrent engine
+
+The Android player is no longer Media3's stock controller. `PlayerScreen` draws
+its own overlay, matching the desktop client: close and title, rewind/forward 10 s,
+play/pause with a buffering spinner, a seek bar that shows the buffer ahead, then
+speed, audio track, subtitle track, zoom and next-episode pills. Taps toggle the
+overlay, a double tap on either half seeks, and the screen stays awake with the
+system bars hidden while the film runs. Failures show the reason with a retry
+that rebuilds the player.
+
+Audio that used to play silently was AC3/EAC3/DTS/TrueHD, which Android devices
+often carry no decoder for. `NextLib` (`nextlib-media3ext`, GPL-3.0, which this
+app's own GPL-3.0 licence covers) supplies FFmpeg audio decoders; the app's
+`SenzoRenderersFactory` puts that renderer in front of the platform ones, so
+hardware decoding still handles AAC while the harder formats fall through to
+FFmpeg. Media playback also uses its own OkHttp client: the shared client caps a
+call at 45 s, which would cut a film mid-stream.
+
+A torrent now opens the player immediately. The screen shows the breathing SENZO
+mark with the engine's own words ("Looking for peers…", then percent and peer
+count) while `TorrentStreamer` fetches metadata, adds the torrent, waits for the
+opening pieces, and only then hands the loopback address to the player. Public
+trackers are appended when a magnet carries none, and the file is located on disk
+after download starts rather than assumed, because libtorrent nests multi-file
+torrents under the torrent name.
+
 ## APK size
 
 `libtorrent4j.so` is ~15 MB per architecture and QuickJS adds ~1.3 MB, so the
@@ -186,3 +212,5 @@ available from the dependencies for emulator builds but is not packaged.
   async `CALL_CODE` returns, which the timer shim depends on.
 - Torrent streaming to Media3 through `http://127.0.0.1:<port>/stream` with
   Range requests on a real swarm.
+- Whether `NextLib`'s FFmpeg audio decoder loads on every device; it is added
+  best-effort, so a failed load leaves normal Platform decoding untouched.

@@ -147,9 +147,12 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
 
-    implementation("androidx.media3:media3-exoplayer:1.5.0")
-    implementation("androidx.media3:media3-ui:1.5.0")
-    implementation("androidx.media3:media3-datasource-okhttp:1.5.0")
+    implementation("androidx.media3:media3-exoplayer:1.5.1")
+    implementation("androidx.media3:media3-ui:1.5.1")
+    implementation("androidx.media3:media3-datasource-okhttp:1.5.1")
+    // AC3, EAC3, DTS and TrueHD audio decode in software, which is what most
+    // of the high-bitrate files these scrapers return carry.
+    implementation("com.github.anilbeesetti.nextlib:nextlib-media3ext:v0.8.4")
 
     // Provider plugins: Nuvio scripts run on QuickJS, with jsoup as their HTML tree.
     implementation("wang.harlon.quickjs:wrapper-android:3.2.3")

@@ -80,7 +80,7 @@ class TorrentStreamer(private val cacheDir: File) {
             }
             this.session = session
             val torrent = try {
-                val raw = session.fetchMagnet(magnet, METADATA_SECONDS, File(dir, "metadata.torrent"))
+                val raw = session.fetchMagnet(withTrackers(magnet), METADATA_SECONDS, File(dir, "metadata.torrent"))
                     ?: throw IllegalStateException("No peer answered with the torrent metadata.")
                 TorrentInfo(raw)
             } catch (error: Throwable) {
@@ -105,13 +105,19 @@ class TorrentStreamer(private val cacheDir: File) {
             fileOffset = storage.fileOffset(index)
             fileSize = storage.fileSize(index)
             videoName = storage.filePath(index)
-            val path = File(File(dir, torrent.name().replace("/", "_")), storage.filePath(index))
-            path.parentFile?.mkdirs()
             session.download(torrent, dir)
             val added = waitForHandle(session, torrent)
                 ?: throw IllegalStateException("The torrent could not be added.")
             handle = added
             prioritize(added, storage)
+            // Wait for the opening pieces here, so the player connects to a
+            // server that can answer at once instead of timing out.
+            val first = (fileOffset / pieceLength).toInt()
+            waitForPieces(added, first, PREBUFFER_SECONDS)
+            // Where libtorrent put the file depends on how the torrent is
+            // laid out, so ask the disk rather than guessing.
+            val path = locate(dir, storage.filePath(index), torrent.name())
+            path.parentFile?.mkdirs()
             file = RandomAccessFile(path, "rw")
             val socket = try {
                 ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"))
@@ -160,6 +166,58 @@ class TorrentStreamer(private val cacheDir: File) {
             Thread.sleep(100)
         }
         return null
+    }
+
+    /**
+     * A magnet without trackers relies on DHT alone, which can take a while on
+     * mobile networks. The public trackers below give it an immediate swarm to
+     * ask, and are only added when the magnet carries none of its own.
+     */
+    private fun withTrackers(magnet: String): String {
+        if (magnet.contains("tr=")) return magnet
+        val separator = if (magnet.contains('?')) '&' else '?'
+        val extras = TRACKERS.joinToString("") { tracker ->
+            separator.toString() + "tr=" + java.net.URLEncoder.encode(tracker, "UTF-8")
+        }
+        return magnet + extras
+    }
+
+    /** Finds the file libtorrent wrote, whether or not it nested it. */
+    private fun locate(saveDir: File, relative: String, torrentName: String): File {
+        val direct = File(saveDir, relative)
+        if (direct.exists()) return direct
+        val nested = File(File(saveDir, torrentName), relative)
+        if (nested.exists()) return nested
+        return direct
+    }
+
+    /** Blocks until [count] pieces starting at [first] are on disk. */
+    private fun waitForPieces(torrent: TorrentHandle, first: Int, timeoutSeconds: Int) {
+        val deadline = System.currentTimeMillis() + timeoutSeconds * 1_000L
+        while (!stopped && System.currentTimeMillis() < deadline) {
+            if (torrent.havePiece(first)) return
+            val status = runCatching { torrent.status() }.getOrNull()
+            if (status != null) {
+                current = Status(
+                    name = status.name() ?: videoName,
+                    percent = (status.progress() * 100).toInt(),
+                    seeds = status.numSeeds(),
+                    peers = status.numPeers(),
+                    rate = status.downloadRate().toLong(),
+                    state = "downloading",
+                )
+            }
+            runCatching { torrent.setPieceDeadline(first, 900) }
+            Thread.sleep(200)
+        }
+        if (stopped) throw IllegalStateException("The torrent was stopped.")
+        val peers = current.peers
+        val message = if (peers == 0) {
+            "No peers are sharing this torrent right now. Try another source."
+        } else {
+            "The swarm is not sending data yet ($peers peers). Try another source."
+        }
+        throw IllegalStateException(message)
     }
 
     private fun prioritize(torrent: TorrentHandle, storage: FileStorage) {
@@ -380,8 +438,16 @@ class TorrentStreamer(private val cacheDir: File) {
     }
 
     private companion object {
-        const val METADATA_SECONDS = 45
-        const val RANGE_SECONDS = 60
+        const val METADATA_SECONDS = 60
+        const val PREBUFFER_SECONDS = 90
+        const val RANGE_SECONDS = 180
+        val TRACKERS = listOf(
+            "udp://tracker.opentrackr.org:1337/announce",
+            "udp://open.demonii.com:1337/announce",
+            "udp://tracker.torrent.eu.org:451/announce",
+            "udp://exodus.desync.com:6969/announce",
+            "udp://tracker.openbittorrent.com:6969/announce",
+        )
         val VIDEO_TYPES = listOf(
             ".mp4", ".m4v", ".mkv", ".webm", ".avi", ".mov", ".ts", ".m2ts", ".flv", ".wmv",
         )

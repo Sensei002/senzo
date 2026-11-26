@@ -15,6 +15,8 @@ dependencyResolutionManagement {
         google()
         maven("https://maven-central.storage-download.googleapis.com/maven2/")
         mavenCentral()
+        // NextLib publishes the FFmpeg decoders Media3 leaves out.
+        maven("https://jitpack.io")
     }
 }
 

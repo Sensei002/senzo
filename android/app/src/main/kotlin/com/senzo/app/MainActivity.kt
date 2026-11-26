@@ -111,6 +111,7 @@ private fun SenzoApp(viewModel: MainViewModel = viewModel()) {
             autoNext = state.settings.autoplayNext,
             onProgress = viewModel::reportProgress,
             onNext = viewModel::playNext,
+            onRetry = viewModel::retryPlayback,
             onClose = { position, duration -> viewModel.stopPlayback(position, duration) },
         )
         return

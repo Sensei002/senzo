@@ -801,42 +801,97 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun startPlayback(meta: Meta, video: Video?, item: StreamItem) {
         val magnet = item.torrent
-        if (magnet != null) {
-            viewModelScope.launch {
-                _state.update { it.copy(message = "Connecting to the torrent…") }
-                val watcher = launch {
-                    while (isActive) {
-                        _state.update { current -> current.copy(message = torrents.status.label) }
-                        delay(1_000)
-                    }
-                }
-                val result = runCatching {
-                    withContext(Dispatchers.IO) { torrents.start(magnet) }
-                }
-                watcher.cancel()
-                val address = result.getOrNull()
-                if (address == null) {
-                    val reason = result.exceptionOrNull()?.message
-                        ?: "The torrent could not be played."
-                    _state.update { current -> current.copy(message = reason) }
-                    return@launch
-                }
-                _state.update { current -> current.copy(message = null) }
-                beginPlayback(meta, video, item.copy(url = address, torrent = null))
-            }
+        if (magnet == null) {
+            beginPlayback(meta, video, item)
             return
         }
-        beginPlayback(meta, video, item)
+        // The player opens right away and breathes the logo while the engine
+        // finds peers, exactly like the desktop client.
+        val entry = progressEntry(meta, video)
+        val subtitle = listOfNotNull(video?.label, item.quality, item.size)
+            .joinToString("  ·  ")
+        _state.update {
+            it.copy(
+                playback = Playback(
+                    url = null,
+                    title = meta.name,
+                    subtitle = subtitle,
+                    headers = item.headers,
+                    startPositionMs = if (_state.value.settings.resumePlayback) {
+                        _state.value.progress.firstOrNull { it.key == entry.key }
+                            ?.takeIf { progress -> !progress.finished && progress.positionMs > RESUME_MIN_MS }
+                            ?.positionMs ?: 0
+                    } else {
+                        0
+                    },
+                    progress = entry,
+                    hasNext = meta.type == "series" && nextEpisode(meta, entry.videoId) != null,
+                    status = "Looking for peers…",
+                    torrent = magnet,
+                ),
+            )
+        }
+        launchTorrent(magnet)
     }
 
-    private fun beginPlayback(meta: Meta, video: Video?, item: StreamItem) {
+    /** Runs the torrent engine and hands its address to the open player. */
+    private fun launchTorrent(magnet: String) {
+        viewModelScope.launch {
+            _state.update { current -> current.copy(playback = current.playback?.copy(failure = null, status = "Looking for peers…")) }
+            val watcher = launch {
+                while (isActive) {
+                    val status = torrents.status
+                    val label = status.label
+                    _state.update { current ->
+                        current.copy(playback = current.playback?.copy(status = label))
+                    }
+                    delay(800)
+                }
+            }
+            val result = runCatching { withContext(Dispatchers.IO) { torrents.start(magnet) } }
+            watcher.cancel()
+            result.onSuccess { address ->
+                _state.update { current ->
+                    current.copy(
+                        playback = current.playback?.copy(url = address, status = null, failure = null),
+                    )
+                }
+            }.onFailure { error ->
+                val reason = error.message ?: "The torrent could not be played."
+                _state.update { current ->
+                    current.copy(playback = current.playback?.copy(status = null, failure = reason))
+                }
+            }
+        }
+    }
+
+    /** Retries after a failure, either the torrent or the media request. */
+    fun retryPlayback() {
+        val playback = _state.value.playback ?: return
+        val magnet = playback.torrent
+        if (magnet != null) {
+            torrents.stop()
+            _state.update { current ->
+                current.copy(
+                    playback = current.playback?.copy(
+                        url = null,
+                        failure = null,
+                        status = "Looking for peers…",
+                    ),
+                )
+            }
+            launchTorrent(magnet)
+            return
+        }
+        _state.update { current ->
+            current.copy(playback = current.playback?.copy(failure = null, status = null))
+        }
+    }
+
+    private fun progressEntry(meta: Meta, video: Video?): WatchProgress {
         val videoId = video?.id ?: meta.id
-        val key = WatchProgress.key(meta.type, meta.id, videoId)
-        val saved = _state.value.settings.resumePlayback
-            .let { resume -> if (resume) _state.value.progress.firstOrNull { it.key == key } else null }
-        val start = saved?.takeIf { !it.finished && it.positionMs > RESUME_MIN_MS }?.positionMs ?: 0
-        val entry = WatchProgress(
-            key = key,
+        return WatchProgress(
+            key = WatchProgress.key(meta.type, meta.id, videoId),
             type = meta.type,
             metaId = meta.id,
             videoId = videoId,
@@ -847,7 +902,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             episode = video?.episode,
             episodeTitle = video?.title,
         )
-        val next = if (meta.type == "series") nextEpisode(meta, videoId) else null
+    }
+
+    private fun beginPlayback(meta: Meta, video: Video?, item: StreamItem) {
+        val entry = progressEntry(meta, video)
+        val saved = _state.value.settings.resumePlayback
+            .let { resume -> if (resume) _state.value.progress.firstOrNull { it.key == entry.key } else null }
+        val start = saved?.takeIf { !it.finished && it.positionMs > RESUME_MIN_MS }?.positionMs ?: 0
+        val next = if (meta.type == "series") nextEpisode(meta, entry.videoId) else null
         _state.update {
             it.copy(
                 playback = Playback(

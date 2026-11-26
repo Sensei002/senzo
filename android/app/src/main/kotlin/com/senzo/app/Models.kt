@@ -290,15 +290,24 @@ data class StreamItem(
         }
 }
 
-/** What the player needs to start a stream. */
+/**
+ * What the player needs to start a stream.
+ *
+ * A torrent opens the player before it has an address: [url] stays null while
+ * the engine connects, [status] carries the engine's own words, and [torrent]
+ * keeps the magnet so a failure can be retried without leaving the player.
+ */
 data class Playback(
-    val url: String,
+    val url: String? = null,
     val title: String,
     val subtitle: String = "",
     val headers: Map<String, String> = emptyMap(),
     val startPositionMs: Long = 0,
     val progress: WatchProgress? = null,
     val hasNext: Boolean = false,
+    val status: String? = null,
+    val failure: String? = null,
+    val torrent: String? = null,
 )
 
 /** One row of the board: a catalogue served by an installed addon. */

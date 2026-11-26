@@ -40,6 +40,14 @@
 }
 -dontwarn com.whl.quickjs.**
 
+# NextLib decodes audio in native FFmpeg code that calls back into Java by
+# name, so its bridge classes must not be renamed or stripped.
+-keep class io.github.anilbeesetti.nextlib.** { *; }
+-keepclasseswithmembernames class io.github.anilbeesetti.nextlib.** {
+    native <methods>;
+}
+-dontwarn io.github.anilbeesetti.nextlib.**
+
 # Media3 and Guava reference desktop-only entry points.
 -dontwarn androidx.media3.**
 -dontwarn com.google.common.**
