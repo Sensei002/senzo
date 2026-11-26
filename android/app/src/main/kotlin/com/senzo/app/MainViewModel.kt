@@ -687,8 +687,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             _state.update { it.copy(message = "Loading the next episode…") }
-            val items = streamsFor(meta.type, next.id)
-            val item = items.firstOrNull()
+            val item = streamsFor(meta.type, next.id).items.firstOrNull()
             if (item == null) {
                 _state.update {
                     it.copy(playback = null, message = "No stream for the next episode.")
