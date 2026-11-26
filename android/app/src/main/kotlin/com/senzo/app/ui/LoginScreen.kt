@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -61,10 +62,12 @@ fun LoginScreen(
                 ),
             ),
     ) {
+        // The glow bleeds off the top-right corner. It moves with offset,
+        // because Compose rejects a negative padding outright.
         Box(
             Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = 40.dp, end = -60.dp)
+                .offset(x = 70.dp, y = (-40).dp)
                 .width(220.dp)
                 .height(220.dp)
                 .clip(CircleShape)
