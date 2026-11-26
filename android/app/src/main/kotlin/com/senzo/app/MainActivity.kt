@@ -52,6 +52,7 @@ import com.senzo.app.ui.AddonsScreen
 import com.senzo.app.ui.Background
 import com.senzo.app.ui.BackgroundElevated
 import com.senzo.app.ui.DetailsScreen
+import com.senzo.app.ui.SourcesScreen
 import com.senzo.app.ui.HomeScreen
 import com.senzo.app.ui.LibraryScreen
 import com.senzo.app.ui.LoginScreen
@@ -128,19 +129,27 @@ private fun SenzoApp(viewModel: MainViewModel = viewModel()) {
         is Screen.Details -> {
             BackHandler { viewModel.back() }
             val details = state.details
-            if (details == null) {
-                LaunchedEffect(Unit) { viewModel.back() }
-            } else {
-                DetailsScreen(
+            when {
+                details == null -> LaunchedEffect(Unit) { viewModel.back() }
+                details.sourcesOpen -> SourcesScreen(
+                    state = details,
+                    ranking = state.settings.streamRanking,
+                    showFiltered = state.settings.showFilteredStreams,
+                    onBack = viewModel::closeSources,
+                    onPlay = viewModel::play,
+                    onPlayBest = viewModel::playBest,
+                    onReload = viewModel::reloadStreams,
+                    onRanking = viewModel::setStreamRanking,
+                    onShowFiltered = viewModel::setShowFilteredStreams,
+                )
+                else -> DetailsScreen(
                     state = details,
                     onBack = viewModel::back,
-                    onPlayBest = viewModel::playBest,
-                    onPlayStream = viewModel::play,
+                    onOpenSources = viewModel::openSources,
                     onSelectSeason = viewModel::selectSeason,
                     onSelectVideo = viewModel::selectVideo,
                     onToggleLibrary = viewModel::toggleLibrary,
                     onRetry = viewModel::reloadStreams,
-                    onPickerShown = viewModel::consumePickSource,
                 )
             }
         }

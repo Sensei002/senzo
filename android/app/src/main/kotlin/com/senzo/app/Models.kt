@@ -269,6 +269,8 @@ data class StreamItem(
     val headers: Map<String, String> = emptyMap(),
     val quality: String? = null,
     val size: String? = null,
+    /** The size parsed to bytes, so the page can sort by it. */
+    val sizeBytes: Long? = null,
     val seeds: Int? = null,
     /** Set when the stream is a torrent the local engine has to fetch. */
     val torrent: String? = null,
@@ -372,6 +374,10 @@ data class AppSettings(
     val resumePlayback: Boolean = true,
     val preferHighestQuality: Boolean = true,
     val subtitleSize: Int = 1,
+    /** Smart, Quality, Smallest, Seeders or Original on the source page. */
+    val streamRanking: String = "Smart",
+    /** Whether suspicious sources stay in the list. */
+    val showFilteredStreams: Boolean = false,
     /** "media3" or "libmpv"; older saves fall back to media3. */
     val playerEngine: String = "media3",
 )
@@ -379,6 +385,22 @@ data class AppSettings(
 /** The engine a saved preference asks for. */
 val AppSettings.engine: PlayerEngine
     get() = if (playerEngine == "libmpv") PlayerEngine.Libmpv else PlayerEngine.Media3
+
+/** Quality, size and byte size, read from the free-form text addons send. */
+data class StreamTraits(val quality: String?, val size: String?, val sizeBytes: Long?)
+
+fun streamTraits(text: String): StreamTraits {
+    val quality = QUALITY_PATTERN.find(text)?.value?.let { value ->
+        when (value.lowercase()) {
+            "4k", "uhd", "2160p" -> "4K"
+            else -> value.lowercase()
+        }
+    }
+    val size = SIZE_PATTERN.find(text)?.let { match ->
+        "${match.groupValues[1]} ${match.groupValues[2].uppercase()}"
+    }
+    return StreamTraits(quality, size, parseSizeBytes(text))
+}
 
 private val QUALITY_PATTERN = Regex("(?i)\\b(2160p|1080p|720p|480p|360p|4k|uhd)\\b")
 private val SIZE_PATTERN = Regex("(?i)(\\d+(?:\\.\\d+)?)\\s?(gb|mb)\\b")
@@ -408,20 +430,14 @@ private fun Stream.magnet(hash: String): String = buildString {
  */
 fun Stream.toItem(addon: String): StreamItem? {
     val address = url?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+    // Some addons hand over the magnet itself instead of a bare hash.
+    val magnetUrl = url?.trim()?.takeIf {
+        it.startsWith("magnet:?") && it.contains("urn:btih:")
+    }
     val hash = infoHash?.trim()?.takeIf { it.length >= 32 }
-    if (address == null && hash == null) return null
+    if (address == null && hash == null && magnetUrl == null) return null
     val text = listOfNotNull(name, title, description).joinToString(" ")
-    val quality = QUALITY_PATTERN.find(text)?.value?.let { value ->
-        when (value.lowercase()) {
-            "4k", "uhd", "2160p" -> "4K"
-            else -> value.lowercase()
-        }
-    }
-    val size = SIZE_PATTERN.find(text)?.let { match ->
-        val amount = match.groupValues[1]
-        val unit = match.groupValues[2].uppercase()
-        "$amount $unit"
-    }
+    val traits = streamTraits(text)
     val seeds = SEED_PATTERN.find(text)?.groupValues?.getOrNull(1)?.toIntOrNull()
     return StreamItem(
         addon = addon,
@@ -431,9 +447,15 @@ fun Stream.toItem(addon: String): StreamItem? {
             ?: "",
         url = address ?: "",
         headers = behaviorHints?.proxyHeaders?.request.orEmpty(),
-        quality = quality,
-        size = size,
+        quality = traits.quality,
+        size = traits.size,
+        sizeBytes = traits.sizeBytes,
         seeds = seeds,
-        torrent = if (address == null && hash != null) magnet(hash) else null,
+        torrent = when {
+            address != null -> null
+            magnetUrl != null -> magnetUrl
+            hash != null -> magnet(hash)
+            else -> null
+        },
     )
 }

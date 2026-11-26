@@ -52,8 +52,10 @@ data class DetailsState(
     val streamsLoading: Boolean = false,
     val streamError: String? = null,
     val resume: WatchProgress? = null,
-    /** Opens the source picker as soon as the page appears. */
-    val pickSource: Boolean = false,
+    /** True while the source page covers the title page. */
+    val sourcesOpen: Boolean = false,
+    /** Addons still answering, which the source page spins for. */
+    val streamsPending: Int = 0,
 ) {
     val title: String get() = meta?.name ?: preview?.name.orEmpty()
     val backdrop: String? get() = meta?.background ?: preview?.background ?: meta?.poster
@@ -543,19 +545,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(screen = Screen.Main, details = null) }
     }
 
-    /** Opens a board title straight into its source picker, like the desktop. */
+    /** Opens a board title straight into its source page, like the desktop. */
     fun playFromBoard(preview: MetaPreview) {
         openDetails(preview.type, preview.id, preview)
         _state.update { current ->
-            current.copy(details = current.details?.copy(pickSource = true))
+            current.copy(details = current.details?.copy(sourcesOpen = true))
         }
     }
 
-    /** The picker opened, so the page no longer asks for it. */
-    fun consumePickSource() {
+    /** Shows the source page for the selected title or episode. */
+    fun openSources() {
+        val details = _state.value.details ?: return
         _state.update { current ->
-            current.copy(details = current.details?.copy(pickSource = false))
+            current.copy(details = current.details?.copy(sourcesOpen = true))
         }
+        if (details.streams.isEmpty() && !details.streamsLoading) {
+            loadStreams(details.type, details.selectedVideo?.id ?: details.id)
+        }
+    }
+
+    fun closeSources() {
+        _state.update { current ->
+            current.copy(details = current.details?.copy(sourcesOpen = false))
+        }
+    }
+
+    fun setStreamRanking(mode: String) {
+        updateSettings { it.copy(streamRanking = mode) }
+    }
+
+    fun setShowFilteredStreams(show: Boolean) {
+        updateSettings { it.copy(showFilteredStreams = show) }
     }
 
     /** Re-requests the streams of the selected episode after a failure. */
@@ -602,6 +622,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     details = current.details?.copy(
                         streamsLoading = true,
                         streams = emptyList(),
+                        streamsPending = 0,
                         streamError = null,
                     ),
                 )
@@ -770,15 +791,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val magnet = url?.takeIf { it.startsWith("magnet:") }
             ?: infoHash?.let { hash -> "magnet:?xt=urn:btih:" + hash }
         if (link == null && magnet == null) return null
+        val traits = streamTraits(listOfNotNull(name, description).joinToString(" "))
         return StreamItem(
             addon = "Plugin · " + provider.ifEmpty { "provider" },
             name = name,
             detail = description,
             url = link ?: "",
             headers = headers,
+            quality = traits.quality,
+            size = traits.size,
+            sizeBytes = traits.sizeBytes,
             seeds = seeders,
             torrent = if (link == null) magnet else null,
         )
+    }
+
+    /** Keeps the source page's spinner honest while addons are answering. */
+    private fun countPending(delta: Int) {
+        _state.update { current ->
+            val details = current.details ?: return@update current
+            current.copy(
+                details = details.copy(
+                    streamsPending = (details.streamsPending + delta).coerceAtLeast(0),
+                ),
+            )
+        }
     }
 
     /** Every playable stream of a title, in the order the settings ask for. */
@@ -792,9 +829,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val responses = addons
                     .map { descriptor ->
                         async {
-                            descriptor.manifest.name to runCatching {
+                            countPending(1)
+                            val list = runCatching {
                                 addonClient.streams(descriptor, type, videoId)
                             }.getOrDefault(emptyList())
+                            countPending(-1)
+                            descriptor.manifest.name to list
                         }
                     }
                     .awaitAll()
@@ -803,16 +843,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             val pluginJob = async {
-                details?.let { state -> pluginStreams(type, state) }.orEmpty()
+                countPending(1)
+                val list = details?.let { state -> pluginStreams(type, state) }.orEmpty()
+                countPending(-1)
+                list
             }
             addonJob.await() + pluginJob.await()
         }
-        val ordered = if (_state.value.settings.preferHighestQuality) {
+        val settings = _state.value.settings
+        // Original keeps the addons' order, unless the viewer asked for the
+        // highest quality first; every other mode ranks the page itself.
+        return if (
+            settings.preferHighestQuality &&
+            RankingMode.of(settings.streamRanking) == RankingMode.Original
+        ) {
             items.sortedWith(compareByDescending<StreamItem> { it.qualityRank }.thenByDescending { it.seeds ?: 0 })
         } else {
             items
         }
-        return ordered
     }
 
     fun play(item: StreamItem) {
@@ -821,10 +869,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         startPlayback(meta, details.selectedVideo, item)
     }
 
-    /** Plays the highest ranked stream of the selected title. */
+    /** Plays the stream the current ranking puts first. */
     fun playBest() {
         val details = _state.value.details ?: return
-        val item = details.streams.firstOrNull() ?: return
+        val mode = RankingMode.of(_state.value.settings.streamRanking)
+        val item = rankStreams(details.streams, mode, false).firstOrNull()?.item ?: return
         play(item)
     }
 
@@ -1023,7 +1072,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             _state.update { it.copy(message = "Loading the next episode…") }
-            val item = streamsFor(meta.type, next.id).firstOrNull()
+            val mode = RankingMode.of(_state.value.settings.streamRanking)
+            val item = rankStreams(streamsFor(meta.type, next.id), mode, false)
+                .firstOrNull()
+                ?.item
             if (item == null) {
                 _state.update {
                     it.copy(playback = null, message = "No stream for the next episode.")
