@@ -20,18 +20,20 @@ import androidx.compose.ui.unit.sp
  * the logo, the launcher icon and every highlight share one hue so the
  * product reads as one brand rather than a reskinned player.
  */
-val Background = Color(0xFF08090C)
-val BackgroundElevated = Color(0xFF0E1116)
-val Surface = Color(0xFF12161C)
-val SurfaceHigh = Color(0xFF1A2029)
+// OLED Pitch Black, the desktop preset: a true black page, surfaces one step
+// above it so a card edge is still visible, and hairline borders.
+val Background = Color(0xFF000000)
+val BackgroundElevated = Color(0xFF121212)
+val Surface = Color(0xFF121212)
+val SurfaceHigh = Color(0xFF181818)
 val Accent = Color(0xFF00D8F8)
 val AccentDeep = Color(0xFF00A6C4)
 val OnAccent = Color(0xFF04141A)
-val TextPrimary = Color(0xFFF4F6F8)
-val TextMuted = Color(0xFF9BA6B2)
-val TextDim = Color(0xFF6C7783)
+val TextPrimary = Color(0xFFFFFFFF)
+val TextMuted = Color(0xFFA7AEB6)
+val TextDim = Color(0xFF71787F)
 val Gold = Color(0xFFFFC857)
-val Outline = Color(0xFF232A33)
+val Outline = Color(0xFF282828)
 
 private val SenzoColors = darkColorScheme(
     primary = Accent,

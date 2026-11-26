@@ -3,6 +3,7 @@ package com.senzo.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -165,17 +166,21 @@ fun SettingsScreen(
         ) {
             listOf(0 to "Small", 1 to "Medium", 2 to "Large").forEach { (value, label) ->
                 val selected = settings.subtitleSize == value
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (selected) Color.White else TextMuted,
+                Box(
                     modifier = Modifier
                         .weight(1f)
+                        .height(40.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(if (selected) Accent else Surface)
-                        .clickable { onSubtitleSize(value) }
-                        .padding(vertical = 10.dp),
-                )
+                        .clickable { onSubtitleSize(value) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (selected) OnAccent else TextMuted,
+                    )
+                }
             }
         }
 
