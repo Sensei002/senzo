@@ -70,6 +70,16 @@ data class UiState(
     val settings: AppSettings = AppSettings(),
     val installing: Boolean = false,
     val message: String? = null,
+    /** The community directory, which is browsed rather than installed. */
+    val community: List<CommunityAddon> = emptyList(),
+    val communityLoading: Boolean = false,
+    val communityError: String? = null,
+    val communityQuery: String = "",
+    val communitySort: CommunitySort = CommunitySort.Rising,
+    val communityPage: Int = 1,
+    val communityHasMore: Boolean = false,
+    /** The manifest URL currently being installed from the directory. */
+    val communityInstalling: String? = null,
 ) {
     /** Addons the viewer has not switched off, in their chosen order. */
     val enabledAddons: List<AddonDescriptor>
@@ -97,6 +107,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val sessions = SessionStore(application)
     private val api = StremioApi()
     private val addonClient = AddonClient()
+    private val communityClient = CommunityClient()
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -107,6 +118,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var searchJob: Job? = null
     private var boardJob: Job? = null
     private var detailsJob: Job? = null
+    private var communityJob: Job? = null
 
     init {
         val settings = prefs.settings()
@@ -764,6 +776,95 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         loadBoard(remaining)
     }
 
+
+    /**
+     * Loads a page of the community directory. The first page replaces what is
+     * shown; another page is appended, which is how the directory pages at all.
+     */
+    fun loadCommunity(reset: Boolean = true) {
+        val state = _state.value
+        communityJob?.cancel()
+        val page = if (reset) 1 else state.communityPage + 1
+        communityJob = viewModelScope.launch {
+            // Typing into the directory search cancels the previous request, so
+            // the delay is all the debounce it needs.
+            if (reset && state.communityQuery.isNotBlank()) delay(250)
+            _state.update { it.copy(communityLoading = true, communityError = null) }
+            runCatching { communityClient.browse(state.communitySort, state.communityQuery, page) }
+                .onSuccess { result ->
+                    _state.update {
+                        it.copy(
+                            communityLoading = false,
+                            community = if (reset) {
+                                result.addons
+                            } else {
+                                // A page can repeat an entry the previous one
+                                // already listed, and list keys must be unique.
+                                (it.community + result.addons).distinctBy { addon ->
+                                    addon.manifestUrl
+                                }
+                            },
+                            communityPage = page,
+                            communityHasMore = result.hasNextPage,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            communityLoading = false,
+                            communityError = error.message
+                                ?: "The addon directory could not be reached.",
+                        )
+                    }
+                }
+        }
+    }
+
+    fun setCommunitySort(sort: CommunitySort) {
+        if (_state.value.communitySort == sort) return
+        _state.update { it.copy(communitySort = sort, communityPage = 1, communityHasMore = false) }
+        loadCommunity()
+    }
+
+    fun setCommunityQuery(query: String) {
+        if (_state.value.communityQuery == query) return
+        _state.update { it.copy(communityQuery = query) }
+        loadCommunity()
+    }
+
+    /** Installs a directory entry exactly as if its manifest URL had been typed in. */
+    fun installCommunityAddon(addon: CommunityAddon) {
+        viewModelScope.launch {
+            _state.update { it.copy(communityInstalling = addon.manifestUrl) }
+            runCatching { addonClient.manifest(addon.manifestUrl) }
+                .onSuccess { (base, manifest) ->
+                    val descriptor = AddonDescriptor(transportUrl = base, manifest = manifest)
+                    prefs.saveLocalAddons(
+                        prefs.localAddons().filterNot { it.transportUrl == base } + descriptor
+                    )
+                    val merged = listOf(descriptor) +
+                        _state.value.addons.filterNot { it.transportUrl == base }
+                    sessions.saveAddons(merged)
+                    _state.update {
+                        it.copy(
+                            communityInstalling = null,
+                            addons = merged,
+                            message = "${manifest.name.ifBlank { addon.name }} installed.",
+                        )
+                    }
+                    loadBoard(merged)
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            communityInstalling = null,
+                            message = error.message ?: "That addon could not be installed.",
+                        )
+                    }
+                }
+        }
+    }
     fun toggleAddon(transportUrl: String, enabled: Boolean) {
         val disabled = if (enabled) {
             _state.value.disabledAddons - transportUrl

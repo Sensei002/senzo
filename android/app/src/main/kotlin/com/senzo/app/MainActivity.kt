@@ -209,10 +209,22 @@ private fun MainShell(state: UiState, viewModel: MainViewModel) {
                     addons = state.addons,
                     disabled = state.disabledAddons,
                     installing = state.installing,
+                    community = state.community,
+                    communityLoading = state.communityLoading,
+                    communityError = state.communityError,
+                    communityQuery = state.communityQuery,
+                    communitySort = state.communitySort,
+                    communityHasMore = state.communityHasMore,
+                    communityInstalling = state.communityInstalling,
                     onToggle = viewModel::toggleAddon,
                     onRemove = viewModel::removeAddon,
                     onMove = viewModel::moveAddon,
                     onInstall = viewModel::installAddon,
+                    onCommunityQuery = viewModel::setCommunityQuery,
+                    onCommunitySort = viewModel::setCommunitySort,
+                    onCommunityMore = { viewModel.loadCommunity(reset = false) },
+                    onCommunityRefresh = { viewModel.loadCommunity() },
+                    onCommunityInstall = viewModel::installCommunityAddon,
                 )
 
                 Tab.Settings -> SettingsScreen(
