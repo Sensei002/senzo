@@ -402,6 +402,8 @@ export component DetailsPage inherits Rectangle {
     changed item-title => {
         root.source-spinner-hold = true;
         root.source-spinner-cap = true;
+        // A new title must not inherit the previous source page.
+        root.sources-page-open = false;
     }
 
     private property <bool> sources-loading-active:
