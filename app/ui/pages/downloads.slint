@@ -26,6 +26,7 @@ export component DownloadsPage inherits Rectangle {
     callback pause(string);
     callback resume(string);
     callback cancel(string);
+    callback delete(string);
     callback play(string);
     callback reveal(string);
     callback retry;
@@ -169,7 +170,7 @@ export component DownloadsPage inherits Rectangle {
                                 unit: root.unit;
                                 label: @tr("DELETE" => "Delete");
                                 outlined: true;
-                                clicked => { root.cancel(item.id); }
+                                clicked => { root.delete(item.id); }
                             }
                         }
 

@@ -6,7 +6,10 @@ This file records notable changes to SENZO relative to the initial source snapsh
 
 ### Sources
 
-- Desktop: Play now opens a dedicated source page with the loading ring, provider and ranking filters, seeder health, suspicious-source toggle, manual reload and Play best, matching the phone client.
+- Desktop: the source page is now a compact, phone-style list: one small header, provider and ranking filters, seeder health, the suspicious-source toggle, manual reload and Play best. Rows are flat, full width and evenly aligned instead of the ragged centred cards.
+- Desktop: Play always opens that dedicated page. The old inline source drawer is gone, and for a series Play picks the episode you are looking at before asking for sources.
+- Desktop: plugin sources appear as each provider answers. The previous URL probe pass (eight-second timeout, eight requests at a time) no longer delays the first results, and sixteen providers can load at once.
+- Desktop: the source loading ring is larger, rotates from the renderer clock, and stays smooth because the new rows render far less per item.
 - Android: torrent playback starts from the opening pieces instead of waiting for a partial download. Piece waits include the file offset for multi-file torrents, and the tail of the file is prioritised so MP4 indexes load immediately.
 
 ### Library
@@ -16,6 +19,10 @@ This file records notable changes to SENZO relative to the initial source snapsh
 ### Addons and plugins
 
 - Desktop: every plugin repository now has Enable all and Disable all, with live enabled counts, so an All-in-One repository can be switched in one click.
+
+### Downloads
+
+- Desktop: Delete on a cancelled, failed or completed download now removes the queue entry, its saved credential and its partial or finished file. It used to call Cancel, which did nothing once the job had stopped.
 
 ### Updates
 

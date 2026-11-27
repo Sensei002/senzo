@@ -219,6 +219,21 @@ pub fn setup_ui_callbacks(
             });
         }
     });
+    ui.on_downloads_delete({
+        let manager = manager.clone();
+        let weak = ui.as_weak();
+        move |job_id| {
+            let manager = manager.clone();
+            let weak = weak.clone();
+            let job_id = job_id.to_string();
+            tokio::spawn(async move {
+                if let Err(error) = manager.delete(&job_id).await {
+                    set_downloads_error(&weak, error.to_string());
+                }
+                project_active_profile(weak).await;
+            });
+        }
+    });
     ui.on_downloads_reveal({
         let weak = ui.as_weak();
         move |job_id| {
@@ -608,6 +623,28 @@ impl DownloadManager {
             let _ = active.task.await;
         }
         update_state(job_id, DownloadState::Cancelled, None).await
+    }
+
+    /// Remove a finished, failed or cancelled job completely: the queue entry,
+    /// its stored source credential and any partial or complete payload on
+    /// disk. Cancelling only flipped the state, so the Delete button used to
+    /// leave a cancelled card (and its file) behind forever.
+    pub async fn delete(&self, job_id: &str) -> Result<(), DownloadError> {
+        let job = load_job(job_id).await?;
+        if let Some(active) = self.active.lock().await.remove(job_id) {
+            active.cancellation.cancel();
+            let _ = active.task.await;
+        }
+        let conn = crate::db::get_conn()
+            .await
+            .map_err(|_| DownloadError::Database)?;
+        conn.execute("DELETE FROM download_jobs WHERE id = ?", [job_id])
+            .await
+            .map_err(|_| DownloadError::Database)?;
+        let _ = self.credentials.delete(&job.credential_ref).await;
+        let _ = tokio::fs::remove_file(part_path(&job.destination)).await;
+        let _ = tokio::fs::remove_file(&job.destination).await;
+        Ok(())
     }
 
     async fn start(&self, job: DownloadJob) {

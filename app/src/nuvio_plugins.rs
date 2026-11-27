@@ -18,7 +18,6 @@ use futures::{
     StreamExt,
     stream::{self, FuturesUnordered},
 };
-use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderName, HeaderValue, LOCATION, RANGE};
 use serde::{Deserialize, Serialize};
 use slint::{ComponentHandle, Model};
 use tokio::sync::Semaphore;
@@ -39,10 +38,6 @@ pub const DEFAULT_MANIFEST_URL: &str =
     "https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json";
 const MAX_MANIFEST_BYTES: usize = 4 * 1024 * 1024;
 const MAX_SCRIPT_BYTES: usize = 4 * 1024 * 1024;
-const MEDIA_PROBE_CONCURRENCY: usize = 8;
-const MEDIA_PROBE_TIMEOUT: Duration = Duration::from_secs(8);
-const MEDIA_PROBE_USER_AGENT: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 SENZO/1.0";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -402,194 +397,6 @@ fn default_settings() -> String {
     "{}".to_owned()
 }
 
-fn media_probe_client() -> &'static reqwest::blocking::Client {
-    static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        reqwest::blocking::Client::builder()
-            .connect_timeout(Duration::from_secs(5))
-            .timeout(MEDIA_PROBE_TIMEOUT)
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(MEDIA_PROBE_USER_AGENT)
-            .build()
-            .unwrap_or_else(|_| reqwest::blocking::Client::new())
-    })
-}
-
-fn has_probe_media_extension(value: &str) -> bool {
-    [
-        ".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v", ".ts", ".m3u8", ".mpd",
-        ".flv", ".wmv",
-    ]
-    .iter()
-    .any(|extension| value.contains(extension))
-}
-
-/// Outcome of a reachability probe. `Unknown` keeps a source whose server
-/// could not answer in time: a timeout on one device says nothing about the
-/// file, and dropping those made plugin results depend on the local network.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ProbeResult {
-    Live,
-    Dead,
-    Unknown,
-}
-
-/// Confirm that an HTTP source really serves a media object before it reaches
-/// the drawer. A provider can return a syntactically valid `.mkv` URL that is
-/// actually a 403, an HTML interstitial, or an expired link generator. The
-/// request is range-limited and the body is never read.
-fn probe_media_stream(stream: &PluginStream) -> ProbeResult {
-    if stream.is_torrent() {
-        return ProbeResult::Live;
-    }
-    let Some(raw_url) = stream.url.as_deref() else {
-        return ProbeResult::Dead;
-    };
-    let Ok(mut target) = Url::parse(raw_url) else {
-        return ProbeResult::Dead;
-    };
-
-    for _ in 0..=4 {
-        if !matches!(target.scheme(), "http" | "https")
-            || target.host_str().is_none()
-            || is_blocked_host(&target)
-        {
-            return ProbeResult::Dead;
-        }
-        match classify_public_host(&target) {
-            PublicHost::Public => {}
-            PublicHost::Blocked => return ProbeResult::Dead,
-            PublicHost::Unresolved => return ProbeResult::Unknown,
-        }
-
-        let mut request = media_probe_client()
-            .get(target.clone())
-            .header(RANGE, "bytes=0-0")
-            .header(ACCEPT, "video/*,audio/*,application/octet-stream,*/*;q=0.8");
-        for (name, value) in &stream.headers {
-            let lower = name.to_ascii_lowercase();
-            if matches!(
-                lower.as_str(),
-                "host" | "content-length" | "connection" | "range" | "accept-encoding"
-            ) {
-                continue;
-            }
-            let Ok(name) = HeaderName::from_bytes(lower.as_bytes()) else {
-                continue;
-            };
-            let Ok(value) = HeaderValue::from_str(value) else {
-                continue;
-            };
-            request = request.header(name, value);
-        }
-
-        let response = match request.send() {
-            Ok(response) => response,
-            Err(_) => return ProbeResult::Unknown,
-        };
-
-        if response.status().is_redirection() {
-            let Some(location) = response
-                .headers()
-                .get(LOCATION)
-                .and_then(|value| value.to_str().ok())
-            else {
-                return ProbeResult::Dead;
-            };
-            let Ok(next) = target.join(location) else {
-                return ProbeResult::Dead;
-            };
-            target = next;
-            continue;
-        }
-
-        let status = response.status();
-        if !(status.is_success() || status == reqwest::StatusCode::PARTIAL_CONTENT) {
-            // A missing file is a fact; anything else (403 on a signed URL,
-            // 405 for a provider that rejects ranges) may still play.
-            return if matches!(
-                status,
-                reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::GONE
-            ) {
-                ProbeResult::Dead
-            } else {
-                ProbeResult::Unknown
-            };
-        }
-        let content_type = response
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        if content_type.starts_with("text/html")
-            || content_type.starts_with("text/plain")
-            || content_type.starts_with("application/json")
-            || content_type.starts_with("application/xml")
-        {
-            return ProbeResult::Dead;
-        }
-        let content_length = response
-            .headers()
-            .get(reqwest::header::CONTENT_LENGTH)
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.parse::<u64>().ok());
-        if content_length == Some(0) {
-            return ProbeResult::Unknown;
-        }
-        if content_type.is_empty() {
-            return if has_probe_media_extension(&target.path().to_ascii_lowercase()) {
-                ProbeResult::Live
-            } else {
-                ProbeResult::Unknown
-            };
-        }
-        return if content_type.starts_with("video/")
-            || content_type.starts_with("audio/")
-            || content_type.contains("octet-stream")
-            || content_type.contains("mpegurl")
-            || content_type.contains("matroska")
-            || content_type.contains("mp4")
-            || content_type.contains("webm")
-        {
-            ProbeResult::Live
-        } else {
-            ProbeResult::Dead
-        };
-    }
-    ProbeResult::Unknown
-}
-
-async fn verify_media_streams(streams: Vec<PluginStream>) -> Vec<PluginStream> {
-    let probes = stream::iter(streams.into_iter().enumerate().map(|(index, stream)| {
-        let probe = stream.clone();
-        async move {
-            let probe_result = if probe.is_torrent() {
-                ProbeResult::Live
-            } else {
-                tokio::task::spawn_blocking(move || probe_media_stream(&probe))
-                    .await
-                    .unwrap_or(ProbeResult::Unknown)
-            };
-            (index, stream, probe_result)
-        }
-    }))
-    .buffer_unordered(MEDIA_PROBE_CONCURRENCY)
-    .collect::<Vec<_>>()
-    .await;
-
-    let mut probes = probes;
-    probes.sort_by_key(|(index, _, _)| *index);
-    probes
-        .into_iter()
-        // Only a definite rejection removes a source. Timeouts, DNS
-        // hiccups and slow hosts keep it so one flaky device cannot empty
-        // the drawer that works elsewhere.
-        .filter_map(|(_, stream, probe_result)| {
-            (probe_result != ProbeResult::Dead).then_some(stream)
-        })
-        .collect()
-}
 
 #[derive(Clone)]
 pub struct NuvioPlugins {
@@ -1563,10 +1370,12 @@ impl NuvioPlugins {
             return;
         }
 
-        let semaphore = Arc::new(Semaphore::new(8));
+        // Every enabled provider runs at once. Eight at a time left later
+        // providers waiting behind slow scripts; sixteen keeps a cold load
+        // close to the slowest provider's own response time.
+        let semaphore = Arc::new(Semaphore::new(16));
         let mut tasks = FuturesUnordered::new();
-        // Every enabled provider runs; the semaphore below bounds the
-        // number of concurrent script fetches and QuickJS workers.
+        // The semaphore bounds concurrent script fetches and QuickJS workers.
         for provider in providers {
             let manager = self.clone();
             let query = query.clone();
@@ -1627,7 +1436,11 @@ impl NuvioPlugins {
                     .into_iter()
                     .filter(PluginStream::is_playable)
                     .collect::<Vec<_>>();
-                let verified = verify_media_streams(candidates).await;
+                // Show the provider's answer immediately. The old probe pass
+                // opened an HTTP request per direct URL (8s timeout, eight at a
+                // time) and held the whole list back, while the phone client
+                // renders every source as soon as the script returns.
+                let verified = candidates;
                 let mut count = 0usize;
                 for stream in verified {
                     let dedupe = if stream.is_torrent() {

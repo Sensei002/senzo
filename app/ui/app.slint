@@ -1061,6 +1061,7 @@ export component MainWindow inherits Window {
     callback downloads-pause(string);
     callback downloads-resume(string);
     callback downloads-cancel(string);
+    callback downloads-delete(string);
     callback downloads-play(string);
     callback downloads-reveal(string);
     callback downloads-refresh();
@@ -2550,6 +2551,7 @@ export component MainWindow inherits Window {
                         pause(id) => { root.downloads-pause(id); }
                         resume(id) => { root.downloads-resume(id); }
                         cancel(id) => { root.downloads-cancel(id); }
+                        delete(id) => { root.downloads-delete(id); }
                         play(id) => { root.downloads-play(id); }
                         reveal(id) => { root.downloads-reveal(id); }
                         retry => { root.downloads-refresh(); }
