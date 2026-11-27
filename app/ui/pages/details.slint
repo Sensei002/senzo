@@ -140,9 +140,13 @@ component SourceRow inherits Rectangle {
                 spacing: 0.45 * root.unit;
                 alignment: start;
 
-                if (root.source-system != "" && root.source-system != "Direct") : Text {
+                // Keep the peer column reserved for direct sources too, so
+                // provider names line up across every row.
+                Text {
                     width: 3.8 * root.unit;
-                    text: "👤 " + root.seeders;
+                    text: root.source-system != "" && root.source-system != "Direct"
+                        ? "👤 " + root.seeders
+                        : "";
                     color: root.seeders == 0
                         ? Theme.danger
                         : (root.seeders < 25 ? Theme.warning : Theme.success);
