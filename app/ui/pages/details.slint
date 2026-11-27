@@ -90,7 +90,6 @@ component SourceRow inherits Rectangle {
         Rectangle {
             width: 4.2 * root.unit;
             height: 1.9 * root.unit;
-            y: (parent.height - self.height) / 2;
             border-radius: self.height / 2;
             background: root.source-system != "" && root.source-system != "Direct"
                 ? Theme.warning.with-alpha(0.16)
@@ -201,7 +200,7 @@ component SourcesPage inherits Rectangle {
     callback show-filtered-changed(bool);
 
     private property <length> pad: 2.5 * root.unit;
-    private property <length> content-width: parent.width - 2 * root.pad;
+    private property <length> content-width: root.width - 2 * root.pad;
     private property <string> status-text: root.busy
         ? (root.streams.length == 0
             ? @tr("SOURCES_ARE_LOADING" => "Loading sources…")
@@ -229,32 +228,6 @@ component SourcesPage inherits Rectangle {
             label: @tr("BACK" => "Back");
             surface-color: transparent;
             clicked => { root.close(); }
-        }
-
-        Rectangle {
-            width: 2.2 * root.unit;
-            height: 3.4 * root.unit;
-            background: transparent;
-
-            if (root.busy) : Image {
-                width: 2.2 * root.unit;
-                height: 2.2 * root.unit;
-                y: (parent.height - self.height) / 2;
-                source: @image-url("../assets/images/icons/rotate.svg");
-                colorize: Theme.primary-accent;
-                image-fit: contain;
-                transform-origin: { x: self.width / 2, y: self.height / 2 };
-                transform-rotation: (animation-tick() / 900ms) * 360deg;
-            }
-
-            if (!root.busy) : Rectangle {
-                width: 0.55 * root.unit;
-                height: 0.55 * root.unit;
-                x: (parent.width - self.width) / 2;
-                y: (parent.height - self.height) / 2;
-                border-radius: self.width / 2;
-                background: Theme.accent;
-            }
         }
 
         Text {
@@ -285,14 +258,26 @@ component SourcesPage inherits Rectangle {
             clicked => { root.play-best(); }
         }
 
-        IconAction {
+        // The reload glyph itself turns while a reload runs. It is driven by
+        // the renderer clock, so it stays smooth even while results stream in.
+        ButtonSurface {
             width: 3.2 * root.unit;
             height: 3.4 * root.unit;
-            unit: root.unit;
-            icon-source: @image-url("../assets/images/icons/rotate.svg");
-            label: @tr("RELOAD_SOURCES" => "Reload sources");
-            surface-color: transparent;
+            accessible-name: @tr("RELOAD_SOURCES" => "Reload sources");
+            background: self.has-hover ? Theme.overlay-hover : transparent;
             clicked => { root.reload(); }
+
+            Image {
+                width: 1.75 * root.unit;
+                height: 1.75 * root.unit;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                source: @image-url("../assets/images/icons/rotate.svg");
+                colorize: root.busy ? Theme.primary-accent : Theme.text-secondary;
+                image-fit: contain;
+                transform-origin: { x: self.width / 2, y: self.height / 2 };
+                transform-rotation: root.busy ? (animation-tick() / 900ms) * 360deg : 0deg;
+            }
         }
     }
 
@@ -381,12 +366,11 @@ component SourcesPage inherits Rectangle {
         x: root.pad;
         y: 11.8 * root.unit;
         width: root.content-width;
-        height: 1.6 * root.unit;
+        height: 1.9 * root.unit;
         spacing: 0.7 * root.unit;
         alignment: start;
 
         ToggleSwitch {
-            y: (parent.height - self.height) / 2;
             unit: root.unit;
             checked <=> root.show-filtered;
             toggled => { root.show-filtered-changed(root.show-filtered); }
