@@ -57,7 +57,7 @@ component SourcesPage inherits Rectangle {
     in property <[string]> providers: ["All"];
     in property <bool> busy: false;
     in property <int> pending: 0;
-    in property <string> ranking-mode: "Smart";
+    in-out property <string> ranking-mode: "Smart";
     in-out property <bool> show-filtered: false;
     in-out property <string> provider: "All";
     private property <bool> provider-open: false;
