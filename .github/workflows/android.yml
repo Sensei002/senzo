@@ -1,6 +1,6 @@
-# The mobile client has its own pipeline: a push that touches android/ builds
-# the APK, while a desktop-only push runs only the desktop matrix.
-# workflow_dispatch also works once this file exists on the default branch.
+# The mobile client has its own dedicated pipeline. Desktop builds live in
+# build-windows.yml, build-linux.yml and build-macos.yml so one OS can be
+# rerun without waiting for the others; release.yml is kept for tag releases.
 name: SENZO Android build
 
 on:

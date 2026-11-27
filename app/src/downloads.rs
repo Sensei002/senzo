@@ -628,7 +628,8 @@ impl DownloadManager {
     /// Remove a finished, failed or cancelled job completely: the queue entry,
     /// its stored source credential and any partial or complete payload on
     /// disk. Cancelling only flipped the state, so the Delete button used to
-    /// leave a cancelled card (and its file) behind forever.
+    /// leave a cancelled card (and its file) behind forever. The row goes first
+    /// so a file that cannot be unlinked never leaves a ghost entry in the UI.
     pub async fn delete(&self, job_id: &str) -> Result<(), DownloadError> {
         let job = load_job(job_id).await?;
         if let Some(active) = self.active.lock().await.remove(job_id) {

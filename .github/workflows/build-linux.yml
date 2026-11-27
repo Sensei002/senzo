@@ -1,0 +1,126 @@
+name: Linux desktop build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["development"]
+    paths-ignore:
+      - "android/**"
+      - "docs/**"
+      - "**/*.md"
+
+concurrency:
+  group: senzo-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: 10
+  CARGO_HTTP_MULTIPLEXING: false
+  # Stable releases come from main or a version tag. Branch builds must never
+  # offer the last stable release through the in-app updater.
+  SENZO_UPDATE_CHANNEL: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/main') && 'stable' || 'development' }}
+  # Must be a SENZO-owned Discord application. Never use Stremio's app id.
+  SENZO_DISCORD_APP_ID: ${{ vars.SENZO_DISCORD_APP_ID }}
+  SENZO_DISCORD_FALLBACK_IMAGE: ${{ vars.SENZO_DISCORD_FALLBACK_IMAGE }}
+
+
+jobs:
+  linux:
+    name: Linux x64
+    runs-on: ubuntu-24.04
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg_installed
+      VCPKG_DEFAULT_TRIPLET: x64-linux-v3-static-release
+      VCPKGRS_TRIPLET: x64-linux-v3-static-release
+      VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/triplets
+      VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/vcpkg-overlays
+      PKG_CONFIG_PATH: ${{ github.workspace }}/vcpkg_installed/x64-linux-v3-static-release/lib/pkgconfig
+      LIBTORRENT_STATIC: "1"
+      # Keep the Linux runner within its memory budget. The release profile
+      # otherwise compiles many heavy native/Slint crates in parallel.
+      CARGO_BUILD_JOBS: "2"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-05-03
+      - uses: Swatinem/rust-cache@v2
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang cmake ninja-build pkg-config libssl-dev libclang-dev libgtk-3-dev libayatana-appindicator3-dev libmpv-dev libfontconfig1-dev libfreetype6-dev libxkbcommon-dev libwayland-dev libx11-xcb-dev libxcb-shape0-dev libxcb-xfixes0-dev libgl1-mesa-dev libegl1-mesa-dev
+      - name: Restore libtorrent cache
+        id: libtorrent-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: vcpkg_installed
+          key: Linux-vcpkg-x64-linux-v3-static-release-v1-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
+          restore-keys: |
+            Linux-vcpkg-x64-linux-v3-static-release-v1-
+      - name: Install static libtorrent 2.1.1
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: "84bab45d415d22042bd0b9081aea57f362da3f35"
+          vcpkgDirectory: "${{ github.workspace }}/vcpkg"
+          vcpkgJsonGlob: "vcpkg.json"
+          runVcpkgInstall: true
+      - name: Save libtorrent cache
+        if: steps.libtorrent-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: vcpkg_installed
+          key: Linux-vcpkg-x64-linux-v3-static-release-v1-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
+      - name: Add swap headroom
+        shell: bash
+        run: |
+          if ! swapon --show | grep -q '/swapfile'; then
+            sudo fallocate -l 4G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096 status=none
+            sudo chmod 600 /swapfile
+            sudo mkswap /swapfile
+            sudo swapon /swapfile
+          fi
+          free -h
+      - name: Build release
+        run: |
+          set -o pipefail
+          cargo build --locked --release --package senzo 2>&1 | tee build.log
+      - name: Report build failure
+        if: failure()
+        continue-on-error: true
+        shell: bash
+        run: |
+          if [ ! -f build.log ]; then
+            echo "::error title=Build log::build.log was not created"
+            exit 0
+          fi
+          clean=$(mktemp)
+          sed -r 's/\x1B\[[0-9;]*[mK]//g' build.log > "$clean"
+          n=$(grep -n -m1 -E '^error(\[|:)' "$clean" | cut -d: -f1 || true)
+          if [ -z "$n" ]; then
+            n=$(grep -n -m1 -E 'error(\[|:)' "$clean" | cut -d: -f1 || true)
+          fi
+          if [ -z "$n" ]; then
+            n=$(( $(wc -l < "$clean") - 40 ))
+          fi
+          msg=$(sed -n "${n},$((n+25))p" "$clean" | sed 's/::/ - /g; s/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')
+          echo "::error title=Rust build error::$msg"
+      - name: Install cargo-deb
+        uses: taiki-e/install-action@v2.85.4
+        with:
+          tool: cargo-deb
+      - name: Build DEB Package
+        run: cargo deb --package senzo --no-build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: senzo-linux-x64
+          path: target/release/senzo
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: senzo-linux-deb
+          path: target/debian/*.deb
+          if-no-files-found: error

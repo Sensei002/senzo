@@ -2,18 +2,12 @@
 name: SENZO desktop builds
 
 on:
+  # Tag releases use this combined workflow. Development pushes use the
+  # dedicated build-windows/build-linux/build-macos workflows instead, so a
+  # failure on one OS never blocks or cancels the other three.
   workflow_dispatch:
   push:
-    branches: ["main", "development"]
     tags: ["v*"]
-    # Android has its own workflow. A push that only touches the mobile client
-    # must not start four desktop builds just to cancel them again.
-    paths-ignore:
-      - "android/**"
-      - ".github/workflows/android.yml"
-      # Notes and documentation never change a desktop binary.
-      - "docs/**"
-      - "**/*.md"
 
 concurrency:
   group: senzo-build-${{ github.ref }}
