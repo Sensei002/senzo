@@ -3623,7 +3623,7 @@ fn dispatch_state_to_core(
             .as_ref()
             .and_then(|projection| projection.media.as_ref())
         {
-            let status = if state.paused { "Paused" } else { "Watching" };
+            let status = if state.paused { "Paused" } else { "Playing" };
             let playback_time = (state.paused && duration_secs > 0).then(|| {
                 format!(
                     "{} / {}",
@@ -3631,7 +3631,9 @@ fn dispatch_state_to_core(
                     format_discord_time(duration_secs)
                 )
             });
-            let mut state_parts = vec![status.to_owned()];
+            // The page is part of presence too, so a profile distinguishes the
+            // player from browsing while still naming the episode.
+            let mut state_parts = vec!["Player".to_owned(), status.to_owned()];
             if let Some(episode) = media.discord_episode.as_deref() {
                 state_parts.push(episode.to_owned());
             }
@@ -3667,7 +3669,7 @@ fn dispatch_state_to_core(
                 changed
             };
             if activity_changed {
-                let _ = discord_rpc.set_activity(
+                let _ = discord_rpc.set_playback_activity(
                     &activity.state,
                     &activity.details,
                     activity.image.as_deref(),
@@ -3685,7 +3687,7 @@ fn dispatch_state_to_core(
             changed
         };
         if should_clear {
-            let _ = discord_rpc.clear_activity();
+            let _ = discord_rpc.clear_playback_activity();
         }
     }
 
@@ -5198,7 +5200,7 @@ fn unload_player(
     };
     drop(current);
     thumbnails.unload(next_generation);
-    let _ = discord_rpc.clear_activity();
+    let _ = discord_rpc.clear_playback_activity();
     log_command(controller.send(PlaybackCommand::Stop));
     core.dispatch(RuntimeAction {
         field: Some(AppModelField::Player),

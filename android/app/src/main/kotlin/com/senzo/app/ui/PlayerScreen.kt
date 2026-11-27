@@ -405,7 +405,6 @@ private fun ExoPlayerScreen(
                     playback.subtitle.takeIf { it.isNotBlank() },
                 ).joinToString("  ·  "),
                 playing = playing,
-                buffering = buffering,
                 ended = ended,
                 position = position,
                 duration = duration,

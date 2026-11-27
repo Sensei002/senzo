@@ -41,7 +41,7 @@ fn configured_app_id() -> Option<&'static str> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 struct ActivityState {
     state: String,
     details: String,
@@ -53,14 +53,18 @@ struct ActivityState {
 enum DiscordCommand {
     Connect,
     Disconnect,
-    SetActivity(ActivityState),
-    ClearActivity,
+    SetPlaybackActivity(ActivityState),
+    SetPageActivity(ActivityState),
+    ClearPlaybackActivity,
+    ClearPageActivity,
 }
 
 struct DiscordWorker {
     client: Option<DiscordIpcClient>,
     enabled: bool,
-    desired_activity: Option<ActivityState>,
+    playback_activity: Option<ActivityState>,
+    page_activity: Option<ActivityState>,
+    last_published: Option<ActivityState>,
     next_retry_at: Instant,
     retry_delay: Duration,
     failure_logged: bool,
@@ -72,7 +76,9 @@ impl DiscordWorker {
         Self {
             client: None,
             enabled: false,
-            desired_activity: None,
+            playback_activity: None,
+            page_activity: None,
+            last_published: None,
             next_retry_at: Instant::now(),
             retry_delay: INITIAL_RETRY_DELAY,
             failure_logged: false,
@@ -92,27 +98,63 @@ impl DiscordWorker {
                 self.connect_if_due(!was_enabled);
             }
             DiscordCommand::Disconnect => self.disconnect(),
-            DiscordCommand::SetActivity(activity) => {
-                self.desired_activity = Some(activity.clone());
-                if self.client.is_some() {
-                    self.publish_activity(&activity);
-                } else {
-                    // A media, pause, or resume transition is also a reconnect
-                    // opportunity. The deadline prevents rapid state bursts from
-                    // hammering Discord's IPC endpoint.
-                    self.connect_if_due(false);
-                }
+            DiscordCommand::SetPlaybackActivity(activity) => {
+                self.playback_activity = Some(activity);
+                self.publish_desired_activity();
             }
-            DiscordCommand::ClearActivity => {
-                self.desired_activity = None;
-                let Some(current_client) = self.client.as_mut() else {
-                    return;
-                };
-                if let Err(error) = current_client.clear_activity() {
-                    tracing::error!(%error, "Discord RPC clear activity failed");
-                    self.mark_connection_lost();
-                }
+            DiscordCommand::SetPageActivity(activity) => {
+                self.page_activity = Some(activity);
+                self.publish_desired_activity();
             }
+            DiscordCommand::ClearPlaybackActivity => {
+                self.playback_activity = None;
+                self.publish_desired_activity();
+            }
+            DiscordCommand::ClearPageActivity => {
+                self.page_activity = None;
+                self.publish_desired_activity();
+            }
+        }
+    }
+
+    fn desired_activity(&self) -> Option<ActivityState> {
+        // Playback always wins over the page the user happens to be on. When
+        // playback stops, the worker falls back to the last page activity
+        // instead of leaving a stale movie on the profile.
+        self.playback_activity
+            .clone()
+            .or_else(|| self.page_activity.clone())
+    }
+
+    fn publish_desired_activity(&mut self) {
+        let Some(activity) = self.desired_activity() else {
+            self.clear_published_activity();
+            return;
+        };
+        if self.client.is_none() {
+            // Page and playback changes are both reconnect opportunities. The
+            // retry deadline prevents state bursts from hammering Discord IPC.
+            self.connect_if_due(false);
+            return;
+        }
+        if self.last_published.as_ref() == Some(&activity) {
+            return;
+        }
+        self.publish_activity(&activity);
+    }
+
+    fn clear_published_activity(&mut self) {
+        let Some(current_client) = self.client.as_mut() else {
+            self.last_published = None;
+            return;
+        };
+        if self.last_published.take().is_none() {
+            return;
+        }
+        if let Err(error) = current_client.clear_activity() {
+            tracing::error!(%error, "Discord RPC clear activity failed");
+            self.last_published = None;
+            self.mark_connection_lost();
         }
     }
 
@@ -133,7 +175,7 @@ impl DiscordWorker {
             if !self.configuration_logged {
                 self.configuration_logged = true;
                 tracing::warn!(
-                    "Discord Rich Presence is disabled: SENZO_DISCORD_APP_ID is not configured with a SENZO application ID"
+                    "Discord Rich Presence is disabled: set SENZO_DISCORD_APP_ID to a SENZO-owned Discord application ID"
                 );
             }
             self.enabled = false;
@@ -148,9 +190,8 @@ impl DiscordWorker {
                 self.retry_delay = INITIAL_RETRY_DELAY;
                 self.next_retry_at = Instant::now();
                 self.failure_logged = false;
-                if let Some(activity) = self.desired_activity.clone() {
-                    self.publish_activity(&activity);
-                }
+                self.last_published = None;
+                self.publish_desired_activity();
             }
             Err(error) => {
                 let retry_delay = self.schedule_retry();
@@ -179,8 +220,13 @@ impl DiscordWorker {
 
         let mut payload = activity::Activity::new()
             .activity_type(activity::ActivityType::Watching)
-            .state(&activity_state.state)
-            .details(&activity_state.details);
+            .name("SENZO");
+        if !activity_state.state.is_empty() {
+            payload = payload.state(&activity_state.state);
+        }
+        if !activity_state.details.is_empty() {
+            payload = payload.details(&activity_state.details);
+        }
         payload = payload.assets(
             activity::Assets::new()
                 .large_image(
@@ -202,14 +248,18 @@ impl DiscordWorker {
             payload = payload.timestamps(timestamps);
         }
 
-        if let Err(error) = current_client.set_activity(payload) {
-            tracing::error!(%error, "Discord RPC set activity failed");
-            self.mark_connection_lost();
+        match current_client.set_activity(payload) {
+            Ok(()) => self.last_published = Some(activity_state.clone()),
+            Err(error) => {
+                tracing::error!(%error, "Discord RPC set activity failed");
+                self.mark_connection_lost();
+            }
         }
     }
 
     fn mark_connection_lost(&mut self) {
         self.client = None;
+        self.last_published = None;
         self.schedule_retry();
     }
 
@@ -222,7 +272,8 @@ impl DiscordWorker {
 
     fn disconnect(&mut self) {
         self.enabled = false;
-        self.desired_activity = None;
+        self.playback_activity = None;
+        self.last_published = None;
         self.retry_delay = INITIAL_RETRY_DELAY;
         self.next_retry_at = Instant::now();
         if let Some(mut current_client) = self.client.take() {
@@ -282,7 +333,7 @@ impl DiscordRpc {
         self.send(DiscordCommand::Disconnect)
     }
 
-    pub fn set_activity(
+    pub fn set_playback_activity(
         &self,
         state: &str,
         details: &str,
@@ -290,7 +341,7 @@ impl DiscordRpc {
         start_timestamp: Option<i64>,
         end_timestamp: Option<i64>,
     ) -> Result<(), String> {
-        self.send(DiscordCommand::SetActivity(ActivityState {
+        self.send(DiscordCommand::SetPlaybackActivity(ActivityState {
             state: state.to_string(),
             details: details.to_string(),
             large_image: large_image.map(ToString::to_string),
@@ -299,8 +350,27 @@ impl DiscordRpc {
         }))
     }
 
-    pub fn clear_activity(&self) -> Result<(), String> {
-        self.send(DiscordCommand::ClearActivity)
+    pub fn set_page_activity(
+        &self,
+        state: &str,
+        details: &str,
+        large_image: Option<&str>,
+    ) -> Result<(), String> {
+        self.send(DiscordCommand::SetPageActivity(ActivityState {
+            state: state.to_string(),
+            details: details.to_string(),
+            large_image: large_image.map(ToString::to_string),
+            start_timestamp: None,
+            end_timestamp: None,
+        }))
+    }
+
+    pub fn clear_playback_activity(&self) -> Result<(), String> {
+        self.send(DiscordCommand::ClearPlaybackActivity)
+    }
+
+    pub fn clear_page_activity(&self) -> Result<(), String> {
+        self.send(DiscordCommand::ClearPageActivity)
     }
 
     fn send(&self, command: DiscordCommand) -> Result<(), String> {

@@ -2,7 +2,21 @@
 
 This file records notable changes to SENZO relative to the initial source snapshot.
 
-## Unreleased
+## 0.1.4 - 2026-11-27
+
+### Settings
+
+- Desktop: the living-room console settings page now uses the empty right-hand space for quick living-room, gamepad and fullscreen controls plus app, build and shell versions and the project credit.
+- Desktop: the Discord setting explains that page presence is shared as well as playback details.
+
+### Discord Rich Presence
+
+- Desktop: presence now connects when the app is idle, shows the current SENZO page, switches to the playing title with an elapsed/remaining time bar, reports paused playback, and falls back to the current page when playback stops.
+- Desktop: playback and page updates have separate priorities so a page refresh can never replace the movie being watched.
+
+### Player
+
+- Android: removed the duplicate buffering spinner from the player controls; the centred loading circle is now the only one shown while a source connects and the video starts.
 
 ### Sources
 

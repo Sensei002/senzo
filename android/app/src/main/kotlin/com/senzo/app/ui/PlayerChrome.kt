@@ -74,7 +74,6 @@ internal fun PlayerChrome(
     title: String,
     subtitle: String,
     playing: Boolean,
-    buffering: Boolean,
     ended: Boolean,
     position: Long,
     duration: Long,
@@ -158,20 +157,12 @@ internal fun PlayerChrome(
                             .clickable(onClick = onPlayPause),
                         contentAlignment = Alignment.Center,
                     ) {
-                        if (buffering && !ended) {
-                            androidx.compose.material3.CircularProgressIndicator(
-                                color = Color.White,
-                                strokeWidth = 2.5.dp,
-                                modifier = Modifier.size(42.dp),
-                            )
-                        } else {
-                            Icon(
-                                imageVector = if (playing && !ended) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                                contentDescription = if (playing) "Pause" else "Play",
-                                tint = Color.White,
-                                modifier = Modifier.size(46.dp),
-                            )
-                        }
+                        Icon(
+                            imageVector = if (playing && !ended) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                            contentDescription = if (playing) "Pause" else "Play",
+                            tint = Color.White,
+                            modifier = Modifier.size(46.dp),
+                        )
                     }
                     Spacer(Modifier.width(26.dp))
                     ChromeIcon(

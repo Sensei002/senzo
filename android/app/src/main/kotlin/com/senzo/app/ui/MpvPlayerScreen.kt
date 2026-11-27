@@ -283,20 +283,12 @@ fun MpvPlayerScreen(
                             .clickable { engine?.togglePause() },
                         contentAlignment = Alignment.Center,
                     ) {
-                        if (snapshot.buffering && !snapshot.ended) {
-                            CircularProgressIndicator(
-                                color = Color.White,
-                                strokeWidth = 2.5.dp,
-                                modifier = Modifier.size(40.dp),
-                            )
-                        } else {
-                            Icon(
-                                imageVector = if (snapshot.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
-                                contentDescription = if (snapshot.paused) "Play" else "Pause",
-                                tint = Color.White,
-                                modifier = Modifier.size(36.dp),
-                            )
-                        }
+                        Icon(
+                            imageVector = if (snapshot.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
+                            contentDescription = if (snapshot.paused) "Play" else "Pause",
+                            tint = Color.White,
+                            modifier = Modifier.size(36.dp),
+                        )
                     }
                     Spacer(Modifier.width(24.dp))
                     IconButton(onClick = { engine?.seekBy(10_000) }, modifier = Modifier.size(56.dp)) {

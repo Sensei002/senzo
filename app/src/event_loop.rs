@@ -229,6 +229,30 @@ pub fn start_event_loop(
     navigation: NavigationController,
     discord_rpc: Arc<crate::discord::DiscordRpc>,
 ) {
+    // Presence follows the visible page even when nothing is playing. Playback
+    // activity has priority inside DiscordRpc, so this lightweight poll can
+    // keep publishing page changes without clobbering the movie being watched.
+    let page_navigation = navigation.clone();
+    let page_discord = discord_rpc.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut last_revision = u64::MAX;
+        loop {
+            interval.tick().await;
+            let snapshot = page_navigation.snapshot();
+            if snapshot.revision == last_revision {
+                continue;
+            }
+            last_revision = snapshot.revision;
+            if snapshot.show_player() {
+                continue;
+            }
+            let details = format!("Browsing {}", snapshot.presence_page_label());
+            let _ = page_discord.set_page_activity("", &details, None);
+        }
+    });
+
     tokio::spawn(async move {
         let mut first_render = true;
         let mut last_discord_enabled: Option<bool> = None;

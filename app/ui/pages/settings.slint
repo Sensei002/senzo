@@ -171,6 +171,35 @@ export component SettingsOption inherits Rectangle {
 
 }
 
+component ConsoleToggleRow inherits Rectangle {
+    in property <length> unit: 16px;
+    in property <string> label;
+    in property <bool> checked;
+    callback toggled(bool);
+
+    height: 4.4 * root.unit;
+    background: transparent;
+
+    HorizontalLayout {
+        spacing: 0.8 * root.unit;
+
+        Text {
+            horizontal-stretch: 1;
+            text: root.label;
+            color: Theme.text-primary;
+            font-size: 0.9 * root.unit;
+            wrap: word-wrap;
+            vertical-alignment: center;
+        }
+
+        ToggleSwitch {
+            unit: root.unit;
+            checked: root.checked;
+            toggled => { root.toggled(self.checked); }
+        }
+    }
+}
+
 export component SettingsPage inherits Rectangle {
     width: 1280px;
     height: 720px;
@@ -379,6 +408,7 @@ export component SettingsPage inherits Rectangle {
 
     in property <length> unit: Theme.root-font-size;
     in property <bool> console-mode: false;
+    private property <bool> console-rail-visible: root.console-mode && root.width >= 77 * root.unit;
     in-out property <int> active-category: 0;
     background: transparent;
 
@@ -654,7 +684,7 @@ export component SettingsPage inherits Rectangle {
                     SettingsOption {
                         unit: root.unit;
                         label: @tr("SETTINGS_DISCORD" => "Show watching activity on Discord");
-                        description: @tr("Share the current media title and whether playback is paused with Discord. Stream links, tokens, and account details are never shared.");
+                        description: @tr("Share the page you are on and, during playback, the media title, progress and paused state with Discord. Stream links, tokens, and account details are never shared.");
                         ToggleSwitch {
                             unit: root.unit;
                             checked: root.discord-rpc-enabled;
@@ -835,13 +865,13 @@ export component SettingsPage inherits Rectangle {
                             }
                         }
                     }
-                    SettingsOption {
+                    if (!root.console-rail-visible) : SettingsOption {
                         unit: root.unit;
                         label: @tr("SETTINGS_LIVING_ROOM" => "Living-room console mode");
                         description: @tr("SETTINGS_LIVING_ROOM_DESC" => "Switches the whole app to a keyboard-first console: persistent top navigation, no sidebar, and shared section headers. Mouse and desktop controls keep working.");
                         ToggleSwitch { unit: root.unit; checked: root.living-room-mode; toggled => { root.change-living-room-mode(self.checked); } }
                     }
-                    SettingsOption {
+                    if (!root.console-rail-visible) : SettingsOption {
                         unit: root.unit;
                         label: @tr("SETTINGS_GAMEPAD" => "Enable gamepad support");
                         ToggleSwitch { unit: root.unit; checked: root.gamepad-support; toggled => { root.change-gamepad-support(self.checked); } }
@@ -868,7 +898,7 @@ export component SettingsPage inherits Rectangle {
                             clicked => { root.open-theme-studio(); }
                         }
                     }
-                    SettingsOption {
+                    if (!root.console-rail-visible) : SettingsOption {
                         unit: root.unit;
                         label: @tr("SETTINGS_FULLSCREEN_EXIT" => "Escape leaves fullscreen first");
                         description: @tr("SETTINGS_FULLSCREEN_EXIT_DESC" => "While watching in fullscreen, Escape returns to windowed playback instead of stopping the movie.");
@@ -1864,6 +1894,108 @@ export component SettingsPage inherits Rectangle {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        if (root.console-rail-visible) : Rectangle {
+            width: root.width - 53 * root.unit > 36 * root.unit
+                ? 36 * root.unit
+                : root.width - 53 * root.unit;
+            background: transparent;
+
+            VerticalLayout {
+                padding-left: 1.5 * root.unit;
+                padding-right: 1.5 * root.unit;
+                padding-top: 3 * root.unit;
+                padding-bottom: 3 * root.unit;
+                spacing: 0;
+
+                Text {
+                    height: 2.4 * root.unit;
+                    text: @tr("SETTINGS_CONSOLE_QUICK" => "QUICK CONTROLS");
+                    color: Theme.text-primary;
+                    opacity: 0.45;
+                    font-size: 0.72 * root.unit;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+
+                ConsoleToggleRow {
+                    unit: root.unit;
+                    label: @tr("SETTINGS_LIVING_ROOM" => "Living-room console mode");
+                    checked: root.living-room-mode;
+                    toggled(value) => { root.change-living-room-mode(value); }
+                }
+
+                ConsoleToggleRow {
+                    unit: root.unit;
+                    label: @tr("SETTINGS_GAMEPAD" => "Enable gamepad support");
+                    checked: root.gamepad-support;
+                    toggled(value) => { root.change-gamepad-support(value); }
+                }
+
+                ConsoleToggleRow {
+                    unit: root.unit;
+                    label: @tr("SETTINGS_FULLSCREEN_EXIT" => "Escape leaves fullscreen first");
+                    checked: root.esc-exit-fullscreen;
+                    toggled(value) => { root.change-esc-exit-fullscreen(value); }
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: Theme.overlay;
+                }
+
+                Rectangle {
+                    vertical-stretch: 1;
+                    background: transparent;
+                }
+
+                Text {
+                    height: 2.4 * root.unit;
+                    text: @tr("SETTINGS_ABOUT" => "ABOUT");
+                    color: Theme.text-primary;
+                    opacity: 0.45;
+                    font-size: 0.72 * root.unit;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+
+                if (root.application-version != "") : Text {
+                    height: 2 * root.unit;
+                    text: @tr("SETTINGS_VERSION" => "Version") + "  " + root.application-version;
+                    color: Theme.text-secondary;
+                    font-size: 0.82 * root.unit;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+
+                if (root.build-version != "") : Text {
+                    height: 2 * root.unit;
+                    text: @tr("SETTINGS_BUILD" => "Build") + "  " + root.build-version;
+                    color: Theme.text-secondary;
+                    font-size: 0.82 * root.unit;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+
+                if (root.shell-version != "") : Text {
+                    height: 2 * root.unit;
+                    text: @tr("SETTINGS_SHELL" => "Shell") + "  " + root.shell-version;
+                    color: Theme.text-secondary;
+                    font-size: 0.82 * root.unit;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+
+                Text {
+                    height: 4 * root.unit;
+                    text: "Made with love by Xoy \"Sensei\" Fawkes";
+                    color: Theme.text-muted;
+                    font-size: 0.75 * root.unit;
+                    wrap: word-wrap;
+                    vertical-alignment: bottom;
                 }
             }
         }
