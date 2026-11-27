@@ -101,11 +101,14 @@ iconutil -c icns "$iconset" -o "$contents/Resources/AppIcon.icns"
 rm -rf "$iconset"
 
 # Copy the runtime libraries (libmpv and its non-system dependencies) into the
-# bundle and rewrite the load commands to point at @executable_path.
+# bundle and rewrite the load commands to point at an rpath. @rpath is shorter
+# than the old @executable_path/../Frameworks form, which matters on Intel:
+# MacPorts' librsvg has no header padding and install_name_tool cannot grow its
+# load commands. The executable's rpath below resolves the shorter names.
 dylibbundler -b -cd -of \
     -x "$contents/MacOS/senzo" \
     -d "$contents/Frameworks" \
-    -p "@executable_path/../Frameworks"
+    -p "@rpath"
 
 if ! otool -l "$contents/MacOS/senzo" | grep -q "@executable_path/../Frameworks"; then
     install_name_tool -add_rpath "@executable_path/../Frameworks" "$contents/MacOS/senzo"
