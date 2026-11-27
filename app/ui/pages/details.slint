@@ -67,7 +67,12 @@ component SourceRow inherits Rectangle {
     background: area.has-hover ? Theme.overlay-hover : transparent;
     animate background { duration: Theme.motion-fast; }
 
+    // Keep the row tap target clear of the trailing Download button. The
+    // button is the last layout child and owns its own clicks; without this
+    // gap the full-width row area can win the hit test and start playback.
     area := TouchArea {
+        width: parent.width - 3.8 * root.unit;
+        height: parent.height;
         mouse-cursor: pointer;
         clicked => { root.play(); }
     }
