@@ -1440,9 +1440,8 @@ impl NuvioPlugins {
                 // opened an HTTP request per direct URL (8s timeout, eight at a
                 // time) and held the whole list back, while the phone client
                 // renders every source as soon as the script returns.
-                let verified = candidates;
                 let mut count = 0usize;
-                for stream in verified {
+                for stream in candidates {
                     let dedupe = if stream.is_torrent() {
                         stream.info_hash.clone().unwrap_or_default()
                     } else {

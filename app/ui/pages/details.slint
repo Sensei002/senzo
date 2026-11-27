@@ -61,6 +61,7 @@ component SourceRow inherits Rectangle {
     in property <string> score-label: "";
     in property <string> score-details: "";
     callback play;
+    callback download;
 
     height: 6.3 * root.unit;
     background: area.has-hover ? Theme.overlay-hover : transparent;
@@ -85,7 +86,6 @@ component SourceRow inherits Rectangle {
         width: parent.width - 1.8 * root.unit;
         height: parent.height - 1.3 * root.unit;
         spacing: 0.9 * root.unit;
-        alignment: start;
 
         Rectangle {
             width: 4.2 * root.unit;
@@ -176,6 +176,24 @@ component SourceRow inherits Rectangle {
             vertical-alignment: center;
             overflow: elide;
         }
+
+        download-button := ButtonSurface {
+            width: 2.8 * root.unit;
+            height: parent.height;
+            accessible-name: @tr("DOWNLOAD_SOURCE" => "Download source");
+            background: self.has-hover ? Theme.overlay-hover : transparent;
+            clicked => { root.download(); }
+
+            Image {
+                width: 1.45 * root.unit;
+                height: 1.45 * root.unit;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                source: @image-url("../assets/images/icons/download.svg");
+                colorize: download-button.has-hover ? Theme.text-primary : Theme.text-muted;
+                image-fit: contain;
+            }
+        }
     }
 }
 
@@ -194,6 +212,7 @@ component SourcesPage inherits Rectangle {
     private property <bool> ranking-open: false;
     callback play(string);
     callback play-best;
+    callback download(string);
     callback close;
     callback reload;
     callback ranking-changed(string);
@@ -218,7 +237,6 @@ component SourcesPage inherits Rectangle {
         width: root.content-width;
         height: 3.4 * root.unit;
         spacing: 0.7 * root.unit;
-        alignment: start;
 
         IconAction {
             width: 3.2 * root.unit;
@@ -368,7 +386,6 @@ component SourcesPage inherits Rectangle {
         width: root.content-width;
         height: 1.9 * root.unit;
         spacing: 0.7 * root.unit;
-        alignment: start;
 
         ToggleSwitch {
             unit: root.unit;
@@ -469,6 +486,7 @@ component SourcesPage inherits Rectangle {
                     : (stream.score > 0 ? "+" + stream.score : "" + stream.score);
                 score-details: stream.score-summary;
                 play => { root.play(stream.id); }
+                download => { root.download(stream.id); }
             }
         }
     }
@@ -1023,6 +1041,7 @@ export component DetailsPage inherits Rectangle {
         ranking-mode: root.ranking-mode;
         show-filtered: root.show-filtered;
         play(id) => { root.play-stream(id); }
+        download(id) => { root.copy-download-link(id); }
         play-best => {
             if (root.streams.length > 0) {
                 root.play-stream(root.streams[0].id);
