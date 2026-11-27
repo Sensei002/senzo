@@ -2,6 +2,26 @@
 
 This file records notable changes to SENZO relative to the initial source snapshot.
 
+## Unreleased
+
+### Sources
+
+- Desktop: Play now opens a dedicated source page with the loading ring, provider and ranking filters, seeder health, suspicious-source toggle, manual reload and Play best, matching the phone client.
+- Android: torrent playback starts from the opening pieces instead of waiting for a partial download. Piece waits include the file offset for multi-file torrents, and the tail of the file is prioritised so MP4 indexes load immediately.
+
+### Library
+
+- Desktop: the login wall is gone. Guest profiles use the local library with the same filters, sorting, progress and context menus as a signed-in account.
+
+### Addons and plugins
+
+- Desktop: every plugin repository now has Enable all and Disable all, with live enabled counts, so an All-in-One repository can be switched in one click.
+
+### Updates
+
+- Desktop: an update release is shown as a non-dismissible strip above the shell with release notes and Install now; the notes dialog reports download and install state.
+- Android: Settings has Check for updates. It reads the repository releases, matches the phone ABI, downloads the APK and hands it to the system installer, including the unknown-sources permission flow.
+- Android releases: the workflow attaches the arm64 and arm32 APKs to the published GitHub release, which is the feed the in-app check reads.
 ## 0.1.3 - 2026-11-25
 
 ### Fixes and reliability

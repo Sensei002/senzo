@@ -75,22 +75,6 @@ component SourcesPage inherits Rectangle {
     background: Theme.background;
     clip: true;
 
-    function has-provider(name: string) -> bool {
-        for candidate in root.providers {
-            if (candidate == name) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // A late addon can retire the provider the viewer filtered on. Fall back
-    // to every provider instead of showing an empty list.
-    changed providers => {
-        if (!root.has-provider(root.provider)) {
-            root.provider = "All";
-        }
-    }
 
     HorizontalLayout {
         x: 2.5 * root.unit;
