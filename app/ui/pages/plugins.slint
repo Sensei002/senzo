@@ -19,6 +19,7 @@ export struct PluginProviderCard {
     enabled: bool,
     has-settings: bool,
     settings: string,
+    testing: bool,
 }
 
 export struct PluginRepositoryCard {
@@ -29,6 +30,7 @@ export struct PluginRepositoryCard {
     enabled-count: int,
     status: string,
     status-error: bool,
+    refreshing: bool,
 }
 
 component SectionHeading inherits Rectangle {
@@ -72,6 +74,7 @@ component TinyButton inherits ButtonSurface {
     in property <length> unit: Theme.root-font-size;
     in property <string> label;
     in property <bool> danger: false;
+    in property <bool> busy: false;
 
     height: 2.1 * root.unit;
     border-radius: self.height / 2;
@@ -80,16 +83,29 @@ component TinyButton inherits ButtonSurface {
         : Theme.overlay-color;
     accessible-name: root.label;
 
-    Text {
-        width: parent.width;
-        height: parent.height;
-        text: root.label;
-        color: root.danger && root.has-hover ? Theme.background : Theme.text-primary;
-        font-size: 0.72 * root.unit;
-        font-weight: 600;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-        overflow: elide;
+    HorizontalLayout {
+        alignment: center;
+        spacing: 0.35 * root.unit;
+
+        if (root.busy) : Image {
+            width: 0.95 * root.unit;
+            height: 0.95 * root.unit;
+            source: @image-url("../assets/images/icons/rotate.svg");
+            colorize: root.danger ? Theme.background : Theme.primary-accent;
+            image-fit: contain;
+            transform-origin: { x: self.width / 2, y: self.height / 2 };
+            transform-rotation: (animation-tick() / 900ms) * 360deg;
+        }
+
+        Text {
+            text: root.label;
+            color: root.danger && root.has-hover ? Theme.background : Theme.text-primary;
+            font-size: 0.72 * root.unit;
+            font-weight: 600;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+        }
     }
 }
 
@@ -214,15 +230,19 @@ component PluginProviderRow inherits Rectangle {
             }
             Text {
                 text: root.provider.status;
-                color: root.provider.status-error ? Theme.danger : Theme.success;
+                color: root.provider.testing
+                    ? Theme.primary-accent
+                    : (root.provider.status-error ? Theme.danger : Theme.success);
                 font-size: 0.7 * root.unit;
                 vertical-alignment: center;
                 overflow: elide;
             }
             TinyButton {
                 unit: root.unit;
-                width: 4.8 * root.unit;
-                label: "Test";
+                width: 5.8 * root.unit;
+                label: root.provider.testing ? "Testing…" : "Test";
+                busy: root.provider.testing;
+                enabled: !root.provider.testing;
                 clicked => { root.tested(root.provider.id); }
             }
         }
@@ -265,8 +285,10 @@ component RepositoryRow inherits Rectangle {
             }
             TinyButton {
                 unit: root.unit;
-                width: 4.8 * root.unit;
-                label: "Refresh";
+                width: 5.8 * root.unit;
+                label: root.repository.refreshing ? "Refresh…" : "Refresh";
+                busy: root.repository.refreshing;
+                enabled: !root.repository.refreshing;
                 clicked => { root.refreshed(root.repository.url); }
             }
             TinyButton {
@@ -325,6 +347,8 @@ export component PluginsPage inherits Rectangle {
     in property <[PluginRepositoryCard]> repositories: [];
     in property <[PluginProviderCard]> providers: [];
     in property <bool> busy: false;
+    in property <bool> installing: false;
+    in property <bool> refreshing-all: false;
     in property <string> status: "";
     in property <bool> status-error: false;
     in-out property <string> repository-url: "";
@@ -501,12 +525,13 @@ export component PluginsPage inherits Rectangle {
                     horizontal-stretch: 1;
                     unit: root.unit;
                     text <=> root.repository-url;
+                    enabled: !root.installing;
                     placeholder-text: "https://raw.githubusercontent.com/owner/repo/master/repo.json";
                     accepted => { root.repository-add(root.repository-url); }
                 }
                 PillButton {
                     unit: root.unit;
-                    label: "Install Plugin Repository";
+                    label: root.installing ? "Installing…" : "Install Plugin Repository";
                     primary: true;
                     enabled: root.repository-url != "" && !root.busy;
                     clicked => { root.repository-add(root.repository-url); }
@@ -548,7 +573,7 @@ export component PluginsPage inherits Rectangle {
                 }
                 PillButton {
                     unit: root.unit;
-                    label: "Refresh all";
+                    label: root.refreshing-all ? "Refreshing…" : "Refresh all";
                     enabled: !root.busy;
                     clicked => { root.refresh-all(); }
                 }

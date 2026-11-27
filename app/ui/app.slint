@@ -471,6 +471,12 @@ export component MainWindow inherits Window {
     in-out property <bool> plugins-master-enabled: true;
     in-out property <bool> plugins-group-by-repository: false;
     in-out property <bool> plugins-busy: false;
+    in-out property <bool> plugins-installing: false;
+    in-out property <bool> plugins-refreshing-all: false;
+    // The routed page currently painted. It trails effective-active-tab by one
+    // short fade so a tab change reads as a transition instead of a hard cut.
+    in-out property <int> routed-tab: 0;
+    private property <float> route-opacity: 1;
     in-out property <string> plugins-status: "";
     in-out property <bool> plugins-status-error: false;
     in-out property <[PluginRepositoryCard]> plugin-repositories: [];
@@ -1994,8 +2000,13 @@ export component MainWindow inherits Window {
                             width: 100%;
                             vertical-stretch: 1;
                             clip: true;
+                            opacity: root.route-opacity;
+                            animate opacity {
+                                duration: 180ms;
+                                easing: cubic-bezier(0.22, 1, 0.36, 1);
+                            }
 
-                    if (root.effective-active-tab == 0) : BoardPage {
+                    if (root.routed-tab == 0) : BoardPage {
                         width: parent.width;
                         height: parent.height;
                         unit: root.console-shell-active ? root.ui-unit * 1.12 : root.ui-unit;
@@ -2047,15 +2058,15 @@ export component MainWindow inherits Window {
                         poster-requested(url) => { request-poster(url); }
                     }
 
-                    if (root.effective-active-tab == 1
-                        || root.effective-active-tab == 8
-                        || root.effective-active-tab == 9
-                        || root.effective-active-tab == 10
-                        || root.effective-active-tab == 11) : DiscoverPage {
+                    if (root.routed-tab == 1
+                        || root.routed-tab == 8
+                        || root.routed-tab == 9
+                        || root.routed-tab == 10
+                        || root.routed-tab == 11) : DiscoverPage {
                         width: parent.width;
                         height: parent.height;
                         unit: root.ui-unit;
-                        console-mode: root.console-shell-active && root.effective-active-tab == 1;
+                        console-mode: root.console-shell-active && root.routed-tab == 1;
                         rows: root.debug-preview-enabled && root.debug-preview-page == 1
                             && (root.debug-preview-state == "empty" || root.debug-preview-state == "loading")
                             ? [] : discover-rows;
@@ -2135,7 +2146,7 @@ export component MainWindow inherits Window {
                         scroll-y <=> discover-scroll-y;
                     }
 
-                    if (root.effective-active-tab == 2) : LibraryPage {
+                    if (root.routed-tab == 2) : LibraryPage {
                         width: parent.width;
                         height: parent.height;
                         unit: root.ui-unit;
@@ -2178,7 +2189,7 @@ export component MainWindow inherits Window {
                         scroll-y <=> library-scroll-y;
                     }
 
-                    if (root.effective-active-tab == 3) : AddonsPage {
+                    if (root.routed-tab == 3) : AddonsPage {
                         width: parent.width;
                         height: parent.height;
                         unit: root.ui-unit;
@@ -2244,7 +2255,7 @@ export component MainWindow inherits Window {
                         community-open-directory => { addons-community-open-directory(); }
                     }
 
-                    if (root.effective-active-tab == 12) : PluginsPage {
+                    if (root.routed-tab == 12) : PluginsPage {
                         width: parent.width;
                         height: parent.height;
                         unit: root.ui-unit;
@@ -2254,6 +2265,8 @@ export component MainWindow inherits Window {
                         repositories: root.plugin-repositories;
                         providers: root.plugin-providers;
                         busy: root.plugins-busy;
+                        installing: root.plugins-installing;
+                        refreshing-all: root.plugins-refreshing-all;
                         status: root.plugins-status;
                         status-error: root.plugins-status-error;
                         repository-url <=> root.plugins-repository-url;
@@ -2277,7 +2290,7 @@ export component MainWindow inherits Window {
                         refresh-all => { root.plugin-refresh-all(); }
                     }
 
-                    if (root.effective-active-tab == 4) : SettingsPage {
+                    if (root.routed-tab == 4) : SettingsPage {
                         width: parent.width;
                         height: parent.height;
                         unit: root.ui-unit;
@@ -2471,7 +2484,7 @@ export component MainWindow inherits Window {
                         open-theme-studio => { root.theme-studio-open = true; }
                     }
 
-                    if (root.effective-active-tab == 10) : ThemePage {
+                    if (root.routed-tab == 10) : ThemePage {
                         width: parent.width;
                         height: parent.height;
                         unit: root.ui-unit;
@@ -2493,7 +2506,7 @@ export component MainWindow inherits Window {
                         }
                     }
 
-                    if (root.effective-active-tab == 5) : CalendarPage {
+                    if (root.routed-tab == 5) : CalendarPage {
                         width: parent.width;
                         height: parent.height;
                         unit: root.ui-unit;
@@ -2516,7 +2529,7 @@ export component MainWindow inherits Window {
                         }
                     }
 
-                    if (root.effective-active-tab == 6) : SearchPage {
+                    if (root.routed-tab == 6) : SearchPage {
                         width: parent.width;
                         height: parent.height;
                         unit: root.ui-unit;
@@ -2540,7 +2553,7 @@ export component MainWindow inherits Window {
                         poster-requested(url) => { request-poster(url); }
                     }
 
-                    if (root.effective-active-tab == 7) : DownloadsPage {
+                    if (root.routed-tab == 7) : DownloadsPage {
                         width: parent.width;
                         height: parent.height;
                         unit: root.ui-unit;
@@ -3342,6 +3355,22 @@ export component MainWindow inherits Window {
         }
     }
 
+    // Fade the outgoing page to black, swap the route while it is dim, then
+    // bring the incoming page up. The 90ms handoff keeps the transition brisk
+    // enough for keyboard navigation while still removing the hard cut.
+    changed effective-active-tab => {
+        root.route-opacity = 0;
+        route-transition-timer.start();
+    }
+
+    route-transition-timer := Timer {
+        interval: 90ms;
+        running: false;
+        triggered => {
+            root.routed-tab = root.effective-active-tab;
+            root.route-opacity = 1;
+        }
+    }
 
     boot-fallback-timer := Timer {
         interval: 3.2s;

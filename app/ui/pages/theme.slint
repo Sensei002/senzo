@@ -751,6 +751,7 @@ export component ThemePage inherits Rectangle {
         Theme.active-preset-idx = root.selected-preset-idx;
         Theme.primary-accent = accent;
         Theme.accent = accent;
+        Theme.accent-hover = accent.brighter(15%);
         Theme.background = bg;
         Theme.title-bar = bg;
         Theme.secondary-background = sec_bg;
@@ -883,8 +884,8 @@ export component ThemePage inherits Rectangle {
                         icon-source: @image-url("../assets/images/icons/reset.svg");
                         outlined: true;
                         clicked => {
-                            root.selected-preset-idx = 14;
-                            root.apply-theme(#64748b, #08090b, #101216, #15181d, #2a2f38, #f7f8fa);
+                            root.selected-preset-idx = 13;
+                            root.apply-theme(#a855f7, #000000, #121212, #181818, #282828, #ffffff);
                             root.reset-theme();
                         }
                     }

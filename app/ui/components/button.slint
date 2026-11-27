@@ -39,6 +39,14 @@ export component ButtonSurface inherits Rectangle {
     }
     forward-focus: keyboard-focus;
 
+    // Shared reset curve. Every variant that paints its own surface animates
+    // over this duration so hover-in and hover-out feel like one motion
+    // instead of a highlight that snaps back when the pointer leaves.
+    animate background, border-color, opacity {
+        duration: 180ms;
+        easing: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
     @children
 
     pointer-area := TouchArea {
@@ -153,13 +161,13 @@ export component PillButton inherits ButtonSurface {
         ? Theme.primary-accent.with-alpha(0.28)
         : #00000066;
 
-    animate background, border-color, opacity {
+    animate background, border-color, border-width, opacity {
         duration: Theme.motion-control;
-        easing: ease-out;
+        easing: cubic-bezier(0.22, 1, 0.36, 1);
     }
     animate drop-shadow-blur, drop-shadow-offset-y {
-        duration: Theme.motion-console;
-        easing: ease-out;
+        duration: 260ms;
+        easing: cubic-bezier(0.22, 1, 0.36, 1);
     }
 
     HorizontalLayout {
@@ -238,8 +246,8 @@ export component MenuButton inherits ButtonSurface {
     accessible-name: root.label;
 
     animate background, opacity {
-        duration: Theme.motion-control;
-        easing: ease-out;
+        duration: 180ms;
+        easing: cubic-bezier(0.22, 1, 0.36, 1);
     }
 
     HorizontalLayout {
@@ -307,6 +315,11 @@ export component ChevronTextButton inherits ButtonSurface {
     border-radius: root.height / 2;
     background: root.has-hover || root.has-focus ? Theme.overlay-color : transparent;
     accessible-name: root.label;
+
+    animate background {
+        duration: 180ms;
+        easing: cubic-bezier(0.22, 1, 0.36, 1);
+    }
 
     HorizontalLayout {
         padding: 0.5 * root.unit;
@@ -376,7 +389,10 @@ export component IconAction inherits ButtonSurface {
         : (root.has-hover ? root.hover-color : root.surface-color);
     accessible-name: root.label == "" ? @tr("Action" => "Action") : root.label;
 
-    animate background { duration: Theme.motion-fast; }
+    animate background {
+        duration: 180ms;
+        easing: cubic-bezier(0.22, 1, 0.36, 1);
+    }
 
     HorizontalLayout {
         padding-left: root.wide ? 1.5 * root.unit : root.unit;
@@ -443,6 +459,10 @@ export component IconActionPair inherits Rectangle {
             accessible-name: root.first-accessible-name;
             background: root.first-active ? root.active-color
                 : (self.has-hover ? Theme.overlay-hover : transparent);
+            animate background {
+                duration: 180ms;
+                easing: cubic-bezier(0.22, 1, 0.36, 1);
+            }
             clicked => { root.first-clicked(); }
 
             Image {
@@ -465,6 +485,10 @@ export component IconActionPair inherits Rectangle {
             accessible-name: root.second-accessible-name;
             background: root.second-active ? root.active-color
                 : (self.has-hover ? Theme.overlay-hover : transparent);
+            animate background {
+                duration: 180ms;
+                easing: cubic-bezier(0.22, 1, 0.36, 1);
+            }
             clicked => { root.second-clicked(); }
 
             Image {

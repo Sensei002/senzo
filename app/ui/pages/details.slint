@@ -421,12 +421,17 @@ component SourcesPage inherits Rectangle {
         spacing: 1.1 * root.unit;
 
         if (root.busy) : Rectangle {
-            width: 3 * root.unit;
+            // A fixed-width child of a VerticalLayout defaults to its start
+            // edge. Take the full row so the icon can center itself under the
+            // loading copy instead of spinning at the far left.
+            width: 100%;
             height: 3 * root.unit;
+            background: transparent;
 
             Image {
-                width: parent.width;
-                height: parent.height;
+                width: 3 * root.unit;
+                height: 3 * root.unit;
+                x: (parent.width - self.width) / 2;
                 source: @image-url("../assets/images/icons/rotate.svg");
                 colorize: Theme.primary-accent;
                 image-fit: contain;

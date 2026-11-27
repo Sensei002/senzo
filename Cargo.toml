@@ -72,6 +72,12 @@ minidump-writer = "0.13.0"
 minidumper = "0.11.0"
 turso = { version = "0.7.2", default-features = false }
 
+[patch."https://github.com/stremio-native/stream-server.git"]
+# Upstream gates the first torrent byte on up to four verified pieces. SENZO
+# starts after the first piece so playback opens at a few percent instead of a
+# third of the bar. See vendor/enginefs/PATCHES.md.
+enginefs = { path = "vendor/enginefs" }
+
 [patch.crates-io]
 # Slint 1.17 asks glutin for OpenGL without a version, which glutin maps to
 # exactly 3.3. Keep Slint's public unversioned policy while negotiating the
