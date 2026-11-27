@@ -37,23 +37,40 @@ export component BootScreen inherits Rectangle {
         alignment: center;
         spacing: 1.8 * root.unit;
 
-        Image {
-            width: 15 * root.unit;
+        // Fixed-size children of a vertical layout sit at its start edge unless
+        // they own a full-width row. Keep the mark and spinner centered under
+        // the bloom instead of pinning them to the left of the window.
+        Rectangle {
+            width: 100%;
             height: 6 * root.unit;
-            source: @image-url("../assets/images/senzo-logo.png");
-            image-fit: contain;
-            opacity: 0.96;
+            background: transparent;
+
+            Image {
+                width: 15 * root.unit;
+                height: 6 * root.unit;
+                x: (parent.width - self.width) / 2;
+                source: @image-url("../assets/images/senzo-logo.png");
+                image-fit: contain;
+                opacity: 0.96;
+            }
         }
 
-        Image {
-            width: 4.2 * root.unit;
+        Rectangle {
+            width: 100%;
             height: 4.2 * root.unit;
-            source: @image-url("../assets/images/icons/spinner-ring.svg");
-            colorize: Theme.primary-accent;
-            image-fit: contain;
-            transform-origin: { x: self.width / 2, y: self.height / 2 };
-            transform-rotation: root.spin-angle;
-            opacity: 0.95;
+            background: transparent;
+
+            Image {
+                width: 4.2 * root.unit;
+                height: 4.2 * root.unit;
+                x: (parent.width - self.width) / 2;
+                source: @image-url("../assets/images/icons/spinner-ring.svg");
+                colorize: Theme.primary-accent;
+                image-fit: contain;
+                transform-origin: { x: self.width / 2, y: self.height / 2 };
+                transform-rotation: root.spin-angle;
+                opacity: 0.95;
+            }
         }
 
         Text {
