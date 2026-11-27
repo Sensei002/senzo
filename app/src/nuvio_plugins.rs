@@ -713,6 +713,13 @@ impl NuvioPlugins {
                     .iter()
                     .filter(|provider| provider.repository_url == repository.manifest_url)
                     .count();
+                let enabled_count = config
+                    .providers
+                    .iter()
+                    .filter(|provider| {
+                        provider.repository_url == repository.manifest_url && provider.enabled
+                    })
+                    .count();
                 let (message, error) = status
                     .get(&repository.manifest_url)
                     .cloned()
@@ -726,6 +733,7 @@ impl NuvioPlugins {
                         repository.version.clone().into()
                     },
                     provider_count: i32::try_from(provider_count).unwrap_or(i32::MAX),
+                    enabled_count: i32::try_from(enabled_count).unwrap_or(i32::MAX),
                     status: message.into(),
                     status_error: error,
                 }
@@ -1094,6 +1102,50 @@ impl NuvioPlugins {
         let mut config = self.config();
         config.group_by_repository = grouped;
         self.replace_config(config);
+        self.project();
+    }
+
+    /// Enable or disable every provider a repository publishes, which is the
+    /// one-click path for repositories that ship dozens of scrapers.
+    fn set_repository_enabled(&self, manifest_url: &str, enabled: bool) {
+        let mut config = self.config();
+        let mut changed = 0usize;
+        let mut blocked = 0usize;
+        for provider in &mut config.providers {
+            if provider.repository_url != manifest_url {
+                continue;
+            }
+            if enabled && !provider.manifest_enabled {
+                blocked += 1;
+                continue;
+            }
+            if provider.enabled != enabled {
+                provider.enabled = enabled;
+                changed += 1;
+            }
+        }
+        if changed == 0 {
+            let message = if blocked > 0 {
+                "That repository does not allow its providers to be enabled."
+            } else if enabled {
+                "Every provider in that repository is already enabled."
+            } else {
+                "Every provider in that repository is already disabled."
+            };
+            self.set_message(message, blocked > 0);
+            self.project();
+            return;
+        }
+        self.invalidate_results();
+        self.replace_config(config);
+        self.set_message(
+            if enabled {
+                "All providers in that repository enabled."
+            } else {
+                "All providers in that repository disabled."
+            },
+            false,
+        );
         self.project();
     }
 
@@ -1731,6 +1783,10 @@ pub fn setup(
     ui.on_plugin_repository_remove({
         let manager = manager.clone();
         move |url| manager.remove_repository(url.as_str())
+    });
+    ui.on_plugin_repository_enabled({
+        let manager = manager.clone();
+        move |url, enabled| manager.set_repository_enabled(url.as_str(), enabled)
     });
     ui.on_plugin_provider_toggled({
         let manager = manager.clone();

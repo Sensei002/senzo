@@ -562,6 +562,35 @@ fn reload_stream_for_video(rt: &Arc<Runtime<DesktopEnv, AppModel>>, video_id: St
     }
 }
 
+
+/// Re-requests the streams for whatever the details page currently shows.
+/// The dedicated source page calls this from its reload button; a movie has
+/// no explicit video, so that path reloads the metadata route that owns the
+/// guessed stream selection.
+pub fn reload_current_streams(rt: &Arc<Runtime<DesktopEnv, AppModel>>) {
+    let model = rt.model().expect("model read failed");
+    let selected = model.meta_details.selected.clone();
+    drop(model);
+    let Some(selected) = selected else {
+        return;
+    };
+    let video_id = selected
+        .stream_path
+        .as_ref()
+        .map(|path| path.id.clone())
+        .filter(|id| !id.is_empty());
+    match video_id {
+        Some(video_id) => reload_stream_for_video(rt, video_id),
+        None => rt.dispatch(RuntimeAction {
+            field: None,
+            action: Action::Load(ActionLoad::MetaDetails(details_selection(
+                selected.meta_path,
+                None,
+            ))),
+        }),
+    }
+}
+
 pub(crate) fn ordered_series_seasons(meta: &MetaItem) -> Vec<i32> {
     let mut seasons = meta
         .videos

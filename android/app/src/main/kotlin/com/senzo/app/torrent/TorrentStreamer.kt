@@ -321,6 +321,15 @@ class TorrentStreamer(private val cacheDir: File) {
         val first = (fileOffset / pieceLength).toInt()
         val last = ((fileOffset + fileSize - 1) / pieceLength).toInt()
         runCatching { torrent.setSequentialRange(first, last) }
+        // MP4 and MOV files often keep the index that unlocks the file at the
+        // end. Pull that tail in parallel with the opening pieces so the
+        // player can read the index immediately instead of waiting for a
+        // sequential download to reach the last megabyte.
+        val tailStart = (((fileOffset + fileSize - TAIL_READAHEAD_BYTES).coerceAtLeast(fileOffset)) / pieceLength).toInt()
+        val tailEnd = ((fileOffset + fileSize - 1) / pieceLength).toInt()
+        for (piece in tailStart..tailEnd) {
+            runCatching { torrent.setPieceDeadline(piece, 1_500) }
+        }
     }
 
     /** Updates the label the catalog shows while the torrent is open. */
@@ -438,8 +447,14 @@ class TorrentStreamer(private val cacheDir: File) {
      */
     private fun awaitRange(start: Long, end: Long): Boolean {
         val torrent = handle ?: return false
-        val first = (start / pieceLength).toInt()
-        val last = (end / pieceLength).toInt()
+        // Byte offsets are relative to this file, but pieces are counted from
+        // the start of the torrent. Ignoring the offset made every wait target
+        // the wrong pieces in multi-file torrents, which is why playback only
+        // began after the download had already run for a while.
+        val absoluteStart = fileOffset + start
+        val absoluteEnd = fileOffset + end
+        val first = (absoluteStart / pieceLength).toInt()
+        val last = (absoluteEnd / pieceLength).toInt()
         val deadline = System.currentTimeMillis() + RANGE_SECONDS * 1_000
         while (!stopped && System.currentTimeMillis() < deadline) {
             if (piecesReady(torrent, first, last)) return true
@@ -533,6 +548,8 @@ class TorrentStreamer(private val cacheDir: File) {
     private companion object {
         const val METADATA_SECONDS = 60
         const val PREBUFFER_SECONDS = 90
+        // End of file read-ahead for containers whose index sits at the tail.
+        const val TAIL_READAHEAD_BYTES = 2L * 1024 * 1024
         const val RANGE_SECONDS = 90
         val TRACKERS = listOf(
             "udp://tracker.opentrackr.org:1337/announce",

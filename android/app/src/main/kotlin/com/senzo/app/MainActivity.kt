@@ -271,6 +271,12 @@ private fun MainShell(state: UiState, viewModel: MainViewModel) {
                     onClearSearches = viewModel::clearRecentSearches,
                     onClearTorrents = viewModel::clearTorrentCache,
                     onSignOut = viewModel::signOut,
+                    update = state.update,
+                    updateDownloading = state.updateDownloading,
+                    updateProgress = state.updateProgress,
+                    onCheckUpdates = viewModel::checkUpdates,
+                    onInstallUpdate = viewModel::installUpdate,
+                    onDismissUpdate = viewModel::dismissUpdate,
                 )
             }
         }

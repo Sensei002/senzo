@@ -26,6 +26,7 @@ export struct PluginRepositoryCard {
     name: string,
     version: string,
     provider-count: int,
+    enabled-count: int,
     status: string,
     status-error: bool,
 }
@@ -234,8 +235,9 @@ component RepositoryRow inherits Rectangle {
 
     callback refreshed(string);
     callback removed(string);
+    callback enabled-all(string, bool);
 
-    height: 7.2 * root.unit;
+    height: 9.5 * root.unit;
     border-radius: Theme.border-radius;
     background: Theme.card-background;
     border-width: 1px;
@@ -284,10 +286,33 @@ component RepositoryRow inherits Rectangle {
         }
 
         Text {
-            text: root.repository.provider-count + " providers  ·  " + root.repository.status;
+            text: root.repository.enabled-count + " of " + root.repository.provider-count
+                + " enabled  ·  " + root.repository.status;
             color: root.repository.status-error ? Theme.danger : Theme.text-secondary;
             font-size: 0.72 * root.unit;
             overflow: elide;
+        }
+
+        HorizontalLayout {
+            spacing: 0.5 * root.unit;
+
+            TinyButton {
+                unit: root.unit;
+                width: 5.4 * root.unit;
+                label: "Enable all";
+                enabled: root.repository.enabled-count < root.repository.provider-count;
+                clicked => { root.enabled-all(root.repository.url, true); }
+            }
+
+            TinyButton {
+                unit: root.unit;
+                width: 5.4 * root.unit;
+                label: "Disable all";
+                enabled: root.repository.enabled-count > 0;
+                clicked => { root.enabled-all(root.repository.url, false); }
+            }
+
+            Rectangle { horizontal-stretch: 1; }
         }
     }
 }
@@ -330,6 +355,7 @@ export component PluginsPage inherits Rectangle {
     callback repository-add(string);
     callback repository-refresh(string);
     callback repository-remove(string);
+    callback repository-enabled(string, bool);
     callback provider-toggled(string, bool);
     callback provider-tested(string);
     callback provider-settings-saved(string, string);
@@ -506,6 +532,7 @@ export component PluginsPage inherits Rectangle {
                 repository: repository;
                 refreshed(url) => { root.repository-refresh(url); }
                 removed(url) => { root.repository-remove(url); }
+                enabled-all(url, enabled) => { root.repository-enabled(url, enabled); }
             }
 
             HorizontalLayout {

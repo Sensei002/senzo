@@ -187,19 +187,31 @@ export component StreamRow inherits Rectangle {
             }
         }
 
-        if (root.seeders > 0) : Rectangle {
+        // Seeders decide whether a torrent starts at all, so the pill stays
+        // visible at zero and warns when the swarm is too thin to be instant.
+        if (root.source-system != "" && root.source-system != "Direct") : Rectangle {
             width: 5.4 * root.unit;
             height: 2.05 * root.unit;
             border-radius: self.height / 2;
-            background: Theme.success.with-alpha(0.14);
+            background: root.seeders == 0
+                ? Theme.danger.with-alpha(0.14)
+                : (root.seeders < 25
+                    ? Theme.warning.with-alpha(0.14)
+                    : Theme.success.with-alpha(0.14));
             border-width: 1px;
-            border-color: Theme.success.with-alpha(0.28);
+            border-color: root.seeders == 0
+                ? Theme.danger.with-alpha(0.28)
+                : (root.seeders < 25
+                    ? Theme.warning.with-alpha(0.28)
+                    : Theme.success.with-alpha(0.28));
 
             Text {
                 width: parent.width;
                 height: parent.height;
                 text: "👤 " + root.seeders;
-                color: Theme.success;
+                color: root.seeders == 0
+                    ? Theme.danger
+                    : (root.seeders < 25 ? Theme.warning : Theme.success);
                 font-size: 0.76 * root.unit;
                 font-weight: 700;
                 horizontal-alignment: center;

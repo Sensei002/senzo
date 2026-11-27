@@ -5,11 +5,18 @@ name: SENZO Android build
 
 on:
   workflow_dispatch:
+  # A published release also ships the phone build, which is what the
+  # in-app update check looks for.
+  release:
+    types: [published]
   push:
     branches: ["development"]
     paths:
       - "android/**"
       - ".github/workflows/android.yml"
+
+permissions:
+  contents: write
 
 concurrency:
   group: senzo-android-${{ github.ref }}
@@ -105,10 +112,12 @@ jobs:
           apk=$(ls android/app/build/outputs/apk/release/*arm64-v8a*.apk | head -n 1)
           # The run number keeps downloads from overwriting each other and
           # matches the versionCode the APK was built with.
-          cp "$apk" "dist/senzo-${GITHUB_REF_NAME}-r${GITHUB_RUN_NUMBER}.apk"
+          # The ABI in the file name is how the in-app updater picks the
+          # build that matches the phone.
+          cp "$apk" "dist/senzo-${GITHUB_REF_NAME}-r${GITHUB_RUN_NUMBER}-arm64-v8a.apk"
           v7a=$(ls android/app/build/outputs/apk/release/*armeabi-v7a*.apk 2>/dev/null | head -n 1 || true)
           if [ -n "$v7a" ]; then
-            cp "$v7a" "dist/senzo-${GITHUB_REF_NAME}-r${GITHUB_RUN_NUMBER}-arm32.apk"
+            cp "$v7a" "dist/senzo-${GITHUB_REF_NAME}-r${GITHUB_RUN_NUMBER}-armeabi-v7a.apk"
           fi
           ls -l dist
       - uses: actions/upload-artifact@v7
@@ -116,6 +125,14 @@ jobs:
           name: senzo-android-apk
           path: dist/*.apk
           if-no-files-found: error
+      # The update check in Settings reads these assets from the release.
+      - name: Attach the phone build to the release
+        if: github.event_name == 'release' && !github.event.release.draft
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: dist/*.apk
+          fail_on_unmatched_files: false
       # Kept so a stack trace from a release build can be retraced to real names.
       - uses: actions/upload-artifact@v7
         if: ${{ hashFiles('android/app/build/outputs/mapping/release/mapping.txt') != '' }}

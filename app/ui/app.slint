@@ -201,7 +201,6 @@ export component MainWindow inherits Window {
     callback hotkey-reset();
     in-out property <bool> shortcuts-modal-open: false;
     in-out property <bool> gamepad-modal-open: false;
-    in-out property <bool> updater-banner-dismissed: false;
     in-out property <bool> event-modal-open: false;
     in-out property <string> event-modal-id: "";
     in-out property <string> event-modal-title: "";
@@ -582,6 +581,7 @@ export component MainWindow inherits Window {
     callback details-share-social(string, string);
     callback details-ranking-mode-changed(string);
     callback details-show-filtered-changed(bool);
+    callback details-reload-sources();
 
     // Player Page parameters
     in property <bool> show-player: false;
@@ -1017,6 +1017,7 @@ export component MainWindow inherits Window {
     callback plugin-repository-add(string);
     callback plugin-repository-refresh(string);
     callback plugin-repository-remove(string);
+    callback plugin-repository-enabled(string, bool);
     callback plugin-provider-filter-changed(string);
     callback plugin-provider-query-changed(string);
     callback plugin-repository-filter-changed(string);
@@ -1843,41 +1844,79 @@ export component MainWindow inherits Window {
 
             }
 
-            if (root.settings-update-state == 2 && !root.updater-banner-dismissed) : Rectangle {
-                height: 4 * root.ui-unit;
+            // A release is never a toast that can be missed: the strip stays
+            // above the shell until the new build is installed, and the dialog
+            // holds the release notes for anyone who wants them first.
+            if (root.settings-update-state == 2) : Rectangle {
+                height: 4.5 * root.ui-unit;
                 background: Theme.accent;
                 z: 90;
 
                 HorizontalLayout {
-                    padding-left: root.ui-unit;
-                    padding-right: root.ui-unit;
-                    spacing: root.ui-unit;
+                    padding-left: 1.25 * root.ui-unit;
+                    padding-right: 1.25 * root.ui-unit;
+                    spacing: 0.9 * root.ui-unit;
                     alignment: center;
 
-                    Rectangle { horizontal-stretch: 1; background: transparent; }
-                    Text {
-                        text: @tr("UPDATER_TITLE" => "A new version of SENZO is available");
-                        color: Theme.background;
-                        font-size: root.ui-unit;
-                        font-weight: 700;
-                        vertical-alignment: center;
+                    Rectangle {
+                        width: 2.7 * root.ui-unit;
+                        height: 2.7 * root.ui-unit;
+                        border-radius: 0.85 * root.ui-unit;
+                        background: Theme.background.with-alpha(0.14);
+
+                        Image {
+                            width: 1.55 * root.ui-unit;
+                            height: 1.55 * root.ui-unit;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            source: @image-url("assets/images/icons/download.svg");
+                            colorize: Theme.background;
+                        }
                     }
+
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 0.1 * root.ui-unit;
+
+                        Text {
+                            text: @tr("Update available");
+                            color: Theme.background;
+                            font-size: root.ui-unit;
+                            font-weight: 800;
+                        }
+
+                        Text {
+                            text: @tr("SENZO v{} is ready to install", root.settings-update-version);
+                            color: Theme.background.with-alpha(0.78);
+                            font-size: 0.78 * root.ui-unit;
+                        }
+                    }
+
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+
                     PillButton {
-                        height: 2.5 * root.ui-unit;
+                        height: 2.6 * root.ui-unit;
                         unit: root.ui-unit;
-                        label: @tr("UPDATER_INSTALL_BUTTON" => "Install");
-                        surface-color: Theme.text-primary;
-                        accent-color: Theme.background;
-                        clicked => { root.update-install(); }
+                        label: @tr("Release notes");
+                        outlined: true;
+                        surface-color: transparent;
+                        foreground-color: Theme.background;
+                        hover-color: Theme.background.with-alpha(0.14);
+                        hover-foreground-color: Theme.background;
+                        outline-color: Theme.background.with-alpha(0.45);
+                        hover-outline-color: Theme.background.with-alpha(0.7);
+                        clicked => { root.update-dialog-open = true; }
                     }
-                    Rectangle { horizontal-stretch: 1; background: transparent; }
-                    IconAction {
-                        width: 3 * root.ui-unit;
-                        height: 3 * root.ui-unit;
+
+                    PillButton {
+                        height: 2.6 * root.ui-unit;
                         unit: root.ui-unit;
-                        icon-source: @image-url("assets/images/icons/close.svg");
-                        accessible-name: @tr("BUTTON_CLOSE" => "Close");
-                        clicked => { root.updater-banner-dismissed = true; }
+                        label: @tr("Install now");
+                        surface-color: Theme.background;
+                        foreground-color: Theme.accent;
+                        hover-color: Theme.text-primary;
+                        hover-foreground-color: Theme.background;
+                        clicked => { root.update-install(); }
                     }
                 }
             }
@@ -2230,6 +2269,7 @@ export component MainWindow inherits Window {
                         repository-add(url) => { root.plugin-repository-add(url); }
                         repository-refresh(url) => { root.plugin-repository-refresh(url); }
                         repository-remove(url) => { root.plugin-repository-remove(url); }
+                        repository-enabled(url, enabled) => { root.plugin-repository-enabled(url, enabled); }
                         provider-toggled(id, enabled) => { root.plugin-provider-toggled(id, enabled); }
                         provider-tested(id) => { root.plugin-provider-tested(id); }
                         provider-settings-saved(id, settings) => { root.plugin-provider-settings-saved(id, settings); }
@@ -2672,6 +2712,7 @@ export component MainWindow inherits Window {
             share-social(platform, url) => { details-share-social(platform, url); }
             ranking-mode-changed(mode) => { details-ranking-mode-changed(mode); }
             show-filtered-changed(show) => { details-show-filtered-changed(show); }
+            reload-sources => { details-reload-sources(); }
             play-stream(selection-id) => { play-stream(selection-id); }
             toggle-fullscreen => { root.player-toggle-fullscreen(); }
             close => {

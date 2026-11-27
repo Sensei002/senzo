@@ -28,6 +28,10 @@ import com.senzo.app.plugins.PluginStream
 import com.senzo.app.plugins.ProviderRequest
 import com.senzo.app.torrent.TorrentCache
 import com.senzo.app.torrent.TorrentStreamer
+import com.senzo.app.update.UpdateInfo
+import com.senzo.app.update.UpdateInstaller
+import com.senzo.app.update.UpdateState
+import com.senzo.app.update.Updater
 
 /** The five places the bottom bar can take the viewer. */
 enum class Tab { Home, Search, Library, Addons, Settings }
@@ -101,6 +105,10 @@ data class UiState(
     val communityInstalling: String? = null,
     /** Plugin repositories, providers, and the last plugin error. */
     val plugins: PluginUiState = PluginUiState(),
+    /** Release check shown on the settings page. */
+    val update: UpdateState = UpdateState.Idle,
+    val updateDownloading: Boolean = false,
+    val updateProgress: Int = 0,
 ) {
     /** Addons the viewer has not switched off, in their chosen order. */
     val enabledAddons: List<AddonDescriptor>
@@ -718,6 +726,88 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissPluginError() {
         _state.update { current -> current.copy(plugins = current.plugins.copy(error = null)) }
+    }
+
+    /** Asks GitHub for a release newer than the installed build. */
+    fun checkUpdates() {
+        if (_state.value.update == UpdateState.Checking) return
+        _state.update { current -> current.copy(update = UpdateState.Checking) }
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { Updater.check(BuildConfig.VERSION_NAME) }
+            _state.update { current ->
+                when (result) {
+                    UpdateState.UpToDate -> current.copy(
+                        update = UpdateState.Idle,
+                        message = "SENZO is up to date (" + BuildConfig.VERSION_NAME + ").",
+                    )
+                    is UpdateState.Failed -> current.copy(
+                        update = UpdateState.Idle,
+                        message = "Update check failed: " + result.message,
+                    )
+                    else -> current.copy(update = result)
+                }
+            }
+        }
+    }
+
+    fun dismissUpdate() {
+        _state.update { current -> current.copy(update = UpdateState.Idle) }
+    }
+
+    /**
+     * Downloads the release APK in the background and opens the system
+     * installer once the whole file is on disk. The system keeps the final
+     * confirmation, so a sideloaded build never replaces itself silently.
+     */
+    fun installUpdate(info: UpdateInfo) {
+        val app = getApplication<Application>()
+        if (info.apkUrl == null) {
+            UpdateInstaller.openPage(app, info.pageUrl)
+            return
+        }
+        if (!UpdateInstaller.canInstall(app)) {
+            UpdateInstaller.requestInstallPermission(app)
+            _state.update { current ->
+                current.copy(
+                    message = "Allow installs from SENZO, then tap Download & install again.",
+                )
+            }
+            return
+        }
+        if (_state.value.updateDownloading) return
+        viewModelScope.launch {
+            _state.update { current ->
+                current.copy(updateDownloading = true, updateProgress = 0)
+            }
+            val file = withContext(Dispatchers.IO) {
+                runCatching {
+                    UpdateInstaller.download(app, info) { progress ->
+                        _state.update { current -> current.copy(updateProgress = progress) }
+                    }
+                }.getOrNull()
+            }
+            _state.update { current -> current.copy(updateDownloading = false) }
+            if (file == null) {
+                _state.update { current ->
+                    current.copy(
+                        update = UpdateState.Idle,
+                        message = "Could not download the update. Try again later.",
+                    )
+                }
+                return@launch
+            }
+            val opened = UpdateInstaller.install(app, file)
+            _state.update { current ->
+                if (opened) {
+                    current.copy(
+                        update = UpdateState.Idle,
+                        message = "Installer opened. Confirm the update to finish.",
+                    )
+                } else {
+                    current.copy(message = "Could not open the package installer.")
+                }
+            }
+        }
     }
 
     private fun setPluginError(message: String) {

@@ -76,6 +76,14 @@ pub fn setup_ui_callbacks(
         }
     });
 
+    // Dedicated source page reload button.
+    ui.on_details_reload_sources({
+        let runtime = runtime.clone();
+        move || {
+            crate::models::details::reload_current_streams(&runtime);
+        }
+    });
+
     // Play stream action
     ui.on_play_stream({
         let ui_weak = ui_weak.clone();

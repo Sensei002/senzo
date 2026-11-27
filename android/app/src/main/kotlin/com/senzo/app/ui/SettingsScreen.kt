@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -40,6 +41,8 @@ import androidx.compose.ui.unit.dp
 import com.senzo.app.AppSettings
 import com.senzo.app.BuildConfig
 import com.senzo.app.Session
+import com.senzo.app.update.UpdateInfo
+import com.senzo.app.update.UpdateState
 
 /** Account, playback preferences, saved data and the build information. */
 @Composable
@@ -55,6 +58,12 @@ fun SettingsScreen(
     onClearSearches: () -> Unit,
     onClearTorrents: () -> Unit,
     onSignOut: () -> Unit,
+    update: UpdateState,
+    updateDownloading: Boolean,
+    updateProgress: Int,
+    onCheckUpdates: () -> Unit,
+    onInstallUpdate: (UpdateInfo) -> Unit,
+    onDismissUpdate: () -> Unit,
 ) {
     var confirmSignOut by remember { mutableStateOf(false) }
     // A guest profile is local to this device; the account card says so
@@ -259,6 +268,52 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = TextDim,
             )
+            Spacer(Modifier.height(10.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(SurfaceHigh)
+                    .clickable(
+                        enabled = update !is UpdateState.Checking && !updateDownloading,
+                        onClick = onCheckUpdates,
+                    )
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = when {
+                        updateDownloading -> "Downloading update…"
+                        update is UpdateState.Checking -> "Checking for updates…"
+                        else -> "Check for updates"
+                    },
+                    style = MaterialTheme.typography.titleSmall,
+                    color = TextPrimary,
+                    modifier = Modifier.weight(1f),
+                )
+                if (updateDownloading) {
+                    Text(
+                        text = "$updateProgress%",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Accent,
+                    )
+                } else {
+                    Text(
+                        text = "LATEST",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextDim,
+                    )
+                }
+            }
+            if (updateDownloading) {
+                Spacer(Modifier.height(8.dp))
+                LinearProgressIndicator(
+                    progress = { updateProgress / 100f },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Accent,
+                    trackColor = Outline,
+                )
+            }
             Spacer(Modifier.height(8.dp))
             Text(
                 text = "The mobile client of the same addon-driven library the desktop app shows. No account data leaves the addons you installed.",
@@ -266,6 +321,57 @@ fun SettingsScreen(
                 color = TextMuted,
             )
         }
+    }
+
+    val availableUpdate = update as? UpdateState.Available
+    if (availableUpdate != null) {
+        val info = availableUpdate.info
+        AlertDialog(
+            onDismissRequest = onDismissUpdate,
+            containerColor = Surface,
+            title = {
+                Text(
+                    text = "Update " + info.version + " available",
+                    color = TextPrimary,
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = info.notes.ifBlank {
+                            "A newer SENZO build is available for this device."
+                        }.take(1400),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextMuted,
+                    )
+                    if (updateDownloading) {
+                        Spacer(Modifier.height(12.dp))
+                        LinearProgressIndicator(
+                            progress = { updateProgress / 100f },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Accent,
+                            trackColor = Outline,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { onInstallUpdate(info) },
+                    enabled = !updateDownloading,
+                ) {
+                    Text(
+                        text = if (info.apkUrl == null) "Open release page" else "Download & install",
+                        color = Accent,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissUpdate, enabled = !updateDownloading) {
+                    Text("Later", color = TextDim)
+                }
+            },
+        )
     }
 
     if (confirmSignOut) {
