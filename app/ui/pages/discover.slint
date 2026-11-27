@@ -53,11 +53,6 @@ export component DiscoverPage inherits Rectangle {
     in property <bool> preview-is-watched: false;
     in property <bool> preview-has-trailer: false;
     in property <string> preview-trailer-selection-id: "";
-    in property <bool> enable-hover-preview: false;
-    in property <duration> hover-preview-delay: 1200ms;
-
-    callback hover-preview-requested(string, string, length, length, length, length);
-    callback hover-preview-dismissed();
     callback type-changed(string);
     callback catalog-changed(string);
     callback genre-changed(string);
@@ -290,8 +285,6 @@ export component DiscoverPage inherits Rectangle {
                         card-width: root.card-width;
                         card-height: root.card-height;
                         spacing: 0.5 * root.unit;
-                        enable-hover-preview: root.enable-hover-preview;
-                        hover-preview-delay: root.hover-preview-delay;
                         item-selected(id, media-type, video-id) => {
                             root.item-selected(id, media-type, video-id);
                         }
@@ -299,10 +292,6 @@ export component DiscoverPage inherits Rectangle {
                             root.item-activated(id, media-type, video-id);
                         }
                         poster-requested(url) => { root.poster-requested(url); }
-                        hover-preview-requested(id, media-type, x, y, width, height) => {
-                            root.hover-preview-requested(id, media-type, x, y, width, height);
-                        }
-                        hover-preview-dismissed => { root.hover-preview-dismissed(); }
                     }
                 }
             }

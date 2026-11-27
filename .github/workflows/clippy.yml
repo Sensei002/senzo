@@ -86,4 +86,25 @@ jobs:
       # losing the runner after ~40 minutes. This scope still covers all
       # shipped application code while keeping the required check reliable.
       - name: Run Clippy
-        run: cargo clippy --workspace --lib --bins --locked --keep-going --message-format=short -- -D warnings
+        # Surface compiler and lint diagnostics as check-run annotations. The
+        # job log needs a token to download, but annotations are public, so a
+        # failure stays diagnosable from any client.
+        run: |
+          set +e
+          set -o pipefail
+          # CARGO_TERM_COLOR puts ANSI escapes inside the words themselves, so
+          # strip them before matching or every diagnostic is invisible.
+          cargo clippy --workspace --lib --bins --locked --keep-going --message-format=short -- -D warnings 2>&1 \
+            | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' \
+            | tee clippy.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            if grep -qE 'error(\[[A-Za-z0-9]+\])?:' clippy.log; then
+              grep -E 'error(\[[A-Za-z0-9]+\])?:' clippy.log | head -n 60
+            else
+              tail -n 40 clippy.log
+            fi | sed 's/%/%25/g; s/\r//g' | while IFS= read -r line; do
+              echo "::error title=Clippy::$line"
+            done
+          fi
+          exit "$status"

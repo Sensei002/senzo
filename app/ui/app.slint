@@ -24,7 +24,6 @@ import { SharePrompt } from "components/share_prompt.slint";
 import { ColorInput, ColorPicker } from "components/color_input.slint";
 import { ColorUtils, ParsedColor, CursorSample, SavedGradient } from "components/color_utils.slint";
 import { SeeAllButton, MetaRow, MetaRowPlaceholder } from "components/meta_row.slint";
-import { TrailerHoverPopup } from "components/trailer_popup.slint";
 import { MetaActionButton, MetaLinkChip, MetaLinks, MetaPreview, MetaPreviewPlaceholder } from "components/meta_preview.slint";
 import { AuthPage } from "pages/auth.slint";
 import { BoardPage, BoardSection } from "pages/board.slint";
@@ -202,7 +201,6 @@ export component MainWindow inherits Window {
     callback hotkey-reset();
     in-out property <bool> shortcuts-modal-open: false;
     in-out property <bool> gamepad-modal-open: false;
-    in-out property <bool> updater-banner-dismissed: false;
     in-out property <bool> event-modal-open: false;
     in-out property <string> event-modal-id: "";
     in-out property <string> event-modal-title: "";
@@ -478,6 +476,11 @@ export component MainWindow inherits Window {
     in-out property <[PluginRepositoryCard]> plugin-repositories: [];
     in-out property <[PluginProviderCard]> plugin-providers: [];
     in-out property <string> plugins-repository-url: "";
+    in-out property <string> plugins-provider-filter: "All";
+    in-out property <string> plugins-provider-query: "";
+    in-out property <[string]> plugins-repository-filters: ["All repositories"];
+    in-out property <string> plugins-repository-filter: "All repositories";
+    in property <int> plugin-provider-total: 0;
     in-out property <[StreamLink]> stream-links: [];
     in-out property <[string]> detail-stream-providers: ["All"];
     in-out property <int> detail-stream-loading-count: 0;
@@ -524,103 +527,6 @@ export component MainWindow inherits Window {
     in-out property <image> discover-preview-poster;
     in-out property <string> discover-preview-poster-url: "";
 
-    // Hover trailer preview popup. The backend owns everything except the
-    // anchor geometry, which only the hovered card knows.
-    in-out property <bool> hover-preview-enabled: false;
-    in-out property <int> hover-preview-delay-ms: 1200;
-    private property <bool> hover-preview-active: false;
-    in-out property <image> hover-preview-frame;
-    in-out property <bool> hover-preview-has-frame: false;
-    in-out property <bool> hover-preview-loading: false;
-    in-out property <bool> hover-preview-muted: true;
-    in-out property <string> hover-preview-status: "";
-    in-out property <string> hover-preview-title: "";
-    in-out property <string> hover-preview-year: "";
-    in-out property <string> hover-preview-runtime: "";
-    in-out property <string> hover-preview-rating: "";
-    in-out property <string> hover-preview-description: "";
-    in-out property <[string]> hover-preview-genres: [];
-    in-out property <image> hover-preview-poster;
-    in-out property <bool> hover-preview-in-library: false;
-    private property <length> hover-preview-anchor-x: 0px;
-    private property <length> hover-preview-anchor-y: 0px;
-    private property <length> hover-preview-anchor-width: 0px;
-    private property <length> hover-preview-anchor-height: 0px;
-    private property <bool> hover-preview-dismiss-pending: false;
-    private property <bool> hover-preview-popup-hovered: false;
-
-    callback hover-preview-requested(string, string);
-    callback hover-preview-dismissed();
-    callback hover-preview-toggle-muted();
-    callback hover-preview-play();
-    callback hover-preview-toggle-library();
-
-    function hover-preview-open(id: string, media-type: string, anchor-x: length,
-            anchor-y: length, anchor-width: length, anchor-height: length) {
-        if (!root.hover-preview-enabled || root.effective-show-player
-            || root.effective-show-details) {
-            return;
-        }
-        root.hover-preview-dismiss-pending = false;
-        root.hover-preview-popup-hovered = false;
-        root.hover-preview-anchor-x = anchor-x;
-        root.hover-preview-anchor-y = anchor-y;
-        root.hover-preview-anchor-width = anchor-width;
-        root.hover-preview-anchor-height = anchor-height;
-        root.hover-preview-active = true;
-        root.hover-preview-requested(id, media-type);
-    }
-
-    // The popup covers the card that opened it, so the pointer legitimately
-    // leaves the card on the way in. A short grace period keeps the session
-    // alive across that handover and across gaps between adjacent cards.
-    // The timer re-reads the popup's hover state when it fires rather than
-    // trusting the order the leave and enter callbacks arrived in.
-    function hover-preview-schedule-dismiss() {
-        if (root.hover-preview-active) {
-            root.hover-preview-dismiss-pending = true;
-        }
-    }
-
-    function hover-preview-keep() {
-        root.hover-preview-popup-hovered = true;
-        root.hover-preview-dismiss-pending = false;
-    }
-
-    // Public so the backend can retract a popup it cannot fill in.
-    public function hover-preview-close() {
-        root.hover-preview-dismiss-pending = false;
-        root.hover-preview-popup-hovered = false;
-        if (root.hover-preview-active) {
-            root.hover-preview-active = false;
-            root.hover-preview-dismissed();
-        }
-    }
-
-    hover-preview-dismiss-timer := Timer {
-        interval: 160ms;
-        running: root.hover-preview-dismiss-pending;
-        triggered => {
-            if (root.hover-preview-popup-hovered) {
-                root.hover-preview-dismiss-pending = false;
-            } else {
-                root.hover-preview-close();
-            }
-        }
-    }
-
-    // Leaving the browsing surface tears the preview down immediately: the
-    // cards that own the hover contract are gone, so nothing else would.
-    private property <bool> hover-preview-route-visible: !root.effective-show-details
-        && !root.effective-show-player;
-    changed hover-preview-route-visible => {
-        if (!root.hover-preview-route-visible) {
-            root.hover-preview-close();
-        }
-    }
-    changed effective-active-tab => {
-        root.hover-preview-close();
-    }
 
     // Detailed view parameters
     in-out property <string> detail-title: "";
@@ -675,6 +581,7 @@ export component MainWindow inherits Window {
     callback details-share-social(string, string);
     callback details-ranking-mode-changed(string);
     callback details-show-filtered-changed(bool);
+    callback details-reload-sources();
 
     // Player Page parameters
     in property <bool> show-player: false;
@@ -1110,6 +1017,10 @@ export component MainWindow inherits Window {
     callback plugin-repository-add(string);
     callback plugin-repository-refresh(string);
     callback plugin-repository-remove(string);
+    callback plugin-repository-enabled(string, bool);
+    callback plugin-provider-filter-changed(string);
+    callback plugin-provider-query-changed(string);
+    callback plugin-repository-filter-changed(string);
     callback plugin-provider-toggled(string, bool);
     callback plugin-provider-tested(string);
     callback plugin-provider-settings-saved(string, string);
@@ -1150,6 +1061,7 @@ export component MainWindow inherits Window {
     callback downloads-pause(string);
     callback downloads-resume(string);
     callback downloads-cancel(string);
+    callback downloads-delete(string);
     callback downloads-play(string);
     callback downloads-reveal(string);
     callback downloads-refresh();
@@ -1933,41 +1845,79 @@ export component MainWindow inherits Window {
 
             }
 
-            if (root.settings-update-state == 2 && !root.updater-banner-dismissed) : Rectangle {
-                height: 4 * root.ui-unit;
+            // A release is never a toast that can be missed: the strip stays
+            // above the shell until the new build is installed, and the dialog
+            // holds the release notes for anyone who wants them first.
+            if (root.settings-update-state == 2) : Rectangle {
+                height: 4.5 * root.ui-unit;
                 background: Theme.accent;
                 z: 90;
 
                 HorizontalLayout {
-                    padding-left: root.ui-unit;
-                    padding-right: root.ui-unit;
-                    spacing: root.ui-unit;
+                    padding-left: 1.25 * root.ui-unit;
+                    padding-right: 1.25 * root.ui-unit;
+                    spacing: 0.9 * root.ui-unit;
                     alignment: center;
 
-                    Rectangle { horizontal-stretch: 1; background: transparent; }
-                    Text {
-                        text: @tr("UPDATER_TITLE" => "A new version of SENZO is available");
-                        color: Theme.background;
-                        font-size: root.ui-unit;
-                        font-weight: 700;
-                        vertical-alignment: center;
+                    Rectangle {
+                        width: 2.7 * root.ui-unit;
+                        height: 2.7 * root.ui-unit;
+                        border-radius: 0.85 * root.ui-unit;
+                        background: Theme.background.with-alpha(0.14);
+
+                        Image {
+                            width: 1.55 * root.ui-unit;
+                            height: 1.55 * root.ui-unit;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            source: @image-url("assets/images/icons/download.svg");
+                            colorize: Theme.background;
+                        }
                     }
+
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 0.1 * root.ui-unit;
+
+                        Text {
+                            text: @tr("Update available");
+                            color: Theme.background;
+                            font-size: root.ui-unit;
+                            font-weight: 800;
+                        }
+
+                        Text {
+                            text: @tr("SENZO v{} is ready to install", root.settings-update-version);
+                            color: Theme.background.with-alpha(0.78);
+                            font-size: 0.78 * root.ui-unit;
+                        }
+                    }
+
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+
                     PillButton {
-                        height: 2.5 * root.ui-unit;
+                        height: 2.6 * root.ui-unit;
                         unit: root.ui-unit;
-                        label: @tr("UPDATER_INSTALL_BUTTON" => "Install");
-                        surface-color: Theme.text-primary;
-                        accent-color: Theme.background;
-                        clicked => { root.update-install(); }
+                        label: @tr("Release notes");
+                        outlined: true;
+                        surface-color: transparent;
+                        foreground-color: Theme.background;
+                        hover-color: Theme.background.with-alpha(0.14);
+                        hover-foreground-color: Theme.background;
+                        outline-color: Theme.background.with-alpha(0.45);
+                        hover-outline-color: Theme.background.with-alpha(0.7);
+                        clicked => { root.update-dialog-open = true; }
                     }
-                    Rectangle { horizontal-stretch: 1; background: transparent; }
-                    IconAction {
-                        width: 3 * root.ui-unit;
-                        height: 3 * root.ui-unit;
+
+                    PillButton {
+                        height: 2.6 * root.ui-unit;
                         unit: root.ui-unit;
-                        icon-source: @image-url("assets/images/icons/close.svg");
-                        accessible-name: @tr("BUTTON_CLOSE" => "Close");
-                        clicked => { root.updater-banner-dismissed = true; }
+                        label: @tr("Install now");
+                        surface-color: Theme.background;
+                        foreground-color: Theme.accent;
+                        hover-color: Theme.text-primary;
+                        hover-foreground-color: Theme.background;
+                        clicked => { root.update-install(); }
                     }
                 }
             }
@@ -2095,12 +2045,6 @@ export component MainWindow inherits Window {
                         reload-server => { board-reload-server(); }
                         open-server-settings => { board-open-server-settings(); }
                         poster-requested(url) => { request-poster(url); }
-                        enable-hover-preview: root.hover-preview-enabled;
-                        hover-preview-delay: root.hover-preview-delay-ms * 1ms;
-                        hover-preview-requested(id, media-type, x, y, w, h) => {
-                            root.hover-preview-open(id, media-type, x, y, w, h);
-                        }
-                        hover-preview-dismissed => { root.hover-preview-schedule-dismiss(); }
                     }
 
                     if (root.effective-active-tab == 1
@@ -2188,12 +2132,6 @@ export component MainWindow inherits Window {
                         toggle-library-preview => { toggle-library-preview(); }
                         toggle-watched-preview => { details-toggle-watched(); }
                         play-trailer-preview(selection-id) => { play-stream(selection-id); }
-                        enable-hover-preview: root.hover-preview-enabled;
-                        hover-preview-delay: root.hover-preview-delay-ms * 1ms;
-                        hover-preview-requested(id, media-type, x, y, w, h) => {
-                            root.hover-preview-open(id, media-type, x, y, w, h);
-                        }
-                        hover-preview-dismissed => { root.hover-preview-schedule-dismiss(); }
                         scroll-y <=> discover-scroll-y;
                     }
 
@@ -2233,12 +2171,6 @@ export component MainWindow inherits Window {
                         watched-changed(id, watched) => { library-watched-changed(id, watched); }
                         play-item(id) => { library-play-item(id); }
                         dismiss-item(id) => { library-dismiss-item(id); }
-                        enable-hover-preview: root.hover-preview-enabled;
-                        hover-preview-delay: root.hover-preview-delay-ms * 1ms;
-                        hover-preview-requested(id, media-type, x, y, w, h) => {
-                            root.hover-preview-open(id, media-type, x, y, w, h);
-                        }
-                        hover-preview-dismissed => { root.hover-preview-schedule-dismiss(); }
                         local-add-root(path) => { library-local-add-root(path); }
                         local-rescan => { library-local-rescan(); }
                         local-play(id) => { library-local-play(id); }
@@ -2325,11 +2257,20 @@ export component MainWindow inherits Window {
                         status: root.plugins-status;
                         status-error: root.plugins-status-error;
                         repository-url <=> root.plugins-repository-url;
+                        provider-filter <=> root.plugins-provider-filter;
+                        provider-query <=> root.plugins-provider-query;
+                        repository-filters: root.plugins-repository-filters;
+                        repository-filter <=> root.plugins-repository-filter;
+                        provider-total: root.plugin-provider-total;
+                        provider-filter-changed(value) => { root.plugin-provider-filter-changed(value); }
+                        provider-query-changed(text) => { root.plugin-provider-query-changed(text); }
+                        repository-filter-changed(value) => { root.plugin-repository-filter-changed(value); }
                         master-changed(enabled) => { root.plugins-master-changed(enabled); }
                         group-changed(grouped) => { root.plugins-group-changed(grouped); }
                         repository-add(url) => { root.plugin-repository-add(url); }
                         repository-refresh(url) => { root.plugin-repository-refresh(url); }
                         repository-remove(url) => { root.plugin-repository-remove(url); }
+                        repository-enabled(url, enabled) => { root.plugin-repository-enabled(url, enabled); }
                         provider-toggled(id, enabled) => { root.plugin-provider-toggled(id, enabled); }
                         provider-tested(id) => { root.plugin-provider-tested(id); }
                         provider-settings-saved(id, settings) => { root.plugin-provider-settings-saved(id, settings); }
@@ -2597,12 +2538,6 @@ export component MainWindow inherits Window {
                         }
                         catalog-visible(index) => { search-catalog-visible(index); }
                         poster-requested(url) => { request-poster(url); }
-                        enable-hover-preview: root.hover-preview-enabled;
-                        hover-preview-delay: root.hover-preview-delay-ms * 1ms;
-                        hover-preview-requested(id, media-type, x, y, w, h) => {
-                            root.hover-preview-open(id, media-type, x, y, w, h);
-                        }
-                        hover-preview-dismissed => { root.hover-preview-schedule-dismiss(); }
                     }
 
                     if (root.effective-active-tab == 7) : DownloadsPage {
@@ -2616,6 +2551,7 @@ export component MainWindow inherits Window {
                         pause(id) => { root.downloads-pause(id); }
                         resume(id) => { root.downloads-resume(id); }
                         cancel(id) => { root.downloads-cancel(id); }
+                        delete(id) => { root.downloads-delete(id); }
                         play(id) => { root.downloads-play(id); }
                         reveal(id) => { root.downloads-reveal(id); }
                         retry => { root.downloads-refresh(); }
@@ -2623,46 +2559,6 @@ export component MainWindow inherits Window {
                     }
                     }
                 }
-            }
-        }
-
-        // Floats over the browsing surface but stays under the details and
-        // player routes, which replace it wholesale.
-        if (root.hover-preview-enabled) : TrailerHoverPopup {
-            x: 0px;
-            y: 0px;
-            width: 100%;
-            height: 100%;
-            z: 400;
-            unit: root.ui-unit;
-            active: root.hover-preview-active;
-            frame: root.hover-preview-frame;
-            has-frame: root.hover-preview-has-frame;
-            loading: root.hover-preview-loading;
-            muted: root.hover-preview-muted;
-            status: root.hover-preview-status;
-            poster: root.hover-preview-poster;
-            title: root.hover-preview-title;
-            year: root.hover-preview-year;
-            runtime: root.hover-preview-runtime;
-            rating: root.hover-preview-rating;
-            description: root.hover-preview-description;
-            genres: root.hover-preview-genres;
-            in-library: root.hover-preview-in-library;
-            anchor-x: root.hover-preview-anchor-x;
-            anchor-y: root.hover-preview-anchor-y;
-            anchor-width: root.hover-preview-anchor-width;
-            anchor-height: root.hover-preview-anchor-height;
-            toggle-muted => { root.hover-preview-toggle-muted(); }
-            toggle-library-requested => { root.hover-preview-toggle-library(); }
-            play-requested => {
-                root.hover-preview-play();
-                root.hover-preview-close();
-            }
-            pointer-entered => { root.hover-preview-keep(); }
-            pointer-left => {
-                root.hover-preview-popup-hovered = false;
-                root.hover-preview-schedule-dismiss();
             }
         }
 
@@ -2818,6 +2714,7 @@ export component MainWindow inherits Window {
             share-social(platform, url) => { details-share-social(platform, url); }
             ranking-mode-changed(mode) => { details-ranking-mode-changed(mode); }
             show-filtered-changed(show) => { details-show-filtered-changed(show); }
+            reload-sources => { details-reload-sources(); }
             play-stream(selection-id) => { play-stream(selection-id); }
             toggle-fullscreen => { root.player-toggle-fullscreen(); }
             close => {

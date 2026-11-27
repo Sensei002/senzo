@@ -1,0 +1,159 @@
+# The mobile client has its own dedicated pipeline. Desktop builds live in
+# build-windows.yml, build-linux.yml and build-macos.yml so one OS can be
+# rerun without waiting for the others; release.yml is kept for tag releases.
+name: SENZO Android build
+
+on:
+  workflow_dispatch:
+  # A published release also ships the phone build, which is what the
+  # in-app update check looks for.
+  release:
+    types: [published]
+  push:
+    branches: ["development"]
+    paths:
+      - "android/**"
+      - ".github/workflows/android.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: senzo-android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  apk:
+    name: Android APK
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+          # The runner image already ships the Android command line tools, so
+          # only the exact platform and build tools are added here.
+          sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager="$sdk/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$sdkmanager" ]; then
+            sdkmanager=$(find "$sdk/cmdline-tools" -maxdepth 3 -type f -name sdkmanager | head -n 1)
+          fi
+          if [ -z "$sdkmanager" ] || [ ! -x "$sdkmanager" ]; then
+            echo "::error title=Android SDK::no sdkmanager under $sdk"
+            exit 1
+          fi
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" --install "platforms;android-35" "build-tools;35.0.0"
+          {
+            echo "ANDROID_HOME=$sdk"
+            echo "ANDROID_SDK_ROOT=$sdk"
+          } >> "$GITHUB_ENV"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+      - name: Prepare the signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keystore="$RUNNER_TEMP/senzo-release.keystore"
+          password="${KEYSTORE_PASSWORD:-senzo-development}"
+          alias="${KEY_ALIAS:-senzo}"
+          keytype="PKCS12"
+          if [ -n "${KEYSTORE_BASE64:-}" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$keystore"
+            # A JKS archive starts with 0xFEEDFEED, a PKCS#12 one does not.
+            if [ "$(od -An -tx1 -N4 "$keystore" | tr -d ' \n')" = "feedfeed" ]; then
+              keytype="JKS"
+            fi
+          else
+            # No repository secret yet: a throwaway key still produces an
+            # installable APK, it just cannot upgrade an earlier install.
+            echo "::warning title=Android signing::ANDROID_KEYSTORE_BASE64 is not set; this APK is signed with a throwaway key and cannot upgrade an earlier install."
+            keytool -genkeypair -keystore "$keystore" -alias "$alias" \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$password" -keypass "${KEY_PASSWORD:-$password}" \
+              -dname "CN=SENZO, O=SENZO, C=US"
+          fi
+          {
+            echo "SENZO_KEYSTORE=$keystore"
+            echo "SENZO_KEYSTORE_PASSWORD=$password"
+            echo "SENZO_KEYSTORE_TYPE=$keytype"
+            echo "SENZO_KEY_ALIAS=$alias"
+            echo "SENZO_KEY_PASSWORD=${KEY_PASSWORD:-$password}"
+          } >> "$GITHUB_ENV"
+      - name: Build release APK
+        run: |
+          set -euo pipefail
+          cd android
+          # A tag names the release; a branch build keeps the desktop version
+          # from app/Cargo.toml and only bumps the build number.
+          versionName="${GITHUB_REF_NAME#v}"
+          args=(-PsenzoVersionCode="${GITHUB_RUN_NUMBER}")
+          if printf '%s' "$versionName" | grep -Eq '^[0-9]+\.[0-9]+'; then
+            args+=(-PsenzoVersionName="$versionName")
+          fi
+          gradle --no-daemon --console=plain :app:assembleRelease "${args[@]}"
+      - name: Collect artifact
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # Splits are built per ABI, and phones take the arm64 one.
+          apk=$(ls android/app/build/outputs/apk/release/*arm64-v8a*.apk | head -n 1)
+          # The run number keeps downloads from overwriting each other and
+          # matches the versionCode the APK was built with.
+          # The ABI in the file name is how the in-app updater picks the
+          # build that matches the phone.
+          cp "$apk" "dist/senzo-${GITHUB_REF_NAME}-r${GITHUB_RUN_NUMBER}-arm64-v8a.apk"
+          v7a=$(ls android/app/build/outputs/apk/release/*armeabi-v7a*.apk 2>/dev/null | head -n 1 || true)
+          if [ -n "$v7a" ]; then
+            cp "$v7a" "dist/senzo-${GITHUB_REF_NAME}-r${GITHUB_RUN_NUMBER}-armeabi-v7a.apk"
+          fi
+          ls -l dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: senzo-android-apk
+          path: dist/*.apk
+          if-no-files-found: error
+      # The update check in Settings reads these assets from the release.
+      - name: Attach the phone build to the release
+        if: github.event_name == 'release' && !github.event.release.draft
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: dist/*.apk
+          fail_on_unmatched_files: false
+      # Kept so a stack trace from a release build can be retraced to real names.
+      - uses: actions/upload-artifact@v7
+        if: ${{ hashFiles('android/app/build/outputs/mapping/release/mapping.txt') != '' }}
+        with:
+          name: senzo-android-mapping
+          path: android/app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: ignore
+      # Runs last: this is a report, and a report that breaks must never cost
+      # the build its artifact. Pipefail stays off so head closing the pipe
+      # early is not read as a failure.
+      - name: Report what the APK contains
+        run: |
+          set -eu
+          apk=$(ls android/app/build/outputs/apk/release/*.apk | head -n 1)
+          echo "APK: $apk ($(stat -c %s "$apk") bytes)"
+          unzip -l "$apk" | sort -k1 -n -r | head -n 12 || true
+          mapping=android/app/build/outputs/mapping/release/mapping.txt
+          if [ -f "$mapping" ]; then
+            echo "--- kept classes per package (top 20) ---"
+            { grep -E '^[^ :]+ -> ' "$mapping" \
+              | awk '{ print $1 }' \
+              | awk -F. '{ if (NF >= 3) print $1 "." $2 "." $3; else print $0 }' \
+              | sort | uniq -c | sort -rn | head -n 20; } || true
+          fi

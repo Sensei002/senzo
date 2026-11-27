@@ -10,35 +10,11 @@ use stremio_core::{
     models::{common::Loadable, meta_details::MetaDetails, player::Selected},
     types::{
         addon::{Descriptor, ResourcePath, ResourceRequest},
-        profile::Settings,
         resource::{
-            MetaItemPreview, Stream, StreamBehaviorHints, StreamProxyHeaders, StreamSource, Subtitles,
+            Stream, StreamBehaviorHints, StreamProxyHeaders, StreamSource, Subtitles,
         },
     },
 };
-
-use crate::app_model::AppModel;
-
-/// Everything the hover trailer popup needs about one catalog item.
-#[derive(Clone, Debug)]
-pub struct TrailerPreview {
-    pub meta_id: String,
-    pub title: String,
-    pub year: String,
-    pub runtime: String,
-    pub rating: String,
-    pub description: String,
-    pub genres: Vec<String>,
-    pub poster: Option<url::Url>,
-    pub in_library: bool,
-    /// `None` when the item exposes no playable trailer.
-    pub stream_url: Option<String>,
-    /// Retained so "Add to Library" does not need a second metadata lookup.
-    pub preview: Option<MetaItemPreview>,
-}
-
-/// Genre chips shown in the popup, capped to keep the card one line tall.
-const TRAILER_PREVIEW_GENRE_LIMIT: usize = 3;
 
 /// Presentation data for a stream whose full core selection remains in Rust.
 #[derive(Clone, Debug)]
@@ -637,77 +613,6 @@ impl PlaybackSelections {
         true
     }
 
-    /// Resolves the hover trailer preview for an arbitrary catalog item.
-    ///
-    /// Hovering happens far away from the details route, so this reads the
-    /// metadata previews the loaded catalogs already carry instead of
-    /// dispatching a metadata request that would disturb the current route.
-    /// Items reachable only through the library still project their card
-    /// metadata; they simply have no trailer to play.
-    pub fn resolve_trailer_for_meta_id(
-        &self,
-        model: &AppModel,
-        meta_id: &str,
-    ) -> Option<TrailerPreview> {
-        let in_library = model
-            .ctx
-            .library
-            .items
-            .get(meta_id)
-            .is_some_and(|item| !item.removed);
-        let streaming_server_url = model.streaming_server.base_url.as_ref();
-        let settings = &model.ctx.profile.settings;
-
-        if let Some(preview) = find_meta_preview(model, meta_id) {
-            let stream_url = preview
-                .trailer_streams
-                .first()
-                .and_then(|stream| trailer_stream_url(stream, streaming_server_url, settings));
-            return Some(TrailerPreview {
-                meta_id: preview.id.clone(),
-                title: preview.name.clone(),
-                year: preview_year(preview),
-                runtime: preview.runtime.clone().unwrap_or_default(),
-                rating: preview
-                    .links
-                    .iter()
-                    .find(|link| link.category.eq_ignore_ascii_case("imdb"))
-                    .map(|link| link.name.clone())
-                    .unwrap_or_default(),
-                description: preview.description.clone().unwrap_or_default(),
-                genres: preview
-                    .links
-                    .iter()
-                    .filter(|link| {
-                        link.category.eq_ignore_ascii_case("genre")
-                            || link.category.eq_ignore_ascii_case("genres")
-                    })
-                    .map(|link| link.name.clone())
-                    .take(TRAILER_PREVIEW_GENRE_LIMIT)
-                    .collect(),
-                poster: preview.poster.clone(),
-                in_library,
-                stream_url,
-                preview: Some(preview.clone()),
-            });
-        }
-
-        let item = model.ctx.library.items.get(meta_id)?;
-        Some(TrailerPreview {
-            meta_id: item.id.clone(),
-            title: item.name.clone(),
-            year: String::new(),
-            runtime: String::new(),
-            rating: String::new(),
-            description: String::new(),
-            genres: Vec::new(),
-            poster: item.poster.clone(),
-            in_library,
-            stream_url: None,
-            preview: None,
-        })
-    }
-
     /// Resolves an opaque UI ID back to the full core selection and label.
     pub fn resolve(&self, id: &str) -> Option<(Selected, String)> {
         let entries = match self.entries.read() {
@@ -719,57 +624,6 @@ impl PlaybackSelections {
             .map(|entry| (entry.selected.clone(), entry.stream_name.clone()))
     }
 }
-
-/// Searches every loaded catalog for the metadata preview of one item.
-fn find_meta_preview<'a>(model: &'a AppModel, meta_id: &str) -> Option<&'a MetaItemPreview> {
-    let details =
-        model
-            .meta_details
-            .meta_items
-            .iter()
-            .find_map(|resource| match resource.content.as_ref() {
-                Some(Loadable::Ready(meta)) if meta.preview.id == meta_id => Some(&meta.preview),
-                _ => None,
-            });
-    if details.is_some() {
-        return details;
-    }
-
-    model
-        .board
-        .catalogs
-        .iter()
-        .chain(model.search.catalogs.iter())
-        .flatten()
-        .chain(model.discover.catalog.iter())
-        .find_map(|page| match page.content.as_ref() {
-            Some(Loadable::Ready(items)) => items.iter().find(|item| item.id == meta_id),
-            _ => None,
-        })
-}
-
-/// Renders the trailer stream as a URL the preview MPV worker can open.
-fn trailer_stream_url(
-    stream: &Stream,
-    streaming_server_url: Option<&url::Url>,
-    settings: &Settings,
-) -> Option<String> {
-    if let stremio_core::types::resource::StreamSource::YouTube { yt_id } = &stream.source {
-        return Some(format!("https://www.youtube.com/watch?v={yt_id}"));
-    }
-    let links =
-        stremio_core::deep_links::StreamDeepLinks::from((stream, streaming_server_url, settings));
-    links.external_player.streaming
-}
-
-fn preview_year(preview: &MetaItemPreview) -> String {
-    preview
-        .release_info
-        .clone()
-        .or_else(|| preview.released.map(|date| date.format("%Y").to_string()))
-        .unwrap_or_default()
-}
-
 fn ranking_mode_byte(mode: stream_ranking::RankingMode) -> u8 {
     match mode {
         stream_ranking::RankingMode::Smart => 0,

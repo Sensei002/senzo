@@ -512,21 +512,145 @@ fn release_page_url(version: &str) -> String {
     )
 }
 
+/// Characters of release notes the dialog shows before it is cut off.
+const RELEASE_NOTES_LIMIT: usize = 4_000;
+
+/// The changelog shown when an update is available.
+///
+/// The published release body is a full GitHub page: download tables, badges,
+/// separator rules, commit links and section headers. The update dialog is a
+/// small panel and the text renderer has no table support, so the raw body used
+/// to arrive as a wall of pipes and links. Only the release-notes section is
+/// kept, flattened to bold headings and plain bullets.
 fn release_notes_text(release: &Release) -> String {
-    let notes = release
+    let body = release
         .body
         .as_deref()
         .map(str::trim)
-        .filter(|notes| !notes.is_empty())
-        .unwrap_or("This update includes fixes and improvements.");
+        .filter(|body| !body.is_empty())
+        .unwrap_or_default();
 
-    let mut chars = notes.chars();
-    let shortened = chars.by_ref().take(6_000).collect::<String>();
-    if chars.next().is_some() {
-        format!("{shortened}\n\n…")
-    } else {
-        shortened
+    let mut notes = clean_release_notes(body);
+    if notes.trim().is_empty() {
+        return "This update includes fixes and improvements.".to_owned();
     }
+
+    if notes.chars().count() > RELEASE_NOTES_LIMIT {
+        notes = truncate_release_notes(&notes, RELEASE_NOTES_LIMIT);
+    }
+    notes
+}
+
+fn truncate_release_notes(notes: &str, limit: usize) -> String {
+    let shortened = notes.chars().take(limit).collect::<String>();
+    let cut = shortened.rfind('\n').map_or(shortened.len(), |index| index);
+    let kept = shortened.get(..cut).unwrap_or(&shortened).trim_end();
+    format!("{kept}\n\n…")
+}
+
+/// Keep only the human-written part of a release body.
+fn clean_release_notes(body: &str) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    let mut in_notes = false;
+    let mut seen_notes_heading = false;
+    for raw in body.lines() {
+        let line = raw.trim();
+        let heading = line.trim_start_matches('#').trim();
+        let level = line.chars().take_while(|character| *character == '#').count();
+
+        // A release body documents its downloads before the changelog. Start
+        // at the notes heading so the dialog never renders that table.
+        if !seen_notes_heading && level > 0 && heading.eq_ignore_ascii_case("release notes") {
+            seen_notes_heading = true;
+            in_notes = true;
+            continue;
+        }
+        if seen_notes_heading && in_notes && level > 0 && level < 4 {
+            break;
+        }
+        if !seen_notes_heading && level > 0 && heading.eq_ignore_ascii_case("source") {
+            break;
+        }
+
+        if line.is_empty() {
+            if lines.last().is_some_and(|last| !last.is_empty()) {
+                lines.push(String::new());
+            }
+            continue;
+        }
+        if line.starts_with('|')
+            || line.starts_with('<')
+            || line.starts_with("![")
+            || line.starts_with("***")
+            || line.starts_with("___")
+            || line.chars().all(|character| matches!(character, '-' | '*' | '_' | ' '))
+            || line.to_ascii_lowercase().starts_with("**full changelog**")
+            || line.to_ascii_lowercase().starts_with("full changelog")
+            || line.to_ascii_lowercase().starts_with("**full comparison**")
+        {
+            continue;
+        }
+
+        let text = clean_markdown_line(line);
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        if level >= 4 {
+            lines.push(format!("**{text}**"));
+        } else {
+            lines.push(text.to_owned());
+        }
+    }
+
+    let mut cleaned = lines.join("\n");
+    while cleaned.contains("\n\n\n") {
+        cleaned = cleaned.replace("\n\n\n", "\n\n");
+    }
+    cleaned.trim().to_owned()
+}
+
+/// Reduce one line of markdown to the text a small dialog can show.
+fn clean_markdown_line(line: &str) -> String {
+    let mut text = line.to_owned();
+    // [label](url) -> label
+    while let Some(start) = text.find('[') {
+        let Some(label_end) = text[start..].find(']').map(|index| start + index) else {
+            break;
+        };
+        let after = &text[label_end + 1..];
+        let Some(close) = after.strip_prefix('(').and_then(|rest| rest.find(')')) else {
+            break;
+        };
+        let link_end = label_end + 1 + close + 1;
+        let label = text[start + 1..label_end].to_owned();
+        text = format!("{}{}{}", &text[..start], label, &text[link_end..]);
+    }
+    let mut text = text
+        .replace("**", "")
+        .replace("`", "")
+        .replace("<br>", " ")
+        .trim()
+        .to_owned();
+
+    // Drop the trailing commit reference the notes generator appends.
+    if let Some(open) = text.rfind(" (")
+        && text.ends_with(')')
+    {
+        let reference = &text[open + 2..text.len() - 1];
+        if !reference.is_empty()
+            && reference.chars().all(|character| character.is_ascii_hexdigit())
+        {
+            text.truncate(open);
+        }
+    }
+
+    let bullet = text.starts_with("- ") || text.starts_with("* ") || text.starts_with("+ ");
+    let mut text = if bullet { format!("- {}", text[2..].trim()) } else { text };
+    while text.contains("  ") {
+        text = text.replace("  ", " ");
+    }
+    text
 }
 
 fn release_notes(release: &Release) -> slint::StyledText {
@@ -659,6 +783,13 @@ mod tests {
         assert!(matches!(UPDATE_CHANNEL, "stable" | "development"));
     }
 
+    fn release_with_body(body: &str) -> Release {
+        Release {
+            body: Some(body.to_owned()),
+            ..Release::default()
+        }
+    }
+
     #[test]
     fn release_notes_are_bounded() {
         let release = Release {
@@ -666,6 +797,40 @@ mod tests {
             ..Release::default()
         };
         assert!(release_notes_text(&release).chars().count() < 6_010);
+    }
+
+    #[test]
+    fn update_dialog_shows_only_the_release_notes() {
+        let body = concat!(
+            "## SENZO v0.1.3\n\n",
+            "A high-performance media center.\n\n",
+            "### Downloads\n\n",
+            "| Platform | Download |\n| --- | --- |\n",
+            "| Windows | [Download](https://example.com/setup.exe) |\n\n",
+            "---\n\n",
+            "### Release notes\n\n",
+            "#### Fixes and reliability\n\n",
+            "- Fixed search stalling ([a1b2c3d](https://example.com/commit/a1b2c3d))\n",
+            "- Removed fragile \u{0060}timer\u{0060} fades\n\n",
+            "---\n\n",
+            "### Source\n\n",
+            "[Browse the source](https://example.com/tree/v0.1.3)\n",
+        );
+        let notes = release_notes_text(&release_with_body(body));
+        assert_eq!(
+            notes,
+            "**Fixes and reliability**\n\n- Fixed search stalling\n- Removed fragile timer fades"
+        );
+        assert!(!notes.contains('|'), "tables must not reach the dialog");
+        assert!(!notes.contains("https://"), "links must not reach the dialog");
+    }
+
+    #[test]
+    fn update_dialog_has_a_fallback_without_release_notes() {
+        assert_eq!(
+            release_notes_text(&release_with_body("")),
+            "This update includes fixes and improvements."
+        );
     }
 
     #[test]

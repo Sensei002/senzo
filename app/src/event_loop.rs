@@ -7,14 +7,11 @@ use crate::{
 };
 use core_env::DesktopEnv;
 use futures::StreamExt;
-use slint::{ComponentHandle, Model, ModelRc};
+use slint::{Model, ModelRc};
 use std::sync::Arc;
 use stremio_core::{
     models::common::Loadable,
-    runtime::{
-        Runtime, RuntimeAction, RuntimeEvent,
-        msg::{Action, ActionCtx, Event},
-    },
+    runtime::{Runtime, RuntimeEvent, msg::Event},
 };
 
 fn update_vec_model<T: Clone + 'static>(
@@ -34,6 +31,42 @@ fn update_vec_model<T: Clone + 'static>(
     Ok(())
 }
 
+// Provider labels sometimes carry a resolution ("4KHDHub"), so they are
+// stripped before matching. The result feeds the artwork placeholder: most
+// add-on streams ship no thumbnail, and an empty dark tile reads as a broken
+// image. Resolution is checked from highest to lowest so a 1080p release named
+// after a 4K provider is still labelled 1080p.
+fn stream_quality(name: &str, description: &str, provider: &str) -> &'static str {
+    let name = name.to_ascii_lowercase();
+    let stripped = if provider.is_empty() {
+        name
+    } else {
+        name.replace(&provider.to_ascii_lowercase(), " ")
+    };
+    let haystack = format!("{stripped} {}", description.to_ascii_lowercase());
+    if haystack.contains("2160") {
+        "4K"
+    } else if haystack.contains("1080") {
+        "1080p"
+    } else if haystack.contains("720") {
+        "720p"
+    } else if haystack.contains("480") || haystack.contains("360") || haystack.contains("576") {
+        "SD"
+    } else if haystack.contains("4k") || haystack.contains("uhd") {
+        "4K"
+    } else if has_word(&haystack, "cam") {
+        "CAM"
+    } else {
+        ""
+    }
+}
+
+fn has_word(haystack: &str, word: &str) -> bool {
+    haystack
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .any(|part| part == word)
+}
+
 pub(crate) fn project_stream_selection_views(
     ui: &MainWindow,
     ui_weak: &slint::Weak<MainWindow>,
@@ -43,11 +76,13 @@ pub(crate) fn project_stream_selection_views(
         .into_iter()
         .map(|link| {
             let score_summary = link.score_reasons.join(", ");
+            let quality = stream_quality(&link.name, &link.description, &link.provider);
             StreamLink {
                 id: link.id.into(),
                 name: link.name.into(),
                 description: link.description.into(),
                 provider: link.provider.into(),
+                quality: quality.into(),
                 source_system: link.source_system.into(),
                 thumbnail: link
                     .thumbnail
@@ -185,112 +220,6 @@ fn schedule_debrid_annotations(
     });
 }
 
-/// Wires the hover trailer preview popup to the catalog metadata and the
-/// secondary MPV preview engine.
-///
-/// The requested/dismissed pair is driven by the pointer, so both handlers stay
-/// synchronous on the UI thread: resolution only reads catalogs the core has
-/// already loaded, and anything slower would show up as popup latency.
-pub fn install_hover_preview_callbacks(
-    ui: &MainWindow,
-    runtime: Arc<Runtime<DesktopEnv, AppModel>>,
-    playback_selections: Arc<PlaybackSelections>,
-    preview: crate::preview_player::PreviewPlayer,
-    navigation: NavigationController,
-) {
-    let ui_weak = ui.as_weak();
-
-    ui.on_hover_preview_requested({
-        let ui_weak = ui_weak.clone();
-        let runtime = runtime.clone();
-        let playback_selections = playback_selections.clone();
-        let preview = preview.clone();
-        move |meta_id, _media_type| {
-            let Some(ui) = ui_weak.upgrade() else {
-                return;
-            };
-            let Some(trailer) = resolve_trailer(&runtime, &playback_selections, meta_id.as_str())
-            else {
-                tracing::debug!(meta_id = %meta_id, "no catalog metadata for the hovered item");
-                ui.invoke_hover_preview_close();
-                return;
-            };
-            preview.begin(&ui, &trailer);
-        }
-    });
-
-    ui.on_hover_preview_dismissed({
-        let preview = preview.clone();
-        move || preview.dismiss()
-    });
-
-    ui.on_hover_preview_toggle_muted({
-        let preview = preview.clone();
-        move || {
-            let muted = preview.toggle_muted();
-            tracing::debug!(muted, "hover trailer preview mute toggled");
-        }
-    });
-
-    ui.on_hover_preview_play({
-        let ui_weak = ui_weak.clone();
-        let runtime = runtime.clone();
-        let preview = preview.clone();
-        move || {
-            let (Some(ui), Some(meta_id)) = (ui_weak.upgrade(), preview.active_id()) else {
-                return;
-            };
-            preview.dismiss();
-            crate::models::details::open_details_route(&ui, &runtime, &navigation, &meta_id);
-        }
-    });
-
-    ui.on_hover_preview_toggle_library({
-        let ui_weak = ui_weak.clone();
-        let runtime = runtime.clone();
-        let playback_selections = playback_selections.clone();
-        let preview = preview.clone();
-        move || {
-            let Some(meta_id) = preview.active_id() else {
-                return;
-            };
-            let Some(trailer) = resolve_trailer(&runtime, &playback_selections, &meta_id) else {
-                return;
-            };
-            let action = if trailer.in_library {
-                Some(ActionCtx::RemoveFromLibrary(trailer.meta_id.clone()))
-            } else {
-                trailer.preview.clone().map(ActionCtx::AddToLibrary)
-            };
-            let Some(action) = action else {
-                tracing::debug!(
-                    meta_id = %meta_id,
-                    "hovered item cannot be added without catalog metadata"
-                );
-                return;
-            };
-            // The library projection arrives asynchronously; the popup may be
-            // gone by then, so reflect the toggle straight away.
-            if let Some(ui) = ui_weak.upgrade() {
-                ui.set_hover_preview_in_library(!trailer.in_library);
-            }
-            runtime.dispatch(RuntimeAction {
-                field: None,
-                action: Action::Ctx(action),
-            });
-        }
-    });
-}
-
-fn resolve_trailer(
-    runtime: &Runtime<DesktopEnv, AppModel>,
-    playback_selections: &PlaybackSelections,
-    meta_id: &str,
-) -> Option<crate::playback::TrailerPreview> {
-    let model = runtime.model().ok()?;
-    playback_selections.resolve_trailer_for_meta_id(&model, meta_id)
-}
-
 pub fn start_event_loop(
     mut rx: futures::channel::mpsc::Receiver<RuntimeEvent<DesktopEnv, AppModel>>,
     runtime: Arc<Runtime<DesktopEnv, AppModel>>,
@@ -300,6 +229,30 @@ pub fn start_event_loop(
     navigation: NavigationController,
     discord_rpc: Arc<crate::discord::DiscordRpc>,
 ) {
+    // Presence follows the visible page even when nothing is playing. Playback
+    // activity has priority inside DiscordRpc, so this lightweight poll can
+    // keep publishing page changes without clobbering the movie being watched.
+    let page_navigation = navigation.clone();
+    let page_discord = discord_rpc.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut last_revision = u64::MAX;
+        loop {
+            interval.tick().await;
+            let snapshot = page_navigation.snapshot();
+            if snapshot.revision == last_revision {
+                continue;
+            }
+            last_revision = snapshot.revision;
+            if snapshot.show_player() {
+                continue;
+            }
+            let details = format!("Browsing {}", snapshot.presence_page_label());
+            let _ = page_discord.set_page_activity("", &details, None);
+        }
+    });
+
     tokio::spawn(async move {
         let mut first_render = true;
         let mut last_discord_enabled: Option<bool> = None;
@@ -942,8 +895,11 @@ pub fn start_event_loop(
                             // the release tick usually has no
                             // `details_stream_sync_needed`, so keeping it inside
                             // that block leaves the spinner mounted forever.
+                            let plugin_sources_pending = crate::nuvio_plugins::manager()
+                                .is_some_and(|manager| manager.is_query_active());
                             ui.set_detail_sources_loading(
-                                details_patch_allowed && details_sources_pending,
+                                details_patch_allowed
+                                    && (details_sources_pending || plugin_sources_pending),
                             );
 
                             if details_library_sync_needed && details_patch_allowed {
@@ -1118,6 +1074,7 @@ pub fn start_event_loop(
                                     &ui,
                                     search,
                                     addons,
+                                    &runtime_for_sync,
                                     &ui_weak_for_sync,
                                 );
                             }

@@ -1,0 +1,165 @@
+name: macOS desktop build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["development"]
+    paths-ignore:
+      - "android/**"
+      - "docs/**"
+      - "**/*.md"
+
+concurrency:
+  group: senzo-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: 10
+  CARGO_HTTP_MULTIPLEXING: false
+  # Stable releases come from main or a version tag. Branch builds must never
+  # offer the last stable release through the in-app updater.
+  SENZO_UPDATE_CHANNEL: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/main') && 'stable' || 'development' }}
+  # Must be a SENZO-owned Discord application. Never use Stremio's app id.
+  SENZO_DISCORD_APP_ID: ${{ vars.SENZO_DISCORD_APP_ID }}
+  SENZO_DISCORD_FALLBACK_IMAGE: ${{ vars.SENZO_DISCORD_FALLBACK_IMAGE }}
+
+
+jobs:
+  macos:
+    name: macOS ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            # GitHub retired the macos-14 image; macos-15 is the same arm64 class.
+            runner: macos-15
+            triplet: arm64-osx-v3-static-release
+            target: aarch64-apple-darwin
+          - arch: x86_64
+            runner: macos-15-intel
+            triplet: x64-osx-v3-static-release
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    # The bundled libmpv build is the slow part; cap a stuck dependency install.
+    timeout-minutes: 150
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg_installed
+      VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+      VCPKGRS_TRIPLET: ${{ matrix.triplet }}
+      VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/triplets
+      VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/vcpkg-overlays
+      PKG_CONFIG_PATH: ${{ github.workspace }}/vcpkg_installed/${{ matrix.triplet }}/lib/pkgconfig
+      # The bundled libtorrent and the app are both built for this floor, so a
+      # mismatch cannot produce a bundle that only runs on the build machine.
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+      LIBTORRENT_STATIC: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-05-03
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-${{ matrix.arch }}
+      - name: Install native dependencies
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            # Homebrew publishes arm64 bottles of mpv and its libraries.
+            brew install pkg-config mpv dylibbundler
+            # mpv.pc requires keg-only dependencies such as libarchive, whose
+            # pkg-config files only exist under the per-formula opt prefix.
+            paths="$(brew --prefix mpv)/lib/pkgconfig"
+            for candidate in /opt/homebrew/opt/*/lib/pkgconfig /usr/local/opt/*/lib/pkgconfig; do
+              if [ -d "$candidate" ]; then
+                paths="$paths:$candidate"
+              fi
+            done
+            echo "PKG_CONFIG_PATH=$paths:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
+          else
+            # Homebrew stopped publishing Intel macOS bottles, so the Intel
+            # build takes libmpv from MacPorts, which still ships x86_64
+            # archives of mpv with the libmpv variant.
+            curl -fsSL -o "$RUNNER_TEMP/macports.pkg" \
+              "https://github.com/macports/macports-base/releases/download/v2.12.7/MacPorts-2.12.7-15-Sequoia.pkg"
+            sudo installer -pkg "$RUNNER_TEMP/macports.pkg" -target /
+            # sudo resets PATH, so call the port command where the package
+            # installs it instead of relying on /opt/local/bin being visible.
+            sudo /opt/local/bin/port -q selfupdate || true
+            sudo /opt/local/bin/port -q install mpv pkgconfig dylibbundler
+            echo "/opt/local/bin" >> "$GITHUB_PATH"
+            echo "PKG_CONFIG_PATH=/opt/local/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
+          fi
+      - name: Restore libtorrent cache
+        id: libtorrent-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: vcpkg_installed
+          key: macOS-${{ matrix.arch }}-vcpkg-${{ matrix.triplet }}-v1-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
+          restore-keys: |
+            macOS-${{ matrix.arch }}-vcpkg-${{ matrix.triplet }}-v1-
+      - name: Install static libtorrent 2.1.1
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: "84bab45d415d22042bd0b9081aea57f362da3f35"
+          vcpkgDirectory: "${{ github.workspace }}/vcpkg"
+          vcpkgJsonGlob: "vcpkg.json"
+          runVcpkgInstall: true
+      - name: Save libtorrent cache
+        if: steps.libtorrent-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: vcpkg_installed
+          key: macOS-${{ matrix.arch }}-vcpkg-${{ matrix.triplet }}-v1-${{ hashFiles('vcpkg.json', 'triplets/**', 'vcpkg-overlays/**') }}
+      - name: Link compiler-rt builtins
+        # UnRAR's SIMD dispatch calls __builtin_cpu_supports, which clang lowers
+        # to __cpu_model from compiler-rt's builtins archive. Rust does not pass
+        # that archive to the linker, so the Intel link fails without it.
+        if: matrix.arch == 'x86_64'
+        run: |
+          set -euo pipefail
+          resource_dir="$(/usr/bin/clang -print-resource-dir)"
+          archive="$resource_dir/lib/darwin/libclang_rt.osx.a"
+          if [ ! -f "$archive" ]; then
+            echo "::error title=compiler-rt::missing $archive"
+            exit 1
+          fi
+          echo "RUSTFLAGS=${RUSTFLAGS:-} -C link-arg=-L$resource_dir/lib/darwin -C link-arg=-lclang_rt.osx" >> "$GITHUB_ENV"
+      - name: Build release
+        run: |
+          set -o pipefail
+          cargo build --locked --release --package senzo 2>&1 | tee build.log
+      - name: Report build failure
+        if: failure()
+        continue-on-error: true
+        shell: bash
+        run: |
+          if [ ! -f build.log ]; then
+            echo "::error title=Build log::build.log was not created"
+            exit 0
+          fi
+          clean=$(mktemp)
+          sed -r 's/\x1B\[[0-9;]*[mK]//g' build.log > "$clean"
+          n=$(grep -n -m1 -E '^error(\[|:)' "$clean" | cut -d: -f1 || true)
+          if [ -z "$n" ]; then
+            n=$(( $(wc -l < "$clean") - 40 ))
+          fi
+          msg=$(sed -n "${n},$((n+25))p" "$clean" | sed 's/::/ - /g; s/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')
+          echo "::error title=Rust build error::$msg"
+      - name: Package app bundle
+        run: |
+          bash scripts/package_macos.sh \
+            --arch "${{ matrix.arch }}" \
+            --tag "${GITHUB_REF_NAME}" \
+            --out dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: senzo-macos-${{ matrix.arch }}
+          path: |
+            dist/*.dmg
+          if-no-files-found: error

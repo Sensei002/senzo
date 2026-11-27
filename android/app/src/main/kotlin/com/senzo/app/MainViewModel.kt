@@ -1,0 +1,1419 @@
+package com.senzo.app
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import com.senzo.app.plugins.PluginUiState
+import com.senzo.app.plugins.PluginRepository
+import com.senzo.app.plugins.PluginRuntime
+import com.senzo.app.plugins.PluginStream
+import com.senzo.app.plugins.ProviderRequest
+import com.senzo.app.torrent.TorrentCache
+import com.senzo.app.torrent.TorrentStreamer
+import com.senzo.app.update.UpdateInfo
+import com.senzo.app.update.UpdateInstaller
+import com.senzo.app.update.UpdateState
+import com.senzo.app.update.Updater
+
+/** The five places the bottom bar can take the viewer. */
+enum class Tab { Home, Search, Library, Addons, Settings }
+
+/** Where the app is in its own navigation stack. */
+sealed interface Screen {
+    data object Login : Screen
+    data object Main : Screen
+    data class Details(val type: String, val id: String) : Screen
+}
+
+data class DetailsState(
+    val type: String,
+    val id: String,
+    val loading: Boolean = true,
+    val preview: MetaPreview? = null,
+    val meta: Meta? = null,
+    val season: Int? = null,
+    val selectedVideo: Video? = null,
+    val inLibrary: Boolean = false,
+    val streams: List<StreamItem> = emptyList(),
+    val streamsLoading: Boolean = false,
+    val streamError: String? = null,
+    val resume: WatchProgress? = null,
+    /** True while the source page covers the title page. */
+    val sourcesOpen: Boolean = false,
+    /** Addons still answering, which the source page spins for. */
+    val streamsPending: Int = 0,
+) {
+    val title: String get() = meta?.name ?: preview?.name.orEmpty()
+    val backdrop: String? get() = meta?.background ?: preview?.background ?: meta?.poster
+    val poster: String? get() = meta?.poster ?: preview?.poster
+    val bestStream: StreamItem? get() =
+        streams.maxWithOrNull(compareBy({ it.qualityRank }, { it.seeds ?: 0 }))
+}
+
+data class UiState(
+    val screen: Screen = Screen.Login,
+    val tab: Tab = Tab.Home,
+    val session: Session? = null,
+    /** True while the app runs as a local profile without an account. */
+    val guest: Boolean = false,
+    val signingIn: Boolean = false,
+    val addons: List<AddonDescriptor> = emptyList(),
+    val addonOrder: List<String> = emptyList(),
+    val disabledAddons: Set<String> = emptySet(),
+    val board: List<CatalogRow> = emptyList(),
+    val hero: List<MetaPreview> = emptyList(),
+    val boardLoading: Boolean = false,
+    val boardError: String? = null,
+    val searchQuery: String = "",
+    val searchResults: List<MetaPreview> = emptyList(),
+    val searchLoading: Boolean = false,
+    val recentSearches: List<String> = emptyList(),
+    val library: List<LibraryEntry> = emptyList(),
+    val progress: List<WatchProgress> = emptyList(),
+    val details: DetailsState? = null,
+    val playback: Playback? = null,
+    val settings: AppSettings = AppSettings(),
+    val installing: Boolean = false,
+    val message: String? = null,
+    /** The community directory, which is browsed rather than installed. */
+    val community: List<CommunityAddon> = emptyList(),
+    val communityLoading: Boolean = false,
+    val communityError: String? = null,
+    val communityQuery: String = "",
+    val communitySort: CommunitySort = CommunitySort.Rising,
+    val communityPage: Int = 1,
+    val communityHasMore: Boolean = false,
+    /** The manifest URL currently being installed from the directory. */
+    val communityInstalling: String? = null,
+    /** Plugin repositories, providers, and the last plugin error. */
+    val plugins: PluginUiState = PluginUiState(),
+    /** Release check shown on the settings page. */
+    val update: UpdateState = UpdateState.Idle,
+    val updateDownloading: Boolean = false,
+    val updateProgress: Int = 0,
+) {
+    /** Addons the viewer has not switched off, in their chosen order. */
+    val enabledAddons: List<AddonDescriptor>
+        get() {
+            val ordered = addons.sortedWith(
+                compareBy({ addonOrder.indexOf(it.transportUrl).let { index -> if (index < 0) Int.MAX_VALUE else index } }),
+            )
+            return ordered.filterNot { it.transportUrl in disabledAddons }
+        }
+
+    /** Resume points the board shows, newest first and not finished. */
+    val continueWatching: List<WatchProgress>
+        get() = progress.filter { !it.finished && it.positionMs > 30_000 }.take(12)
+}
+
+/**
+ * The Android client of the same account the desktop app signs into.
+ *
+ * Everything it shows comes from the installed addons of that account: the
+ * board is their catalogues, details are their metadata, and playback starts
+ * from their streams.
+ */
+class MainViewModel(application: Application) : AndroidViewModel(application) {
+    private val prefs = PrefsStore(application)
+    private val sessions = SessionStore(application)
+    private val api = StremioApi()
+    private val addonClient = AddonClient()
+    private val torrents = TorrentStreamer(java.io.File(application.cacheDir, "torrents"))
+
+    /** The most recent engine shutdown, awaited before a new torrent starts. */
+    private var torrentStop: Job? = null
+
+    /** Publishes the engine's swarm numbers into the open player. */
+    private var torrentWatcher: Job? = null
+
+    private fun stopTorrents() {
+        torrentWatcher?.cancel()
+        torrentWatcher = null
+        torrentStop = viewModelScope.launch(Dispatchers.IO) { torrents.stop() }
+    }
+    private val communityClient = CommunityClient()
+    private val pluginRuntime = PluginRuntime(application)
+
+    private val _state = MutableStateFlow(UiState())
+    val state: StateFlow<UiState> = _state.asStateFlow()
+
+    /** Set when a board title was opened with the intent to start playing. */
+
+    private var searchJob: Job? = null
+    private var boardJob: Job? = null
+    private var detailsJob: Job? = null
+    private var communityJob: Job? = null
+
+    init {
+        val settings = prefs.settings()
+        val library = prefs.library()
+        val progress = prefs.progress()
+        val searches = prefs.searches()
+        val disabled = prefs.disabledAddons()
+        val order = prefs.addonOrder()
+        val session = sessions.session()
+        _state.update {
+            it.copy(
+                settings = settings,
+                library = library,
+                progress = progress,
+                recentSearches = searches,
+                disabledAddons = disabled,
+                addonOrder = order,
+                plugins = PluginUiState(config = pluginRuntime.config()),
+            )
+        }
+        // The engine starts empty every launch, so nothing an earlier run wrote
+        // can be resumed; rotate the cache now and let a worker delete it.
+        viewModelScope.launch(Dispatchers.IO) {
+            TorrentCache.rotate(java.io.File(application.cacheDir, "torrents"))
+        }
+
+        // The plugin repository that ships with the app only knows its file list
+        // after one manifest fetch, so fill it in quietly on first start.
+        if (pluginRuntime.config().providers.isEmpty()) {
+            viewModelScope.launch {
+                pluginRuntime.config().repositories.forEach { repository ->
+                    refreshPluginRepository(repository.url)
+                }
+            }
+        }
+
+        if (session == null && prefs.guest()) {
+            // The guest choice is local to this app, so a restart goes straight
+            // back to the board instead of asking for an account again.
+            val cached = mergeLocal(prefs.guestAddons())
+            _state.update {
+                it.copy(screen = Screen.Main, guest = true, addons = cached)
+            }
+            if (cached.isEmpty()) loadGuestAddons() else loadBoard(cached)
+        } else if (session == null) {
+            _state.update { it.copy(screen = Screen.Login) }
+        } else {
+            val cached = mergeLocal(sessions.addons())
+            _state.update {
+                it.copy(screen = Screen.Main, session = session, addons = cached)
+            }
+            if (cached.isNotEmpty()) {
+                loadBoard(cached)
+            }
+            refreshAddons(session, cached.isEmpty())
+        }
+    }
+
+    fun signIn(email: String, password: String) {
+        if (email.isBlank() || password.isBlank()) {
+            _state.update { it.copy(message = "Enter your Stremio email and password.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(signingIn = true, message = null) }
+            runCatching { api.login(email.trim(), password) }
+                .onSuccess { session ->
+                    sessions.saveSession(session)
+                    prefs.saveGuest(false)
+                    _state.update {
+                        it.copy(
+                            signingIn = false,
+                            guest = false,
+                            session = session,
+                            screen = Screen.Main,
+                        )
+                    }
+                    refreshAddons(session, force = true)
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(signingIn = false, message = error.message ?: "Sign-in failed.")
+                    }
+                }
+        }
+    }
+
+    /**
+     * Opens the local profile: the official addons, this device's library and
+     * no account, which is what the desktop client does when sign-in is skipped.
+     * The choice is remembered, and signing in replaces it.
+     */
+    fun continueAsGuest() {
+        prefs.saveGuest(true)
+        val cached = prefs.guestAddons()
+        _state.update {
+            it.copy(
+                screen = Screen.Main,
+                session = null,
+                guest = true,
+                signingIn = false,
+                message = null,
+                tab = Tab.Home,
+                addons = mergeLocal(cached),
+            )
+        }
+        if (cached.isEmpty()) loadGuestAddons() else loadBoard(_state.value.addons)
+    }
+
+    /**
+     * Fetches the official addons a guest profile starts with. Their manifests
+     * are cached, so the second launch of the profile needs no network.
+     */
+    private fun loadGuestAddons() {
+        boardJob?.cancel()
+        viewModelScope.launch {
+            _state.update { it.copy(boardLoading = true, boardError = null) }
+            val fetched = GUEST_ADDONS
+                .mapNotNull { base -> runCatching { addonClient.manifest(base) }.getOrNull() }
+                .map { (base, manifest) -> AddonDescriptor(transportUrl = base, manifest = manifest) }
+            if (fetched.isNotEmpty()) prefs.saveGuestAddons(fetched)
+            val addons = mergeLocal(fetched.ifEmpty { prefs.guestAddons() })
+            _state.update { it.copy(addons = addons) }
+            if (addons.isEmpty()) {
+                _state.update {
+                    it.copy(
+                        boardLoading = false,
+                        boardError = "No addon could be reached. Check the connection and try again.",
+                    )
+                }
+            } else {
+                loadBoard(addons)
+            }
+        }
+    }
+
+    fun signOut() {
+        boardJob?.cancel()
+        searchJob?.cancel()
+        detailsJob?.cancel()
+        sessions.clearSession()
+        prefs.saveGuest(false)
+        _state.update {
+            it.copy(
+                screen = Screen.Login,
+                session = null,
+                guest = false,
+                addons = emptyList(),
+                board = emptyList(),
+                hero = emptyList(),
+                details = null,
+                playback = null,
+                tab = Tab.Home,
+            )
+        }
+    }
+
+    fun dismissMessage() {
+        _state.update { it.copy(message = null) }
+    }
+
+    fun selectTab(tab: Tab) {
+        _state.update { it.copy(tab = tab) }
+    }
+
+    fun refresh() {
+        val session = _state.value.session
+        if (session == null) {
+            if (_state.value.guest) loadGuestAddons()
+            return
+        }
+        refreshAddons(session, force = true)
+    }
+
+    private fun mergeLocal(addons: List<AddonDescriptor>): List<AddonDescriptor> {
+        val merged = (addons + prefs.localAddons())
+            .distinctBy { it.transportUrl }
+        sessions.saveAddons(merged)
+        return merged
+    }
+
+    private fun refreshAddons(session: Session, force: Boolean) {
+        viewModelScope.launch {
+            if (force) {
+                _state.update { it.copy(boardError = null) }
+            }
+            runCatching { api.addons(session.authKey) }
+                .onSuccess { addons ->
+                    if (addons.isEmpty()) {
+                        _state.update {
+                            it.copy(message = "This account has no installed addons.")
+                        }
+                        return@onSuccess
+                    }
+                    val merged = mergeLocal(addons)
+                    _state.update { it.copy(addons = merged) }
+                    loadBoard(merged)
+                }
+                .onFailure { error ->
+                    if (_state.value.addons.isEmpty()) {
+                        _state.update {
+                            it.copy(
+                                boardError = error.message
+                                    ?: "The addon collection could not be loaded.",
+                            )
+                        }
+                    }
+                }
+        }
+    }
+
+    private fun loadBoard(addons: List<AddonDescriptor>) {
+        boardJob?.cancel()
+        boardJob = viewModelScope.launch {
+            _state.update { it.copy(boardLoading = true, boardError = null) }
+            val disabled = _state.value.disabledAddons
+            val requests = addons
+                .filterNot { it.transportUrl in disabled }
+                .flatMap { descriptor ->
+                    descriptor.manifest.catalogs
+                        .filter { it.type == "movie" || it.type == "series" }
+                        .filter { it.requiredExtras.isEmpty() }
+                        .take(ROWS_PER_ADDON)
+                        .map { catalog -> descriptor to catalog }
+                }
+                .take(MAX_BOARD_ROWS)
+            val rows = coroutineScope {
+                requests
+                    .map { (descriptor, catalog) ->
+                        async {
+                            runCatching {
+                                Triple(descriptor, catalog, addonClient.catalog(descriptor, catalog))
+                            }.getOrNull()
+                        }
+                    }
+                    .awaitAll()
+            }.mapNotNull { result ->
+                val (descriptor, catalog, items) = result ?: return@mapNotNull null
+                if (items.isEmpty()) return@mapNotNull null
+                // A catalogue often has no title of its own; the addon name is
+                // what the desktop client shows in that case as well.
+                CatalogRow(
+                    title = catalog.name?.takeIf { it.isNotBlank() } ?: descriptor.manifest.name,
+                    type = catalog.type,
+                    items = items.take(MAX_ROW_ITEMS),
+                )
+            }.distinctBy { it.title }
+            val hero = rows
+                .flatMap { it.items }
+                .distinctBy { it.key }
+                .filter { !it.background.isNullOrBlank() || !it.poster.isNullOrBlank() }
+                .take(MAX_HERO)
+            _state.update {
+                it.copy(boardLoading = false, board = rows, hero = hero)
+            }
+            if (rows.isEmpty()) {
+                _state.update { it.copy(boardError = "No addon returned a catalogue.") }
+            }
+        }
+    }
+
+    fun search(query: String) {
+        _state.update { it.copy(searchQuery = query) }
+        searchJob?.cancel()
+        if (query.isBlank()) {
+            _state.update { it.copy(searchResults = emptyList(), searchLoading = false) }
+            return
+        }
+        searchJob = viewModelScope.launch {
+            delay(SEARCH_DEBOUNCE_MS)
+            _state.update { it.copy(searchLoading = true) }
+            val results = searchCatalogs(query)
+            _state.update {
+                it.copy(
+                    searchLoading = false,
+                    searchResults = results.distinctBy { meta -> meta.key },
+                )
+            }
+        }
+    }
+
+    /** Runs the current query at once and remembers it. */
+    fun submitSearch() {
+        val query = _state.value.searchQuery.trim()
+        if (query.isEmpty()) return
+        prefs.addSearch(query)
+        _state.update { it.copy(recentSearches = prefs.searches()) }
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            _state.update { it.copy(searchLoading = true) }
+            val results = searchCatalogs(query)
+            _state.update {
+                it.copy(
+                    searchLoading = false,
+                    searchResults = results.distinctBy { meta -> meta.key },
+                )
+            }
+        }
+    }
+
+    private suspend fun searchCatalogs(query: String): List<MetaPreview> {
+        val requests = _state.value.enabledAddons
+            .flatMap { descriptor ->
+                descriptor.manifest.catalogs
+                    .filter { it.supportsSearch }
+                    .filter { it.type == "movie" || it.type == "series" }
+                    .map { catalog -> descriptor to catalog }
+            }
+            .take(MAX_SEARCH_REQUESTS)
+        return coroutineScope {
+            requests
+                .map { (descriptor, catalog) ->
+                    async {
+                        runCatching {
+                            addonClient.catalog(descriptor, catalog, mapOf("search" to query))
+                        }.getOrDefault(emptyList())
+                    }
+                }
+                .awaitAll()
+        }.flatten()
+    }
+
+    fun clearSearch() {
+        searchJob?.cancel()
+        _state.update {
+            it.copy(searchQuery = "", searchResults = emptyList(), searchLoading = false)
+        }
+    }
+
+    /**
+     * Drops the pieces the torrent engine wrote. Nothing can resume them after a
+     * restart, so this only frees space; watch history is untouched.
+     */
+    fun clearTorrentCache() {
+        if (_state.value.playback?.torrent != null) return
+        val root = java.io.File(getApplication<Application>().cacheDir, "torrents")
+        viewModelScope.launch(Dispatchers.IO) { TorrentCache.rotate(root) }
+    }
+
+    fun clearRecentSearches() {
+        prefs.clearSearches()
+        _state.update { it.copy(recentSearches = emptyList()) }
+    }
+
+    fun openDetails(type: String, id: String, preview: MetaPreview? = null) {
+        detailsJob?.cancel()
+        _state.update {
+            it.copy(
+                screen = Screen.Details(type, id),
+                details = DetailsState(
+                    type = type,
+                    id = id,
+                    preview = preview,
+                    inLibrary = _state.value.library.any { it.item.key == "$type:$id" },
+                ),
+            )
+        }
+        detailsJob = viewModelScope.launch {
+            val meta = fetchMeta(type, id)
+            val resume = _state.value.progress
+                .filter { it.type == type && it.metaId == id }
+                .maxByOrNull { it.updatedAt }
+            val video = when {
+                meta == null -> null
+                type == "movie" -> null
+                resume?.videoId != null -> meta.videos.firstOrNull { it.id == resume.videoId }
+                    ?: meta.firstEpisode
+                else -> meta.firstEpisode ?: meta.videos.firstOrNull()
+            }
+            _state.update { current ->
+                val details = current.details ?: return@update current
+                current.copy(
+                    details = details.copy(
+                        loading = false,
+                        meta = meta,
+                        selectedVideo = video,
+                        season = video?.season ?: meta?.seasons?.firstOrNull(),
+                        resume = resume,
+                    ),
+                )
+            }
+            if (meta != null) {
+                loadStreams(type, video?.id ?: id)
+            }
+        }
+    }
+
+    fun back() {
+        detailsJob?.cancel()
+        _state.update { it.copy(screen = Screen.Main, details = null) }
+    }
+
+    /** Opens a board title straight into its source page, like the desktop. */
+    fun playFromBoard(preview: MetaPreview) {
+        openDetails(preview.type, preview.id, preview)
+        _state.update { current ->
+            current.copy(details = current.details?.copy(sourcesOpen = true))
+        }
+    }
+
+    /** Shows the source page for the selected title or episode. */
+    fun openSources() {
+        val details = _state.value.details ?: return
+        _state.update { current ->
+            current.copy(details = current.details?.copy(sourcesOpen = true))
+        }
+        if (details.streams.isEmpty() && !details.streamsLoading) {
+            loadStreams(details.type, details.selectedVideo?.id ?: details.id)
+        }
+    }
+
+    fun closeSources() {
+        _state.update { current ->
+            current.copy(details = current.details?.copy(sourcesOpen = false))
+        }
+    }
+
+    fun setStreamRanking(mode: String) {
+        updateSettings { it.copy(streamRanking = mode) }
+    }
+
+    fun setShowFilteredStreams(show: Boolean) {
+        updateSettings { it.copy(showFilteredStreams = show) }
+    }
+
+    /** Re-requests the streams of the selected episode after a failure. */
+    fun reloadStreams() {
+        val details = _state.value.details ?: return
+        loadStreams(details.type, details.selectedVideo?.id ?: details.id)
+    }
+
+    fun selectSeason(season: Int) {
+        val details = _state.value.details ?: return
+        val meta = details.meta ?: return
+        val episodes = meta.episodes(season)
+        val keep = details.selectedVideo?.takeIf { it.season == season }
+        val episode = keep ?: episodes.firstOrNull()
+        _state.update {
+            it.copy(details = details.copy(season = season, selectedVideo = episode))
+        }
+        if (episode != null) {
+            loadStreams(details.type, episode.id)
+        }
+    }
+
+    fun selectVideo(video: Video) {
+        val details = _state.value.details ?: return
+        _state.update {
+            it.copy(details = details.copy(selectedVideo = video, season = video.season))
+        }
+        loadStreams(details.type, video.id)
+    }
+
+    private suspend fun fetchMeta(type: String, id: String): Meta? {
+        val addons = _state.value.enabledAddons.filter { it.manifest.serves("meta", type) }
+        for (descriptor in addons) {
+            val meta = runCatching { addonClient.meta(descriptor, type, id) }.getOrNull()
+            if (meta != null) return meta
+        }
+        return runCatching { addonClient.meta(CINEMETA, type, id) }.getOrNull()
+    }
+
+    private fun loadStreams(type: String, videoId: String) {
+        viewModelScope.launch {
+            _state.update { current ->
+                current.copy(
+                    details = current.details?.copy(
+                        streamsLoading = true,
+                        streams = emptyList(),
+                        streamsPending = 0,
+                        streamError = null,
+                    ),
+                )
+            }
+            val items = streamsFor(type, videoId)
+            _state.update { current ->
+                val details = current.details ?: return@update current
+                if (details.selectedVideo?.id != videoId && details.type == "series") {
+                    return@update current
+                }
+                current.copy(
+                    details = details.copy(
+                        streamsLoading = false,
+                        streams = items,
+                        streamError = if (items.isEmpty()) {
+                            "No addon offered a playable stream for this title."
+                        } else {
+                            null
+                        },
+                    ),
+                )
+            }
+        }
+    }
+
+    // ---- Plugin repositories -------------------------------------------------
+
+    /** Adds a repository and loads its providers. */
+    fun addPluginRepository(raw: String) {
+        val url = raw.trim()
+        if (url.isEmpty()) {
+            setPluginError("Enter a plugin manifest URL.")
+            return
+        }
+        if (!url.startsWith("https://")) {
+            setPluginError("Plugin manifests must use HTTPS.")
+            return
+        }
+        val config = pluginRuntime.config()
+        if (config.repositories.none { it.url == url }) {
+            pluginRuntime.replace(
+                config.copy(repositories = config.repositories + PluginRepository(url)),
+            )
+        }
+        refreshPluginRepository(url)
+    }
+
+    /** Reloads one repository and merges its providers. */
+    fun refreshPluginRepository(url: String) {
+        _state.update { current ->
+            current.copy(
+                plugins = current.plugins.copy(
+                    busy = current.plugins.busy + url,
+                    error = null,
+                ),
+            )
+        }
+        viewModelScope.launch {
+            val result = pluginRuntime.install(url)
+            val count = result.getOrNull()
+            updatePlugins(
+                error = if (count == null) {
+                    result.exceptionOrNull()?.message ?: "The repository could not be loaded."
+                } else {
+                    null
+                },
+            )
+            if (count != null) {
+                _state.update { it.copy(message = "$count plugin provider(s) ready.") }
+            }
+        }
+    }
+
+    fun removePluginRepository(url: String) {
+        pluginRuntime.removeRepository(url)
+        updatePlugins()
+    }
+
+    fun togglePlugin(key: String, enabled: Boolean) {
+        pluginRuntime.setEnabled(key, enabled)
+        updatePlugins()
+    }
+
+    fun setRepositoryPlugins(url: String, enabled: Boolean) {
+        pluginRuntime.setAllEnabled(url, enabled)
+        updatePlugins()
+    }
+
+    fun savePluginSettings(key: String, settings: String) {
+        pluginRuntime.setSettings(key, settings)
+        updatePlugins()
+    }
+
+    fun dismissPluginError() {
+        _state.update { current -> current.copy(plugins = current.plugins.copy(error = null)) }
+    }
+
+    /** Asks GitHub for a release newer than the installed build. */
+    fun checkUpdates() {
+        if (_state.value.update == UpdateState.Checking) return
+        _state.update { current -> current.copy(update = UpdateState.Checking) }
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { Updater.check(BuildConfig.VERSION_NAME) }
+            _state.update { current ->
+                when (result) {
+                    UpdateState.UpToDate -> current.copy(
+                        update = UpdateState.Idle,
+                        message = "SENZO is up to date (" + BuildConfig.VERSION_NAME + ").",
+                    )
+                    is UpdateState.Failed -> current.copy(
+                        update = UpdateState.Idle,
+                        message = "Update check failed: " + result.message,
+                    )
+                    else -> current.copy(update = result)
+                }
+            }
+        }
+    }
+
+    fun dismissUpdate() {
+        _state.update { current -> current.copy(update = UpdateState.Idle) }
+    }
+
+    /**
+     * Downloads the release APK in the background and opens the system
+     * installer once the whole file is on disk. The system keeps the final
+     * confirmation, so a sideloaded build never replaces itself silently.
+     */
+    fun installUpdate(info: UpdateInfo) {
+        val app = getApplication<Application>()
+        if (info.apkUrl == null) {
+            UpdateInstaller.openPage(app, info.pageUrl)
+            return
+        }
+        if (!UpdateInstaller.canInstall(app)) {
+            UpdateInstaller.requestInstallPermission(app)
+            _state.update { current ->
+                current.copy(
+                    message = "Allow installs from SENZO, then tap Download & install again.",
+                )
+            }
+            return
+        }
+        if (_state.value.updateDownloading) return
+        viewModelScope.launch {
+            _state.update { current ->
+                current.copy(updateDownloading = true, updateProgress = 0)
+            }
+            val file = withContext(Dispatchers.IO) {
+                runCatching {
+                    UpdateInstaller.download(app, info) { progress ->
+                        _state.update { current -> current.copy(updateProgress = progress) }
+                    }
+                }.getOrNull()
+            }
+            _state.update { current -> current.copy(updateDownloading = false) }
+            if (file == null) {
+                _state.update { current ->
+                    current.copy(
+                        update = UpdateState.Idle,
+                        message = "Could not download the update. Try again later.",
+                    )
+                }
+                return@launch
+            }
+            val opened = UpdateInstaller.install(app, file)
+            _state.update { current ->
+                if (opened) {
+                    current.copy(
+                        update = UpdateState.Idle,
+                        message = "Installer opened. Confirm the update to finish.",
+                    )
+                } else {
+                    current.copy(message = "Could not open the package installer.")
+                }
+            }
+        }
+    }
+
+    private fun setPluginError(message: String) {
+        _state.update { current -> current.copy(plugins = current.plugins.copy(error = message)) }
+    }
+
+    private fun updatePlugins(error: String? = null) {
+        _state.update { current ->
+            current.copy(plugins = PluginUiState(config = pluginRuntime.config(), error = error))
+        }
+    }
+
+    /** Runs the enabled plugin providers for the open title. */
+    private suspend fun pluginStreams(type: String, details: DetailsState): List<StreamItem> {
+        val meta = details.meta ?: return emptyList()
+        if (pluginRuntime.config().providers.none { it.enabled }) return emptyList()
+        val tmdbId = resolveTmdbId(meta, type) ?: return emptyList()
+        val mediaType = if (type == "series") "tv" else "movie"
+        val season = details.selectedVideo?.season ?: details.season
+        val episode = details.selectedVideo?.episode
+        val streams = pluginRuntime.streams(
+            ProviderRequest(
+                tmdbId = tmdbId,
+                mediaType = mediaType,
+                season = season,
+                episode = episode,
+            ),
+        )
+        return streams.mapNotNull { it.toItem() }
+    }
+
+    /** Finds the TMDB id plugins expect, from the title metadata. */
+    private suspend fun resolveTmdbId(meta: Meta, type: String): String? {
+        val raw = meta.id.trim()
+        if (raw.startsWith("tmdb:")) {
+            val id = raw.removePrefix("tmdb:")
+            return id.takeIf { value -> value.isNotEmpty() && value.all(Char::isDigit) }
+        }
+        if (raw.isNotEmpty() && raw.all(Char::isDigit)) return raw
+        val gatewayType = if (type == "series") "tv" else "movie"
+        val query = java.net.URLEncoder.encode(meta.name, "UTF-8")
+        val url = "https://senzo-api.vercel.app/api/tmdb/search?query=" + query + "&type=" + gatewayType
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val request = okhttp3.Request.Builder().url(url).build()
+                val body = Http.client.newCall(request).execute().use { response ->
+                    response.body?.string().orEmpty()
+                }
+                val results = Http.json.parseToJsonElement(body)
+                    .jsonObject["results"]
+                    ?.jsonArray
+                    ?: return@runCatching null
+                val dateKey = if (gatewayType == "tv") "first_air_date" else "release_date"
+                val year = meta.releaseInfo?.take(4)
+                val candidates = results.mapNotNull { entry ->
+                    val objectValue = entry as? JsonObject ?: return@mapNotNull null
+                    val id = (objectValue["id"] as? JsonPrimitive)?.contentOrNull
+                    val date = (objectValue[dateKey] as? JsonPrimitive)?.contentOrNull
+                    id?.let { it to date }
+                }
+                val match = candidates.firstOrNull { (_, date) ->
+                    year != null && date != null && date.startsWith(year)
+                } ?: candidates.firstOrNull()
+                match?.first
+            }.getOrNull()
+        }
+    }
+
+    private fun PluginStream.toItem(): StreamItem? {
+        val link = url?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+        val magnet = url?.takeIf { it.startsWith("magnet:") }
+            ?: infoHash?.let { hash -> "magnet:?xt=urn:btih:" + hash }
+        if (link == null && magnet == null) return null
+        val traits = streamTraits(listOfNotNull(name, description).joinToString(" "))
+        return StreamItem(
+            addon = "Plugin · " + provider.ifEmpty { "provider" },
+            name = name,
+            detail = description,
+            url = link ?: "",
+            headers = headers,
+            quality = traits.quality,
+            size = traits.size,
+            sizeBytes = traits.sizeBytes,
+            seeds = seeders,
+            torrent = if (link == null) magnet else null,
+        )
+    }
+
+    /** Keeps the source page's spinner honest while addons are answering. */
+    private fun countPending(delta: Int) {
+        _state.update { current ->
+            val details = current.details ?: return@update current
+            current.copy(
+                details = details.copy(
+                    streamsPending = (details.streamsPending + delta).coerceAtLeast(0),
+                ),
+            )
+        }
+    }
+
+    /** Every playable stream of a title, in the order the settings ask for. */
+    private suspend fun streamsFor(type: String, videoId: String): List<StreamItem> {
+        val addons = _state.value.enabledAddons.filter { it.manifest.serves("stream", type) }
+        val details = _state.value.details
+        // Addons and plugin providers both answer from the network, so they run
+        // together and the list keeps the addon order first.
+        val items = coroutineScope {
+            val addonJob = async {
+                val responses = addons
+                    .map { descriptor ->
+                        async {
+                            countPending(1)
+                            val list = runCatching {
+                                addonClient.streams(descriptor, type, videoId)
+                            }.getOrDefault(emptyList())
+                            countPending(-1)
+                            descriptor.manifest.name to list
+                        }
+                    }
+                    .awaitAll()
+                responses.flatMap { (addon, list) ->
+                    list.mapNotNull { stream -> stream.toItem(addon) }
+                }
+            }
+            val pluginJob = async {
+                countPending(1)
+                val list = details?.let { state -> pluginStreams(type, state) }.orEmpty()
+                countPending(-1)
+                list
+            }
+            addonJob.await() + pluginJob.await()
+        }
+        val settings = _state.value.settings
+        // Original keeps the addons' order, unless the viewer asked for the
+        // highest quality first; every other mode ranks the page itself.
+        return if (
+            settings.preferHighestQuality &&
+            RankingMode.of(settings.streamRanking) == RankingMode.Original
+        ) {
+            items.sortedWith(compareByDescending<StreamItem> { it.qualityRank }.thenByDescending { it.seeds ?: 0 })
+        } else {
+            items
+        }
+    }
+
+    fun play(item: StreamItem) {
+        val details = _state.value.details ?: return
+        val meta = details.meta ?: return
+        startPlayback(meta, details.selectedVideo, item)
+    }
+
+    /** Plays the stream the current ranking puts first. */
+    fun playBest() {
+        val details = _state.value.details ?: return
+        val mode = RankingMode.of(_state.value.settings.streamRanking)
+        val item = rankStreams(details.streams, mode, false).firstOrNull()?.item ?: return
+        play(item)
+    }
+
+    private fun startPlayback(meta: Meta, video: Video?, item: StreamItem) {
+        val magnet = item.torrent
+        if (magnet == null) {
+            beginPlayback(meta, video, item)
+            return
+        }
+        // The player opens right away and breathes the logo while the engine
+        // finds peers, exactly like the desktop client.
+        val entry = progressEntry(meta, video)
+        val subtitle = listOfNotNull(video?.label, item.quality, item.size)
+            .joinToString("  ·  ")
+        _state.update {
+            it.copy(
+                playback = Playback(
+                    url = null,
+                    title = meta.name,
+                    subtitle = subtitle,
+                    year = meta.releaseInfo?.takeIf { it.isNotBlank() },
+                    headers = item.headers,
+                    startPositionMs = if (_state.value.settings.resumePlayback) {
+                        _state.value.progress.firstOrNull { it.key == entry.key }
+                            ?.takeIf { progress -> !progress.finished && progress.positionMs > RESUME_MIN_MS }
+                            ?.positionMs ?: 0
+                    } else {
+                        0
+                    },
+                    progress = entry,
+                    hasNext = meta.type == "series" && nextEpisode(meta, entry.videoId) != null,
+                    status = "Looking for peers…",
+                    torrent = magnet,
+                ),
+            )
+        }
+        launchTorrent(magnet)
+    }
+
+    /** Runs the torrent engine and hands its address to the open player. */
+    private fun launchTorrent(magnet: String) {
+        torrentWatcher?.cancel()
+        viewModelScope.launch {
+            torrentStop?.join()
+            _state.update { current ->
+                current.copy(playback = current.playback?.copy(failure = null, stats = null, status = "Looking for peers…"))
+            }
+            // The engine numbers stay on screen after the stream starts, so a
+            // stall shows the swarm being waited on instead of a bare spinner.
+            torrentWatcher = launch {
+                while (isActive) {
+                    val status = torrents.status
+                    val label = status.label
+                    _state.update { current ->
+                        val playback = current.playback
+                        if (playback == null || playback.torrent != magnet) {
+                            current
+                        } else {
+                            current.copy(
+                                playback = playback.copy(
+                                    status = if (playback.url == null) label else null,
+                                    stats = if (playback.url != null) label else null,
+                                ),
+                            )
+                        }
+                    }
+                    delay(1000)
+                }
+            }
+            val result = runCatching { withContext(Dispatchers.IO) { torrents.start(magnet) } }
+            result.onSuccess { address ->
+                _state.update { current ->
+                    current.copy(
+                        playback = current.playback?.copy(url = address, status = null, failure = null),
+                    )
+                }
+            }.onFailure { error ->
+                torrentWatcher?.cancel()
+                torrentWatcher = null
+                // A failed start may leave a running session behind, and its
+                // pieces have nowhere to be resumed from, so release both.
+                torrentStop = viewModelScope.launch(Dispatchers.IO) { torrents.stop() }
+                val reason = error.message ?: "The torrent could not be played."
+                _state.update { current ->
+                    current.copy(playback = current.playback?.copy(status = null, failure = reason))
+                }
+            }
+        }
+    }
+
+    /** Retries after a failure, either the torrent or the media request. */
+    fun retryPlayback() {
+        val playback = _state.value.playback ?: return
+        val magnet = playback.torrent
+        if (magnet != null) {
+            _state.update { current ->
+                current.copy(
+                    playback = current.playback?.copy(
+                        url = null,
+                        failure = null,
+                        status = "Looking for peers…",
+                    ),
+                )
+            }
+            launchTorrent(magnet)
+            return
+        }
+        _state.update { current ->
+            current.copy(playback = current.playback?.copy(failure = null, status = null))
+        }
+    }
+
+    private fun progressEntry(meta: Meta, video: Video?): WatchProgress {
+        val videoId = video?.id ?: meta.id
+        return WatchProgress(
+            key = WatchProgress.key(meta.type, meta.id, videoId),
+            type = meta.type,
+            metaId = meta.id,
+            videoId = videoId,
+            name = meta.name,
+            poster = meta.poster,
+            background = meta.background,
+            season = video?.season,
+            episode = video?.episode,
+            episodeTitle = video?.title,
+        )
+    }
+
+    private fun beginPlayback(meta: Meta, video: Video?, item: StreamItem) {
+        // A direct stream replaces whatever the torrent engine was doing, and
+        // the engine may be mid-wait, so it is stopped off the main thread.
+        stopTorrents()
+        val entry = progressEntry(meta, video)
+        val saved = _state.value.settings.resumePlayback
+            .let { resume -> if (resume) _state.value.progress.firstOrNull { it.key == entry.key } else null }
+        val start = saved?.takeIf { !it.finished && it.positionMs > RESUME_MIN_MS }?.positionMs ?: 0
+        val next = if (meta.type == "series") nextEpisode(meta, entry.videoId) else null
+        _state.update {
+            it.copy(
+                playback = Playback(
+                    url = item.url,
+                    title = meta.name,
+                    subtitle = listOfNotNull(video?.label, item.quality, item.size)
+                        .joinToString("  ·  "),
+                    year = meta.releaseInfo?.takeIf { it.isNotBlank() },
+                    headers = item.headers,
+                    startPositionMs = start,
+                    progress = entry,
+                    hasNext = next != null,
+                ),
+            )
+        }
+    }
+
+    private fun nextEpisode(meta: Meta, videoId: String): Video? {
+        val videos = meta.videos
+            .filter { it.season != null && it.episode != null }
+            .sortedWith(compareBy({ it.season }, { it.episode }))
+        val index = videos.indexOfFirst { it.id == videoId }
+        return videos.getOrNull(index + 1)
+    }
+
+    /** Records where the player is, so the board can offer the resume point. */
+    fun reportProgress(positionMs: Long, durationMs: Long) {
+        val entry = _state.value.playback?.progress ?: return
+        if (durationMs <= 0) return
+        val updated = entry.copy(positionMs = positionMs, durationMs = durationMs)
+        prefs.saveProgress(updated)
+        _state.update { current ->
+            current.copy(
+                progress = prefs.progress(),
+                details = current.details?.copy(
+                    resume = updated,
+                ),
+            )
+        }
+    }
+
+    fun stopPlayback(positionMs: Long = -1, durationMs: Long = -1) {
+        if (positionMs >= 0 && durationMs > 0) {
+            reportProgress(positionMs, durationMs)
+        }
+        stopTorrents()
+        _state.update { it.copy(playback = null) }
+    }
+
+    /** Continues with the next episode when the viewer asked for it. */
+    fun playNext() {
+        val playback = _state.value.playback ?: return
+        val entry = playback.progress ?: return
+        val meta = _state.value.details?.meta ?: return
+        val next = nextEpisode(meta, entry.videoId)
+        if (next == null) {
+            _state.update { it.copy(playback = null, message = "This was the last episode.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(message = "Loading the next episode…") }
+            val mode = RankingMode.of(_state.value.settings.streamRanking)
+            val item = rankStreams(streamsFor(meta.type, next.id), mode, false)
+                .firstOrNull()
+                ?.item
+            if (item == null) {
+                _state.update {
+                    it.copy(playback = null, message = "No stream for the next episode.")
+                }
+                return@launch
+            }
+            _state.update {
+                it.copy(
+                    details = it.details?.copy(selectedVideo = next, season = next.season),
+                    message = null,
+                )
+            }
+            startPlayback(meta, next, item)
+        }
+    }
+
+    fun forgetProgress(key: String) {
+        prefs.removeProgress(key)
+        _state.update { it.copy(progress = prefs.progress()) }
+    }
+
+    fun toggleLibrary() {
+        val details = _state.value.details ?: return
+        val meta = details.meta ?: return
+        val preview = meta.preview()
+        val library = prefs.library()
+        val exists = library.any { it.item.key == preview.key }
+        val next = if (exists) {
+            library.filterNot { it.item.key == preview.key }
+        } else {
+            listOf(LibraryEntry(preview, System.currentTimeMillis())) + library
+        }
+        prefs.saveLibrary(next)
+        _state.update {
+            it.copy(
+                library = next,
+                details = it.details?.copy(inLibrary = !exists),
+                message = if (exists) "Removed from your library." else "Saved to your library.",
+            )
+        }
+    }
+
+    fun removeFromLibrary(key: String) {
+        val next = prefs.library().filterNot { it.item.key == key }
+        prefs.saveLibrary(next)
+        _state.update {
+            it.copy(
+                library = next,
+                details = it.details?.copy(
+                    inLibrary = it.details?.meta?.let { meta -> meta.preview().key != key } ?: false,
+                ),
+            )
+        }
+    }
+
+    fun installAddon(url: String) {
+        val trimmed = url.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch {
+            _state.update { it.copy(installing = true) }
+            runCatching { addonClient.manifest(trimmed) }
+                .onSuccess { (base, manifest) ->
+                    val descriptor = AddonDescriptor(transportUrl = base, manifest = manifest)
+                    val locals = prefs.localAddons().filterNot { it.transportUrl == base } + descriptor
+                    prefs.saveLocalAddons(locals)
+                    val merged = mergeLocal(_state.value.addons)
+                    _state.update {
+                        it.copy(
+                            installing = false,
+                            addons = merged,
+                            message = "${manifest.name.ifBlank { "Addon" }} installed.",
+                        )
+                    }
+                    loadBoard(merged)
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            installing = false,
+                            message = error.message ?: "That addon could not be reached.",
+                        )
+                    }
+                }
+        }
+    }
+
+    fun removeAddon(transportUrl: String) {
+        prefs.saveLocalAddons(prefs.localAddons().filterNot { it.transportUrl == transportUrl })
+        val remaining = _state.value.addons.filterNot { it.transportUrl == transportUrl }
+        sessions.saveAddons(remaining)
+        val disabled = _state.value.disabledAddons - transportUrl
+        prefs.saveDisabledAddons(disabled)
+        _state.update { it.copy(addons = remaining, disabledAddons = disabled) }
+        loadBoard(remaining)
+    }
+
+
+    /**
+     * Loads a page of the community directory. The first page replaces what is
+     * shown; another page is appended, which is how the directory pages at all.
+     */
+    fun loadCommunity(reset: Boolean = true) {
+        val state = _state.value
+        communityJob?.cancel()
+        val page = if (reset) 1 else state.communityPage + 1
+        communityJob = viewModelScope.launch {
+            // Typing into the directory search cancels the previous request, so
+            // the delay is all the debounce it needs.
+            if (reset && state.communityQuery.isNotBlank()) delay(250)
+            _state.update { it.copy(communityLoading = true, communityError = null) }
+            runCatching { communityClient.browse(state.communitySort, state.communityQuery, page) }
+                .onSuccess { result ->
+                    _state.update {
+                        it.copy(
+                            communityLoading = false,
+                            community = if (reset) {
+                                result.addons
+                            } else {
+                                // A page can repeat an entry the previous one
+                                // already listed, and list keys must be unique.
+                                (it.community + result.addons).distinctBy { addon ->
+                                    addon.manifestUrl
+                                }
+                            },
+                            communityPage = page,
+                            communityHasMore = result.hasNextPage,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            communityLoading = false,
+                            communityError = error.message
+                                ?: "The addon directory could not be reached.",
+                        )
+                    }
+                }
+        }
+    }
+
+    fun setCommunitySort(sort: CommunitySort) {
+        if (_state.value.communitySort == sort) return
+        _state.update { it.copy(communitySort = sort, communityPage = 1, communityHasMore = false) }
+        loadCommunity()
+    }
+
+    fun setCommunityQuery(query: String) {
+        if (_state.value.communityQuery == query) return
+        _state.update { it.copy(communityQuery = query) }
+        loadCommunity()
+    }
+
+    /** Installs a directory entry exactly as if its manifest URL had been typed in. */
+    fun installCommunityAddon(addon: CommunityAddon) {
+        viewModelScope.launch {
+            _state.update { it.copy(communityInstalling = addon.manifestUrl) }
+            runCatching { addonClient.manifest(addon.manifestUrl) }
+                .onSuccess { (base, manifest) ->
+                    val descriptor = AddonDescriptor(transportUrl = base, manifest = manifest)
+                    prefs.saveLocalAddons(
+                        prefs.localAddons().filterNot { it.transportUrl == base } + descriptor
+                    )
+                    val merged = listOf(descriptor) +
+                        _state.value.addons.filterNot { it.transportUrl == base }
+                    sessions.saveAddons(merged)
+                    _state.update {
+                        it.copy(
+                            communityInstalling = null,
+                            addons = merged,
+                            message = "${manifest.name.ifBlank { addon.name }} installed.",
+                        )
+                    }
+                    loadBoard(merged)
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            communityInstalling = null,
+                            message = error.message ?: "That addon could not be installed.",
+                        )
+                    }
+                }
+        }
+    }
+
+    fun toggleAddon(transportUrl: String, enabled: Boolean) {
+        val disabled = if (enabled) {
+            _state.value.disabledAddons - transportUrl
+        } else {
+            _state.value.disabledAddons + transportUrl
+        }
+        prefs.saveDisabledAddons(disabled)
+        _state.update { it.copy(disabledAddons = disabled) }
+        loadBoard(_state.value.addons)
+    }
+
+    fun moveAddon(transportUrl: String, up: Boolean) {
+        val order = _state.value.addons.map { it.transportUrl }.toMutableList()
+        val index = order.indexOf(transportUrl)
+        if (index < 0) return
+        val target = if (up) index - 1 else index + 1
+        if (target !in order.indices) return
+        val moved = order.removeAt(index)
+        order.add(target, moved)
+        prefs.saveAddonOrder(order)
+        _state.update { it.copy(addonOrder = order) }
+    }
+
+    fun updateSettings(transform: (AppSettings) -> AppSettings) {
+        val next = transform(_state.value.settings)
+        prefs.saveSettings(next)
+        _state.update { it.copy(settings = next) }
+    }
+
+    fun clearWatchHistory() {
+        prefs.clearProgress()
+        _state.update { it.copy(progress = emptyList()) }
+    }
+
+    private companion object {
+        const val MAX_BOARD_ROWS = 16
+        const val ROWS_PER_ADDON = 3
+        const val MAX_ROW_ITEMS = 24
+        const val MAX_HERO = 5
+        const val MAX_SEARCH_REQUESTS = 12
+        const val SEARCH_DEBOUNCE_MS = 350L
+        const val RESUME_MIN_MS = 30_000L
+
+        /**
+         * The official addons of the guest profile. These are the same ones the
+         * desktop client installs for a local profile: Cinemeta for catalogues
+         * and metadata, WatchHub for streams, and the public domain catalogue.
+         * Subtitles are here too once the player can show them.
+         */
+        val GUEST_ADDONS = listOf(
+            "https://v3-cinemeta.strem.io",
+            "https://watchhub.strem.io",
+            "https://caching.stremio.net/publicdomainmovies.now.sh",
+        )
+
+        val CINEMETA = AddonDescriptor(
+            transportUrl = "https://v3-cinemeta.strem.io",
+            manifest = AddonManifest(
+                id = "com.linvo.cinemeta",
+                name = "Cinemeta",
+                types = listOf("movie", "series"),
+            ),
+        )
+    }
+}

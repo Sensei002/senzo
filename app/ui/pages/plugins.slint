@@ -3,6 +3,7 @@ import { ScrollView } from "std-widgets.slint";
 import { PillButton, ButtonSurface } from "../components/button.slint";
 import { NativeTextField } from "../components/text_input.slint";
 import { ToggleSwitch } from "../components/toggle.slint";
+import { SelectField } from "../components/select.slint";
 
 export struct PluginProviderCard {
     id: string,
@@ -25,6 +26,7 @@ export struct PluginRepositoryCard {
     name: string,
     version: string,
     provider-count: int,
+    enabled-count: int,
     status: string,
     status-error: bool,
 }
@@ -233,8 +235,9 @@ component RepositoryRow inherits Rectangle {
 
     callback refreshed(string);
     callback removed(string);
+    callback enabled-all(string, bool);
 
-    height: 7.2 * root.unit;
+    height: 9.5 * root.unit;
     border-radius: Theme.border-radius;
     background: Theme.card-background;
     border-width: 1px;
@@ -283,10 +286,33 @@ component RepositoryRow inherits Rectangle {
         }
 
         Text {
-            text: root.repository.provider-count + " providers  ·  " + root.repository.status;
+            text: root.repository.enabled-count + " of " + root.repository.provider-count
+                + " enabled  ·  " + root.repository.status;
             color: root.repository.status-error ? Theme.danger : Theme.text-secondary;
             font-size: 0.72 * root.unit;
             overflow: elide;
+        }
+
+        HorizontalLayout {
+            spacing: 0.5 * root.unit;
+
+            TinyButton {
+                unit: root.unit;
+                width: 5.4 * root.unit;
+                label: "Enable all";
+                enabled: root.repository.enabled-count < root.repository.provider-count;
+                clicked => { root.enabled-all(root.repository.url, true); }
+            }
+
+            TinyButton {
+                unit: root.unit;
+                width: 5.4 * root.unit;
+                label: "Disable all";
+                enabled: root.repository.enabled-count > 0;
+                clicked => { root.enabled-all(root.repository.url, false); }
+            }
+
+            Rectangle { horizontal-stretch: 1; }
         }
     }
 }
@@ -302,12 +328,34 @@ export component PluginsPage inherits Rectangle {
     in property <string> status: "";
     in property <bool> status-error: false;
     in-out property <string> repository-url: "";
+    // Provider list controls. CloudStream repositories can publish dozens of
+    // providers, so the list is searchable and filterable instead of a wall.
+    in-out property <string> provider-filter: "All";
+    in property <[string]> provider-filters: [
+        "All",
+        "Enabled",
+        "Movies",
+        "Series",
+        "Live TV",
+        "Anime",
+        "Other"
+    ];
+    in-out property <string> provider-query: "";
+    in property <int> provider-total: 0;
+    // Repository filter for the provider list. Repositories commonly publish
+    // dozens of providers, so the list can be narrowed to one of them.
+    in property <[string]> repository-filters: ["All repositories"];
+    in-out property <string> repository-filter: "All repositories";
 
+    callback provider-filter-changed(string);
+    callback provider-query-changed(string);
+    callback repository-filter-changed(string);
     callback master-changed(bool);
     callback group-changed(bool);
     callback repository-add(string);
     callback repository-refresh(string);
     callback repository-remove(string);
+    callback repository-enabled(string, bool);
     callback provider-toggled(string, bool);
     callback provider-tested(string);
     callback provider-settings-saved(string, string);
@@ -443,7 +491,7 @@ export component PluginsPage inherits Rectangle {
             SectionHeading {
                 unit: root.unit;
                 title: "Add repository";
-                description: "Install a Nuvio-compatible plugin manifest. The manifest lists provider scripts hosted by that repository.";
+                description: "Paste a manifest, a repo.json index or a plugins.json list. SENZO follows the index and installs every provider it lists.";
                 trailing: root.busy ? "Working…" : "";
             }
 
@@ -453,7 +501,7 @@ export component PluginsPage inherits Rectangle {
                     horizontal-stretch: 1;
                     unit: root.unit;
                     text <=> root.repository-url;
-                    placeholder-text: "https://example.com/manifest.json";
+                    placeholder-text: "https://raw.githubusercontent.com/owner/repo/master/repo.json";
                     accepted => { root.repository-add(root.repository-url); }
                 }
                 PillButton {
@@ -484,6 +532,7 @@ export component PluginsPage inherits Rectangle {
                 repository: repository;
                 refreshed(url) => { root.repository-refresh(url); }
                 removed(url) => { root.repository-remove(url); }
+                enabled-all(url, enabled) => { root.repository-enabled(url, enabled); }
             }
 
             HorizontalLayout {
@@ -493,7 +542,9 @@ export component PluginsPage inherits Rectangle {
                     unit: root.unit;
                     title: "Providers";
                     description: "Turn individual plugin providers on or off. Disabled providers are not queried.";
-                    trailing: root.providers.length + " available";
+                    trailing: root.provider-total > root.providers.length
+                        ? root.providers.length + " of " + root.provider-total
+                        : root.providers.length + " available";
                 }
                 PillButton {
                     unit: root.unit;
@@ -503,8 +554,54 @@ export component PluginsPage inherits Rectangle {
                 }
             }
 
-            if (root.providers.length == 0) : Text {
+            HorizontalLayout {
+                spacing: 0.7 * root.unit;
+                NativeTextField {
+                    horizontal-stretch: 1;
+                    unit: root.unit;
+                    text <=> root.provider-query;
+                    placeholder-text: "Search providers, languages or content types";
+                    edited => { root.provider-query-changed(self.text); }
+                }
+                Rectangle {
+                    width: max(9 * root.unit, min(16 * root.unit, parent.width * 0.34));
+                    height: 2.75 * root.unit;
+                    SelectField {
+                        unit: root.unit;
+                        field-width: parent.width;
+                        value: root.repository-filter;
+                        options: root.repository-filters;
+                        selected(value) => {
+                            root.repository-filter = value;
+                            root.repository-filter-changed(value);
+                        }
+                    }
+                }
+                Rectangle {
+                    width: max(8 * root.unit, min(12 * root.unit, parent.width * 0.32));
+                    height: 2.75 * root.unit;
+                    SelectField {
+                        unit: root.unit;
+                        field-width: parent.width;
+                        value: root.provider-filter;
+                        options: root.provider-filters;
+                        selected(value) => {
+                            root.provider-filter = value;
+                            root.provider-filter-changed(value);
+                        }
+                    }
+                }
+            }
+
+            if (root.provider-total == 0) : Text {
                 text: "No providers loaded. Install a repository and refresh it to fetch its provider manifest.";
+                color: Theme.text-muted;
+                font-size: 0.82 * root.unit;
+                wrap: word-wrap;
+            }
+
+            if (root.provider-total > 0 && root.providers.length == 0) : Text {
+                text: "No providers match this repository, category or search. Change the filters, or clear the search box.";
                 color: Theme.text-muted;
                 font-size: 0.82 * root.unit;
                 wrap: word-wrap;

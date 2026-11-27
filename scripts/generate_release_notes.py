@@ -24,6 +24,8 @@ ASSET_PATTERNS = (
         "senzo-v*-x86_64-pc-windows-msvc.zip",
         "Windows automatic updater",
     ),
+    ("senzo-v*-aarch64-apple-darwin.zip", "macOS Apple silicon"),
+    ("senzo-v*-x86_64-apple-darwin.zip", "macOS Intel"),
     (
         "senzo-v*-x86_64-unknown-linux-gnu",
         "Linux x64 portable",
@@ -31,6 +33,7 @@ ASSET_PATTERNS = (
     ("*.deb", "Debian / Ubuntu Package"),
     ("*.pkg.tar.zst", "Arch Linux Package"),
     ("*.rpm", "Fedora / RedHat RPM Package"),
+    ("senzo-v*.apk", "Android APK"),
     ("SHA256SUMS.txt", "SHA-256 checksums"),
 )
 

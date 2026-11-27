@@ -9,7 +9,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{
         Arc, Mutex, OnceLock, RwLock,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -18,9 +18,8 @@ use futures::{
     StreamExt,
     stream::{self, FuturesUnordered},
 };
-use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderName, HeaderValue, LOCATION, RANGE};
 use serde::{Deserialize, Serialize};
-use slint::ComponentHandle;
+use slint::{ComponentHandle, Model};
 use tokio::sync::Semaphore;
 use url::Url;
 
@@ -29,17 +28,16 @@ use crate::{
     app_model::AppModel,
     direct_sources::net::is_blocked_host,
     playback::{PlaybackSelections, PluginSelection},
-    plugin_runtime::{self, PluginStream, ProviderQuery, net::is_public_url},
+    plugin_runtime::{
+        self, PluginStream, ProviderQuery,
+        net::{PublicHost, classify_public_host, is_public_url},
+    },
 };
 
 pub const DEFAULT_MANIFEST_URL: &str =
     "https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json";
 const MAX_MANIFEST_BYTES: usize = 4 * 1024 * 1024;
 const MAX_SCRIPT_BYTES: usize = 4 * 1024 * 1024;
-const MEDIA_PROBE_CONCURRENCY: usize = 4;
-const MEDIA_PROBE_TIMEOUT: Duration = Duration::from_secs(8);
-const MEDIA_PROBE_USER_AGENT: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 SENZO/1.0";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -146,205 +144,259 @@ fn normalize_type(value: &str) -> String {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Manifest {
-    name: String,
-    version: String,
-    #[serde(default)]
-    description: Option<String>,
-    #[serde(default)]
-    scrapers: Vec<ManifestScraper>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// A provider ready to be stored, after CloudStream build metadata has been
+/// normalized onto SENZO's provider record.
+#[derive(Debug)]
 struct ManifestScraper {
     id: String,
     name: String,
-    #[serde(default)]
     description: Option<String>,
-    #[serde(default)]
     version: String,
-    #[serde(default)]
     filename: String,
-    #[serde(default = "default_supported_types")]
     supported_types: Vec<String>,
-    #[serde(default = "default_true")]
     enabled: bool,
-    #[serde(default)]
     has_settings: bool,
-    #[serde(default)]
     logo: Option<String>,
-    #[serde(default)]
     content_language: Option<Vec<String>>,
-    #[serde(default)]
     formats: Option<Vec<String>>,
+}
+
+/// Everything one install or refresh contributed.
+#[derive(Debug, Default)]
+struct RepositoryContent {
+    name: String,
+    version: String,
+    description: String,
+    /// Providers are paired with the document that declared them because a
+    /// relative `filename` resolves against that document, not the repository
+    /// URL the user pasted.
+    scrapers: Vec<(String, ManifestScraper)>,
+}
+
+/// Tolerant view of one manifest document.
+///
+/// Community repositories publish three shapes: a manifest with a `scrapers`
+/// array, an index with `pluginLists` pointing at those manifests, and a bare
+/// array of plugin entries (what build branches usually serve). Unknown fields
+/// are ignored and every field is optional so one odd repository cannot make
+/// the whole install fail.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct RawManifest {
+    name: Option<String>,
+    version: Option<serde_json::Value>,
+    description: Option<String>,
+    scrapers: Vec<RawScraper>,
+    plugin_lists: Vec<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct RawScraper {
+    id: Option<String>,
+    name: Option<String>,
+    internal_name: Option<String>,
+    description: Option<String>,
+    version: Option<serde_json::Value>,
+    filename: Option<String>,
+    url: Option<String>,
+    supported_types: Vec<String>,
+    tv_types: Vec<String>,
+    enabled: Option<bool>,
+    status: Option<i64>,
+    has_settings: Option<bool>,
+    logo: Option<String>,
+    icon_url: Option<String>,
+    content_language: Option<serde_json::Value>,
+    language: Option<String>,
+    formats: Vec<String>,
 }
 
 fn default_supported_types() -> Vec<String> {
     vec!["movie".to_owned(), "tv".to_owned()]
 }
 
-fn default_true() -> bool {
-    true
+fn json_text(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(text) => text.trim().to_owned(),
+        serde_json::Value::Number(number) => number.to_string(),
+        serde_json::Value::Bool(flag) => flag.to_string(),
+        _ => String::new(),
+    }
+}
+
+/// CloudStream spells content kinds inconsistently (`TvSeries`, `tv`, `Live`).
+fn normalize_content_type(value: &str) -> String {
+    let kind = value.trim().to_ascii_lowercase();
+    match kind.as_str() {
+        "movie" | "movies" | "film" | "films" => "movie".to_owned(),
+        "series" | "tv" | "tvseries" | "tv series" | "tvshow" | "tv shows" | "show" | "shows" => {
+            "tv".to_owned()
+        }
+        "live" | "livetv" | "live tv" | "channel" | "channels" => "live".to_owned(),
+        "anime" => "anime".to_owned(),
+        "nsfw" | "adult" => "nsfw".to_owned(),
+        _ => kind,
+    }
+}
+
+impl RawScraper {
+    /// Returns `None` for entries that cannot describe a runnable provider.
+    fn normalize(self) -> Option<ManifestScraper> {
+        let name = self
+            .name
+            .or(self.internal_name.clone())
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        let filename = self
+            .filename
+            .or(self.url)
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        if name.is_empty() || filename.is_empty() {
+            return None;
+        }
+        let id = self
+            .id
+            .or(self.internal_name)
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| name.clone());
+        let mut supported_types = Vec::new();
+        for kind in self.supported_types.iter().chain(self.tv_types.iter()) {
+            let kind = normalize_content_type(kind);
+            if !kind.is_empty() && !supported_types.contains(&kind) {
+                supported_types.push(kind);
+            }
+        }
+        if supported_types.is_empty() {
+            supported_types = default_supported_types();
+        }
+        let languages = match self.content_language {
+            Some(serde_json::Value::Array(values)) => values
+                .iter()
+                .filter_map(|value| value.as_str())
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>(),
+            Some(serde_json::Value::String(text)) if !text.trim().is_empty() => {
+                vec![text.trim().to_owned()]
+            }
+            _ => self
+                .language
+                .map(|text| text.trim().to_owned())
+                .filter(|text| !text.is_empty())
+                .into_iter()
+                .collect(),
+        };
+        Some(ManifestScraper {
+            id,
+            name,
+            description: self.description,
+            version: self.version.as_ref().map(json_text).unwrap_or_default(),
+            filename,
+            supported_types,
+            enabled: self
+                .enabled
+                .or_else(|| self.status.map(|status| status != 0))
+                .unwrap_or(true),
+            has_settings: self.has_settings.unwrap_or(false),
+            logo: self.logo.or(self.icon_url),
+            content_language: Some(languages).filter(|languages| !languages.is_empty()),
+            formats: Some(self.formats).filter(|formats| !formats.is_empty()),
+        })
+    }
+}
+
+fn parse_scraper(value: serde_json::Value) -> Option<ManifestScraper> {
+    serde_json::from_value::<RawScraper>(value)
+        .ok()
+        .and_then(RawScraper::normalize)
+}
+
+/// Filter labels mirror the options offered by the Plugins page.
+fn provider_matches_filter(provider: &PluginProvider, filter: &str) -> bool {
+    match filter {
+        "Enabled" => provider.enabled,
+        "Movies" => provider.supports_type("movie"),
+        "Series" => provider.supports_type("tv"),
+        "Live TV" => provider.supports_type("live"),
+        "Anime" => provider.supports_type("anime"),
+        "Other" => {
+            !(provider.supports_type("movie")
+                || provider.supports_type("tv")
+                || provider.supports_type("live")
+                || provider.supports_type("anime"))
+        }
+        _ => true,
+    }
+}
+
+/// The label shown for "no repository filter".
+const ALL_REPOSITORIES: &str = "All repositories";
+
+/// Option labels for the repository filter, paired with the repository URL.
+///
+/// Repository names are not unique (several community projects publish under
+/// the same name), so repeated labels get a numeric suffix and the label stays
+/// a stable key for the selected repository.
+fn repository_filter_labels(repositories: &[PluginRepository]) -> Vec<(String, String)> {
+    let mut labels: Vec<(String, String)> = Vec::with_capacity(repositories.len());
+    for repository in repositories {
+        let base = if repository.name.trim().is_empty() {
+            manifest_fallback_name(&repository.manifest_url)
+        } else {
+            repository.name.trim().to_owned()
+        };
+        let mut label = base.clone();
+        let mut suffix = 2;
+        while labels.iter().any(|(existing, _)| existing == &label) {
+            label = format!("{base} ({suffix})");
+            suffix += 1;
+        }
+        labels.push((label, repository.manifest_url.clone()));
+    }
+    labels
+}
+
+fn provider_matches_query(provider: &PluginProvider, query: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+    let mut haystack = String::new();
+    for part in [
+        provider.name.as_str(),
+        provider.description.as_str(),
+        provider.id.as_str(),
+    ] {
+        haystack.push_str(part);
+        haystack.push(' ');
+    }
+    for part in provider.supported_types.iter().chain(provider.languages.iter()) {
+        haystack.push_str(part);
+        haystack.push(' ');
+    }
+    let haystack = haystack.to_lowercase();
+    query.split_whitespace().all(|term| haystack.contains(term))
+}
+
+fn manifest_fallback_name(manifest_url: &str) -> String {
+    Url::parse(manifest_url)
+        .ok()
+        .and_then(|url| {
+            url.path_segments()
+                .and_then(|mut segments| segments.rfind(|part| !part.is_empty()))
+                .map(|segment| segment.to_owned())
+        })
+        .unwrap_or_else(|| "Plugin repository".to_owned())
 }
 
 fn default_settings() -> String {
     "{}".to_owned()
 }
 
-fn media_probe_client() -> &'static reqwest::blocking::Client {
-    static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        reqwest::blocking::Client::builder()
-            .connect_timeout(Duration::from_secs(5))
-            .timeout(MEDIA_PROBE_TIMEOUT)
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(MEDIA_PROBE_USER_AGENT)
-            .build()
-            .unwrap_or_else(|_| reqwest::blocking::Client::new())
-    })
-}
-
-fn has_probe_media_extension(value: &str) -> bool {
-    [
-        ".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v", ".ts", ".m3u8", ".mpd",
-        ".flv", ".wmv",
-    ]
-    .iter()
-    .any(|extension| value.contains(extension))
-}
-
-/// Confirm that an HTTP source really serves a media object before it reaches
-/// the drawer. A provider can return a syntactically valid `.mkv` URL that is
-/// actually a 403, an HTML interstitial, or an expired link generator. The
-/// request is range-limited and the body is never read.
-fn probe_media_stream(stream: &PluginStream) -> bool {
-    if stream.is_torrent() {
-        return true;
-    }
-    let Some(raw_url) = stream.url.as_deref() else {
-        return false;
-    };
-    let Ok(mut target) = Url::parse(raw_url) else {
-        return false;
-    };
-
-    for _ in 0..=4 {
-        if !matches!(target.scheme(), "http" | "https")
-            || target.host_str().is_none()
-            || is_blocked_host(&target)
-            || !is_public_url(&target)
-        {
-            return false;
-        }
-
-        let mut request = media_probe_client()
-            .get(target.clone())
-            .header(RANGE, "bytes=0-0")
-            .header(ACCEPT, "video/*,audio/*,application/octet-stream,*/*;q=0.8");
-        for (name, value) in &stream.headers {
-            let lower = name.to_ascii_lowercase();
-            if matches!(
-                lower.as_str(),
-                "host" | "content-length" | "connection" | "range" | "accept-encoding"
-            ) {
-                continue;
-            }
-            let Ok(name) = HeaderName::from_bytes(lower.as_bytes()) else {
-                continue;
-            };
-            let Ok(value) = HeaderValue::from_str(value) else {
-                continue;
-            };
-            request = request.header(name, value);
-        }
-
-        let response = match request.send() {
-            Ok(response) => response,
-            Err(_) => return false,
-        };
-
-        if response.status().is_redirection() {
-            let Some(location) = response
-                .headers()
-                .get(LOCATION)
-                .and_then(|value| value.to_str().ok())
-            else {
-                return false;
-            };
-            let Ok(next) = target.join(location) else {
-                return false;
-            };
-            target = next;
-            continue;
-        }
-
-        let status = response.status();
-        if !(status.is_success() || status == reqwest::StatusCode::PARTIAL_CONTENT) {
-            return false;
-        }
-        let content_type = response
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        if content_type.starts_with("text/html")
-            || content_type.starts_with("text/plain")
-            || content_type.starts_with("application/json")
-            || content_type.starts_with("application/xml")
-        {
-            return false;
-        }
-        let content_length = response
-            .headers()
-            .get(reqwest::header::CONTENT_LENGTH)
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.parse::<u64>().ok());
-        if content_length == Some(0) {
-            return false;
-        }
-        if content_type.is_empty() {
-            return has_probe_media_extension(&target.path().to_ascii_lowercase());
-        }
-        return content_type.starts_with("video/")
-            || content_type.starts_with("audio/")
-            || content_type.contains("octet-stream")
-            || content_type.contains("mpegurl")
-            || content_type.contains("matroska")
-            || content_type.contains("mp4")
-            || content_type.contains("webm");
-    }
-    false
-}
-
-async fn verify_media_streams(streams: Vec<PluginStream>) -> Vec<PluginStream> {
-    let probes = stream::iter(streams.into_iter().enumerate().map(|(index, stream)| {
-        let probe = stream.clone();
-        async move {
-            let live = if probe.is_torrent() {
-                true
-            } else {
-                tokio::task::spawn_blocking(move || probe_media_stream(&probe))
-                    .await
-                    .unwrap_or(false)
-            };
-            (index, stream, live)
-        }
-    }))
-    .buffer_unordered(MEDIA_PROBE_CONCURRENCY)
-    .collect::<Vec<_>>()
-    .await;
-
-    let mut probes = probes;
-    probes.sort_by_key(|(index, _, _)| *index);
-    probes
-        .into_iter()
-        .filter_map(|(_, stream, live)| live.then_some(stream))
-        .collect()
-}
 
 #[derive(Clone)]
 pub struct NuvioPlugins {
@@ -356,9 +408,17 @@ struct Inner {
     config: RwLock<PluginsConfig>,
     status: RwLock<HashMap<String, (String, bool)>>,
     busy: RwLock<bool>,
+    /// Provider list filters. The UI owns the values; the manager keeps a copy
+    /// so a refresh or a toggle does not reset what the user is looking at.
+    provider_filter: RwLock<String>,
+    provider_query: RwLock<String>,
+    /// Selected "repository" filter, stored as the option label the UI shows.
+    /// Empty means every installed repository.
+    repository_filter: RwLock<String>,
     runtime: Arc<stremio_core::runtime::Runtime<core_env::DesktopEnv, AppModel>>,
     playback: Arc<PlaybackSelections>,
     generation: AtomicU64,
+    active_queries: AtomicUsize,
     last_query: Mutex<Option<String>>,
     scripts: Mutex<HashMap<String, (Instant, String)>>,
     tmdb_ids: Mutex<HashMap<String, (Instant, String)>>,
@@ -413,6 +473,92 @@ impl NuvioPlugins {
         self.project();
     }
 
+    fn begin_source_query(&self) {
+        self.inner.active_queries.fetch_add(1, Ordering::AcqRel);
+        self.sync_source_loading_ui();
+    }
+
+    fn finish_source_query(&self) {
+        self.inner.active_queries.fetch_sub(1, Ordering::AcqRel);
+        self.sync_source_loading_ui();
+    }
+
+    fn sync_source_loading_ui(&self) {
+        let manager = self.clone();
+        let ui = self.inner.ui.clone();
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(ui) = ui.upgrade() {
+                ui.set_detail_sources_loading(manager.is_query_active());
+            }
+        });
+    }
+
+    pub fn is_query_active(&self) -> bool {
+        self.inner.active_queries.load(Ordering::Acquire) > 0
+    }
+
+    /// Lets the source page's Reload button start a fresh provider round
+    /// instead of being swallowed by the per-title query key.
+    pub fn reset_last_query(&self) {
+        *self
+            .inner
+            .last_query
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        self.inner
+            .results
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
+    }
+
+    /// Restart the provider round for the title currently open in details.
+    pub fn reload_current_details(&self, ui: &slint::Weak<MainWindow>) {
+        let Ok(model) = self.inner.runtime.model() else {
+            return;
+        };
+        let details = model.meta_details.clone();
+        drop(model);
+        let meta_item = details.meta_items.iter().find_map(|item| {
+            item.content
+                .as_ref()
+                .and_then(|content| content.ready())
+                .cloned()
+        });
+        let Some(meta_item) = meta_item else {
+            return;
+        };
+        self.reset_last_query();
+        start_details_query(self, ui, &meta_item, &details);
+    }
+
+    fn set_provider_filter(&self, filter: String) {
+        *self
+            .inner
+            .provider_filter
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = filter;
+        self.project();
+    }
+
+    fn set_provider_query(&self, query: String) {
+        *self
+            .inner
+            .provider_query
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = query;
+        self.project();
+    }
+
+    fn set_repository_filter(&self, filter: String) {
+        *self
+            .inner
+            .repository_filter
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = filter;
+        self.project();
+    }
+
     fn project(&self) {
         let Some(ui) = self.inner.ui.upgrade() else {
             return;
@@ -434,6 +580,13 @@ impl NuvioPlugins {
                     .iter()
                     .filter(|provider| provider.repository_url == repository.manifest_url)
                     .count();
+                let enabled_count = config
+                    .providers
+                    .iter()
+                    .filter(|provider| {
+                        provider.repository_url == repository.manifest_url && provider.enabled
+                    })
+                    .count();
                 let (message, error) = status
                     .get(&repository.manifest_url)
                     .cloned()
@@ -447,6 +600,7 @@ impl NuvioPlugins {
                         repository.version.clone().into()
                     },
                     provider_count: i32::try_from(provider_count).unwrap_or(i32::MAX),
+                    enabled_count: i32::try_from(enabled_count).unwrap_or(i32::MAX),
                     status: message.into(),
                     status_error: error,
                 }
@@ -462,6 +616,57 @@ impl NuvioPlugins {
             } else {
                 left.name.to_lowercase().cmp(&right.name.to_lowercase())
             }
+        });
+        let provider_total = providers.len();
+        let repository_filters = repository_filter_labels(&config.repositories);
+        let stored_repository = self
+            .inner
+            .repository_filter
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let repository_url = repository_filters
+            .iter()
+            .find(|(label, _)| label == &stored_repository)
+            .map(|(_, url)| url.clone());
+        // Keep the UI in step when the filtered repository was removed or
+        // renamed: the filter falls back to every repository instead of
+        // leaving a selection that matches nothing.
+        let selected_repository = repository_url
+            .as_ref()
+            .and_then(|url| {
+                repository_filters
+                    .iter()
+                    .find(|(_, candidate)| candidate == url)
+                    .map(|(label, _)| label.clone())
+            })
+            .unwrap_or_default();
+        if selected_repository != stored_repository {
+            *self
+                .inner
+                .repository_filter
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = selected_repository.clone();
+        }
+        let filter = self
+            .inner
+            .provider_filter
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let query = self
+            .inner
+            .provider_query
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .trim()
+            .to_lowercase();
+        providers.retain(|provider| {
+            provider_matches_filter(provider, &filter)
+                && provider_matches_query(provider, &query)
+                && repository_url
+                    .as_deref()
+                    .is_none_or(|url| provider.repository_url == url)
         });
         let providers = providers
             .into_iter()
@@ -507,11 +712,45 @@ impl NuvioPlugins {
             })
             .collect::<Vec<_>>();
 
+        let mut repository_options = Vec::with_capacity(repository_filters.len() + 1);
+        repository_options.push(ALL_REPOSITORIES.to_owned());
+        repository_options.extend(repository_filters.into_iter().map(|(label, _)| label));
+
         ui.set_plugins_master_enabled(config.enabled);
         ui.set_plugins_group_by_repository(config.group_by_repository);
         ui.set_plugins_busy(busy);
-        ui.set_plugin_repositories(slint::ModelRc::new(slint::VecModel::from(repositories)));
-        ui.set_plugin_providers(slint::ModelRc::new(slint::VecModel::from(providers)));
+        ui.set_plugins_repository_filters(slint::ModelRc::new(slint::VecModel::from(
+            repository_options.into_iter().map(Into::into).collect::<Vec<slint::SharedString>>(),
+        )));
+        ui.set_plugins_repository_filter(
+            if selected_repository.is_empty() {
+                ALL_REPOSITORIES
+            } else {
+                selected_repository.as_str()
+            }
+            .into(),
+        );
+        // Keep the existing rows when the list keeps its length: replacing the
+        // model rebuilds every provider row, which is slow for the repositories
+        // that publish dozens of providers and discards an unsaved settings
+        // draft in the other rows.
+        let existing_repositories = ui.get_plugin_repositories();
+        if existing_repositories.row_count() == repositories.len() {
+            for (index, repository) in repositories.into_iter().enumerate() {
+                existing_repositories.set_row_data(index, repository);
+            }
+        } else {
+            ui.set_plugin_repositories(slint::ModelRc::new(slint::VecModel::from(repositories)));
+        }
+        let existing_providers = ui.get_plugin_providers();
+        if existing_providers.row_count() == providers.len() {
+            for (index, provider) in providers.into_iter().enumerate() {
+                existing_providers.set_row_data(index, provider);
+            }
+        } else {
+            ui.set_plugin_providers(slint::ModelRc::new(slint::VecModel::from(providers)));
+        }
+        ui.set_plugin_provider_total(i32::try_from(provider_total).unwrap_or(i32::MAX));
     }
 
     fn set_message(&self, message: &str, error: bool) {
@@ -522,89 +761,109 @@ impl NuvioPlugins {
     }
 
     pub async fn refresh_repository(&self, manifest_url: &str) {
+        let installed = self
+            .config()
+            .repositories
+            .iter()
+            .any(|repository| repository.manifest_url == manifest_url);
+        if !installed {
+            self.set_status(manifest_url, "Repository is not installed", true);
+            self.set_busy(false);
+            return;
+        }
         self.set_busy(true);
         self.set_status(manifest_url, "Refreshing…", false);
         self.set_message("Fetching plugin manifest…", false);
-        match fetch_manifest(manifest_url).await {
-            Ok(manifest) => {
-                let mut config = self.config();
-                let Some(repository) = config
-                    .repositories
-                    .iter_mut()
-                    .find(|repository| repository.manifest_url == manifest_url)
-                else {
-                    self.set_status(manifest_url, "Repository is not installed", true);
-                    self.set_busy(false);
-                    return;
-                };
-                repository.name = manifest.name;
-                repository.version = manifest.version;
-                repository.description = manifest.description.unwrap_or_default();
-                repository.last_updated = now_seconds();
-
-                let previous = config
-                    .providers
-                    .iter()
-                    .filter(|provider| provider.repository_url == manifest_url)
-                    .map(|provider| (provider.key.clone(), provider.clone()))
-                    .collect::<HashMap<_, _>>();
-                config
-                    .providers
-                    .retain(|provider| provider.repository_url != manifest_url);
-                for scraper in manifest.scrapers {
-                    if scraper.id.trim().is_empty() || scraper.name.trim().is_empty() {
-                        continue;
-                    }
-                    let key = format!("{manifest_url}#{}", scraper.id);
-                    let old = previous.get(&key);
-                    let source_url = resolve_source_url(manifest_url, &scraper.filename)
-                        .unwrap_or_else(|_| String::new());
-                    config.providers.push(PluginProvider {
-                        key: key.clone(),
-                        id: scraper.id,
-                        repository_url: manifest_url.to_owned(),
-                        name: scraper.name,
-                        description: scraper.description.unwrap_or_default(),
-                        version: scraper.version,
-                        filename: scraper.filename,
-                        source_url,
-                        supported_types: scraper.supported_types,
-                        enabled: old.is_some_and(|provider| provider.enabled),
-                        manifest_enabled: scraper.enabled,
-                        has_settings: scraper.has_settings,
-                        settings: old
-                            .map(|provider| provider.settings.clone())
-                            .unwrap_or_else(default_settings),
-                        logo: scraper.logo.unwrap_or_default(),
-                        languages: scraper.content_language.unwrap_or_default(),
-                        formats: scraper.formats.unwrap_or_default(),
-                    });
-                }
-                config
-                    .repositories
-                    .sort_by(|left, right| left.name.cmp(&right.name));
-                config.providers.sort_by(|left, right| {
-                    left.repository_url
-                        .cmp(&right.repository_url)
-                        .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
-                });
-                let count = config
-                    .providers
-                    .iter()
-                    .filter(|provider| provider.repository_url == manifest_url)
-                    .count();
-                self.invalidate_results();
-                self.replace_config(config);
-                self.set_status(manifest_url, format!("{count} providers ready"), false);
-                self.set_message(&format!("Loaded {} plugin provider(s).", count), false);
-                self.set_busy(false);
-            }
+        match load_repository(manifest_url).await {
+            Ok(content) => self.apply_repository(manifest_url, content),
             Err(error) => {
                 self.set_status(manifest_url, error.clone(), true);
                 self.set_message(&error, true);
                 self.set_busy(false);
             }
         }
+    }
+
+    /// Merge a freshly loaded repository into the saved configuration.
+    ///
+    /// Providers are re-created on every refresh so a new version, name or file
+    /// name is picked up, while the enabled flag and user settings survive
+    /// because they are keyed by provider id.
+    fn apply_repository(&self, manifest_url: &str, content: RepositoryContent) {
+        let mut config = self.config();
+        let Some(repository) = config
+            .repositories
+            .iter_mut()
+            .find(|repository| repository.manifest_url == manifest_url)
+        else {
+            self.set_status(manifest_url, "Repository is not installed", true);
+            self.set_busy(false);
+            return;
+        };
+        repository.name = content.name;
+        repository.version = content.version;
+        repository.description = content.description;
+        repository.last_updated = now_seconds();
+
+        let previous = config
+            .providers
+            .iter()
+            .filter(|provider| provider.repository_url == manifest_url)
+            .map(|provider| (provider.key.clone(), provider.clone()))
+            .collect::<HashMap<_, _>>();
+        config
+            .providers
+            .retain(|provider| provider.repository_url != manifest_url);
+        let mut seen = HashSet::new();
+        for (base_url, scraper) in content.scrapers {
+            if scraper.id.trim().is_empty() || scraper.name.trim().is_empty() {
+                continue;
+            }
+            let key = format!("{manifest_url}#{}", scraper.id);
+            if !seen.insert(key.clone()) {
+                continue;
+            }
+            let old = previous.get(&key);
+            let source_url = resolve_source_url(&base_url, &scraper.filename).unwrap_or_default();
+            config.providers.push(PluginProvider {
+                key: key.clone(),
+                id: scraper.id,
+                repository_url: manifest_url.to_owned(),
+                name: scraper.name,
+                description: scraper.description.unwrap_or_default(),
+                version: scraper.version,
+                filename: scraper.filename,
+                source_url,
+                supported_types: scraper.supported_types,
+                enabled: old.is_some_and(|provider| provider.enabled),
+                manifest_enabled: scraper.enabled,
+                has_settings: scraper.has_settings,
+                settings: old
+                    .map(|provider| provider.settings.clone())
+                    .unwrap_or_else(default_settings),
+                logo: scraper.logo.unwrap_or_default(),
+                languages: scraper.content_language.unwrap_or_default(),
+                formats: scraper.formats.unwrap_or_default(),
+            });
+        }
+        config
+            .repositories
+            .sort_by(|left, right| left.name.cmp(&right.name));
+        config.providers.sort_by(|left, right| {
+            left.repository_url
+                .cmp(&right.repository_url)
+                .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+        });
+        let count = config
+            .providers
+            .iter()
+            .filter(|provider| provider.repository_url == manifest_url)
+            .count();
+        self.invalidate_results();
+        self.replace_config(config);
+        self.set_status(manifest_url, format!("{count} providers ready"), false);
+        self.set_message(&format!("Loaded {count} plugin provider(s)."), false);
+        self.set_busy(false);
     }
 
     async fn add_repository(&self, raw_url: &str) {
@@ -623,22 +882,21 @@ impl NuvioPlugins {
         }
         self.set_busy(true);
         self.set_message("Installing plugin repository…", false);
-        match fetch_manifest(&manifest_url).await {
-            Ok(manifest) => {
+        match load_repository(&manifest_url).await {
+            Ok(content) => {
                 let mut config = self.config();
                 config.repositories.push(PluginRepository {
                     manifest_url: manifest_url.clone(),
-                    name: manifest.name,
-                    version: manifest.version,
-                    description: manifest.description.unwrap_or_default(),
+                    name: content.name.clone(),
+                    version: content.version.clone(),
+                    description: content.description.clone(),
                     last_updated: now_seconds(),
                 });
                 self.replace_config(config);
                 if let Some(ui) = self.inner.ui.upgrade() {
                     ui.set_plugins_repository_url(String::new().into());
                 }
-                self.set_busy(false);
-                self.refresh_repository(&manifest_url).await;
+                self.apply_repository(&manifest_url, content);
             }
             Err(error) => {
                 self.set_message(&error, true);
@@ -711,6 +969,50 @@ impl NuvioPlugins {
         let mut config = self.config();
         config.group_by_repository = grouped;
         self.replace_config(config);
+        self.project();
+    }
+
+    /// Enable or disable every provider a repository publishes, which is the
+    /// one-click path for repositories that ship dozens of scrapers.
+    fn set_repository_enabled(&self, manifest_url: &str, enabled: bool) {
+        let mut config = self.config();
+        let mut changed = 0usize;
+        let mut blocked = 0usize;
+        for provider in &mut config.providers {
+            if provider.repository_url != manifest_url {
+                continue;
+            }
+            if enabled && !provider.manifest_enabled {
+                blocked += 1;
+                continue;
+            }
+            if provider.enabled != enabled {
+                provider.enabled = enabled;
+                changed += 1;
+            }
+        }
+        if changed == 0 {
+            let message = if blocked > 0 {
+                "That repository does not allow its providers to be enabled."
+            } else if enabled {
+                "Every provider in that repository is already enabled."
+            } else {
+                "Every provider in that repository is already disabled."
+            };
+            self.set_message(message, blocked > 0);
+            self.project();
+            return;
+        }
+        self.invalidate_results();
+        self.replace_config(config);
+        self.set_message(
+            if enabled {
+                "All providers in that repository enabled."
+            } else {
+                "All providers in that repository disabled."
+            },
+            false,
+        );
         self.project();
     }
 
@@ -824,6 +1126,15 @@ pub fn on_details_synced(
     let Some(manager) = manager() else {
         return;
     };
+    start_details_query(&manager, ui, meta_item, details);
+}
+
+fn start_details_query(
+    manager: &NuvioPlugins,
+    ui: &slint::Weak<MainWindow>,
+    meta_item: &stremio_core::types::resource::MetaItem,
+    details: &stremio_core::models::meta_details::MetaDetails,
+) {
     let Some(selected) = details.selected.as_ref() else {
         return;
     };
@@ -891,14 +1202,14 @@ pub fn on_details_synced(
     let generation = manager.inner.generation.fetch_add(1, Ordering::AcqRel) + 1;
     manager.inner.playback.clear_plugin_results();
     {
-        let manager = manager.clone();
+        let manager = NuvioPlugins::clone(manager);
         let _ = slint::invoke_from_event_loop(move || manager.rebuild_streams());
     }
     if !manager.config().enabled {
         return;
     }
     let ui = ui.clone();
-    let manager = manager.clone();
+    let manager = NuvioPlugins::clone(manager);
     tokio::spawn(async move {
         manager.run_details_query(query, generation, ui).await;
     });
@@ -909,6 +1220,17 @@ fn parse_episode_id(video_id: &str) -> Option<(Option<u32>, Option<u32>)> {
     let episode = parts.next()?.parse::<u32>().ok()?;
     let season = parts.next()?.parse::<u32>().ok()?;
     Some((Some(season), Some(episode)))
+}
+
+/// Keeps the source page's loading state alive for the whole provider round
+/// trip, including the fallible metadata lookup. Dropping the guard (including
+/// on early returns) clears it again.
+struct SourceQueryActivity(NuvioPlugins);
+
+impl Drop for SourceQueryActivity {
+    fn drop(&mut self) {
+        self.0.finish_source_query();
+    }
 }
 
 impl NuvioPlugins {
@@ -1084,14 +1406,39 @@ impl NuvioPlugins {
             self.set_message("No enabled plugin providers support this media type.", false);
             return;
         }
+        self.begin_source_query();
+        let _activity = SourceQueryActivity(self.clone());
         self.set_message("Resolving metadata for plugin providers…", false);
-        let tmdb_id = match self.resolve_tmdb_id(&query).await {
-            Ok(id) => id,
-            Err(error) => {
+        let tmdb_id = match tokio::time::timeout(
+            Duration::from_secs(15),
+            self.resolve_tmdb_id(&query),
+        )
+        .await
+        {
+            Ok(Ok(id)) => id,
+            Ok(Err(error)) => {
                 for provider in &providers {
                     self.set_status(&provider.key, "No TMDB id", true);
                 }
-                self.set_message(&error, true);
+                // Name the failing stage: "plugin failed" was unhelpful when
+                // the real cause was the shared metadata lookup.
+                let message = if error.starts_with("No TMDB match") {
+                    error
+                } else {
+                    format!("Metadata lookup failed: {error}")
+                };
+                self.set_message(&message, true);
+                self.project();
+                return;
+            }
+            Err(_) => {
+                for provider in &providers {
+                    self.set_status(&provider.key, "Metadata timed out", true);
+                }
+                self.set_message(
+                    "Metadata lookup timed out. Check this device's connection, then retry.",
+                    true,
+                );
                 self.project();
                 return;
             }
@@ -1121,46 +1468,63 @@ impl NuvioPlugins {
             return;
         }
 
-        let semaphore = Arc::new(Semaphore::new(8));
+        // Every enabled provider runs at once. Eight at a time left later
+        // providers waiting behind slow scripts; sixteen keeps a cold load
+        // close to the slowest provider's own response time.
+        let semaphore = Arc::new(Semaphore::new(16));
         let mut tasks = FuturesUnordered::new();
-        for provider in providers.into_iter().take(12) {
+        // The semaphore bounds concurrent script fetches and QuickJS workers.
+        for provider in providers {
             let manager = self.clone();
+            let manager_for_timeout = manager.clone();
             let query = query.clone();
             let tmdb_id = tmdb_id.clone();
             let semaphore = semaphore.clone();
+            let provider_key = provider.key.clone();
             tasks.push(async move {
-                let _permit = semaphore.acquire_owned().await.ok()?;
-                manager.set_status(&provider.key, "Searching…", false);
-                manager.project();
-                let script = match manager.script_for(&provider).await {
-                    Ok(script) => script,
-                    Err(error) => {
-                        manager.set_status(&provider.key, &error, true);
-                        manager.project();
-                        return None;
-                    }
-                };
-                let settings = if serde_json::from_str::<serde_json::Value>(&provider.settings)
-                    .is_ok_and(|value| value.is_object())
-                {
-                    provider.settings.clone()
-                } else {
-                    "{}".to_owned()
-                };
-                let key = provider.key.clone();
-                let name = provider.name.clone();
-                let request = ProviderQuery {
-                    tmdb_id,
-                    media_type: query.media_type.clone(),
-                    season: query.season,
-                    episode: query.episode,
-                };
-                let outcome = tokio::task::spawn_blocking(move || {
-                    plugin_runtime::execute(&key, &name, &script, &settings, &request)
+                let result = tokio::time::timeout(Duration::from_secs(12), async move {
+                    let _permit = semaphore.acquire_owned().await.ok()?;
+                    manager.set_status(&provider.key, "Searching…", false);
+                    manager.project();
+                    let script = match manager.script_for(&provider).await {
+                        Ok(script) => script,
+                        Err(error) => {
+                            manager.set_status(&provider.key, &error, true);
+                            manager.project();
+                            return None;
+                        }
+                    };
+                    let settings = if serde_json::from_str::<serde_json::Value>(&provider.settings)
+                        .is_ok_and(|value| value.is_object())
+                    {
+                        provider.settings.clone()
+                    } else {
+                        "{}".to_owned()
+                    };
+                    let key = provider.key.clone();
+                    let name = provider.name.clone();
+                    let request = ProviderQuery {
+                        tmdb_id,
+                        media_type: query.media_type.clone(),
+                        season: query.season,
+                        episode: query.episode,
+                    };
+                    let outcome = tokio::task::spawn_blocking(move || {
+                        plugin_runtime::execute(&key, &name, &script, &settings, &request)
+                    })
+                    .await
+                    .ok()?;
+                    Some((provider, outcome))
                 })
-                .await
-                .ok()?;
-                Some((provider, outcome))
+                .await;
+                match result {
+                    Ok(pair) => pair,
+                    Err(_) => {
+                        manager_for_timeout.set_status(&provider_key, "Timed out", true);
+                        manager_for_timeout.project();
+                        None
+                    }
+                }
             });
         }
 
@@ -1174,6 +1538,7 @@ impl NuvioPlugins {
                 continue;
             };
             completed += 1;
+            let mut added = 0usize;
             if let Some(error) = outcome.error {
                 errors += 1;
                 self.set_status(&provider.key, truncate_message(&error, 90), true);
@@ -1183,9 +1548,12 @@ impl NuvioPlugins {
                     .into_iter()
                     .filter(PluginStream::is_playable)
                     .collect::<Vec<_>>();
-                let verified = verify_media_streams(candidates).await;
+                // Show the provider's answer immediately. The old probe pass
+                // opened an HTTP request per direct URL (8s timeout, eight at a
+                // time) and held the whole list back, while the phone client
+                // renders every source as soon as the script returns.
                 let mut count = 0usize;
-                for stream in verified {
+                for stream in candidates {
                     let dedupe = if stream.is_torrent() {
                         stream.info_hash.clone().unwrap_or_default()
                     } else {
@@ -1203,6 +1571,7 @@ impl NuvioPlugins {
                         break;
                     }
                 }
+                added = count;
                 self.set_status(
                     &provider.key,
                     if count == 0 {
@@ -1214,6 +1583,9 @@ impl NuvioPlugins {
                 );
             }
             self.project();
+            if added > 0 {
+                self.apply_plugin_results(generation, streams.clone(), query.video_id.clone());
+            }
             if streams.len() >= 160 {
                 break;
             }
@@ -1234,13 +1606,22 @@ impl NuvioPlugins {
             cache.insert(cache_key, (Instant::now(), streams.clone()));
         }
         self.apply_plugin_results(generation, streams.clone(), query.video_id.clone());
-        self.set_message(
-            &format!(
+        let message = if streams.is_empty() && errors > 0 {
+            format!(
+                "No plugin sources. {errors} provider(s) failed; check this device's connection, then retry."
+            )
+        } else if errors > 0 {
+            format!(
+                "Plugin search complete: {} source(s) from {completed} provider(s); {errors} failed",
+                streams.len()
+            )
+        } else {
+            format!(
                 "Plugin search complete: {} source(s) from {completed} provider(s)",
                 streams.len()
-            ),
-            errors > 0 && streams.is_empty(),
-        );
+            )
+        };
+        self.set_message(&message, streams.is_empty() && errors > 0);
         self.project();
     }
 }
@@ -1269,9 +1650,13 @@ pub fn setup(
             config: RwLock::new(config.clone()),
             status: RwLock::new(HashMap::new()),
             busy: RwLock::new(false),
+            provider_filter: RwLock::new("All".to_owned()),
+            provider_query: RwLock::new(String::new()),
+            repository_filter: RwLock::new(String::new()),
             runtime,
             playback,
             generation: AtomicU64::new(0),
+            active_queries: AtomicUsize::new(0),
             last_query: Mutex::new(None),
             scripts: Mutex::new(HashMap::new()),
             tmdb_ids: Mutex::new(HashMap::new()),
@@ -1288,6 +1673,25 @@ pub fn setup(
     ui.on_plugins_group_changed({
         let manager = manager.clone();
         move |grouped| manager.toggle_group(grouped)
+    });
+    ui.on_plugin_provider_filter_changed({
+        let manager = manager.clone();
+        move |filter| manager.set_provider_filter(filter.to_string())
+    });
+    ui.on_plugin_provider_query_changed({
+        let manager = manager.clone();
+        move |query| manager.set_provider_query(query.to_string())
+    });
+    ui.on_plugin_repository_filter_changed({
+        let manager = manager.clone();
+        move |filter| {
+            let filter = filter.to_string();
+            manager.set_repository_filter(if filter == ALL_REPOSITORIES {
+                String::new()
+            } else {
+                filter
+            });
+        }
     });
     ui.on_plugin_repository_add({
         let manager = manager.clone();
@@ -1308,6 +1712,10 @@ pub fn setup(
     ui.on_plugin_repository_remove({
         let manager = manager.clone();
         move |url| manager.remove_repository(url.as_str())
+    });
+    ui.on_plugin_repository_enabled({
+        let manager = manager.clone();
+        move |url, enabled| manager.set_repository_enabled(url.as_str(), enabled)
     });
     ui.on_plugin_provider_toggled({
         let manager = manager.clone();
@@ -1331,9 +1739,19 @@ pub fn setup(
             let manager = manager.clone();
             let repositories = manager.config().repositories;
             tokio::spawn(async move {
-                for repository in repositories {
-                    manager.refresh_repository(&repository.manifest_url).await;
-                }
+                // Refreshing repositories one by one turned "Refresh all" into
+                // a queue of network round-trips. Providers are independent,
+                // so refresh a few repositories at a time instead.
+                stream::iter(repositories)
+                    .for_each_concurrent(REFRESH_CONCURRENCY, |repository| {
+                        let manager = manager.clone();
+                        async move {
+                            manager
+                                .refresh_repository(&repository.manifest_url)
+                                .await;
+                        }
+                    })
+                    .await;
             });
         }
     });
@@ -1397,48 +1815,289 @@ fn resolve_source_url(manifest_url: &str, filename: &str) -> Result<String, ()> 
     Ok(resolved.to_string())
 }
 
+/// One pooled HTTP client for every plugin manifest, script and gateway call.
+///
+/// Building a client per request (the previous behaviour) paid for a fresh DNS
+/// lookup, TCP handshake and TLS session every time, so a slow or flaky link
+/// turned into failures a kept-alive connection would have absorbed.
+static PLUGIN_HTTP: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+const FETCH_ATTEMPTS: u32 = 3;
+/// Plugin lists of one repository are fetched this many at a time.
+const LOAD_CONCURRENCY: usize = 6;
+/// Repositories refreshed together by "Refresh all".
+const REFRESH_CONCURRENCY: usize = 4;
+
+fn plugin_http_client() -> Result<&'static reqwest::Client, String> {
+    PLUGIN_HTTP
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                    if attempt.previous().len() >= 5 || !is_public_url(attempt.url()) {
+                        attempt.stop()
+                    } else {
+                        attempt.follow()
+                    }
+                }))
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(30))
+                .pool_idle_timeout(Duration::from_secs(90))
+                .tcp_keepalive(Duration::from_secs(30))
+                .user_agent("SENZO-PluginManager/1.0 (+https://github.com/Sensei002/senzo)")
+                .build()
+                .map_err(|error| format!("Could not create plugin HTTP client: {error}"))
+        })
+        .as_ref()
+        .map_err(|error| error.clone())
+}
+
+struct FetchFailure {
+    message: String,
+    retryable: bool,
+}
+
+impl FetchFailure {
+    fn permanent(message: impl Into<String>) -> Self {
+        Self { message: message.into(), retryable: false }
+    }
+
+    fn transient(message: impl Into<String>) -> Self {
+        Self { message: message.into(), retryable: true }
+    }
+}
+
 async fn fetch_text(url: &str, limit: usize) -> Result<String, String> {
     let parsed = Url::parse(url).map_err(|_| "Invalid plugin URL.".to_owned())?;
-    if parsed.scheme() != "https" || !is_public_url(&parsed) {
-        return Err("Plugin repositories must use HTTPS on a public host.".to_owned());
+    if parsed.scheme() != "https" {
+        return Err("Plugin repositories must use HTTPS.".to_owned());
     }
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() >= 5 || !is_public_url(attempt.url()) {
-                attempt.stop()
-            } else {
-                attempt.follow()
-            }
-        }))
-        .connect_timeout(Duration::from_secs(8))
-        .timeout(Duration::from_secs(30))
-        .user_agent("SENZO-PluginManager/1.0 (+https://github.com/Sensei002/senzo)")
-        .build()
-        .map_err(|error| format!("Could not create plugin HTTP client: {error}"))?;
+    match fetch_with_retries(parsed.clone(), limit).await {
+        Ok(text) => Ok(text),
+        // raw.githubusercontent.com is unreachable on some networks (it is
+        // blocked in several countries). jsDelivr mirrors GitHub content, so
+        // one fallback attempt keeps add-ons installable there.
+        Err(error) => match github_mirror(&parsed) {
+            Some(mirror) => fetch_with_retries(mirror.clone(), limit)
+                .await
+                .map_err(|mirror_error| format!("{error} Mirror {mirror}: {mirror_error}")),
+            None => Err(error),
+        },
+    }
+}
+
+fn github_mirror(url: &Url) -> Option<Url> {
+    if url.host_str()? != "raw.githubusercontent.com" {
+        return None;
+    }
+    let segments = url
+        .path_segments()?
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    if segments.len() < 4 {
+        return None;
+    }
+    let rest = segments[3..].join("/");
+    let path = format!(
+        "gh/{}/{}@{}/{rest}",
+        segments[0], segments[1], segments[2]
+    );
+    let mut mirror = Url::parse(&format!("https://cdn.jsdelivr.net/{path}")).ok()?;
+    mirror.set_query(url.query());
+    Some(mirror)
+}
+
+async fn fetch_with_retries(parsed: Url, limit: usize) -> Result<String, String> {
+    let mut last_error = "Plugin request failed.".to_owned();
+    for attempt in 0..FETCH_ATTEMPTS {
+        if attempt > 0 {
+            tokio::time::sleep(Duration::from_millis(400 * u64::from(attempt))).await;
+        }
+        match fetch_text_once(parsed.clone(), limit).await {
+            Ok(text) => return Ok(text),
+            Err(failure) if failure.retryable => last_error = failure.message,
+            Err(failure) => return Err(failure.message),
+        }
+    }
+    Err(format!(
+        "{last_error} (retried {FETCH_ATTEMPTS} times; check this device's connection, DNS, or VPN)"
+    ))
+}
+
+async fn fetch_text_once(parsed: Url, limit: usize) -> Result<String, FetchFailure> {
+    // Resolution is blocking; keep it off the async workers so one slow DNS
+    // server cannot stall every provider request in the batch.
+    let lookup = parsed.clone();
+    let host = tokio::task::spawn_blocking(move || classify_public_host(&lookup))
+        .await
+        .unwrap_or(PublicHost::Unresolved);
+    match host {
+        PublicHost::Blocked => {
+            return Err(FetchFailure::permanent(
+                "Plugin hosts must resolve to a public address.",
+            ));
+        }
+        PublicHost::Unresolved => {
+            return Err(FetchFailure::transient(format!(
+                "Could not resolve {}.",
+                parsed.host_str().unwrap_or("the plugin host")
+            )));
+        }
+        PublicHost::Public => {}
+    }
+    let client = match plugin_http_client() {
+        Ok(client) => client,
+        Err(message) => return Err(FetchFailure::permanent(message)),
+    };
     let response = client
         .get(parsed)
         .send()
         .await
-        .map_err(|error| format!("Plugin request failed: {error}"))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "Plugin server returned HTTP {}.",
-            response.status()
-        ));
+        .map_err(|error| {
+            let message = if error.is_timeout() {
+                "Plugin request timed out.".to_owned()
+            } else if error.is_connect() {
+                format!("Could not reach the plugin server: {error}")
+            } else {
+                format!("Plugin request failed: {error}")
+            };
+            if error.is_timeout() || error.is_connect() || error.is_request() || error.is_body() {
+                FetchFailure::transient(message)
+            } else {
+                FetchFailure::permanent(message)
+            }
+        })?;
+    let status = response.status();
+    if !status.is_success() {
+        let message = format!("Plugin server returned HTTP {status}.");
+        return Err(if status.is_server_error()
+            || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        {
+            FetchFailure::transient(message)
+        } else {
+            FetchFailure::permanent(message)
+        });
     }
     let bytes = response
         .bytes()
         .await
-        .map_err(|error| format!("Could not read plugin response: {error}"))?;
+        .map_err(|error| FetchFailure::transient(format!("Could not read plugin response: {error}")))?;
     if bytes.len() > limit {
-        return Err("Plugin response is larger than the allowed limit.".to_owned());
+        return Err(FetchFailure::permanent(
+            "Plugin response is larger than the allowed limit.",
+        ));
     }
-    String::from_utf8(bytes.to_vec()).map_err(|_| "Plugin response is not valid UTF-8.".to_owned())
+    String::from_utf8(bytes.to_vec())
+        .map_err(|_| FetchFailure::permanent("Plugin response is not valid UTF-8."))
 }
 
-async fn fetch_manifest(manifest_url: &str) -> Result<Manifest, String> {
-    let text = fetch_text(manifest_url, MAX_MANIFEST_BYTES).await?;
+async fn fetch_json(url: &str) -> Result<serde_json::Value, String> {
+    let text = fetch_text(url, MAX_MANIFEST_BYTES).await?;
     serde_json::from_str(&text).map_err(|error| format!("Invalid plugin manifest: {error}"))
+}
+
+/// Load a repository in any of the shapes community projects publish.
+///
+/// A manifest with `pluginLists` is an index: each listed document is fetched
+/// (one level of indirection is enough in practice, two are allowed) and its
+/// providers are resolved against that document's own URL, so relative script
+/// names keep working no matter where the list is hosted.
+/// Plugin lists of one repository document, or no lists for a leaf document.
+fn merge_repository_document(
+    content: &mut RepositoryContent,
+    depth: usize,
+    base_url: &str,
+    value: serde_json::Value,
+) -> Vec<String> {
+    match value {
+        serde_json::Value::Array(entries) => {
+            content.scrapers.extend(
+                entries
+                    .into_iter()
+                    .filter_map(parse_scraper)
+                    .map(|scraper| (base_url.to_owned(), scraper)),
+            );
+            Vec::new()
+        }
+        serde_json::Value::Object(_) => {
+            let manifest: RawManifest = serde_json::from_value(value).unwrap_or_default();
+            if content.name.trim().is_empty() {
+                content.name = manifest.name.unwrap_or_default();
+            }
+            if content.version.is_empty() {
+                content.version = manifest.version.as_ref().map(json_text).unwrap_or_default();
+            }
+            if content.description.is_empty() {
+                content.description = manifest.description.unwrap_or_default();
+            }
+            content.scrapers.extend(
+                manifest
+                    .scrapers
+                    .into_iter()
+                    .filter_map(RawScraper::normalize)
+                    .map(|scraper| (base_url.to_owned(), scraper)),
+            );
+            if depth >= 2 {
+                Vec::new()
+            } else {
+                manifest.plugin_lists
+            }
+        }
+        _ => Vec::new(),
+    }
+}
+
+async fn load_repository(manifest_url: &str) -> Result<RepositoryContent, String> {
+    let root = fetch_json(manifest_url).await?;
+    let mut content = RepositoryContent::default();
+    let mut errors = Vec::new();
+    let mut level = vec![(0usize, manifest_url.to_owned(), root)];
+    while !level.is_empty() {
+        let mut list_requests = Vec::new();
+        for (depth, base_url, value) in std::mem::take(&mut level) {
+            for list in merge_repository_document(&mut content, depth, &base_url, value) {
+                let list_url = Url::parse(&base_url)
+                    .and_then(|base| base.join(&list))
+                    .ok()
+                    .filter(|url| url.scheme() == "https" && !is_blocked_host(url));
+                match list_url {
+                    Some(list_url) => list_requests.push((depth + 1, list_url.to_string())),
+                    None => errors.push(format!(
+                        "{list}: plugin lists must use HTTPS on a public host"
+                    )),
+                }
+            }
+        }
+        if list_requests.is_empty() {
+            continue;
+        }
+        // Sibling plugin lists are independent documents. Fetching them one
+        // after another made a repository that publishes a dozen lists wait
+        // for a dozen round-trips (with retries) before one provider appeared.
+        let mut fetched = stream::iter(list_requests.into_iter().map(|(depth, url)| async move {
+            let value = fetch_json(url.as_str()).await;
+            (depth, url, value)
+        }))
+        .buffer_unordered(LOAD_CONCURRENCY)
+        .collect::<Vec<_>>()
+        .await;
+        fetched.sort_by(|left, right| left.1.cmp(&right.1));
+        for (depth, url, value) in fetched {
+            match value {
+                Ok(value) => level.push((depth, url, value)),
+                Err(error) => errors.push(format!("{url}: {error}")),
+            }
+        }
+    }
+    if content.scrapers.is_empty() {
+        return Err(if errors.is_empty() {
+            "This repository declares no plugin providers.".to_owned()
+        } else {
+            format!("Could not load plugin providers: {}", errors.join("; "))
+        });
+    }
+    if content.name.trim().is_empty() {
+        content.name = manifest_fallback_name(manifest_url);
+    }
+    Ok(content)
 }
 
 async fn fetch_script(source_url: &str) -> Result<String, String> {
@@ -1480,5 +2139,91 @@ mod tests {
             .unwrap(),
             "https://example.com/repo/providers/example.js"
         );
+    }
+
+    #[test]
+    fn cloudstream_build_entries_are_normalized() {
+        let entry = serde_json::json!({
+            "url": "https://example.com/builds/Movie.cs3",
+            "status": 1,
+            "version": 11,
+            "name": "Movie",
+            "internalName": "MovieProvider",
+            "description": "Bangla & Hindi movies",
+            "language": "hi",
+            "tvTypes": ["Movie", "TvSeries"],
+            "iconUrl": "https://example.com/icon.png"
+        });
+        let scraper = parse_scraper(entry).expect("entry should normalize");
+        assert_eq!(scraper.id, "MovieProvider");
+        assert_eq!(scraper.name, "Movie");
+        assert_eq!(scraper.version, "11");
+        assert_eq!(scraper.filename, "https://example.com/builds/Movie.cs3");
+        assert_eq!(scraper.supported_types, vec!["movie", "tv"]);
+        assert_eq!(scraper.logo.as_deref(), Some("https://example.com/icon.png"));
+        assert_eq!(scraper.content_language, Some(vec!["hi".to_owned()]));
+        assert!(scraper.enabled);
+    }
+
+    #[test]
+    fn repository_index_lists_plugin_lists() {
+        let index: RawManifest = serde_json::from_str(
+            r#"{
+                "name": "Redowan's BDIX repository",
+                "description": "BDIX builds",
+                "manifestVersion": 1,
+                "pluginLists": [
+                    "https://raw.githubusercontent.com/redowan99/Redowan-CloudStream/builds/plugins.json"
+                ]
+            }"#,
+        )
+        .expect("index should parse");
+        assert_eq!(index.name.as_deref(), Some("Redowan's BDIX repository"));
+        assert_eq!(index.plugin_lists.len(), 1);
+        assert!(index.scrapers.is_empty());
+    }
+
+    #[test]
+    fn provider_filters_match_content_types() {
+        let provider = PluginProvider {
+            supported_types: vec!["movie".to_owned(), "tv".to_owned()],
+            name: "Movie Hub".to_owned(),
+            languages: vec!["bn".to_owned()],
+            ..PluginProvider::default()
+        };
+        assert!(provider_matches_filter(&provider, "All"));
+        assert!(provider_matches_filter(&provider, "Movies"));
+        assert!(provider_matches_filter(&provider, "Series"));
+        assert!(!provider_matches_filter(&provider, "Live TV"));
+        assert!(provider_matches_query(&provider, "movie bn"));
+        assert!(!provider_matches_query(&provider, "anime"));
+    }
+
+    #[test]
+    fn repository_filter_labels_stay_unique() {
+        let repositories = vec![
+            PluginRepository {
+                manifest_url: "https://a.example.com/manifest.json".to_owned(),
+                name: "Community".to_owned(),
+                ..PluginRepository::default()
+            },
+            PluginRepository {
+                manifest_url: "https://b.example.com/manifest.json".to_owned(),
+                name: "Community".to_owned(),
+                ..PluginRepository::default()
+            },
+            PluginRepository {
+                manifest_url: "https://c.example.com/repo.json".to_owned(),
+                name: "   ".to_owned(),
+                ..PluginRepository::default()
+            },
+        ];
+        let labels = repository_filter_labels(&repositories);
+        assert_eq!(labels[0], ("Community".to_owned(), repositories[0].manifest_url.clone()));
+        assert_eq!(
+            labels[1],
+            ("Community (2)".to_owned(), repositories[1].manifest_url.clone())
+        );
+        assert_eq!(labels[2].0, "repo.json");
     }
 }

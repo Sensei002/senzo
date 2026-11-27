@@ -42,6 +42,23 @@ impl Tab {
             Self::Discover | Self::Movies | Self::Shows | Self::Anime | Self::Kids
         )
     }
+
+    pub const fn presence_label(self) -> &'static str {
+        match self {
+            Self::Board => "Home",
+            Self::Discover => "Discover",
+            Self::Library => "Library",
+            Self::Addons => "Add-ons",
+            Self::Settings => "Settings",
+            Self::Calendar => "Calendar",
+            Self::Downloads => "Downloads",
+            Self::Movies => "Movies",
+            Self::Shows => "Shows",
+            Self::Anime => "Anime",
+            Self::Kids => "Kids",
+            Self::Plugins => "Plugins",
+        }
+    }
 }
 
 impl TryFrom<i32> for Tab {
@@ -132,6 +149,20 @@ impl NavigationSnapshot {
         match self.routes.first() {
             Some(Route::Tab(tab)) => *tab,
             _ => Tab::Board,
+        }
+    }
+
+    /// Human-readable page name used by Discord Rich Presence. The label
+    /// follows the topmost route so the profile shows Search or Details while
+    /// those pages cover the tab underneath.
+    pub fn presence_page_label(&self) -> &'static str {
+        match self.routes.last() {
+            Some(Route::Search { .. }) => "Search",
+            Some(Route::AddonDetails { .. }) => "Add-on details",
+            Some(Route::Details { .. }) => "Details",
+            Some(Route::Player) => "Player",
+            Some(Route::Tab(tab)) => tab.presence_label(),
+            None => "Home",
         }
     }
 
@@ -480,6 +511,25 @@ mod tests {
 
         assert!(transition.changed);
         assert_eq!(transition.after.routes, expected);
+    }
+
+    #[test]
+    fn presence_labels_follow_the_topmost_route() {
+        let navigation = NavigationController::new(Tab::Library.index());
+        assert_eq!(navigation.snapshot().presence_page_label(), "Library");
+
+        navigation.dispatch(NavigationIntent::OpenSearch {
+            query: "dune".to_owned(),
+        });
+        assert_eq!(navigation.snapshot().presence_page_label(), "Search");
+
+        navigation.dispatch(NavigationIntent::OpenDetails {
+            media_id: "movie-a".to_owned(),
+        });
+        assert_eq!(navigation.snapshot().presence_page_label(), "Details");
+
+        navigation.dispatch(NavigationIntent::OpenPlayer);
+        assert_eq!(navigation.snapshot().presence_page_label(), "Player");
     }
 
     #[test]

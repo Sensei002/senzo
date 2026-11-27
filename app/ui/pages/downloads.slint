@@ -26,6 +26,7 @@ export component DownloadsPage inherits Rectangle {
     callback pause(string);
     callback resume(string);
     callback cancel(string);
+    callback delete(string);
     callback play(string);
     callback reveal(string);
     callback retry;
@@ -77,7 +78,7 @@ export component DownloadsPage inherits Rectangle {
             unit: root.unit;
             icon-source: @image-url("../assets/images/icons/download.svg");
             title: @tr("DOWNLOADS_EMPTY" => "No downloads yet");
-            message: @tr("DOWNLOADS_EMPTY_HINT" => "Download a stream from its menu to keep it available offline.");
+            message: @tr("DOWNLOADS_EMPTY_HINT" => "Press the download button on a source to keep it available offline.");
         }
 
         if (root.loading) : Text {
@@ -169,7 +170,7 @@ export component DownloadsPage inherits Rectangle {
                                 unit: root.unit;
                                 label: @tr("DELETE" => "Delete");
                                 outlined: true;
-                                clicked => { root.cancel(item.id); }
+                                clicked => { root.delete(item.id); }
                             }
                         }
 

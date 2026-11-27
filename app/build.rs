@@ -196,6 +196,49 @@ fn embed_windows_resources() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// UnRAR's SIMD dispatch in `async_rar` calls `__builtin_cpu_supports`, which
+/// clang lowers to `__cpu_model` from compiler-rt's builtins archive. Rust's
+/// link step does not pass that archive, so x86_64 Apple links miss the
+/// symbol; arm64 has no such symbol and needs nothing here.
+fn link_macos_compiler_rt() {
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS");
+    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH");
+    if target_os.as_deref() != Ok("macos") || target_arch.as_deref() != Ok("x86_64") {
+        return;
+    }
+
+    // Prefer the system compiler: a MacPorts or Homebrew clang in PATH reports
+    // a resource directory without Apple's macOS builtins.
+    let clang = if Path::new("/usr/bin/clang").is_file() {
+        "/usr/bin/clang"
+    } else {
+        "clang"
+    };
+
+    let Ok(output) = std::process::Command::new(clang)
+        .arg("-print-resource-dir")
+        .output()
+    else {
+        println!("cargo:warning=could not run {clang} to locate compiler-rt");
+        return;
+    };
+    if !output.status.success() {
+        println!("cargo:warning={clang} could not report its resource directory");
+        return;
+    }
+
+    let resource_dir = String::from_utf8_lossy(&output.stdout);
+    let lib_dir = Path::new(resource_dir.trim()).join("lib/darwin");
+    if !lib_dir.join("libclang_rt.osx.a").is_file() {
+        println!(
+            "cargo:warning=no libclang_rt.osx.a under {}; the link may miss __cpu_model",
+            lib_dir.display()
+        );
+        return;
+    }
+    println!("cargo:rustc-link-search=native={}", lib_dir.display());
+    println!("cargo:rustc-link-lib=static=clang_rt.osx");
+}
 fn update_channel() -> &'static str {
     match std::env::var("SENZO_UPDATE_CHANNEL") {
         Ok(value) if value.eq_ignore_ascii_case("stable") => "stable",
@@ -219,6 +262,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rustc-env=SENZO_BUILD_VERSION={}", build_version());
     println!("cargo:rustc-env=SENZO_UPDATE_CHANNEL={}", update_channel());
     embed_windows_resources()?;
+    link_macos_compiler_rt();
 
     // 1. Generate Slint imports file for imported_fonts.slint
     let slint_imports =

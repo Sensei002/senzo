@@ -2,6 +2,50 @@
 
 This file records notable changes to SENZO relative to the initial source snapshot.
 
+## 0.1.4 - 2026-11-27
+
+### Settings
+
+- Desktop: the living-room console settings page now uses the empty right-hand space for quick living-room, gamepad and fullscreen controls plus app, build and shell versions and the project credit.
+- Desktop: the Discord setting explains that page presence is shared as well as playback details.
+
+### Discord Rich Presence
+
+- Desktop: presence now connects when the app is idle, shows the current SENZO page, switches to the playing title with an elapsed/remaining time bar, reports paused playback, and falls back to the current page when playback stops.
+- Desktop: playback and page updates have separate priorities so a page refresh can never replace the movie being watched.
+
+### Player
+
+- Android: removed the duplicate buffering spinner from the player controls; the centred loading circle is now the only one shown while a source connects and the video starts.
+
+### Sources
+
+- Desktop: the source page is now a compact, phone-style list: one small header, provider and ranking filters, seeder health, the suspicious-source toggle, manual reload and Play best. Rows are flat, full width and evenly aligned instead of the ragged centred cards.
+- Desktop: Play always opens that dedicated page. The old inline source drawer is gone, and for a series Play picks the episode you are looking at before asking for sources.
+- Desktop: plugin sources appear as each provider answers instead of waiting for the slowest one. The previous URL probe pass no longer delays the first results, sixteen providers load at once, and each provider plus the shared metadata lookup has a hard timeout so one dead host cannot stall the page.
+- Desktop: the source loading state now covers the whole provider round-trip, so a cold title shows Loading sources… instead of 0 FILES while plugins are still working. Reload starts a fresh provider search rather than reusing the previous answer.
+- Desktop: the source loading ring is larger, rotates from the renderer clock, and stays smooth because the new rows render far less per item.
+- Desktop: every source row has its own Download action, and the header actions and ranking score now sit flush right instead of bunching up after the title.
+- Android: torrent playback starts from the opening pieces instead of waiting for a partial download. Piece waits include the file offset for multi-file torrents, and the tail of the file is prioritised so MP4 indexes load immediately.
+
+### Library
+
+- Desktop: the login wall is gone. Guest profiles use the local library with the same filters, sorting, progress and context menus as a signed-in account.
+
+### Addons and plugins
+
+- Desktop: every plugin repository now has Enable all and Disable all, with live enabled counts, so an All-in-One repository can be switched in one click.
+
+### Downloads
+
+- Desktop: Delete on a cancelled, failed or completed download now removes the queue entry, its saved credential and its partial or finished file. It used to call Cancel, which did nothing once the job had stopped.
+
+### Updates
+
+- Desktop: an update release is shown as a non-dismissible strip above the shell with release notes and Install now; the notes dialog reports download and install state.
+- Android: Settings has Check for updates. It reads the repository releases, matches the phone ABI, downloads the APK and hands it to the system installer, including the unknown-sources permission flow.
+- Android releases: the workflow attaches the arm64 and arm32 APKs to the published GitHub release, which is the feed the in-app check reads.
+
 ## 0.1.3 - 2026-11-25
 
 ### Fixes and reliability

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="background">#08090C</color>
+    <!-- The mark sits on the same black the artwork uses, so the adaptive mask
+         crops into the logo instead of into a visible frame. -->
+    <color name="ic_launcher_background">#0A0A0A</color>
+</resources>
