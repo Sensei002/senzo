@@ -1203,7 +1203,7 @@ fn start_details_query(
     let generation = manager.inner.generation.fetch_add(1, Ordering::AcqRel) + 1;
     manager.inner.playback.clear_plugin_results();
     {
-        let manager = manager.clone();
+        let manager = NuvioPlugins::clone(manager);
         let _ = slint::invoke_from_event_loop(move || manager.rebuild_streams());
     }
     if !manager.config().enabled {
