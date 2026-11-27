@@ -535,7 +535,7 @@ export component DetailsPage inherits Rectangle {
     }
 
     Timer {
-        interval: 15s;
+        interval: 30s;
         running: root.sources-loading-pending;
         triggered => {
             root.source-spinner-cap = false;

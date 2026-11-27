@@ -8,7 +8,8 @@ This file records notable changes to SENZO relative to the initial source snapsh
 
 - Desktop: the source page is now a compact, phone-style list: one small header, provider and ranking filters, seeder health, the suspicious-source toggle, manual reload and Play best. Rows are flat, full width and evenly aligned instead of the ragged centred cards.
 - Desktop: Play always opens that dedicated page. The old inline source drawer is gone, and for a series Play picks the episode you are looking at before asking for sources.
-- Desktop: plugin sources appear as each provider answers. The previous URL probe pass (eight-second timeout, eight requests at a time) no longer delays the first results, and sixteen providers can load at once.
+- Desktop: plugin sources appear as each provider answers instead of waiting for the slowest one. The previous URL probe pass no longer delays the first results, sixteen providers load at once, and each provider plus the shared metadata lookup has a hard timeout so one dead host cannot stall the page.
+- Desktop: the source loading state now covers the whole provider round-trip, so a cold title shows Loading sources… instead of 0 FILES while plugins are still working. Reload starts a fresh provider search rather than reusing the previous answer.
 - Desktop: the source loading ring is larger, rotates from the renderer clock, and stays smooth because the new rows render far less per item.
 - Desktop: every source row has its own Download action, and the header actions and ranking score now sit flush right instead of bunching up after the title.
 - Android: torrent playback starts from the opening pieces instead of waiting for a partial download. Piece waits include the file offset for multi-file torrents, and the tail of the file is prioritised so MP4 indexes load immediately.

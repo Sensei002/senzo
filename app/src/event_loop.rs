@@ -871,8 +871,11 @@ pub fn start_event_loop(
                             // the release tick usually has no
                             // `details_stream_sync_needed`, so keeping it inside
                             // that block leaves the spinner mounted forever.
+                            let plugin_sources_pending = crate::nuvio_plugins::manager()
+                                .is_some_and(|manager| manager.is_query_active());
                             ui.set_detail_sources_loading(
-                                details_patch_allowed && details_sources_pending,
+                                details_patch_allowed
+                                    && (details_sources_pending || plugin_sources_pending),
                             );
 
                             if details_library_sync_needed && details_patch_allowed {

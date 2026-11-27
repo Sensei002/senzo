@@ -80,6 +80,9 @@ pub fn setup_ui_callbacks(
     ui.on_details_reload_sources({
         let runtime = runtime.clone();
         move || {
+            if let Some(manager) = crate::nuvio_plugins::manager() {
+                manager.reset_last_query();
+            }
             crate::models::details::reload_current_streams(&runtime);
         }
     });

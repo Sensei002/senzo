@@ -9,7 +9,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{
         Arc, Mutex, OnceLock, RwLock,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -418,6 +418,7 @@ struct Inner {
     runtime: Arc<stremio_core::runtime::Runtime<core_env::DesktopEnv, AppModel>>,
     playback: Arc<PlaybackSelections>,
     generation: AtomicU64,
+    active_queries: AtomicUsize,
     last_query: Mutex<Option<String>>,
     scripts: Mutex<HashMap<String, (Instant, String)>>,
     tmdb_ids: Mutex<HashMap<String, (Instant, String)>>,
@@ -470,6 +471,45 @@ impl NuvioPlugins {
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = busy;
         self.project();
+    }
+
+    fn begin_source_query(&self) {
+        self.inner.active_queries.fetch_add(1, Ordering::AcqRel);
+        self.sync_source_loading_ui();
+    }
+
+    fn finish_source_query(&self) {
+        self.inner.active_queries.fetch_sub(1, Ordering::AcqRel);
+        self.sync_source_loading_ui();
+    }
+
+    fn sync_source_loading_ui(&self) {
+        let manager = self.clone();
+        let ui = self.inner.ui.clone();
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(ui) = ui.upgrade() {
+                ui.set_detail_sources_loading(manager.is_query_active());
+            }
+        });
+    }
+
+    pub fn is_query_active(&self) -> bool {
+        self.inner.active_queries.load(Ordering::Acquire) > 0
+    }
+
+    /// Lets the source page's Reload button start a fresh provider round
+    /// instead of being swallowed by the per-title query key.
+    pub fn reset_last_query(&self) {
+        *self
+            .inner
+            .last_query
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        self.inner
+            .results
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
     }
 
     fn set_provider_filter(&self, filter: String) {
@@ -1153,6 +1193,17 @@ fn parse_episode_id(video_id: &str) -> Option<(Option<u32>, Option<u32>)> {
     Some((Some(season), Some(episode)))
 }
 
+/// Keeps the source page's loading state alive for the whole provider round
+/// trip, including the fallible metadata lookup. Dropping the guard (including
+/// on early returns) clears it again.
+struct SourceQueryActivity(NuvioPlugins);
+
+impl Drop for SourceQueryActivity {
+    fn drop(&mut self) {
+        self.0.finish_source_query();
+    }
+}
+
 impl NuvioPlugins {
     fn rebuild_streams(&self) {
         let views = self
@@ -1326,10 +1377,17 @@ impl NuvioPlugins {
             self.set_message("No enabled plugin providers support this media type.", false);
             return;
         }
+        self.begin_source_query();
+        let _activity = SourceQueryActivity(self.clone());
         self.set_message("Resolving metadata for plugin providers…", false);
-        let tmdb_id = match self.resolve_tmdb_id(&query).await {
-            Ok(id) => id,
-            Err(error) => {
+        let tmdb_id = match tokio::time::timeout(
+            Duration::from_secs(15),
+            self.resolve_tmdb_id(&query),
+        )
+        .await
+        {
+            Ok(Ok(id)) => id,
+            Ok(Err(error)) => {
                 for provider in &providers {
                     self.set_status(&provider.key, "No TMDB id", true);
                 }
@@ -1341,6 +1399,17 @@ impl NuvioPlugins {
                     format!("Metadata lookup failed: {error}")
                 };
                 self.set_message(&message, true);
+                self.project();
+                return;
+            }
+            Err(_) => {
+                for provider in &providers {
+                    self.set_status(&provider.key, "Metadata timed out", true);
+                }
+                self.set_message(
+                    "Metadata lookup timed out. Check this device's connection, then retry.",
+                    true,
+                );
                 self.project();
                 return;
             }
@@ -1378,42 +1447,55 @@ impl NuvioPlugins {
         // The semaphore bounds concurrent script fetches and QuickJS workers.
         for provider in providers {
             let manager = self.clone();
+            let manager_for_timeout = manager.clone();
             let query = query.clone();
             let tmdb_id = tmdb_id.clone();
             let semaphore = semaphore.clone();
+            let provider_key = provider.key.clone();
             tasks.push(async move {
-                let _permit = semaphore.acquire_owned().await.ok()?;
-                manager.set_status(&provider.key, "Searching…", false);
-                manager.project();
-                let script = match manager.script_for(&provider).await {
-                    Ok(script) => script,
-                    Err(error) => {
-                        manager.set_status(&provider.key, &error, true);
-                        manager.project();
-                        return None;
-                    }
-                };
-                let settings = if serde_json::from_str::<serde_json::Value>(&provider.settings)
-                    .is_ok_and(|value| value.is_object())
-                {
-                    provider.settings.clone()
-                } else {
-                    "{}".to_owned()
-                };
-                let key = provider.key.clone();
-                let name = provider.name.clone();
-                let request = ProviderQuery {
-                    tmdb_id,
-                    media_type: query.media_type.clone(),
-                    season: query.season,
-                    episode: query.episode,
-                };
-                let outcome = tokio::task::spawn_blocking(move || {
-                    plugin_runtime::execute(&key, &name, &script, &settings, &request)
+                let result = tokio::time::timeout(Duration::from_secs(12), async move {
+                    let _permit = semaphore.acquire_owned().await.ok()?;
+                    manager.set_status(&provider.key, "Searching…", false);
+                    manager.project();
+                    let script = match manager.script_for(&provider).await {
+                        Ok(script) => script,
+                        Err(error) => {
+                            manager.set_status(&provider.key, &error, true);
+                            manager.project();
+                            return None;
+                        }
+                    };
+                    let settings = if serde_json::from_str::<serde_json::Value>(&provider.settings)
+                        .is_ok_and(|value| value.is_object())
+                    {
+                        provider.settings.clone()
+                    } else {
+                        "{}".to_owned()
+                    };
+                    let key = provider.key.clone();
+                    let name = provider.name.clone();
+                    let request = ProviderQuery {
+                        tmdb_id,
+                        media_type: query.media_type.clone(),
+                        season: query.season,
+                        episode: query.episode,
+                    };
+                    let outcome = tokio::task::spawn_blocking(move || {
+                        plugin_runtime::execute(&key, &name, &script, &settings, &request)
+                    })
+                    .await
+                    .ok()?;
+                    Some((provider, outcome))
                 })
-                .await
-                .ok()?;
-                Some((provider, outcome))
+                .await;
+                match result {
+                    Ok(pair) => pair,
+                    Err(_) => {
+                        manager_for_timeout.set_status(&provider_key, "Timed out", true);
+                        manager_for_timeout.project();
+                        None
+                    }
+                }
             });
         }
 
@@ -1427,6 +1509,7 @@ impl NuvioPlugins {
                 continue;
             };
             completed += 1;
+            let mut added = 0usize;
             if let Some(error) = outcome.error {
                 errors += 1;
                 self.set_status(&provider.key, truncate_message(&error, 90), true);
@@ -1459,6 +1542,7 @@ impl NuvioPlugins {
                         break;
                     }
                 }
+                added = count;
                 self.set_status(
                     &provider.key,
                     if count == 0 {
@@ -1470,6 +1554,9 @@ impl NuvioPlugins {
                 );
             }
             self.project();
+            if added > 0 {
+                self.apply_plugin_results(generation, streams.clone(), query.video_id.clone());
+            }
             if streams.len() >= 160 {
                 break;
             }
@@ -1540,6 +1627,7 @@ pub fn setup(
             runtime,
             playback,
             generation: AtomicU64::new(0),
+            active_queries: AtomicUsize::new(0),
             last_query: Mutex::new(None),
             scripts: Mutex::new(HashMap::new()),
             tmdb_ids: Mutex::new(HashMap::new()),
