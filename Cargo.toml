@@ -62,7 +62,7 @@ walkdir = "2.5.0"
 discord-rich-presence = "1.1.0"
 # Pure-Rust zbus backend so Linux builds need no system libdbus. The Windows
 # (SMTC) and macOS (MediaRemote) backends ignore this feature.
-souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
+souvlaki = { version = "0.9.3", default-features = false, features = ["use_zbus"] }
 keepawake = "0.6.0"
 # One platform backend per desktop target: Keychain on macOS, Credential
 # Manager on Windows, Secret Service on Linux.
