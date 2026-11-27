@@ -514,9 +514,8 @@ impl NuvioPlugins {
 
     /// Restart the provider round for the title currently open in details.
     pub fn reload_current_details(&self, ui: &slint::Weak<MainWindow>) {
-        let model = match self.inner.runtime.model() {
-            Ok(model) => model,
-            Err(_) => return,
+        let Ok(model) = self.inner.runtime.model() else {
+            return;
         };
         let details = model.meta_details.clone();
         drop(model);
