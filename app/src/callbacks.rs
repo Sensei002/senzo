@@ -79,9 +79,10 @@ pub fn setup_ui_callbacks(
     // Dedicated source page reload button.
     ui.on_details_reload_sources({
         let runtime = runtime.clone();
+        let ui_weak = ui_weak.clone();
         move || {
             if let Some(manager) = crate::nuvio_plugins::manager() {
-                manager.reset_last_query();
+                manager.reload_current_details(&ui_weak);
             }
             crate::models::details::reload_current_streams(&runtime);
         }

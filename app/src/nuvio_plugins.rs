@@ -512,6 +512,27 @@ impl NuvioPlugins {
             .clear();
     }
 
+    /// Restart the provider round for the title currently open in details.
+    pub fn reload_current_details(&self, ui: &slint::Weak<MainWindow>) {
+        let model = match self.inner.runtime.model() {
+            Ok(model) => model,
+            Err(_) => return,
+        };
+        let details = model.meta_details.clone();
+        drop(model);
+        let meta_item = details.meta_items.iter().find_map(|item| {
+            item.content
+                .as_ref()
+                .and_then(|content| content.ready())
+                .cloned()
+        });
+        let Some(meta_item) = meta_item else {
+            return;
+        };
+        self.reset_last_query();
+        start_details_query(self, ui, &meta_item, &details);
+    }
+
     fn set_provider_filter(&self, filter: String) {
         *self
             .inner
@@ -1106,6 +1127,15 @@ pub fn on_details_synced(
     let Some(manager) = manager() else {
         return;
     };
+    start_details_query(&manager, ui, meta_item, details);
+}
+
+fn start_details_query(
+    manager: &NuvioPlugins,
+    ui: &slint::Weak<MainWindow>,
+    meta_item: &stremio_core::types::resource::MetaItem,
+    details: &stremio_core::models::meta_details::MetaDetails,
+) {
     let Some(selected) = details.selected.as_ref() else {
         return;
     };
@@ -1180,7 +1210,7 @@ pub fn on_details_synced(
         return;
     }
     let ui = ui.clone();
-    let manager = manager.clone();
+    let manager = NuvioPlugins::clone(manager);
     tokio::spawn(async move {
         manager.run_details_query(query, generation, ui).await;
     });
