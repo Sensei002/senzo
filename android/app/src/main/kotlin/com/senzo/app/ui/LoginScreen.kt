@@ -58,7 +58,7 @@ fun LoginScreen(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    0f to Color(0xFF06222B),
+                    0f to Color(0xFF1A0B2E),
                     0.5f to Background,
                     1f to Background,
                 ),
