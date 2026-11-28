@@ -5,184 +5,297 @@
   <br />
   <strong>Your media. Your space.</strong>
   <br />
-  A native desktop media center for discovering, organizing, and watching movies and series.
+  A native media center for desktop and Android.
 </p>
 
 <p align="center">
   <a href="https://github.com/Sensei002/senzo/actions/workflows/release.yml"><img src="https://github.com/Sensei002/senzo/actions/workflows/release.yml/badge.svg" alt="Desktop builds" /></a>
+  <a href="https://github.com/Sensei002/senzo/actions/workflows/android.yml"><img src="https://github.com/Sensei002/senzo/actions/workflows/android.yml/badge.svg" alt="Android builds" /></a>
   <a href="https://github.com/Sensei002/senzo/actions/workflows/clippy.yml"><img src="https://github.com/Sensei002/senzo/actions/workflows/clippy.yml/badge.svg" alt="Clippy" /></a>
   <a href="https://github.com/Sensei002/senzo/releases"><img src="https://img.shields.io/github/v/release/Sensei002/senzo?color=22d3ee&label=latest%20release" alt="Latest release" /></a>
-  <img src="https://img.shields.io/badge/Rust-native-orange?logo=rust" alt="Rust" />
-  <img src="https://img.shields.io/badge/UI-Slint-2563eb?logo=slint" alt="Slint" />
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey" alt="Windows and Linux" />
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS%20%7C%20Android-lightgrey" alt="Windows, Linux, macOS and Android" />
   <a href="https://github.com/Sensei002/senzo/blob/development/LICENSE"><img src="https://img.shields.io/github/license/Sensei002/senzo" alt="License" /></a>
 </p>
 
-**SENZO** is an independent, native media center built around three things: content discovery, a flexible playback experience, and a personal media library. It brings catalogs, community add-ons, media sources, local files, downloads, and playback tools together in one desktop application.
+<p align="center">
+  <img src="app/assets/preview.png" alt="SENZO running on desktop and Android" />
+</p>
 
-Built with **Rust** and **Slint**, SENZO has its own interface, visual identity, settings, and local-first experience. It is designed to be responsive, customizable, and useful whether you simply want to watch something or fine-tune how your media center works.
+**SENZO** is an independent, native media center built around content discovery, flexible playback, and a personal media library. It brings catalogs, community add-ons, provider plugins, media sources, local files, downloads, and playback tools together in one application.
 
-> SENZO is actively developed. Features, integrations, and platform support can change between development builds. Check the [changelog](CHANGELOG.md) for implementation history and current changes.
+The desktop app is written in **Rust** with a **Slint** interface. The Android app is written in **Kotlin** with **Jetpack Compose**. Both clients use the same Stremio-compatible add-on ecosystem; signing in with the same Stremio account brings that account's add-on collection to either app.
 
-![SENZO application preview](app/assets/preview.png)
-
-![SENZO application preview – Board](app/assets/preview2.webp)
+> SENZO is actively developed. Features and platform support can change between development builds. See the [changelog](CHANGELOG.md) for current changes.
 
 ---
 
-## Quick Start
+## One library, two native apps
 
-### 1. Download, install, and open SENZO
+| | Desktop | Android |
+| --- | --- | --- |
+| **Platforms** | Windows, Linux, macOS | Android 8.0 and newer |
+| **Interface** | Native Slint UI | Native Jetpack Compose UI |
+| **Playback** | MPV / libmpv | Media3/ExoPlayer or libmpv |
+| **Best for** | Full media-center setup, local library, downloads, themes, and advanced playback | Watching and browsing on a phone or tablet |
+| **Library source** | Stremio add-ons, Plugins, local folders, and torrent files | Stremio add-ons, Plugins, and torrent or HTTP streams |
 
-1. Download the latest stable version from [GitHub Releases](https://github.com/Sensei002/senzo/releases). To try the newest development build, use the [desktop build workflow](https://github.com/Sensei002/senzo/actions/workflows/release.yml).
-2. Choose the package for your operating system, install it, and launch **SENZO**.
-3. At the welcome screen, choose **Continue without signing in** to start with a local guest profile. Stremio sign-in is optional; use it when you need Stremio account-connected features.
+Both clients support guest use. Signing in with a Stremio account is optional; when you do sign in, the add-ons installed on that account are available in the app.
 
-### 2. Install Stremio add-ons and catalogs
+---
 
-Stremio add-ons and SENZO Plugins are two different integration systems.
+## Quick start
 
-1. Open SENZO's **Add-ons** area.
-2. Browse the available community add-ons/catalogs and select one you want to use.
-3. Choose its **Install** action and complete any confirmation shown by SENZO.
-4. Return to **Discover** to browse the catalogs and content made available by that add-on.
+### Desktop
 
-Add-ons are provided and maintained by third parties, so their catalogs, features, and availability can vary. SENZO does not bundle or silently install Torrentio; install it yourself only if you choose to use it.
+#### 1. Download the right package
 
-### 3. Install and activate Plugins (Nuvio-compatible providers)
+Open the [latest release](https://github.com/Sensei002/senzo/releases/latest) and choose the file that matches your computer:
 
-The **Plugins** tab manages Nuvio-compatible provider repositories. These are separate from Stremio add-ons.
+| Platform | File to download | Notes |
+| --- | --- | --- |
+| **Windows x64** | `SENZO-Setup-v*-x64.exe` | Recommended. Installs SENZO and the runtime it needs. |
+| **Windows x64 updater package** | `senzo-v*-x86_64-pc-windows-msvc.zip` | Contains the installer used by the automatic updater. |
+| **Debian / Ubuntu x64** | `senzo_*_amd64.deb` | Installs from the package manager. |
+| **Arch Linux x64** | `senzo-*-x86_64.pkg.tar.zst` | Native Arch package. |
+| **Fedora / Red Hat x64** | `senzo-*.rpm` | Native RPM package. |
+| **Linux x64 portable** | `senzo-v*-x86_64-unknown-linux-gnu` | Single executable; system libraries such as libmpv are still required. |
+| **macOS Apple silicon** | `senzo-v*-aarch64-apple-darwin.dmg` | For M1, M2, M3, M4 and newer Macs. |
+| **macOS Intel** | `senzo-v*-x86_64-apple-darwin.dmg` | For Intel Macs. |
 
-1. Open the **Plugins** tab.
-2. Find the repository install field and paste the repository's public **HTTPS manifest URL**.
-3. Install the repository. SENZO downloads and validates its manifest, then lists the providers it contains.
-4. **Activate a provider:** use that provider's individual switch to turn it on. Installing a repository does not automatically activate its providers. A provider marked disabled by its repository cannot be enabled locally.
-5. **Configure when needed:** if a provider offers a settings field, enter the JSON configuration required by that provider and save it. You can use the provider's **Test** action to check that its script exports a usable `getStreams` function.
-6. Open a movie or episode, request its available streams, and select the **Plugins** filter in the stream drawer. Results are grouped by provider and marked with a **PLUGIN** badge.
+#### 2. Install and launch
 
-Installing a repository does not execute its provider scripts. Enabled providers are run when SENZO queries them for a selected title. Only install repositories you trust: provider scripts can make network requests while running, although the sandbox does not give them access to SENZO's local files, database, or credentials. Repository and provider URLs must use public HTTPS hosts.
+**Windows**
 
-For repository format, provider settings, compatibility details, and sandbox limits, see the full [Plugins guide](docs/PLUGINS.md).
+1. Run the setup file and complete the installer.
+2. Launch **SENZO** from the Start menu or the desktop shortcut.
 
-### 4. Find and play something
+**Debian / Ubuntu**
 
-Use **Discover** to browse your installed catalogs, open a movie or episode to view its details, and choose an available stream. You can also add local media to your library and use SENZO's built-in player and download manager where supported.
+```bash
+sudo apt install ./senzo_*_amd64.deb
+```
 
-**Quick distinction:** use **Add-ons** for Stremio-compatible catalogs and community add-ons; use **Plugins** for Nuvio-compatible provider repositories. Installing either does not mean every provider is automatically enabled.
+**Arch Linux**
+
+```bash
+sudo pacman -U senzo-*-x86_64.pkg.tar.zst
+```
+
+**Fedora / Red Hat**
+
+```bash
+sudo dnf install ./senzo-*.rpm
+```
+
+**Linux portable binary**
+
+```bash
+chmod +x senzo-v*-x86_64-unknown-linux-gnu
+./senzo-v*-x86_64-unknown-linux-gnu
+```
+
+If the portable binary reports missing libraries, install the matching package instead or install libmpv and the desktop runtime libraries used by your distribution.
+
+**macOS**
+
+1. Open the DMG.
+2. Drag **SENZO** into **Applications**.
+3. Launch it from Applications. If macOS blocks the first launch, Control-click the app, choose **Open**, and confirm.
+
+#### 3. Choose an account or continue as a guest
+
+On the welcome screen you can:
+
+- **Continue without signing in** to use a local guest profile.
+- **Sign in with Stremio** if you want the add-ons from that account to appear automatically.
+
+You can change this later in **Settings**. No separate SENZO cloud account is required.
+
+#### 4. Install add-ons for something to watch
+
+SENZO does not bundle media catalogs or install Torrentio for you. Add-ons supply the catalogs and streams:
+
+1. Open **Add-ons**.
+2. Browse the community directory or install an add-on from its manifest URL.
+3. Return to **Board** or **Discover** and open a catalog.
+4. Select a movie or episode to see its details.
+
+**Plugins** are separate from add-ons. The Plugins tab manages Nuvio-compatible provider repositories for extra stream sources. Installing a repository does not automatically enable every provider inside it; turn on the providers you trust.
+
+#### 5. Play something
+
+1. Open a title from **Board**, **Discover**, **Search**, or **Library**.
+2. Choose **Play** or open the stream list.
+3. Pick a source. SENZO can rank and filter sources by quality, seeders, and provider.
+4. Use the player controls for audio tracks, subtitles, speed, picture-in-picture, and fullscreen.
+
+You can also add local folders in **Library**, open a `.torrent` file directly, or send a supported link to SENZO. Torrent playback may buffer briefly while the first pieces arrive, then continues while it downloads.
+
+---
+
+### Android
+
+#### 1. Download the APK for your phone
+
+Open the [latest release](https://github.com/Sensei002/senzo/releases/latest) and find the Android files:
+
+| Device | File to download |
+| --- | --- |
+| **Most phones and tablets** | `senzo-v*-r*-arm64-v8a.apk` |
+| **Older 32-bit devices** | `senzo-v*-r*-armeabi-v7a.apk` |
+
+Use the **arm64** build unless you know your device is 32-bit. SENZO for Android requires **Android 8.0 (API 26) or newer**.
+
+#### 2. Install the APK
+
+1. Open the downloaded APK from your browser or file manager.
+2. If Android blocks the install, allow your browser or file manager to **install unknown apps**, then return and confirm the install.
+3. Launch **SENZO** from your app drawer.
+
+SENZO is distributed directly through GitHub Releases and is not currently on Google Play. Updates are downloaded inside the app from **Settings**.
+
+#### 3. Sign in or continue as a guest
+
+- **Continue without an account** starts with the official guest add-ons.
+- **Sign in** with the same Stremio account you use on desktop to load that account's add-on collection.
+
+#### 4. Add catalogs and play
+
+1. Open **Add-ons** to browse the directory, install an add-on, or manage the ones already on your account.
+2. Return to the home board, or use **Search** to find a title.
+3. Open a movie or episode, choose a stream, and tap **Play**.
+4. Use the player for subtitles, audio tracks, speed, and fullscreen.
+
+Android supports both direct HTTP streams and torrent streams. Torrents may take a few seconds to start while the first pieces are verified. If playback is choppy with the default engine, open **Settings -> Player engine** and try **libmpv**; Media3 is usually lighter on battery.
+
+**Plugins** work on Android too: open the **Plugins** tab, install a compatible repository, enable the providers you want, and choose them from the stream list for a title.
+
+---
+
+## If something does not play
+
+- **No catalogs:** install at least one add-on, then return to the board and refresh.
+- **No streams for a title:** the add-on may not provide sources for that title, or its provider may be offline. Try another add-on, plugin, or source filter.
+- **Android says "App not installed":** check that you downloaded the arm64 build for a 64-bit phone or the armeabi-v7a build for an older 32-bit device, and that Android 8.0 or newer is installed.
+- **Android blocks the download:** allow installs from the browser or file manager you used, then retry.
+- **macOS says the app is from an unidentified developer:** Control-click **SENZO** in Applications, choose **Open**, and confirm. The published DMGs are ad-hoc signed rather than notarized.
+- **A torrent takes a while to start:** SENZO waits for a verified opening piece before playback so it does not start in the middle. Give it a few seconds on slower swarms.
+- **Linux portable binary will not start:** install libmpv and the GTK/X11 or Wayland libraries listed by your distribution, or use the DEB, Arch, or RPM package.
+
+For playback bugs, include the platform, SENZO version, source type, and a player log where possible. Never post account passwords, debrid tokens, or other private credentials.
+
+---
 
 ## What SENZO offers
 
-### Discover and explore
+### Shared by desktop and Android
 
-- Browse movies, series, anime, and other media made available by your installed catalogs and add-ons.
-- Search and explore content through dedicated discovery, library, and details views.
-- View rich media details, artwork, trailers, and available ratings from supported metadata providers.
-- Discover community add-ons through the in-app add-on directory.
-- Filter and organize catalog results using the options provided by each catalog.
+- Stremio-compatible catalogs, metadata, and add-ons.
+- Guest mode with official add-ons, or optional Stremio account sign-in.
+- Provider plugins from Nuvio-compatible repositories, with per-provider controls.
+- Search, details, seasons, episodes, and ranked stream selection.
+- HTTP and torrent playback where the source supports it.
+- A focused, dark-first interface with OLED-friendly themes.
 
-### Flexible playback
+### Desktop extras
 
-- Native desktop playback powered by **MPV / libmpv**.
-- Hardware-accelerated video decoding when supported by the system and available codecs.
-- Audio and subtitle track selection, including independent primary and secondary subtitle controls.
-- Playback speed controls, remappable keyboard shortcuts, A/B repeat, and episode-aware sleep timers.
-- Picture-in-Picture mode and operating-system media controls.
-- HDR playback modes and optional Anime4K / AMD FSR shader-based upscaling on supported desktop graphics hardware.
-- Timeline preview thumbnails and playback recovery tools.
-- Stream ranking and filtering options to help choose between available sources.
+- **MPV / libmpv playback** with hardware decoding, HDR modes, optional Anime4K / AMD FSR upscaling, and detailed track controls.
+- **Local library:** recursive folder scanning, movie and episode recognition, and external subtitle discovery.
+- **Downloads:** pause, resume, retry, and cancel transfers where the source supports them.
+- **Theme Studio:** semantic colors, gradients, typography, and Side Rail, Top Bar, Minimal, or Classic layouts.
+- **Profiles and shortcuts:** owner, standard, and kids profiles with optional PIN protection, plus remappable keyboard controls.
+- **Desktop integrations:** picture-in-picture, operating-system media controls, Discord Rich Presence, webhooks, and Telegram notifications.
+- **Direct `.torrent` opening** from the file manager, including when SENZO is already running.
 
-### Your library and downloads
+### Android extras
 
-- Local media library scanning with recursive folders, movie and episode recognition, and external subtitle discovery.
-- A native download manager with pause, resume, retry, cancellation, and resumable transfers where supported by the source.
-- Profile-aware app data and library organization.
-- Local media playback through the integrated player.
+- **Native Compose interface** designed for touch, with a bottom navigation bar and OLED black surfaces.
+- **Two player engines:** Media3/ExoPlayer for hardware-efficient playback, or libmpv for broader format support.
+- **On-device torrent streaming** with a cache you can clear from Settings.
+- **In-app updates** from GitHub Releases, with the correct APK selected for your device.
+- **Local watch history and resume points**, plus recent searches and preferences kept on the device.
 
-### Make SENZO yours
-
-- Theme Studio with semantic color controls, presets, typography, and layout customization.
-- Side Rail, Top Bar, Minimal, and Classic layout presets.
-- Custom colors and gradients with saved presets.
-- Owner, Standard, and Kids local profiles, including optional PIN protection.
-- Remappable application and playback shortcuts.
-- Native localization resources for English, Portuguese, and Arabic.
-- Configurable playback, subtitle, audio, and application preferences.
-
-### Plugins
-
-- A **Plugins** manager for Nuvio-compatible provider repositories, with per-provider on/off switches and an install box for custom repository manifests.
-- Provider scripts run in a bounded QuickJS sandbox and their results appear in the provider-grouped stream drawer with a `PLUGIN` badge.
-- Provider groups are kept separate in the stream drawer, so each repository and add-on has its own source block.
-- Direct Sources remains an internal provider subsystem; its old sidebar entry is replaced by Plugins. See [docs/PLUGINS.md](docs/PLUGINS.md) and [docs/DIRECT_SOURCES.md](docs/DIRECT_SOURCES.md).
-
-### Integrations
-
-- Compatibility with Stremio-compatible catalogs and community add-ons.
-- Optional integrations for supported debrid providers, including Real-Debrid, AllDebrid, Premiumize, Debrid-Link, and TorBox.
-- Metadata enrichment from supported services and providers.
-- Webhook and Telegram notification configuration.
-- Sensitive integration credentials protected through supported operating-system credential stores.
-
-Feature availability can depend on the installed add-on, provider, platform, network connection, and hardware.
+Feature availability depends on the installed add-on, provider, source, network, and hardware.
 
 ---
 
 ## Accounts, guest mode, and your data
 
-**You can use SENZO without signing in.** Choose **Continue without signing in** to enter the guest experience. A SENZO-owned account is not required.
+**You can use SENZO without signing in.** Choose **Continue without signing in** on desktop or **Continue without an account** on Android.
 
-- **Guest mode:** Use the available app features with a local profile and locally stored application data.
-- **Optional Stremio sign-in:** Connect a Stremio account when you want to use account-connected functionality. Supported account data and synchronization are handled through Stremio's services.
-- **Add-on choice stays yours:** Add-ons are managed by the user. SENZO does not bundle or silently enable Torrentio; install it yourself only if you choose to use it.
-- **Local application data:** Settings, logs, and caches are stored in the operating system's local application-data area under SENZO.
+- **Guest mode:** uses a local profile and locally stored application data. The Android guest profile starts with the official add-ons.
+- **Optional Stremio sign-in:** connects the Stremio account you already use. Account data and add-on synchronization are handled through Stremio's services.
+- **Add-on choice stays yours:** add-ons are managed by the user. SENZO does not bundle or silently enable Torrentio.
+- **Local application data:** desktop settings, logs, caches, and library data stay in the operating system's local application-data area under SENZO. Android data stays in the app's private storage.
+
+Desktop data locations:
+
+- **Windows:** `%LOCALAPPDATA%\SENZO`
+- **Linux:** `$XDG_DATA_HOME/SENZO` (or the standard local data directory when `XDG_DATA_HOME` is unset)
+- **macOS:** the standard application-support directory under your user Library.
 
 SENZO does not require a separate SENZO cloud account to get started.
 
 ---
 
-## Download SENZO
+## Downloads and updates
 
-- **Stable releases:** [Download from GitHub Releases](https://github.com/Sensei002/senzo/releases).
-- **Development builds:** Open [GitHub Actions](https://github.com/Sensei002/senzo/actions/workflows/release.yml), choose the latest successful desktop build, and download the Windows or Linux artifact.
+- **Stable releases:** [GitHub Releases](https://github.com/Sensei002/senzo/releases/latest).
+- **Android updates:** open **Settings** in the app. If a newer release publishes an APK, SENZO offers the download and install flow there.
+- **Development builds:** open [GitHub Actions](https://github.com/Sensei002/senzo/actions) and choose a successful desktop or Android build. Development builds can contain unfinished work.
 
-Development builds can contain unfinished work and are intended for testing. For everyday use, prefer a stable release when one is available.
+Download SENZO only from this repository or its GitHub Releases page. Builds republished by third parties are not verified by the project.
 
 ---
 
-## Supported platforms and technology
+## Supported platforms
+
+| Platform | Requirements | Package |
+| --- | --- | --- |
+| **Windows** | Windows 10 or 11, x64 | Inno Setup installer or updater ZIP |
+| **Linux** | x64, X11 or Wayland | DEB, Arch package, Fedora RPM, or portable binary |
+| **macOS** | macOS 12 or newer, Apple silicon or Intel | DMG |
+| **Android** | Android 8.0 (API 26) or newer, arm64 or armeabi-v7a | APK |
 
 | Area | Technology |
 | --- | --- |
-| Application core | Rust |
-| Desktop interface | Slint |
-| Video playback | MPV / libmpv |
+| Desktop core and interface | Rust, Slint |
+| Android app | Kotlin, Jetpack Compose |
+| Desktop playback | MPV / libmpv |
+| Android playback | Media3/ExoPlayer or libmpv |
 | Embedded streaming | Rust-based in-process stream services |
 | Local application data | Embedded database and local files |
-| Desktop platforms | Windows and Linux |
 | License | GPL-3.0-only |
 
-SENZO is currently focused on the Windows and Linux desktop experience. Other platforms are not advertised as supported releases unless and until dedicated builds and platform testing are available.
+The Android client is intentionally focused on the watch flow: discover, search, open details, choose a source, and play. The desktop client carries the larger customization, local-library, download, and theming feature set.
 
 ---
 
 ## Build from source
 
-### Prerequisites
+### Desktop prerequisites
 
 **Windows**
+
 - Rust toolchain with the MSVC target.
 - Visual Studio 2022 C++ Build Tools with the x64 MSVC v143 toolset.
 - Windows SDK and LLVM/Clang for native dependencies.
 - The repository's vcpkg manifest and overlay triplets for native libraries.
 
 **Linux**
+
 - Rust toolchain.
 - pkg-config, libmpv development files, and standard X11 / Wayland GUI development packages.
 - A C/C++ build toolchain and the native libraries used by the project.
 
-The GitHub Actions workflow contains the authoritative CI dependency setup for each target.
+**macOS**
 
-### Clone and run
+- Rust toolchain.
+- Xcode Command Line Tools and the native dependencies installed by the macOS workflow.
+
+The GitHub Actions workflows contain the authoritative dependency setup for each target.
+
+### Clone and run the desktop app
 
 ```bash
 git clone https://github.com/Sensei002/senzo.git
@@ -192,7 +305,7 @@ cargo run --release --package senzo
 
 ### Windows native dependencies
 
-Before the first Windows build, install the manifest dependencies with the project's triplet so the native libraries use the same dynamic CRT configuration as Rust and Skia:
+Before the first Windows build, install the manifest dependencies with the project triad so the native libraries use the same dynamic CRT configuration as Rust and Skia:
 
 ```powershell
 & "$env:VCPKG_ROOT\vcpkg.exe" install `
@@ -203,34 +316,38 @@ Before the first Windows build, install the manifest dependencies with the proje
   --overlay-ports="$PWD\vcpkg-overlays"
 ```
 
-The repository's Cargo configuration discovers that installation. Do not replace the project triplet with x64-windows-static; it uses a different CRT configuration.
+Do not replace the project triplet with `x64-windows-static`; it uses a different CRT configuration.
 
-### Local data locations
+### Build the Android app
 
-SENZO keeps its application data in the operating system's user-data location:
+Requirements: JDK 17 or newer, Android SDK platform 35, and build-tools 35.0.0. The project uses Gradle 8.11.1.
 
-- **Windows:** %LOCALAPPDATA%\SENZO
-- **Linux:** $XDG_DATA_HOME/SENZO (or the user's standard local data directory when XDG_DATA_HOME is not set)
+```bash
+cd android
+gradle :app:assembleRelease
+```
+
+The APK is written under `android/app/build/outputs/apk/release/`. The version name comes from `app/Cargo.toml`; CI overrides it from the release tag. Signing variables and local release-key setup are documented in [android/README.md](android/README.md).
 
 ---
 
 ## Development and releases
 
-- The development branch is the active integration branch.
-- The main branch is reserved for stable work.
-- Pushes to the development and main branches run the desktop build workflow for Windows and Linux.
-- Version tags matching v* are used for release packaging and publication.
-- Development artifacts are published by GitHub Actions and can be downloaded from the workflow run.
+- `development` is the active integration branch. Pushes run the desktop builds and Clippy; Android changes also run the Android workflow.
+- `main` is the stable branch. Clippy runs on pushes and pull requests.
+- Version tags matching `v*` run the desktop release workflow and publish the GitHub release.
+- Release APKs are published as assets on the matching release and are picked up by the in-app Android updater.
+- Development artifacts are available from successful GitHub Actions runs.
 
-See [open issues](https://github.com/Sensei002/senzo/issues) for known work and [the changelog](CHANGELOG.md) for project updates.
+See [open issues](https://github.com/Sensei002/senzo/issues) for known work, [the changelog](CHANGELOG.md) for project history, and [docs/PLUGINS.md](docs/PLUGINS.md) for the plugin repository format and sandbox limits.
 
 ## Contributing and feedback
 
 Bug reports, feature suggestions, and technical feedback are welcome.
 
 1. Search the [existing issues](https://github.com/Sensei002/senzo/issues) to avoid duplicates.
-2. Include your operating system, SENZO build or commit, and relevant logs when reporting a problem.
-3. For playback problems, include the source type and relevant player diagnostics where possible. Do not post private tokens, account credentials, or personal data.
+2. Include your operating system, SENZO version or commit, and relevant logs when reporting a problem.
+3. For playback problems, include the source type and player diagnostics where possible. Do not post private tokens, account credentials, or personal data.
 
 ---
 
