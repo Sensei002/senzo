@@ -193,6 +193,13 @@ pub(crate) fn open_torrent_file(
         }
     };
 
+    tracing::info!(
+        info_hash = %hex::encode(parsed.info_hash),
+        file_idx = ?parsed.file_idx,
+        path = %path.display(),
+        "opening torrent file"
+    );
+
     let selected = PlayerSelected {
         stream: Stream {
             source: StreamSource::Torrent {

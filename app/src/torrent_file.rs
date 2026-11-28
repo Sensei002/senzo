@@ -65,7 +65,8 @@ pub fn parse(bytes: &[u8]) -> Result<TorrentFile> {
     };
     let info_bytes = serde_bencode::to_bytes(&raw.info)
         .context("could not re-encode the torrent info dictionary")?;
-    let info_hash: [u8; 20] = Sha1::digest(&info_bytes).into();
+    let mut info_hash = [0u8; 20];
+    info_hash.copy_from_slice(&Sha1::digest(&info_bytes));
 
     let mut announce = Vec::new();
     if let Some(tracker) = raw.announce {
