@@ -81,7 +81,9 @@ pub fn parse(bytes: &[u8]) -> Result<TorrentFile> {
     announce.sort();
     announce.dedup();
 
-    let name = value_text(info.get(b"name".as_slice()))
+    let name = info
+        .get(b"name".as_slice())
+        .and_then(value_text)
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| "SENZO torrent".to_owned());
 

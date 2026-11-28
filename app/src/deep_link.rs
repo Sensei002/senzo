@@ -2,6 +2,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use core_env::DesktopEnv;
 use percent_encoding::percent_decode_str;
+use slint::ComponentHandle;
 use stremio_core::{
     models::{
         calendar::YearMonthDate,

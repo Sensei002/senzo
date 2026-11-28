@@ -1,6 +1,9 @@
 use crate::{AppModel, AppModelField, MainWindow, NavigationController};
 use core_env::DesktopEnv;
-use slint::winit_030::{EventResult, winit};
+use slint::{
+    ComponentHandle,
+    winit_030::{EventResult, winit},
+};
 use std::{
     cell::Cell,
     sync::Arc,
