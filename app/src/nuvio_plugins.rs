@@ -403,11 +403,31 @@ pub struct NuvioPlugins {
     inner: Arc<Inner>,
 }
 
+/// Which plugin actions are in flight. The UI shows a spinner on the exact
+/// row or button that started the work, so the answer to "did my click do
+/// anything?" is immediate even while a manifest is slow to load.
+#[derive(Clone, Default)]
+struct BusyState {
+    install: bool,
+    refresh_all: bool,
+    repositories: HashSet<String>,
+    providers: HashSet<String>,
+}
+
+impl BusyState {
+    fn any(&self) -> bool {
+        self.install
+            || self.refresh_all
+            || !self.repositories.is_empty()
+            || !self.providers.is_empty()
+    }
+}
+
 struct Inner {
     ui: slint::Weak<MainWindow>,
     config: RwLock<PluginsConfig>,
     status: RwLock<HashMap<String, (String, bool)>>,
-    busy: RwLock<bool>,
+    busy: RwLock<BusyState>,
     /// Provider list filters. The UI owns the values; the manager keeps a copy
     /// so a refresh or a toggle does not reset what the user is looking at.
     provider_filter: RwLock<String>,
@@ -464,12 +484,25 @@ impl NuvioPlugins {
             .insert(key.to_owned(), (message.into(), error));
     }
 
-    fn set_busy(&self, busy: bool) {
-        *self
-            .inner
+    fn busy_state(&self) -> BusyState {
+        self.inner
             .busy
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = busy;
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    /// Mutate the in-flight action set and repaint the plugin page in one
+    /// step, so a busy label never appears only after the network returns.
+    fn update_busy(&self, update: impl FnOnce(&mut BusyState)) {
+        {
+            let mut busy = self
+                .inner
+                .busy
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            update(&mut busy);
+        }
         self.project();
     }
 
@@ -565,11 +598,7 @@ impl NuvioPlugins {
         };
         let config = self.config();
         let status = self.status();
-        let busy = *self
-            .inner
-            .busy
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let busy = self.busy_state();
 
         let repositories = config
             .repositories
@@ -603,6 +632,7 @@ impl NuvioPlugins {
                     enabled_count: i32::try_from(enabled_count).unwrap_or(i32::MAX),
                     status: message.into(),
                     status_error: error,
+                    refreshing: busy.repositories.contains(&repository.manifest_url),
                 }
             })
             .collect::<Vec<_>>();
@@ -708,6 +738,7 @@ impl NuvioPlugins {
                     enabled: provider.enabled,
                     has_settings: provider.has_settings,
                     settings: provider.settings.clone().into(),
+                    testing: busy.providers.contains(&provider.key),
                 }
             })
             .collect::<Vec<_>>();
@@ -718,7 +749,9 @@ impl NuvioPlugins {
 
         ui.set_plugins_master_enabled(config.enabled);
         ui.set_plugins_group_by_repository(config.group_by_repository);
-        ui.set_plugins_busy(busy);
+        ui.set_plugins_busy(busy.any());
+        ui.set_plugins_installing(busy.install);
+        ui.set_plugins_refreshing_all(busy.refresh_all);
         ui.set_plugins_repository_filters(slint::ModelRc::new(slint::VecModel::from(
             repository_options.into_iter().map(Into::into).collect::<Vec<slint::SharedString>>(),
         )));
@@ -768,20 +801,28 @@ impl NuvioPlugins {
             .any(|repository| repository.manifest_url == manifest_url);
         if !installed {
             self.set_status(manifest_url, "Repository is not installed", true);
-            self.set_busy(false);
+            self.project();
             return;
         }
-        self.set_busy(true);
+        self.update_busy(|busy| {
+            busy.repositories.insert(manifest_url.to_owned());
+        });
         self.set_status(manifest_url, "Refreshing…", false);
-        self.set_message("Fetching plugin manifest…", false);
+        self.project();
+        if !self.busy_state().refresh_all {
+            self.set_message("Fetching plugin manifest…", false);
+            self.project();
+        }
         match load_repository(manifest_url).await {
             Ok(content) => self.apply_repository(manifest_url, content),
             Err(error) => {
                 self.set_status(manifest_url, error.clone(), true);
                 self.set_message(&error, true);
-                self.set_busy(false);
             }
         }
+        self.update_busy(|busy| {
+            busy.repositories.remove(manifest_url);
+        });
     }
 
     /// Merge a freshly loaded repository into the saved configuration.
@@ -797,7 +838,6 @@ impl NuvioPlugins {
             .find(|repository| repository.manifest_url == manifest_url)
         else {
             self.set_status(manifest_url, "Repository is not installed", true);
-            self.set_busy(false);
             return;
         };
         repository.name = content.name;
@@ -863,7 +903,6 @@ impl NuvioPlugins {
         self.replace_config(config);
         self.set_status(manifest_url, format!("{count} providers ready"), false);
         self.set_message(&format!("Loaded {count} plugin provider(s)."), false);
-        self.set_busy(false);
     }
 
     async fn add_repository(&self, raw_url: &str) {
@@ -880,8 +919,9 @@ impl NuvioPlugins {
             self.set_message("That plugin repository is already installed.", true);
             return;
         }
-        self.set_busy(true);
+        self.update_busy(|busy| busy.install = true);
         self.set_message("Installing plugin repository…", false);
+        self.project();
         match load_repository(&manifest_url).await {
             Ok(content) => {
                 let mut config = self.config();
@@ -900,9 +940,9 @@ impl NuvioPlugins {
             }
             Err(error) => {
                 self.set_message(&error, true);
-                self.set_busy(false);
             }
         }
+        self.update_busy(|busy| busy.install = false);
     }
 
     fn remove_repository(&self, manifest_url: &str) {
@@ -1047,10 +1087,15 @@ impl NuvioPlugins {
             .into_iter()
             .find(|provider| provider.key == key)
         else {
+            self.set_message("That plugin provider is no longer installed.", true);
             return;
         };
-        self.set_status(key, "Fetching script…", false);
+        self.update_busy(|busy| {
+            busy.providers.insert(key.to_owned());
+        });
+        self.set_status(key, "Testing…", false);
         self.set_message("Fetching plugin script…", false);
+        self.project();
         match fetch_script(&provider.source_url).await {
             Ok(source) => {
                 let settings = if serde_json::from_str::<serde_json::Value>(&provider.settings)
@@ -1085,7 +1130,9 @@ impl NuvioPlugins {
                 self.set_message(&error, true);
             }
         }
-        self.project();
+        self.update_busy(|busy| {
+            busy.providers.remove(key);
+        });
     }
 
     /// Enabled providers for a media type. Used by the stream drawer and by
@@ -1649,7 +1696,7 @@ pub fn setup(
             ui: ui.as_weak(),
             config: RwLock::new(config.clone()),
             status: RwLock::new(HashMap::new()),
-            busy: RwLock::new(false),
+            busy: RwLock::new(BusyState::default()),
             provider_filter: RwLock::new("All".to_owned()),
             provider_query: RwLock::new(String::new()),
             repository_filter: RwLock::new(String::new()),
@@ -1738,6 +1785,17 @@ pub fn setup(
         move || {
             let manager = manager.clone();
             let repositories = manager.config().repositories;
+            if repositories.is_empty() {
+                manager.set_message("Install a plugin repository before refreshing.", true);
+                return;
+            }
+            let total = repositories.len();
+            manager.update_busy(|busy| busy.refresh_all = true);
+            manager.set_message(
+                &format!("Refreshing {total} plugin repositories…"),
+                false,
+            );
+            manager.project();
             tokio::spawn(async move {
                 // Refreshing repositories one by one turned "Refresh all" into
                 // a queue of network round-trips. Providers are independent,
@@ -1752,6 +1810,11 @@ pub fn setup(
                         }
                     })
                     .await;
+                manager.update_busy(|busy| busy.refresh_all = false);
+                manager.set_message(
+                    &format!("Refreshed {total} plugin repositories."),
+                    false,
+                );
             });
         }
     });

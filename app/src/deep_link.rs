@@ -1,7 +1,8 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use core_env::DesktopEnv;
 use percent_encoding::percent_decode_str;
+use slint::ComponentHandle;
 use stremio_core::{
     models::{
         calendar::YearMonthDate,
@@ -11,7 +12,7 @@ use stremio_core::{
     },
     runtime::{
         Runtime, RuntimeAction,
-        msg::{Action, ActionLoad},
+        msg::{Action, ActionLoad, ActionStreamingServer, CreateTorrentArgs},
     },
     types::{
         addon::{ExtraValue, ResourcePath, ResourceRequest},
@@ -25,6 +26,7 @@ use crate::{
     AppModel, AppModelField, MainWindow, NavigationController, NavigationIntent, Tab,
     models::details::{load_meta_details_for_video, open_details_route},
     single_instance::AppCommand,
+    torrent_file,
 };
 
 enum DeepLink {
@@ -40,6 +42,7 @@ enum DeepLink {
     Library(LibraryRequest, bool),
     Calendar(YearMonthDate),
     AddonDetails(Url),
+    Torrent(PathBuf),
     Player(Box<PlayerDeepLink>),
     Error(String),
 }
@@ -151,6 +154,9 @@ pub fn handle(
             ui.invoke_open_addon_details(transport_url.as_str().into());
             show_window(ui);
         }
+        DeepLink::Torrent(path) => {
+            open_torrent_file(ui, runtime, navigation, path);
+        }
         DeepLink::Player(player) => {
             open_player(ui, runtime, navigation, *player);
             show_window(ui);
@@ -162,10 +168,97 @@ pub fn handle(
     }
 }
 
+fn torrent_path(value: &str) -> Option<PathBuf> {
+    if !torrent_file::looks_like_torrent_path(value) {
+        return None;
+    }
+    if value.to_ascii_lowercase().starts_with("file://") {
+        return Url::parse(value).ok()?.to_file_path().ok();
+    }
+    Some(PathBuf::from(value))
+}
+
+pub(crate) fn open_torrent_file(
+    ui: &MainWindow,
+    runtime: &Arc<Runtime<DesktopEnv, AppModel>>,
+    navigation: &NavigationController,
+    path: PathBuf,
+) {
+    let (bytes, parsed) = match torrent_file::read(&path) {
+        Ok(torrent) => torrent,
+        Err(error) => {
+            tracing::warn!(path = %path.display(), %error, "could not open torrent file");
+            ui.set_error_message(format!("Could not open torrent: {error}").into());
+            show_window(ui);
+            return;
+        }
+    };
+
+    tracing::info!(
+        info_hash = %hex::encode(parsed.info_hash),
+        file_idx = ?parsed.file_idx,
+        path = %path.display(),
+        "opening torrent file"
+    );
+
+    let selected = PlayerSelected {
+        stream: Stream {
+            source: StreamSource::Torrent {
+                info_hash: parsed.info_hash,
+                file_idx: parsed.file_idx,
+                announce: parsed.announce,
+                file_must_include: parsed.file_path.into_iter().collect(),
+            },
+            name: Some(parsed.name),
+            description: Some("Torrent file".to_owned()),
+            thumbnail: None,
+            subtitles: Vec::new(),
+            behavior_hints: StreamBehaviorHints::default(),
+        },
+        stream_request: None,
+        meta_request: None,
+        subtitles_path: None,
+    };
+
+    // The player resolves a torrent by info hash. Seeds the embedded server
+    // with the actual blob first so metadata does not have to be discovered
+    // through DHT before the first file request can be served.
+    runtime.dispatch(RuntimeAction {
+        field: Some(AppModelField::StreamingServer),
+        action: Action::StreamingServer(ActionStreamingServer::CreateTorrent(
+            CreateTorrentArgs::File(bytes),
+        )),
+    });
+
+    let ui_weak = ui.as_weak();
+    let runtime = runtime.clone();
+    let navigation = navigation.clone();
+    slint::Timer::single_shot(Duration::from_millis(120), move || {
+        let Some(ui) = ui_weak.upgrade() else {
+            return;
+        };
+        open_player(
+            &ui,
+            &runtime,
+            &navigation,
+            PlayerDeepLink {
+                selected,
+                media_type: None,
+                media_id: None,
+                video_id: None,
+            },
+        );
+        show_window(&ui);
+    });
+}
+
 fn parse_command(command: AppCommand) -> anyhow::Result<DeepLink> {
     let AppCommand::Open(value) = command else {
         return Ok(DeepLink::Activate);
     };
+    if let Some(path) = torrent_path(&value) {
+        return Ok(DeepLink::Torrent(path));
+    }
     let url = Url::parse(&value)?;
     match url.scheme() {
         "magnet" => parse_magnet(url),
@@ -623,6 +716,16 @@ mod tests {
             } if media_type == "series"
                 && media_id == "tt13622776"
                 && video_id == "tt13622776:1:5"
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn parses_torrent_path_before_url_parsing() -> anyhow::Result<()> {
+        let link = parse_command(AppCommand::Open("C:\\media\\movie.torrent".to_owned()))?;
+        assert!(matches!(
+            link,
+            DeepLink::Torrent(path) if path.ends_with("movie.torrent")
         ));
         Ok(())
     }

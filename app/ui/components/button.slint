@@ -39,6 +39,19 @@ export component ButtonSurface inherits Rectangle {
     }
     forward-focus: keyboard-focus;
 
+    // Shared reset curve. Background and opacity carry the hover hand-off;
+    // the outline color settles faster so leaving a control never leaves a
+    // stale ring behind. Border width is intentionally not animated: a
+    // shrinking width reads as a delayed release even when the color is gone.
+    animate background, opacity {
+        duration: 180ms;
+        easing: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    animate border-color {
+        duration: 90ms;
+        easing: ease-out;
+    }
+
     @children
 
     pointer-area := TouchArea {
@@ -147,18 +160,18 @@ export component PillButton inherits ButtonSurface {
     opacity: root.enabled
         ? ((root.has-hover || root.has-focus) ? 1 : root.idle-opacity)
         : 0.5;
-    drop-shadow-blur: root.has-hover ? 0.8 * root.unit : 0px;
-    drop-shadow-offset-y: root.has-hover ? 0.18 * root.unit : 0px;
-    drop-shadow-color: root.primary
-        ? Theme.primary-accent.with-alpha(0.28)
-        : #00000066;
+    // A pinned shadow on primary actions keeps depth without repainting a
+    // blur on every hover frame. Hover itself is a flat color hand-off.
+    drop-shadow-blur: root.primary ? 0.8 * root.unit : 0px;
+    drop-shadow-offset-y: root.primary ? 0.18 * root.unit : 0px;
+    drop-shadow-color: root.primary ? Theme.primary-accent.with-alpha(0.28) : transparent;
 
-    animate background, border-color, opacity {
-        duration: Theme.motion-control;
-        easing: ease-out;
+    animate background, opacity {
+        duration: 180ms;
+        easing: cubic-bezier(0.22, 1, 0.36, 1);
     }
-    animate drop-shadow-blur, drop-shadow-offset-y {
-        duration: Theme.motion-console;
+    animate border-color {
+        duration: 90ms;
         easing: ease-out;
     }
 
@@ -238,8 +251,8 @@ export component MenuButton inherits ButtonSurface {
     accessible-name: root.label;
 
     animate background, opacity {
-        duration: Theme.motion-control;
-        easing: ease-out;
+        duration: 180ms;
+        easing: cubic-bezier(0.22, 1, 0.36, 1);
     }
 
     HorizontalLayout {
@@ -307,6 +320,11 @@ export component ChevronTextButton inherits ButtonSurface {
     border-radius: root.height / 2;
     background: root.has-hover || root.has-focus ? Theme.overlay-color : transparent;
     accessible-name: root.label;
+
+    animate background {
+        duration: 180ms;
+        easing: cubic-bezier(0.22, 1, 0.36, 1);
+    }
 
     HorizontalLayout {
         padding: 0.5 * root.unit;
@@ -376,7 +394,10 @@ export component IconAction inherits ButtonSurface {
         : (root.has-hover ? root.hover-color : root.surface-color);
     accessible-name: root.label == "" ? @tr("Action" => "Action") : root.label;
 
-    animate background { duration: Theme.motion-fast; }
+    animate background {
+        duration: 180ms;
+        easing: cubic-bezier(0.22, 1, 0.36, 1);
+    }
 
     HorizontalLayout {
         padding-left: root.wide ? 1.5 * root.unit : root.unit;
@@ -443,6 +464,10 @@ export component IconActionPair inherits Rectangle {
             accessible-name: root.first-accessible-name;
             background: root.first-active ? root.active-color
                 : (self.has-hover ? Theme.overlay-hover : transparent);
+            animate background {
+                duration: 180ms;
+                easing: cubic-bezier(0.22, 1, 0.36, 1);
+            }
             clicked => { root.first-clicked(); }
 
             Image {
@@ -465,6 +490,10 @@ export component IconActionPair inherits Rectangle {
             accessible-name: root.second-accessible-name;
             background: root.second-active ? root.active-color
                 : (self.has-hover ? Theme.overlay-hover : transparent);
+            animate background {
+                duration: 180ms;
+                easing: cubic-bezier(0.22, 1, 0.36, 1);
+            }
             clicked => { root.second-clicked(); }
 
             Image {

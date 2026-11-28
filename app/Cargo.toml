@@ -1,6 +1,6 @@
 [package]
 name = "senzo"
-version = "0.1.4"
+version = "0.1.5"
 authors = ["perpetus <perpetus.github@gmail.com>"]
 edition = "2024"
 license = "GPL-3.0-only"
@@ -63,6 +63,7 @@ md-5 = "0.11"
 pbkdf2 = "0.13"
 sha1 = "0.11"
 sha2 = "0.11"
+serde_bencode = "0.2.4"
 image = { workspace = true, default-features = false, features = ["webp", "png", "jpeg"] }
 moka = { workspace = true, features = ["sync", "future"] }
 notify.workspace = true

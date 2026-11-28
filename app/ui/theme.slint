@@ -8,21 +8,21 @@ export global Theme {
     // contract so a custom palette can replace the official defaults at run time.
     in-out property <length> root-font-size: 16px;
     in-out property <string> font-family: "Plus Jakarta Sans";
-    in-out property <int> active-preset-idx: 14;
+    in-out property <int> active-preset-idx: 13;
 
-    // SENZO Console Graphite: neutral living-room surfaces with a slate
-    // accent and bright focus rings. Presets can replace the whole palette.
-    in-out property <color> background: #08090B;
-    in-out property <color> secondary-background: #101216;
-    in-out property <color> primary-foreground: #F7F8FA;
+    // SENZO OLED Pitch Black: true black and one-step surfaces with the
+    // preset's violet accent. Presets can replace the whole palette.
+    in-out property <color> background: #000000;
+    in-out property <color> secondary-background: #121212;
+    in-out property <color> primary-foreground: #FFFFFF;
     in-out property <color> secondary-foreground: #080B16;
-    in-out property <color> primary-accent: #64748B;
+    in-out property <color> primary-accent: #A855F7;
     in-out property <color> secondary-accent: #34D399;
     in-out property <color> tertiary-accent: #FBBF24;
     in-out property <color> quaternary-accent: #93C5FD;
     in-out property <color> overlay-color: #FFFFFF14;
-    in-out property <color> modal-color: #15181D;
-    in-out property <color> placeholder-color: #7D8694;
+    in-out property <color> modal-color: #181818;
+    in-out property <color> placeholder-color: #808080;
 
     // Values used directly by official reusable components.
     in-out property <color> surface-light: #F6F4FF;
@@ -39,9 +39,9 @@ export global Theme {
         Theme.background 0%,
         Theme.secondary-background 100%
     );
-    in-out property <color> sidebar-background: #0D0F12D9;
+    in-out property <color> sidebar-background: #181818D9;
     in-out property <color> modal-background: Theme.modal-color;
-    in-out property <color> drawer-background: #101216EE;
+    in-out property <color> drawer-background: #121212EE;
     in-out property <color> control-background: Theme.overlay-color;
     in-out property <color> overlay: Theme.overlay-color;
     in-out property <color> overlay-hover: #FFFFFF24;
@@ -49,7 +49,7 @@ export global Theme {
     in-out property <color> divider: #FFFFFF1F;
     in-out property <color> scrim: Theme.background-dark-40;
     in-out property <color> accent: Theme.primary-accent;
-    in-out property <color> accent-hover: #7C8BA1;
+    in-out property <color> accent-hover: #C084FC;
     in-out property <color> info: Theme.quaternary-accent;
     in-out property <color> facebook: #1877f1;
     in-out property <color> x-social: #000000;
@@ -60,17 +60,17 @@ export global Theme {
     in-out property <color> letterboxd: #00e054;
     in-out property <color> anilist: #02a9ff;
     in-out property <color> kitsu: #fd755c;
-    in-out property <color> card-background: #15181D;
-    in-out property <color> card-border: #2A2F38;
+    in-out property <color> card-background: #181818;
+    in-out property <color> card-border: #282828;
     in-out property <color> text-primary: Theme.primary-foreground;
-    in-out property <color> text-secondary: #B6BDC8;
-    in-out property <color> text-muted: #7D8694;
+    in-out property <color> text-secondary: #B3B3B3;
+    in-out property <color> text-muted: #808080;
     
     in-out property <color> danger: #FB7185;
     in-out property <color> success: Theme.secondary-accent;
     in-out property <color> warning: #FBBF24;
     in-out property <color> focus: Theme.primary-accent;
-    in-out property <color> title-bar: #08090B;
+    in-out property <color> title-bar: #000000;
 
     // Official geometry. rem based values follow root-font-size; focus and
     // scrollbar widths intentionally remain device independent pixel values.
@@ -95,7 +95,7 @@ export global Theme {
     in-out property <duration> long-press-threshold: 400ms;
 
     in-out property <length> outer-glow-blur: 15px;
-    in-out property <color> outer-glow-color: #64748B40;
+    in-out property <color> outer-glow-color: #A855F740;
 
     // stremio-web placeholders are static 10% foreground surfaces. Keeping
     // this semantic token separate preserves runtime theme customization.

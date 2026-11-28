@@ -78,6 +78,7 @@ mod taskbar_media;
 mod theme_studio;
 mod thumbnail_preview;
 mod torrent_cache_cleanup;
+mod torrent_file;
 mod tray;
 mod watch_progress;
 mod window_events;
@@ -741,7 +742,7 @@ async fn finish_startup(
             }
         });
     }
-    window_events::install(&ui, runtime.clone());
+    window_events::install(&ui, runtime.clone(), navigation.clone());
 
     // Plugin system (lazy: only starts if plugins directory has .lua files)
     #[cfg(feature = "plugins")]

@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "0.1.4"
+  #define AppVersion "0.1.5"
 #endif
 
 #ifndef BuildRoot
@@ -60,6 +60,7 @@ Type: files; Name: "{userstartup}\Stremio Native.lnk"
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 Name: "startup"; Description: "Start SENZO when I sign in"; GroupDescription: "Startup:"; Flags: unchecked
 Name: "magnet"; Description: "Open magnet links with SENZO"; GroupDescription: "Link handling:"; Flags: unchecked
+Name: "torrent"; Description: "Open .torrent files with SENZO"; GroupDescription: "File handling:"
 
 [Files]
 Source: "{#BuildRoot}\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
@@ -84,6 +85,10 @@ Root: HKCU; Subkey: "Software\Classes\magnet"; ValueType: string; ValueData: "UR
 Root: HKCU; Subkey: "Software\Classes\magnet"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Tasks: magnet
 Root: HKCU; Subkey: "Software\Classes\magnet\DefaultIcon"; ValueType: string; ValueData: "{app}\{#AppExeName},0"; Tasks: magnet
 Root: HKCU; Subkey: "Software\Classes\magnet\shell\open\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" ""%1"""; Tasks: magnet
+Root: HKCU; Subkey: "Software\Classes\SENZO.torrent"; ValueType: string; ValueData: "SENZO Torrent"; Flags: uninsdeletekey; Tasks: torrent
+Root: HKCU; Subkey: "Software\Classes\SENZO.torrent\DefaultIcon"; ValueType: string; ValueData: "{app}\{#AppExeName},0"; Tasks: torrent
+Root: HKCU; Subkey: "Software\Classes\SENZO.torrent\shell\open\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" ""%1"""; Tasks: torrent
+Root: HKCU; Subkey: "Software\Classes\.torrent"; ValueType: string; ValueData: "SENZO.torrent"; Flags: uninsdeletevalue; Tasks: torrent
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Launch SENZO"; WorkingDir: "{app}"; Flags: nowait postinstall

@@ -16,22 +16,21 @@ import androidx.compose.ui.unit.sp
 /**
  * The dark palette of the desktop application, in Compose form.
  *
- * The accent is the cyan of the SENZO mark, not a colour the app picked:
- * the logo, the launcher icon and every highlight share one hue so the
- * product reads as one brand rather than a reskinned player.
+ * It mirrors the desktop OLED Pitch Black preset exactly: the same true-black
+ * page, one-step surfaces, violet accent and white text. Keeping the palette
+ * identical means a title looks the same whether it is opened on the desktop
+ * or on the phone, and the brand does not drift between platforms.
  */
-// OLED Pitch Black, the desktop preset: a true black page, surfaces one step
-// above it so a card edge is still visible, and hairline borders.
 val Background = Color(0xFF000000)
 val BackgroundElevated = Color(0xFF121212)
 val Surface = Color(0xFF121212)
 val SurfaceHigh = Color(0xFF181818)
-val Accent = Color(0xFF00D8F8)
-val AccentDeep = Color(0xFF00A6C4)
-val OnAccent = Color(0xFF04141A)
+val Accent = Color(0xFFA855F7)
+val AccentDeep = Color(0xFF7E22CE)
+val OnAccent = Color(0xFFFFFFFF)
 val TextPrimary = Color(0xFFFFFFFF)
-val TextMuted = Color(0xFFA7AEB6)
-val TextDim = Color(0xFF71787F)
+val TextMuted = Color(0xFFB3B3B3)
+val TextDim = Color(0xFF808080)
 val Gold = Color(0xFFFFC857)
 val Outline = Color(0xFF282828)
 
