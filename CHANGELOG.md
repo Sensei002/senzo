@@ -2,6 +2,28 @@
 
 This file records notable changes to SENZO relative to the initial source snapshot.
 
+## 0.1.5 - 2026-11-28
+
+### Playback
+
+- Desktop: opening a `.torrent` file now plays its largest video directly, including when SENZO is already running. Windows installs and Linux desktops register the file type.
+- Desktop: torrent playback waits for one verified opening piece instead of a partial download, so it starts at the beginning and connects sooner.
+
+### Motion and feedback
+
+- Desktop: hover borders clear as soon as the pointer leaves, the old page fades out before the new route appears, and button surfaces share one eased motion curve.
+- Desktop: plugin install, refresh and provider tests show progress immediately; the details loading spinner is centred.
+
+### Appearance
+
+- Desktop: OLED Pitch Black is the default again, with untouched Graphite profiles migrated automatically.
+- Android: the launch window and sign-in backdrop match the OLED theme.
+- Boot: the startup mark and spinner are centred.
+
+### Reliability
+
+- Desktop: fixed `.torrent` parsing and Slint weak-handle compile errors.
+
 ## 0.1.4 - 2026-11-27
 
 ### Settings
