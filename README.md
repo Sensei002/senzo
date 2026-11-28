@@ -21,7 +21,7 @@
   <img src="app/assets/preview.png" alt="SENZO running on desktop and Android" />
 </p>
 
-**SENZO** is an independent, native media center built around content discovery, flexible playback, and a personal media library. It brings catalogs, community add-ons, provider plugins, media sources, local files, downloads, and playback tools together in one application.
+**SENZO** is an independent, native media center built around content discovery, flexible playback, and a personal media library. It brings catalogs, community add-ons, provider plugins, media sources, local files, downloads, and playback tools together across desktop and Android.
 
 The desktop app is written in **Rust** with a **Slint** interface. The Android app is written in **Kotlin** with **Jetpack Compose**. Both clients use the same Stremio-compatible add-on ecosystem; signing in with the same Stremio account brings that account's add-on collection to either app.
 
