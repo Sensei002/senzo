@@ -1,15 +1,14 @@
-use crate::{AppModel, AppModelField, MainWindow};
+use crate::{AppModel, AppModelField, MainWindow, NavigationController};
 use core_env::DesktopEnv;
 use slint::winit_030::{EventResult, winit};
 use std::{
     cell::Cell,
-    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
 use stremio_core::runtime::{
     Runtime, RuntimeAction,
-    msg::{Action, ActionCtx, ActionStreamingServer, CreateTorrentArgs},
+    msg::{Action, ActionCtx},
 };
 
 const FOCUS_SYNC_DEBOUNCE: Duration = Duration::from_secs(2);
@@ -34,32 +33,13 @@ fn is_torrent(path: &std::path::Path) -> bool {
         .is_some_and(|extension| extension.eq_ignore_ascii_case("torrent"))
 }
 
-fn import_torrent(runtime: Arc<Runtime<DesktopEnv, AppModel>>, path: PathBuf) {
-    tokio::spawn(async move {
-        let display_path = path.display().to_string();
-        let read_result = tokio::task::spawn_blocking(move || std::fs::read(path)).await;
-        match read_result {
-            Ok(Ok(bytes)) => {
-                runtime.dispatch(RuntimeAction {
-                    field: Some(AppModelField::StreamingServer),
-                    action: Action::StreamingServer(ActionStreamingServer::CreateTorrent(
-                        CreateTorrentArgs::File(bytes),
-                    )),
-                });
-                tracing::info!(path = %display_path, "torrent file imported from window drop");
-            }
-            Ok(Err(error)) => {
-                tracing::warn!(path = %display_path, %error, "failed to read dropped torrent file");
-            }
-            Err(error) => {
-                tracing::warn!(path = %display_path, %error, "torrent import task stopped");
-            }
-        }
-    });
-}
-
-pub fn install(ui: &MainWindow, runtime: Arc<Runtime<DesktopEnv, AppModel>>) {
+pub fn install(
+    ui: &MainWindow,
+    runtime: Arc<Runtime<DesktopEnv, AppModel>>,
+    navigation: NavigationController,
+) {
     let last_focus_sync = Cell::new(Instant::now());
+    let ui_weak = ui.as_weak();
     crate::window_hooks::register(ui, move |_window, event| {
         match event {
             winit::event::WindowEvent::Focused(true)
@@ -69,7 +49,9 @@ pub fn install(ui: &MainWindow, runtime: Arc<Runtime<DesktopEnv, AppModel>>) {
                 dispatch_focus_sync(&runtime);
             }
             winit::event::WindowEvent::DroppedFile(path) if is_torrent(path) => {
-                import_torrent(runtime.clone(), path.clone());
+                if let Some(ui) = ui_weak.upgrade() {
+                    crate::deep_link::open_torrent_file(&ui, &runtime, &navigation, path.clone());
+                }
             }
             _ => {}
         }

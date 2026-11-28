@@ -477,6 +477,10 @@ export component MainWindow inherits Window {
     // short fade so a tab change reads as a transition instead of a hard cut.
     in-out property <int> routed-tab: 0;
     private property <float> route-opacity: 1;
+    // The outgoing page fades out faster than the incoming page fades in, and
+    // a short hold at zero lets the new page produce its first frame before
+    // the compositor reveals it.
+    private property <duration> route-fade-duration: 170ms;
     in-out property <string> plugins-status: "";
     in-out property <bool> plugins-status-error: false;
     in-out property <[PluginRepositoryCard]> plugin-repositories: [];
@@ -2002,7 +2006,7 @@ export component MainWindow inherits Window {
                             clip: true;
                             opacity: root.route-opacity;
                             animate opacity {
-                                duration: 180ms;
+                                duration: root.route-fade-duration;
                                 easing: cubic-bezier(0.22, 1, 0.36, 1);
                             }
 
@@ -3355,19 +3359,32 @@ export component MainWindow inherits Window {
         }
     }
 
-    // Fade the outgoing page to black, swap the route while it is dim, then
-    // bring the incoming page up. The 90ms handoff keeps the transition brisk
-    // enough for keyboard navigation while still removing the hard cut.
+    // Fade the outgoing page out completely, swap at zero, hold one short beat
+    // so the incoming page has a frame to paint, then fade it in. Swapping and
+    // immediately restoring opacity let the previous page's frame survive for
+    // a frame on the new route.
     changed effective-active-tab => {
+        route-transition-timer.stop();
+        route-hold-timer.stop();
+        root.route-fade-duration = 110ms;
         root.route-opacity = 0;
         route-transition-timer.start();
     }
 
     route-transition-timer := Timer {
-        interval: 90ms;
+        interval: 110ms;
         running: false;
         triggered => {
             root.routed-tab = root.effective-active-tab;
+            root.route-fade-duration = 170ms;
+            route-hold-timer.start();
+        }
+    }
+
+    route-hold-timer := Timer {
+        interval: 32ms;
+        running: false;
+        triggered => {
             root.route-opacity = 1;
         }
     }

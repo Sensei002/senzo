@@ -39,12 +39,17 @@ export component ButtonSurface inherits Rectangle {
     }
     forward-focus: keyboard-focus;
 
-    // Shared reset curve. Every variant that paints its own surface animates
-    // over this duration so hover-in and hover-out feel like one motion
-    // instead of a highlight that snaps back when the pointer leaves.
-    animate background, border-color, opacity {
+    // Shared reset curve. Background and opacity carry the hover hand-off;
+    // the outline color settles faster so leaving a control never leaves a
+    // stale ring behind. Border width is intentionally not animated: a
+    // shrinking width reads as a delayed release even when the color is gone.
+    animate background, opacity {
         duration: 180ms;
         easing: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    animate border-color {
+        duration: 90ms;
+        easing: ease-out;
     }
 
     @children
@@ -155,19 +160,19 @@ export component PillButton inherits ButtonSurface {
     opacity: root.enabled
         ? ((root.has-hover || root.has-focus) ? 1 : root.idle-opacity)
         : 0.5;
-    drop-shadow-blur: root.has-hover ? 0.8 * root.unit : 0px;
-    drop-shadow-offset-y: root.has-hover ? 0.18 * root.unit : 0px;
-    drop-shadow-color: root.primary
-        ? Theme.primary-accent.with-alpha(0.28)
-        : #00000066;
+    // A pinned shadow on primary actions keeps depth without repainting a
+    // blur on every hover frame. Hover itself is a flat color hand-off.
+    drop-shadow-blur: root.primary ? 0.8 * root.unit : 0px;
+    drop-shadow-offset-y: root.primary ? 0.18 * root.unit : 0px;
+    drop-shadow-color: root.primary ? Theme.primary-accent.with-alpha(0.28) : transparent;
 
-    animate background, border-color, border-width, opacity {
-        duration: Theme.motion-control;
+    animate background, opacity {
+        duration: 180ms;
         easing: cubic-bezier(0.22, 1, 0.36, 1);
     }
-    animate drop-shadow-blur, drop-shadow-offset-y {
-        duration: 260ms;
-        easing: cubic-bezier(0.22, 1, 0.36, 1);
+    animate border-color {
+        duration: 90ms;
+        easing: ease-out;
     }
 
     HorizontalLayout {

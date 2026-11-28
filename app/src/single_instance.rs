@@ -85,7 +85,9 @@ fn parse_arguments(args: impl IntoIterator<Item = OsString>) -> StartupArguments
 }
 
 fn is_open_command(value: &str) -> bool {
-    value.starts_with("stremio:") || value.starts_with("magnet:")
+    value.starts_with("stremio:")
+        || value.starts_with("magnet:")
+        || crate::torrent_file::looks_like_torrent_path(value)
 }
 
 async fn accept_commands(listener: TcpListener, commands: UnboundedSender<AppCommand>) {

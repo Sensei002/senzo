@@ -63,6 +63,7 @@ md-5 = "0.11"
 pbkdf2 = "0.13"
 sha1 = "0.11"
 sha2 = "0.11"
+serde_bencode = "0.2.4"
 image = { workspace = true, default-features = false, features = ["webp", "png", "jpeg"] }
 moka = { workspace = true, features = ["sync", "future"] }
 notify.workspace = true

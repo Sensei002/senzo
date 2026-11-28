@@ -9368,6 +9368,7 @@ dependencies = [
  "scraper",
  "self_update",
  "serde",
+ "serde_bencode",
  "serde_json",
  "server",
  "server-connector",
